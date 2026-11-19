@@ -1,0 +1,17 @@
+{
+  "source_head": "9bb2c5b459149172787a26e5f03f5dc1afee9e4c",
+  "scope": "shenko lib scoped Clippy metadata with exact be46 flags; not runtime or complete dual-tree ratchet",
+  "all_shenko_lint_counts": {
+    "clippy::collapsible_if": 4,
+    "clippy::expect_used": 5,
+    "clippy::needless_question_mark": 1,
+    "clippy::needless_return": 1,
+    "clippy::type_complexity": 1,
+    "dead_code": 2,
+    "unused_assignments": 1,
+    "unused_imports": 1,
+    "unused_variables": 10
+  },
+  "unreachable_code_count": 0,
+  "new_probe_block_diagnostics_including_expansion_and_children": []
+}

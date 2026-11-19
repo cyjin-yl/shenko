@@ -1,0 +1,24 @@
+{
+  "recorded_at": "2026-11-16T21:45:48.343436+00:00",
+  "command": [
+    "git",
+    "diff",
+    "--cached",
+    "--check"
+  ],
+  "exit_code": 2,
+  "stdout_sha256": "6c7b91af5c2bab4c9f91e2d9c5742b7e97bc58832a7d7c0d822d0562dc0c5ed8",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "diagnostic_lines": 1486,
+  "paths": [
+    "docs/evidence/ci-10d4a325-20261116/docs-job.original.log",
+    "docs/evidence/ci-10d4a325-20261116/docs-migration-job.original.log",
+    "docs/evidence/ci-10d4a325-20261116/kernel-boundary-job.original.log",
+    "docs/evidence/ci-10d4a325-20261116/native-e1/005-sync-evidence.stderr",
+    "docs/evidence/ci-10d4a325-20261116/native-e1/sshd.stderr",
+    "docs/evidence/ci-10d4a325-20261116/rust-job.original.log",
+    "docs/evidence/ci-10d4a325-20261116/web-job.original.log"
+  ],
+  "original_bytes_normalized": false,
+  "note": "Original log/source/export whitespace is retained; this is not a passing whitespace check."
+}

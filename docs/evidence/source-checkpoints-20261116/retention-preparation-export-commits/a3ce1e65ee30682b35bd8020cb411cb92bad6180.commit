@@ -1,0 +1,6 @@
+tree dae50c5b0f2845644b9f9003ebdd9a4e5180b236
+parent b10ca4c4064d7cc5d877250f8de834dc4d0dbea5
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000
+
+docs: retain unresolved Clippy input-scope evidence

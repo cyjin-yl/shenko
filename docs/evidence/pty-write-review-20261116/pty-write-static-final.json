@@ -1,0 +1,94 @@
+{
+  "kind": "pty_write_final_static_only",
+  "observed_at": "2026-11-16T22:06:41.287620+00:00",
+  "product_tested": false,
+  "base": "5309c6a0aba1da49ab201d322edd8915c68deb5d",
+  "production_checkpoint": "e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69",
+  "head": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+  "tree": "32045adbbca0899e79ca2f00cf81f94f21845a38",
+  "rust_tools": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "new_distinct_risk_windows": 5,
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "5309c6a0aba1da49ab201d322edd8915c68deb5d..e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69"
+      ],
+      "exit_code": 0,
+      "stdout": "/workspace/scratch/faaa3ccca531/pty-write-final-production-range.stdout",
+      "stderr": "/workspace/scratch/faaa3ccca531/pty-write-final-production-range.stderr",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check",
+        "5309c6a0aba1da49ab201d322edd8915c68deb5d..4229b45b8ab33426986540a9a83d22a41a0c9948"
+      ],
+      "exit_code": 2,
+      "stdout": "/workspace/scratch/faaa3ccca531/pty-write-final-whole-range.stdout",
+      "stderr": "/workspace/scratch/faaa3ccca531/pty-write-final-whole-range.stderr",
+      "stdout_sha256": "37765fa2559db0285911aeb9d81b221d9938b40f015669912064d46ceca8da41",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": [
+        "git",
+        "apply",
+        "--check",
+        "--reverse",
+        "third-party/russh-duplex/SHENKO-PTY-FLUSH.patch"
+      ],
+      "exit_code": 0,
+      "stdout": "/workspace/scratch/faaa3ccca531/pty-write-final-patch-reverse.stdout",
+      "stderr": "/workspace/scratch/faaa3ccca531/pty-write-final-patch-reverse.stderr",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "full_range_diff_check_passed": false,
+  "full_range_note": "Three whitespace diagnostics are original blank context lines in the exact incremental patch; raw patch bytes are retained. Earlier git diff --check calls checked uncommitted working-tree changes, not the final whole range.",
+  "all_production_sources_identical_to_reviewed_checkpoint": true,
+  "prior_nine_scenario_sources_byte_identical_to_base": {
+    "crates/shenko-exec-ssh/src/seat/runtime.rs": "574ec0f00c538838811180f0b0cbc237565488161bb4ff20b400bf87cc88d550",
+    "crates/shenko-exec-ssh/src/ssh_exec.rs": "9fa71ed2e86e1e74a0fe7788844973d9c5dc15e42ddac3cf9bae475ce9bc881d",
+    "crates/shenko-exec-ssh/src/seat/tmux.rs": "483f6d44d39a9c53059be763469e613c16bcb816499b0b51773b82d021377285",
+    "crates/shenko-store/src/seat.rs": "20b31c82cd134892972ec39cdff05978d4a8988cc6993c8259fb6c37104826ef",
+    "crates/shenko-store/tests/seat_lifecycle.rs": "6f4550dd268607d8cfee176c5ebc202eb0d9199a2306c076633ca0f92d9c4611"
+  },
+  "all_existing_native_tests_bytes_preserved_except_new_module_declaration": true,
+  "current_source_sha256": {
+    "crates/shenko-exec-ssh/src/native_transport/mod.rs": "70d57b4b476ccbcaf125344456a7393f69b4cd450ba8e537ef547a134d92de57",
+    "crates/shenko-exec-ssh/src/native_transport/pty.rs": "b20871fcbdef17faab23b8722053aae7c590c8c134a0ae7ab77596567d37c483",
+    "crates/shenko-exec-ssh/src/native_transport/stream.rs": "b84aa328818262546fbe1a3c472f263820233eb78708af363882eaca321dd723",
+    "crates/shenko-exec-ssh/src/seat/ssh_pty.rs": "acc346fc82b6141214be567744636c11a542d2433af28dcc8c37ccc298265315",
+    "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs": "1929f98690a24570be1d39dab44046cebbea3b7c8cb142b365e2b712a0f550c5",
+    "third-party/russh-duplex/src/client/mod.rs": "1c2313c9518c914664e62db0676cb442a1ec1f8cacd13dd3f12d53fff5e1eb74",
+    "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs": "c0da4d1a763e8277a87b7bcc298ae9ae34290ea2f4c90d22309fc6cd1498653c"
+  },
+  "documentation_check": {
+    "command": [
+      "python",
+      "scripts/check_docs.py",
+      "--verify-migration"
+    ],
+    "exit_code": 1,
+    "errors": 1948,
+    "all_errors_are_unavailable_parsers": true,
+    "source_binding": "Initial five-window fixture before output-tail/cleanup followups; source hashes retained in pty-write-static.json. Not a final documentation gate.",
+    "stdout": "/workspace/scratch/faaa3ccca531/pty-write-docs-check.json",
+    "stderr": "/workspace/scratch/faaa3ccca531/pty-write-docs-check.stderr"
+  },
+  "independent_reviews": {
+    "production": "canonical_materialization reviewed exact e53c; no confirmed blocker, no build/runtime",
+    "fixture": "single_node_s2 reviewed 464 then ee7 output marker and 2cea+4229 cleanup followups; prior two findings closed, no remaining confirmed blocker, no build/runtime"
+  }
+}

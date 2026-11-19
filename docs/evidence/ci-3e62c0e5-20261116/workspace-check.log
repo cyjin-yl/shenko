@@ -1,0 +1,1407 @@
+    Updating crates.io index
+    Checking shenko-types v0.1.0 (/__w/shenko/shenko/crates/shenko-types)
+    Checking russh v0.65.0 (/__w/shenko/shenko/third-party/russh-duplex)
+warning: constant `MAXIMUM_DECOMPRESSED_PACKET_LEN` is never used
+   --> third-party/russh-duplex/src/cipher/mod.rs:378:18
+    |
+378 | pub(crate) const MAXIMUM_DECOMPRESSED_PACKET_LEN: usize = MAXIMUM_PACKET_LEN;
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `russh` (lib) generated 1 warning
+   Compiling shenko-ui v0.1.0 (/__w/shenko/shenko/crates/shenko-ui)
+    Checking shenko-compat-poppy v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-poppy)
+    Checking shenko-evidence v0.1.0 (/__w/shenko/shenko/crates/shenko-evidence)
+    Checking shenko-quota v0.1.0 (/__w/shenko/shenko/crates/shenko-quota)
+    Checking shenko-kernel v0.1.0 (/__w/shenko/shenko/crates/shenko-kernel)
+warning: function `rounds_estimate` is never used
+   --> crates/shenko-quota/src/policy.rs:683:4
+    |
+683 | fn rounds_estimate(profile: &ModelProfile, constraints: &[WindowConstraint]) -> Option<f64> {
+    |    ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-quota` (lib) generated 1 warning
+    Checking shenko-store v0.1.0 (/__w/shenko/shenko/crates/shenko-store)
+warning: field `lease` is never read
+    --> crates/shenko-kernel/src/hooks.rs:1720:5
+     |
+1718 | pub struct HookSnapshot {
+     |            ------------ field in this struct
+1719 |     graph: Arc<Graph>,
+1720 |     lease: Arc<LeaseGuard>,
+     |     ^^^^^
+     |
+     = note: `HookSnapshot` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `errors` is never read
+  --> crates/shenko-kernel/src/plugin.rs:58:5
+   |
+53 | pub struct PluginRegistry {
+   |            -------------- field in this struct
+...
+58 |     errors: Arc<ErrorObservation>,
+   |     ^^^^^^
+
+warning: `shenko-kernel` (lib) generated 2 warnings
+    Checking shenko-node v0.1.0 (/__w/shenko/shenko/crates/shenko-node)
+warning: unused doc comment
+   --> crates/shenko-store/src/migrations.rs:738:1
+    |
+738 |   /// Backfill millisecond timestamps for rows written by the legacy schema.
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+739 | /     conn.execute_batch(
+740 | |         "UPDATE memory_entries
+741 | |             SET created_at_ms = CAST(strftime('%s', created_at) AS INTEGER) * 1000
+742 | |           WHERE created_at_ms = 0 AND created_at IS NOT NULL;",
+743 | |     )?;
+    | |______- rustdoc does not generate documentation for expressions
+    |
+    = help: use `//` for a plain comment
+    = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `shenko_types::object::ObjectRef`
+  --> crates/shenko-store/src/activation.rs:18:5
+   |
+18 | use shenko_types::object::ObjectRef;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CognitionSelectorRef`, `CognitiveRootContent`, `HomeContentRef`, `RuntimeStateParticipant`, and `SoftwareSlotRef`
+  --> crates/shenko-store/src/cognitive_root.rs:21:27
+   |
+21 |     CognitiveRootCapture, CognitiveRootContent, CognitiveRootHead, CognitiveRootNode,
+   |                           ^^^^^^^^^^^^^^^^^^^^
+22 |     CognitiveRootReinstatement, CognitiveRootRequest, CognitionSelectorRef,
+   |                                                       ^^^^^^^^^^^^^^^^^^^^
+23 |     ExternalEffectDisposition, HomeContentRef, RootApplication, RootApplicationScope,
+   |                                ^^^^^^^^^^^^^^
+24 |     RootApplicationState, RootChainEntry, RootFence, RootRef, RootRequestKind,
+25 |     SoftwareSlotRef, RuntimeStateParticipant, COGNITIVE_ROOT_CODEC,
+   |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `shenko_types::error::ShenkoError`
+    --> crates/shenko-store/src/intents.rs:1173:9
+     |
+1173 |     use shenko_types::error::ShenkoError;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `tx`
+    --> crates/shenko-store/src/store.rs:1160:9
+     |
+1160 |         tx: &rusqlite::Connection,
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_tx`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `parse` is never used
+  --> crates/shenko-node/src/units/adoption.rs:34:8
+   |
+25 | impl AdoptionDecision {
+   | --------------------- associated function in this implementation
+...
+34 |     fn parse(value: &str) -> Result<Self> {
+   |        ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/memory.rs:235:9
+    |
+235 |     let mut segments: Vec<&str> = locator.split('/').collect();
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `enabled` and `atoms` are never read
+   --> crates/shenko-node/src/units/resolution.rs:202:16
+    |
+197 | pub(super) struct Candidate {
+    |                   --------- fields in this struct
+...
+202 |     pub(super) enabled: bool,
+    |                ^^^^^^^
+203 |     pub(super) atoms: Vec<AtomicCapability>,
+    |                ^^^^^
+    |
+    = note: `Candidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: `shenko-node` (lib) generated 2 warnings
+    Checking shenko-identity v0.1.0 (/__w/shenko/shenko/crates/shenko-identity)
+    Checking shenko-channel-napcat v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-napcat)
+warning: unused variable: `group_id`
+   --> crates/shenko-channel-napcat/src/channel.rs:599:25
+    |
+599 |                     let group_id = params
+    |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_group_id`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ledger_id`
+   --> crates/shenko-store/src/contacts.rs:740:13
+    |
+740 |         let ledger_id = self.ledger.ledger_id();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ledger_id`
+
+warning: unused variable: `ledger_id`
+   --> crates/shenko-store/src/contacts.rs:888:13
+    |
+888 |         let ledger_id = self.ledger.ledger_id();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ledger_id`
+
+warning: `shenko-channel-napcat` (lib) generated 1 warning (run `cargo fix --lib -p shenko-channel-napcat` to apply 1 suggestion)
+    Checking shenko-broker v0.1.0 (/__w/shenko/shenko/crates/shenko-broker)
+warning: ambiguous glob re-exports
+  --> crates/shenko-broker/src/lib.rs:23:9
+   |
+23 | pub use admission::*;
+   |         ^^^^^^^^^^^^ the name `CapacitySnapshot` in the type namespace is first re-exported here
+...
+34 | pub use resource::*;
+   |         ----------- but the name `CapacitySnapshot` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/config.rs:598:13
+    |
+598 |         let mut collect = |raw: String, out: &mut Vec<ConfigChange>| -> Result<()> {
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `effect`
+   --> crates/shenko-store/src/channel.rs:962:9
+    |
+962 |         effect: Option<EffectStatus>,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_effect`
+
+warning: method `contacts_events` is never used
+   --> crates/shenko-store/src/contacts.rs:306:8
+    |
+287 | impl Store {
+    | ---------- method in this implementation
+...
+306 |     fn contacts_events(&self, agent_id: EntityId) -> Result<Vec<PersonIdentityEvent>, ShenkoError> {
+    |        ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `0` is never read
+   --> crates/shenko-store/src/channel.rs:161:14
+    |
+161 |     Deferred(&'static str),
+    |     -------- ^^^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+161 -     Deferred(&'static str),
+161 +     Deferred(()),
+    |
+
+warning: field `control_id` is never read
+    --> crates/shenko-store/src/media.rs:1947:5
+     |
+1946 | struct StoredRecordingControl {
+     |        ---------------------- field in this struct
+1947 |     control_id: String,
+     |     ^^^^^^^^^^
+
+warning: `shenko-store` (lib) generated 13 warnings (run `cargo fix --lib -p shenko-store` to apply 9 suggestions)
+    Checking shenko-context-policy v0.1.0 (/__w/shenko/shenko/crates/shenko-context-policy)
+warning: constant `ANTHROPIC_API_VERSION_HEADER` is never used
+  --> crates/shenko-broker/src/provider.rs:30:18
+   |
+30 | pub(crate) const ANTHROPIC_API_VERSION_HEADER: &str = ANTHROPIC_API_VERSION;
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `runtime` is never read
+   --> crates/shenko-broker/src/registry.rs:204:5
+    |
+203 | pub struct ProviderInstaller {
+    |            ----------------- field in this struct
+204 |     runtime: Arc<dyn ProviderRuntime>,
+    |     ^^^^^^^
+
+warning: `shenko-broker` (lib) generated 3 warnings
+    Checking shenko-wasm v0.1.0 (/__w/shenko/shenko/crates/shenko-wasm)
+    Checking shenko-memory v0.1.0 (/__w/shenko/shenko/crates/shenko-memory)
+warning: unused import: `MemoryCommitOutcome`
+  --> crates/shenko-memory/src/backend.rs:16:20
+   |
+16 | use shenko_store::{MemoryCommitOutcome, MemoryEntry, Store};
+   |                    ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `shenko_types::object::ObjectRef`
+  --> crates/shenko-memory/src/backend.rs:18:5
+   |
+18 | use shenko_types::object::ObjectRef;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DateTime` and `Utc`
+  --> crates/shenko-memory/src/memory_store.rs:17:14
+   |
+17 | use chrono::{DateTime, Utc};
+   |              ^^^^^^^^  ^^^
+
+warning: unused variable: `agent_id`
+  --> crates/shenko-memory/src/backend.rs:60:17
+   |
+60 |     pub fn save(agent_id: EntityId, content: impl Into<String>) -> Self {
+   |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_agent_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `MountMode`
+ --> crates/shenko-wasm/src/runtime.rs:1:20
+  |
+1 | use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
+  |                    ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TcpListener`
+  --> crates/shenko-wasm/src/p1.rs:26:26
+   |
+26 | use std::net::{Shutdown, TcpListener, TcpStream};
+   |                          ^^^^^^^^^^^
+
+warning: `shenko-memory` (lib) generated 4 warnings (run `cargo fix --lib -p shenko-memory` to apply 4 suggestions)
+    Checking shenko-awareness-core v0.1.0 (/__w/shenko/shenko/crates/shenko-awareness-core)
+    Checking shenko-subject v0.1.0 (/__w/shenko/shenko/crates/shenko-subject)
+warning: unused import: `DialogueDirection`
+  --> crates/shenko-subject/src/loop_runner.rs:25:40
+   |
+25 |     AttentionPolicy, DelegationIntent, DialogueDirection, DialogueIntent, Disposition,
+   |                                        ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ModelChildReplyGrant`
+  --> crates/shenko-subject/src/model_child.rs:53:27
+   |
+53 |         ModelChildBudget, ModelChildReplyGrant, ModelChildSpec, ModelChildTool, PublicationTarget,
+   |                           ^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/src/runtime.rs:779:36
+    |
+779 |     store.epoch_deadline_callback(|mut cx| {
+    |                                    ----^^
+    |                                    |
+    |                                    help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates/shenko-wasm/src/p1.rs:2420:13
+     |
+2420 |         let mut file = file;
+     |             ----^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/src/mount.rs:321:17
+    |
+321 |             let mut dir = cap_std::fs::Dir::open_ambient_dir(
+    |                 ----^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused import: `MemoryInterventionPolicy`
+  --> crates/shenko-subject/src/intervention.rs:34:30
+   |
+34 |     InterventionObservation, MemoryInterventionPolicy, MemoryInterventionRegistry,
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+    --> crates/shenko-subject/src/model_child.rs:1027:13
+     |
+1027 |         let mut index = 1;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `termination` is never read
+    --> crates/shenko-subject/src/model_child.rs:1368:31
+     |
+1368 |         let mut termination = ModelChildTermination::Completed;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1448 |                 termination = ModelChildTermination::GenerationFailed;
+     |                 ----------------------------------------------------- `termination` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `manifest`
+   --> crates/shenko-wasm/src/manifest.rs:549:25
+    |
+549 | pub fn check_provenance(manifest: &ToolSetManifest, plan: &ToolInstallPlan) -> Result<()> {
+    |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `fault` is never used
+   --> crates/shenko-wasm/src/p1.rs:142:4
+    |
+142 | fn fault<T>(message: impl std::fmt::Display) -> Result<T, types::Error> {
+    |    ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated items `is_dir_fd`, `read_iovs`, and `write_iovs` are never used
+    --> crates/shenko-wasm/src/p1.rs:643:8
+     |
+ 321 | impl P1Host {
+     | ----------- associated items in this implementation
+...
+ 643 |     fn is_dir_fd(&self, fd: types::Fd) -> bool {
+     |        ^^^^^^^^^
+...
+1219 |     fn read_iovs(
+     |        ^^^^^^^^^
+...
+1242 |     fn write_iovs(
+     |        ^^^^^^^^^^
+
+warning: `shenko-wasm` (lib) generated 8 warnings (run `cargo fix --lib -p shenko-wasm` to apply 6 suggestions)
+    Checking shenko-exec-ssh v0.1.0 (/__w/shenko/shenko/crates/shenko-exec-ssh)
+warning: method `scan_snapshot` is never used
+   --> crates/shenko-subject/src/child.rs:911:19
+    |
+186 | impl NativeChildService {
+    | ----------------------- method in this implementation
+...
+911 |     pub(crate) fn scan_snapshot(
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `input_ref` is never read
+    --> crates/shenko-subject/src/model_child.rs:2458:5
+     |
+2453 | struct ChildStepSink {
+     |        ------------- field in this struct
+...
+2458 |     input_ref: ObjectRef,
+     |     ^^^^^^^^^
+
+warning: fields `agent_id`, `step_id`, `input_plan_ref`, `payload_digest`, and `provider_binding_digest` are never read
+  --> crates/shenko-subject/src/subject_receipt.rs:27:9
+   |
+25 | pub(crate) struct SubjectReceiptSink {
+   |                   ------------------ fields in this struct
+26 |     pub store: Arc<shenko_store::store::Store>,
+27 |     pub agent_id: EntityId,
+   |         ^^^^^^^^
+28 |     pub step_id: EntityId,
+   |         ^^^^^^^
+29 |     pub request_id: EntityId,
+30 |     pub input_plan_ref: ObjectRef,
+   |         ^^^^^^^^^^^^^^
+31 |     pub payload_digest: Digest,
+   |         ^^^^^^^^^^^^^^
+32 |     pub provider_binding_digest: Digest,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `shenko-subject` (lib) generated 8 warnings (run `cargo fix --lib -p shenko-subject` to apply 3 suggestions)
+    Checking shenko-update v0.1.0 (/__w/shenko/shenko/crates/shenko-update)
+warning: unused import: `CandidateArtifact`
+  --> crates/shenko-update/src/handoff.rs:50:49
+   |
+50 | use crate::build::{BuildOutcome, BuildProvider, CandidateArtifact};
+   |                                                 ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: ambiguous glob re-exports
+  --> crates/shenko-exec-ssh/src/lib.rs:4:9
+   |
+ 4 | pub use ssh_exec::*;
+   |         ^^^^^^^^^^^ the name `SeatObservation` in the type namespace is first re-exported here
+...
+36 | pub use seat::*;
+   |         ------- but the name `SeatObservation` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-exec-ssh/src/native_transport/pty.rs:156:27
+    |
+156 |     pub async fn open_pty(mut self, request: NativePtyRequest, handshake: Duration)
+    |                           ----^^^^
+    |                           |
+    |                           help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `quiesce_request`
+    --> crates/shenko-update/src/handoff.rs:1589:13
+     |
+1589 |         let quiesce_request = self.quiesce_subject(record.agent_id, request_id).await?;
+     |             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_quiesce_request`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-update` (lib) generated 2 warnings (run `cargo fix --lib -p shenko-update` to apply 2 suggestions)
+    Checking shenko-compact-budget v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-budget)
+    Checking shenko-compat v0.1.0 (/__w/shenko/shenko/crates/shenko-compat)
+    Checking shenko-media v0.1.0 (/__w/shenko/shenko/crates/shenko-media)
+warning: unused imports: `ErrorScope` and `ProtocolError`
+  --> crates/shenko-media/src/identify.rs:33:13
+   |
+33 |     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
+   |             ^^^^^^^^^^  ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `plugin_id`
+  --> crates/shenko-exec-ssh/src/native/support.rs:59:5
+   |
+59 |     plugin_id: EntityId,
+   |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plugin_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-media` (lib) generated 1 warning (run `cargo fix --lib -p shenko-media` to apply 1 suggestion)
+    Checking shenko-compat-skill v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-skill)
+    Checking shenko-seed v0.1.0 (/__w/shenko/shenko/crates/shenko-seed)
+    Checking shenko-repl v0.1.0 (/__w/shenko/shenko/crates/shenko-repl)
+warning: `shenko-exec-ssh` (lib) generated 3 warnings (run `cargo fix --lib -p shenko-exec-ssh` to apply 2 suggestions)
+    Checking shenko-exec-host v0.1.0 (/__w/shenko/shenko/crates/shenko-exec-host)
+warning: unused import: `DesktopLease`
+  --> crates/shenko-exec-host/src/computer_use.rs:55:63
+   |
+55 |     DesktopFrame, DesktopInjectOutcome, DesktopInjectRequest, DesktopLease, DesktopLeaseOp,
+   |                                                               ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable `else` clause
+   --> crates/shenko-repl/src/install.rs:356:64
+    |
+356 |     let ModuleSource::ModulePath(executable) = &profile.module else {
+    |     ---------------------------------------------------------- ^^^^
+    |     |
+    |     assigning to binding pattern will always succeed
+    |
+    = note: this pattern always matches, so the else clause is unreachable
+    = note: `#[warn(irrefutable_let_patterns)]` on by default
+
+warning: ambiguous glob re-exports
+  --> crates/shenko-exec-host/src/lib.rs:13:9
+   |
+13 | pub use browser::*;
+   |         ^^^^^^^^^^ the name `CONTRACT` in the value namespace is first re-exported here
+...
+23 | pub use net_probe::*;
+   |         ------------ but the name `CONTRACT` in the value namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/install.rs:417:9
+    |
+417 |     let mut stdout = File::create(&stdout_path)?;
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/install.rs:418:9
+    |
+418 |     let mut stderr = File::create(&stderr_path)?;
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused import: `Context as _`
+  --> crates/shenko-exec-host/src/cognition_task.rs:14:14
+   |
+14 | use anyhow::{Context as _, Result, ensure};
+   |              ^^^^^^^^^^^^
+
+warning: unused import: `Context as _`
+  --> crates/shenko-exec-host/src/cognition_query.rs:12:14
+   |
+12 | use anyhow::{Context as _, Result, ensure};
+   |              ^^^^^^^^^^^^
+
+warning: unused import: `OutputAction`
+  --> crates/shenko-exec-host/src/cognition_trial.rs:57:28
+   |
+57 | use shenko_types::output::{OutputAction, ParsedOutput};
+   |                            ^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+  --> crates/shenko-exec-host/src/takeover_proof.rs:37:23
+   |
+37 | use std::path::{Path, PathBuf};
+   |                       ^^^^^^^
+
+warning: unused import: `Arc`
+  --> crates/shenko-exec-host/src/takeover_proof.rs:38:17
+   |
+38 | use std::sync::{Arc, Condvar, Mutex};
+   |                 ^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/live.rs:530:9
+    |
+530 |     let mut file = match File::open(path) {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: field `session_id` is never read
+   --> crates/shenko-repl/src/task.rs:194:5
+    |
+193 | struct InstallInput {
+    |        ------------ field in this struct
+194 |     session_id: EntityId,
+    |     ^^^^^^^^^^
+    |
+    = note: `InstallInput` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-repl` (lib) generated 5 warnings (run `cargo fix --lib -p shenko-repl` to apply 3 suggestions)
+    Checking shenko-compat-mcp v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-mcp)
+warning: unused import: `BrowserProtocol`
+  --> crates/shenko-exec-host/src/browser/session.rs:16:23
+   |
+16 | use super::protocol::{BrowserProtocol, PageTarget, RestoreCoverage, TabHandle, Viewport};
+   |                       ^^^^^^^^^^^^^^^
+
+warning: value assigned to `detection` is never read
+    --> crates/shenko-exec-host/src/computer_use.rs:1174:29
+     |
+1174 |         let mut detection = false;
+     |                             ^^^^^ this value is reassigned later and never used
+...
+1205 |                             detection = raw_ok;
+     |                             ------------------ `detection` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `caller`
+   --> crates/shenko-exec-host/src/browser/actions.rs:554:9
+    |
+554 |         caller: EntityId,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_caller`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `node`
+   --> crates/shenko-exec-host/src/browser/actions.rs:555:9
+    |
+555 |         node: &str,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_node`
+
+    Checking shenko-compact-snap v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-snap)
+    Checking shenko-compact-rollover v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-rollover)
+warning: unused import: `Html`
+  --> crates/shenko-ui/src/playground.rs:19:16
+   |
+19 |     response::{Html, IntoResponse, Json, Redirect, Response}, routing::{get, post}, Router,
+   |                ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `sample_stop`
+    --> crates/shenko-exec-host/src/cognition_trial.rs:1146:21
+     |
+1146 |                 let sample_stop = (tokio::time::Instant::now() + window).min(stop);
+     |                     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sample_stop`
+
+warning: unused variable: `logical_key`
+   --> crates/shenko-ui/src/config_service.rs:546:50
+    |
+546 |     pub fn current_value(&self, namespace: &str, logical_key: &str) -> Option<Value> {
+    |                                                  ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_logical_key`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `digest` is never read
+   --> crates/shenko-ui/src/presentation.rs:600:5
+    |
+597 | struct CacheEntry {
+    |        ---------- field in this struct
+...
+600 |     digest: String,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `seal_host_process` is never used
+   --> crates/shenko-ui/src/playground_backend.rs:149:19
+    |
+106 | impl BackendBinding {
+    | ------------------- associated function in this implementation
+...
+149 |     pub(crate) fn seal_host_process(
+    |                   ^^^^^^^^^^^^^^^^^
+
+warning: fields `instance_id`, `artifact_id`, `artifact_revision`, and `manifest_digest` are never read
+   --> crates/shenko-ui/src/playground_backend.rs:716:5
+    |
+715 | struct RunningService {
+    |        -------------- fields in this struct
+716 |     instance_id: EntityId,
+    |     ^^^^^^^^^^^
+717 |     artifact_id: EntityId,
+    |     ^^^^^^^^^^^
+718 |     artifact_revision: u64,
+    |     ^^^^^^^^^^^^^^^^^
+719 |     manifest_digest: Digest,
+    |     ^^^^^^^^^^^^^^^
+
+warning: trait `TrimAscii` is never used
+    --> crates/shenko-ui/src/playground_backend.rs:1372:7
+     |
+1372 | trait TrimAscii {
+     |       ^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-exec-host/src/layerfs.rs:300:21
+    |
+300 |                 let mut reader = BufReader::new(stderr);
+    |                     ----^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::session`
+   --> crates/shenko-exec-host/src/browser/session.rs:275:5
+    |
+275 |     pub(crate) fn session(&self, session_id: EntityId) -> Result<Arc<BrowserSession>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl BrowserProvider>::session` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::session_facts`
+   --> crates/shenko-exec-host/src/browser/session.rs:288:5
+    |
+288 |     pub(crate) async fn session_facts(&self, session: &Arc<BrowserSession>) -> Result<SessionFacts> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl BrowserProvider>::session_facts` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `TabEntry` is more private than the item `session::<impl BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `TabEntry` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:359:1
+    |
+359 | struct TabEntry {
+    | ^^^^^^^^^^^^^^^
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::observe_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:391:5
+    |
+391 | /     pub(crate) async fn observe_tab(
+392 | |         &self,
+393 | |         session: &Arc<BrowserSession>,
+394 | |         tab: &TabHandle,
+395 | |         options: &ObserveOptions,
+396 | |     ) -> Result<Observation> {
+    | |____________________________^ method `session::<impl BrowserProvider>::observe_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: `shenko-ui` (lib) generated 6 warnings (run `cargo fix --lib -p shenko-ui` to apply 2 suggestions)
+    Checking shenko-mobile v0.1.0 (/__w/shenko/shenko/crates/shenko-mobile)
+warning: constant `MAX_ACTIONS` is never used
+  --> crates/shenko-exec-host/src/browser/mod.rs:62:7
+   |
+62 | const MAX_ACTIONS: usize = 32;
+   |       ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `MAX_INPUT_BYTES` is never used
+  --> crates/shenko-exec-host/src/cognition_task.rs:38:7
+   |
+38 | const MAX_INPUT_BYTES: usize = 32 * 1024;
+   |       ^^^^^^^^^^^^^^^
+
+warning: method `to_account` is never used
+  --> crates/shenko-exec-host/src/person_task.rs:92:8
+   |
+91 | impl PlatformAccountInput {
+   | ------------------------- method in this implementation
+92 |     fn to_account(&self) -> PlatformAccount {
+   |        ^^^^^^^^^^
+
+warning: field `name` is never read
+   --> crates/shenko-exec-host/src/layerfs.rs:171:5
+    |
+170 | struct LayerFsCompanion {
+    |        ---------------- field in this struct
+171 |     name: String,
+    |     ^^^^
+
+warning: `shenko-exec-host` (lib) generated 22 warnings (run `cargo fix --lib -p shenko-exec-host` to apply 10 suggestions)
+    Checking shenko-channel-adapters v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-adapters)
+warning: unused import: `DeviceBridge`
+  --> crates/shenko-mobile/src/handlers.rs:23:54
+   |
+23 |     BridgeAuthority, BridgeOp, BridgeSnapshotMethod, DeviceBridge,
+   |                                                      ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `TakeoverCheck` is more private than the item `AndroidBackend::human_takeover_check`
+   --> crates/shenko-mobile/src/backend.rs:802:5
+    |
+802 | /     pub(crate) fn human_takeover_check(
+803 | |         &self,
+804 | |         session: &MobileSession,
+805 | |         lease_acquired_at_ms: i64,
+806 | |     ) -> TakeoverCheck {
+    | |______________________^ method `AndroidBackend::human_takeover_check` is reachable at visibility `pub(crate)`
+    |
+note: but type `TakeoverCheck` is only usable at visibility `pub(self)`
+   --> crates/shenko-mobile/src/backend.rs:114:1
+    |
+114 | enum TakeoverCheck {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: struct `LeaseNormalized` is never constructed
+   --> crates/shenko-mobile/src/backend.rs:221:12
+    |
+221 | pub struct LeaseNormalized {
+    |            ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-mobile` (lib) generated 3 warnings
+    Checking shenko-document v0.1.0 (/__w/shenko/shenko/crates/shenko-document)
+warning: unused imports: `HeldState`, `ReleasedState`, `down_keycodes`, `newly_down`, and `self`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_native.rs:117:5
+    |
+117 |     self, owned_xorg, uinput, DispatchRecorder, EvdevReader, Monitor, Probe,
+    |     ^^^^
+118 |     HeldState, ReleasedState, RawEventFacts, KernelEventFacts,
+    |     ^^^^^^^^^  ^^^^^^^^^^^^^
+...
+121 |     down_keycodes, newly_down, wait_held_state, wait_held_release,
+    |     ^^^^^^^^^^^^^  ^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DesktopSession`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_native.rs:112:76
+    |
+112 |     DesktopObservation, DesktopOpenRequest, DesktopPress, DesktopProvider, DesktopSession,
+    |                                                                            ^^^^^^^^^^^^^^
+
+warning: `shenko-exec-host` (test "computer_use_takeover_native") generated 2 warnings (run `cargo fix --test "computer_use_takeover_native" -p shenko-exec-host` to apply 1 suggestion)
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/feishu/plugin.rs:699:15
+    |
+699 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/ilink/plugin.rs:428:15
+    |
+428 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+
+warning: value assigned to `fenced` is never read
+   --> crates/shenko-channel-adapters/src/qq_official/outbound.rs:183:13
+    |
+183 |             fenced = !fenced;
+    |             ^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:898:15
+    |
+898 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+
+warning: field `replies` is never read
+  --> crates/shenko-channel-adapters/src/feishu/monitor.rs:50:5
+   |
+46 | pub struct FeishuMonitor {
+   |            ------------- field in this struct
+...
+50 |     replies: ReplyContextCache,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `own_cache` is never used
+   --> crates/shenko-channel-adapters/src/feishu/plugin.rs:186:19
+    |
+122 | impl FeishuChannel {
+    | ------------------ method in this implementation
+...
+186 |     pub(crate) fn own_cache(
+    |                   ^^^^^^^^^
+
+warning: associated items `own_cache` and `media_scope` are never used
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:202:19
+    |
+117 | impl QqOfficialChannel {
+    | ---------------------- associated items in this implementation
+...
+202 |     pub(crate) fn own_cache(
+    |                   ^^^^^^^^^
+...
+241 |     fn media_scope(kind: &str, id: &str) -> MediaScope {
+    |        ^^^^^^^^^^^
+
+warning: `shenko-channel-adapters` (lib) generated 7 warnings (run `cargo fix --lib -p shenko-channel-adapters` to apply 3 suggestions)
+    Checking shenko v0.1.0 (/__w/shenko/shenko/bin/shenko)
+warning: unused import: `CognitionOrigin`
+ --> bin/shenko/src/node_sync.rs:7:41
+  |
+7 |     AdoptRequest, CognitionObservation, CognitionOrigin, CognitionScope, CognitionSnapshotReport,
+  |                                         ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `events_high_water` is never read
+    --> bin/shenko/src/node_sync.rs:1380:33
+     |
+1380 |     let mut events_high_water = "0".to_string();
+     |                                 ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1401 |         events_high_water = through.clone();
+     |         ----------------- `events_high_water` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `worker_ctx`
+   --> bin/shenko/src/context_policy.rs:627:9
+    |
+627 |     let worker_ctx = ctx.clone();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_worker_ctx`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `runtime_config` is never used
+   --> bin/shenko/src/context_policy.rs:272:8
+    |
+272 | pub fn runtime_config(policy: &InstalledPolicy) -> Result<PolicyRuntime, String> {
+    |        ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `new_scope_id` is never used
+   --> bin/shenko/src/context_policy.rs:295:8
+    |
+295 | pub fn new_scope_id() -> EntityId {
+    |        ^^^^^^^^^^^^
+
+warning: `shenko` (lib) generated 5 warnings (run `cargo fix --lib -p shenko` to apply 2 suggestions)
+warning: unused imports: `ComputerUseBackend`, `DesktopSessionHandle`, `HeldState`, `KernelEventFacts`, `ReleasedState`, `down_keycodes`, `newly_down`, and `self`
+  --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:51:5
+   |
+51 |     ComputerUseBackend,
+   |     ^^^^^^^^^^^^^^^^^^
+...
+54 |     DesktopSessionHandle, HumanInputFanout, HumanInputObserver, X11Provider, encode_png,
+   |     ^^^^^^^^^^^^^^^^^^^^
+...
+57 |         self, owned_xorg, uinput, DispatchRecorder, EvdevReader, Monitor, Probe,
+   |         ^^^^
+58 |         HeldState, ReleasedState, RawEventFacts, KernelEventFacts,
+   |         ^^^^^^^^^  ^^^^^^^^^^^^^                 ^^^^^^^^^^^^^^^^
+...
+61 |         down_keycodes, newly_down, wait_held_state, wait_held_release,
+   |         ^^^^^^^^^^^^^  ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DesktopSession`
+  --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:53:76
+   |
+53 |     DesktopObservation, DesktopOpenRequest, DesktopPress, DesktopProvider, DesktopSession,
+   |                                                                            ^^^^^^^^^^^^^^
+
+warning: unused variable: `agent`
+   --> bin/shenko/src/recovery_integration_tests.rs:971:9
+    |
+971 |     let agent = bootstrap_genesis(
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_agent`
+
+warning: unused variable: `press`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:638:9
+    |
+638 |     let press = keyboard.emit(KEY_F13_EVDEV, 1)
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_press`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `release`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:641:9
+    |
+641 |     let release = keyboard.emit(KEY_F13_EVDEV, 0)
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_release`
+
+warning: `shenko-exec-host` (test "computer_use_takeover_cli") generated 4 warnings (run `cargo fix --test "computer_use_takeover_cli" -p shenko-exec-host` to apply 3 suggestions)
+warning: fields `backend` and `dir` are never read
+    --> bin/shenko/src/recovery_integration_tests.rs:1932:5
+     |
+1930 | struct ComputerUseFixture {
+     |        ------------------ fields in this struct
+1931 |     store: Arc<shenko_store::store::Store>,
+1932 |     backend: Arc<shenko_exec_host::ComputerUseBackend>,
+     |     ^^^^^^^
+1933 |     handlers: ComputerUseHandlers,
+1934 |     dir: std::path::PathBuf,
+     |     ^^^
+
+warning: `shenko` (lib test) generated 7 warnings (5 duplicates) (run `cargo fix --lib -p shenko --tests` to apply 1 suggestion)
+warning: field `other_args` is never read
+  --> crates/shenko-exec-host/tests/cognition_self_learning/harness.rs:75:9
+   |
+61 | pub struct Options {
+   |            ------- field in this struct
+...
+75 |     pub other_args: Vec<String>,
+   |         ^^^^^^^^^^
+   |
+   = note: `Options` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-exec-host` (test "cognition_self_learning") generated 1 warning
+warning: unused `Result` that must be used
+   --> crates/shenko-compact-rollover/tests/notes_rollover.rs:427:5
+    |
+427 | /     registry.install(Arc::new(strategy(
+428 | |         Arc::new(MemoryNotesJournal::new(scope)) as Arc<dyn NotesJournal>,
+429 | |         2,
+430 | |     )));
+    | |_______^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+427 |     let _ = registry.install(Arc::new(strategy(
+    |     +++++++
+
+warning: `shenko-compact-rollover` (test "notes_rollover") generated 1 warning
+warning: unused import: `object`
+  --> crates/shenko-ui/src/config_tests.rs:32:5
+   |
+32 |     object::*,
+   |     ^^^^^^
+
+warning: unused variable: `agent`
+   --> crates/shenko-ui/src/playground_manage_tests.rs:102:23
+    |
+102 |     let (root, store, agent) = fixture("lifecycle");
+    |                       ^^^^^ help: if this is intentional, prefix it with an underscore: `_agent`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `logical_key`
+   --> crates/shenko-ui/src/config_service.rs:546:50
+    |
+546 |     pub fn current_value(&self, namespace: &str, logical_key: &str) -> Option<Value> {
+    |                                                  ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_logical_key`
+
+warning: type `ManageInput` is more private than the item `PlaygroundManageHandler::freeze_for_test`
+   --> crates/shenko-ui/src/playground_manage.rs:695:5
+    |
+695 |     pub(crate) fn freeze_for_test(&self, value: Value) -> Result<ManageInput> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `PlaygroundManageHandler::freeze_for_test` is reachable at visibility `pub(crate)`
+    |
+note: but type `ManageInput` is only usable at visibility `pub(self)`
+   --> crates/shenko-ui/src/playground_manage.rs:53:1
+    |
+ 53 | struct ManageInput {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `ManageInput` is more private than the item `PlaygroundManageHandler::observe_for_test`
+   --> crates/shenko-ui/src/playground_manage.rs:700:5
+    |
+700 | /     pub(crate) fn observe_for_test(
+701 | |         &self,
+702 | |         input: &ManageInput,
+703 | |     ) -> Result<(Value, OperationOutcome, EffectStatus)> {
+    | |________________________________________________________^ method `PlaygroundManageHandler::observe_for_test` is reachable at visibility `pub(crate)`
+    |
+note: but type `ManageInput` is only usable at visibility `pub(self)`
+   --> crates/shenko-ui/src/playground_manage.rs:53:1
+    |
+ 53 | struct ManageInput {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: `shenko-ui` (lib test) generated 10 warnings (5 duplicates) (run `cargo fix --lib -p shenko-ui --tests` to apply 2 suggestions)
+warning: variable does not need to be mutable
+   --> crates/shenko-media/tests/transcript_lineage.rs:403:9
+    |
+403 |     let mut harness = open(Some(scope(false))).await;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-media/tests/transcript_lineage.rs:577:9
+    |
+577 |     let mut harness = open(None).await;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `shenko-media` (test "transcript_lineage") generated 2 warnings (run `cargo fix --test "transcript_lineage" -p shenko-media` to apply 2 suggestions)
+warning: unused import: `ChannelAction`
+  --> crates/shenko-subject/tests/channel_boundary.rs:12:16
+   |
+12 |     BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
+   |                ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Read`
+   --> crates/shenko-exec-host/src/net_probe.rs:582:19
+    |
+582 |     use std::io::{Read as _, Write as _};
+    |                   ^^^^
+
+warning: unused import: `Write`
+   --> crates/shenko-exec-host/src/net_probe.rs:582:30
+    |
+582 |     use std::io::{Read as _, Write as _};
+    |                              ^^^^^
+
+warning: field `target` is never read
+   --> crates/shenko-subject/tests/channel_boundary.rs:475:9
+    |
+474 |     struct Intent {
+    |            ------ field in this struct
+475 |         target: PublicationTarget,
+    |         ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-subject` (test "channel_boundary") generated 2 warnings (run `cargo fix --test "channel_boundary" -p shenko-subject` to apply 1 suggestion)
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/model_child_tests.rs:216:20
+    |
+216 |     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    |                    ----^^^^^^^^
+    |                    |
+    |                    help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::session`
+   --> crates/shenko-exec-host/src/browser/session.rs:275:5
+    |
+275 |     pub(crate) fn session(&self, session_id: EntityId) -> Result<Arc<BrowserSession>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl browser::BrowserProvider>::session` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::session_facts`
+   --> crates/shenko-exec-host/src/browser/session.rs:288:5
+    |
+288 |     pub(crate) async fn session_facts(&self, session: &Arc<BrowserSession>) -> Result<SessionFacts> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl browser::BrowserProvider>::session_facts` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl browser::BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `TabEntry` is more private than the item `session::<impl browser::BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl browser::BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `TabEntry` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:359:1
+    |
+359 | struct TabEntry {
+    | ^^^^^^^^^^^^^^^
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::observe_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:391:5
+    |
+391 | /     pub(crate) async fn observe_tab(
+392 | |         &self,
+393 | |         session: &Arc<BrowserSession>,
+394 | |         tab: &TabHandle,
+395 | |         options: &ObserveOptions,
+396 | |     ) -> Result<Observation> {
+    | |____________________________^ method `session::<impl browser::BrowserProvider>::observe_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/obligation_tests.rs:640:9
+    |
+640 |     let mut export = store.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/obligation_partition_tests.rs:594:5
+    |
+594 |     mut child: std::process::Child,
+    |     ----^^^^^
+    |     |
+    |     help: remove this `mut`
+
+warning: `shenko-exec-host` (lib test) generated 23 warnings (16 duplicates)
+warning: variable does not need to be mutable
+    --> crates/shenko-subject/src/model_child.rs:1027:13
+     |
+1027 |         let mut index = 1;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: field `input_ref` is never read
+    --> crates/shenko-subject/src/model_child.rs:2458:5
+     |
+2453 | struct ChildStepSink {
+     |        ------------- field in this struct
+...
+2458 |     input_ref: ObjectRef,
+     |     ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `ServicePublication` that must be used
+   --> crates/shenko-subject/src/model_child_tests.rs:774:5
+    |
+774 |     context.provide(restored.clone()).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: dropping a ServicePublication leaves generation-owned publication cleanup armed
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+774 |     let _ = context.provide(restored.clone()).unwrap();
+    |     +++++++
+
+warning: `shenko-subject` (lib test) generated 10 warnings (4 duplicates) (run `cargo fix --lib -p shenko-subject --tests` to apply 4 suggestions)
+warning: constant `SOCKET_FD` is never used
+  --> crates/shenko-wasm/tests/network.rs:23:7
+   |
+23 | const SOCKET_FD: i32 = 4;
+   |       ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-wasm` (test "network") generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/tests/wasm_state.rs:175:10
+    |
+175 |     let (mut restored, receipt) =
+    |          ----^^^^^^^^
+    |          |
+    |          help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-wasm` (test "wasm_state") generated 1 warning (run `cargo fix --test "wasm_state" -p shenko-wasm` to apply 1 suggestion)
+warning: unused import: `BranchId`
+  --> crates/shenko-store/tests/quota_store.rs:12:25
+   |
+12 | use shenko_types::ids::{BranchId, EntityId, RecordRevision};
+   |                         ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-store` (test "quota_store") generated 1 warning (run `cargo fix --test "quota_store" -p shenko-store` to apply 1 suggestion)
+warning: methods `run` and `normalized` are never used
+    --> crates/shenko-repl/src/task.rs:2015:18
+     |
+2010 |     impl CellHarness {
+     |     ---------------- methods in this implementation
+...
+2015 |         async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
+     |                  ^^^
+...
+2020 |         fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
+     |            ^^^^^^^^^^
+
+warning: `shenko-repl` (lib test) generated 6 warnings (5 duplicates)
+warning: `shenko-memory` (lib test) generated 4 warnings (4 duplicates)
+warning: type `TakeoverCheck` is more private than the item `backend::AndroidBackend::human_takeover_check`
+   --> crates/shenko-mobile/src/backend.rs:802:5
+    |
+802 | /     pub(crate) fn human_takeover_check(
+803 | |         &self,
+804 | |         session: &MobileSession,
+805 | |         lease_acquired_at_ms: i64,
+806 | |     ) -> TakeoverCheck {
+    | |______________________^ method `backend::AndroidBackend::human_takeover_check` is reachable at visibility `pub(crate)`
+    |
+note: but type `TakeoverCheck` is only usable at visibility `pub(self)`
+   --> crates/shenko-mobile/src/backend.rs:114:1
+    |
+114 | enum TakeoverCheck {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: `shenko-mobile` (lib test) generated 3 warnings (2 duplicates)
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/cognition/archive_admission_tests.rs:263:9
+    |
+263 |     let mut export = source.export_cognition(&Default::default()).unwrap();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `shenko-store` (lib test) generated 14 warnings (13 duplicates) (run `cargo fix --lib -p shenko-store --tests` to apply 1 suggestion)
+warning: `shenko-update` (lib test) generated 2 warnings (2 duplicates)
+warning: `shenko-exec-ssh` (lib test) generated 3 warnings (3 duplicates)
+warning: unused import: `TcpListener`
+  --> crates/shenko-wasm/src/p1.rs:26:26
+   |
+26 | use std::net::{Shutdown, TcpListener, TcpStream};
+   |                          ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-media` (lib test) generated 1 warning (1 duplicate)
+warning: value assigned to `high_water` is never read
+   --> crates/shenko-node/tests/partition_rejoin.rs:285:30
+    |
+285 |         let mut high_water = "0".to_string();
+    |                              ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+296 |             high_water = through.clone();
+    |             ---------- `high_water` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-node` (test "partition_rejoin") generated 1 warning
+warning: `shenko-wasm` (lib test) generated 7 warnings (6 duplicates) (run `cargo fix --lib -p shenko-wasm --tests` to apply 1 suggestion)
+warning: `shenko-channel-napcat` (lib test) generated 1 warning (1 duplicate)
+    Checking shenko-channel-napcat-link v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-napcat-link)
+warning: associated function `media_scope` is never used
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:241:8
+    |
+117 | impl QqOfficialChannel {
+    | ---------------------- associated function in this implementation
+...
+241 |     fn media_scope(kind: &str, id: &str) -> MediaScope {
+    |        ^^^^^^^^^^^
+
+warning: `shenko-channel-adapters` (lib test) generated 6 warnings (5 duplicates)
+warning: `shenko-node` (lib test) generated 2 warnings (2 duplicates)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+    --> crates/shenko-broker/src/broker.rs:2019:9
+     |
+2019 |         drop(submit_stream);
+     |         ^^^^^-------------^
+     |              |
+     |              argument has type `{closure@crates/shenko-broker/src/broker.rs:1909:29: 1909:56}`
+     |
+     = note: `#[warn(dropping_copy_types)]` on by default
+help: use `let _ = ...` to ignore the expression or result
+     |
+2019 -         drop(submit_stream);
+2019 +         let _ = submit_stream;
+     |
+
+warning: `shenko-broker` (lib test) generated 4 warnings (3 duplicates)
+warning: `shenko-kernel` (lib test) generated 2 warnings (2 duplicates)
+warning: `shenko-quota` (lib test) generated 1 warning (1 duplicate)
+    Checking shenko-android-shell v0.1.0 (/__w/shenko/shenko/mobile/rust-shell)
+    Finished `dev` profile [unoptimized] target(s) in 1m 38s

@@ -1,0 +1,11 @@
+{
+  "recorded_at": "2026-11-16T23:15:25.956316+00:00",
+  "scope": "local read-only assertion conservation script",
+  "initial_attempt": {
+    "exit_code": 1,
+    "error": "ModuleNotFoundError: No module named 'base_ref' while importing the original clippy_ratchet module"
+  },
+  "correction": "Extract and execute only the original rust_tokens function AST with its re dependency; no gate or source policy was changed.",
+  "subsequent_exit_code": 0,
+  "rust_executed": false
+}

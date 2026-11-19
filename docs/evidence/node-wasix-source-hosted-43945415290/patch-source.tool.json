@@ -1,0 +1,16 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Action completed."
+    }
+  ],
+  "structuredContent": {
+    "content": "ZGlmZiAtLWdpdCBhL3Rvb2xzL2d5cC9weWxpYi9neXAvZ2VuZXJhdG9yL21h\na2UucHkgYi90b29scy9neXAvcHlsaWIvZ3lwL2dlbmVyYXRvci9tYWtlLnB5\nCmluZGV4IDRmN2MyMmYuLmMwODBiYmUgMTAwNjQ0Ci0tLSBhL3Rvb2xzL2d5\ncC9weWxpYi9neXAvZ2VuZXJhdG9yL21ha2UucHkKKysrIGIvdG9vbHMvZ3lw\nL3B5bGliL2d5cC9nZW5lcmF0b3IvbWFrZS5weQpAQCAtMTg4Miw3ICsxODgy\nLDcgQEAKICAgICAgICAgICAgICAgICBzZWxmLmZsYXZvciBub3QgaW4gKCJt\nYWMiLCAib3BlbmJzZCIsICJuZXRic2QiLCAid2luIikKICAgICAgICAgICAg\nICAgICBhbmQgbm90IHNlbGYuaXNfc3RhbmRhbG9uZV9zdGF0aWNfbGlicmFy\neQogICAgICAgICAgICAgKToKLSAgICAgICAgICAgICAgICBpZiBzZWxmLmZs\nYXZvciBpbiAoImxpbnV4IiwgImFuZHJvaWQiKToKKyAgICAgICAgICAgICAg\nICBpZiBzZWxmLmZsYXZvciBpbiAoImxpbnV4IiwgImFuZHJvaWQiLCAid2Fz\naSIsICJ3YXNtIik6CiAgICAgICAgICAgICAgICAgICAgIHNlbGYuV3JpdGVN\nYWtlUnVsZSgKICAgICAgICAgICAgICAgICAgICAgICAgIFtzZWxmLm91dHB1\ndF9iaW5hcnldLAogICAgICAgICAgICAgICAgICAgICAgICAgbGlua19kZXBz\nLApAQCAtMTg5Niw3ICsxODk2LDcgQEAKICAgICAgICAgICAgICAgICAgICAg\nICAgIHBhcnRfb2ZfYWxsLAogICAgICAgICAgICAgICAgICAgICAgICAgcG9z\ndGJ1aWxkcz1wb3N0YnVpbGRzLAogICAgICAgICAgICAgICAgICAgICApCi0g\nICAgICAgICAgICBlbGlmIHNlbGYuZmxhdm9yIGluICgibGludXgiLCAiYW5k\ncm9pZCIpOgorICAgICAgICAgICAgZWxpZiBzZWxmLmZsYXZvciBpbiAoImxp\nbnV4IiwgImFuZHJvaWQiLCAid2FzaSIsICJ3YXNtIik6CiAgICAgICAgICAg\nICAgICAgc2VsZi5Xcml0ZU1ha2VSdWxlKAogICAgICAgICAgICAgICAgICAg\nICBbc2VsZi5vdXRwdXRfYmluYXJ5XSwKICAgICAgICAgICAgICAgICAgICAg\nbGlua19kZXBzLAo=\n",
+    "encoding": "base64",
+    "sha": "0e4693cd029f7d302b590518a617e14a0a7ff4d8",
+    "display_url": "https://github.com/cyjin-yl/shenko/blob/2d275430b103fb0e13316ba51cc5b5c5fdafa262/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch",
+    "display_title": "0001-wasi-archive-response-files.patch"
+  },
+  "isError": false
+}

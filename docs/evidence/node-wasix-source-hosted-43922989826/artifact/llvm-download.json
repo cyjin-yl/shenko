@@ -1,0 +1,1805 @@
+{
+  "name": "llvm",
+  "version": "21.1.206",
+  "source_commit": "98c00cb849c94742b2b29918bb414d236c83ae97",
+  "url": "https://github.com/wasix-org/llvm-project/releases/download/21.1.206/LLVM-Linux-x86_64-gnu.tar.gz",
+  "bytes": 75596113,
+  "sha256": "ab32cf976226dc9478c9cb8331fa877163ff34d78b190fb201d6eac92cb7dab0",
+  "expanded_byte_limit": 1073741824,
+  "started_at": "2026-11-16T17:53:28.323810+00:00",
+  "verified": true,
+  "expanded_bytes": 189443906,
+  "members": [
+    {
+      "path": "bin",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "bin/llvm-nm",
+      "bytes": 6544776,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "bin/clang",
+      "bytes": 0,
+      "type": "2",
+      "link": "clang-21"
+    },
+    {
+      "path": "bin/clang-21",
+      "bytes": 109115112,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "bin/clang-cpp",
+      "bytes": 0,
+      "type": "2",
+      "link": "clang-21"
+    },
+    {
+      "path": "bin/ld.lld",
+      "bytes": 0,
+      "type": "2",
+      "link": "lld"
+    },
+    {
+      "path": "bin/llvm-ranlib",
+      "bytes": 0,
+      "type": "2",
+      "link": "llvm-ar"
+    },
+    {
+      "path": "bin/lld",
+      "bytes": 60936728,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "bin/lld-link",
+      "bytes": 0,
+      "type": "2",
+      "link": "lld"
+    },
+    {
+      "path": "bin/wasm-ld",
+      "bytes": 0,
+      "type": "2",
+      "link": "lld"
+    },
+    {
+      "path": "bin/clang++",
+      "bytes": 0,
+      "type": "2",
+      "link": "clang-21"
+    },
+    {
+      "path": "bin/llvm-ar",
+      "bytes": 5201200,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "bin/clang-cl",
+      "bytes": 0,
+      "type": "2",
+      "link": "clang-21"
+    },
+    {
+      "path": "bin/ld64.lld",
+      "bytes": 0,
+      "type": "2",
+      "link": "lld"
+    },
+    {
+      "path": "lib",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdatomic.h",
+      "bytes": 8662,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2satcvtintrin.h",
+      "bytes": 18140,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxcomplextransposeintrin.h",
+      "bytes": 12061,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ptrauth.h",
+      "bytes": 18574,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/gfniintrin.h",
+      "bytes": 9822,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_complex_builtins.h",
+      "bytes": 9581,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/emmintrin.h",
+      "bytes": 201616,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/tgmath.h",
+      "bytes": 30389,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_intrinsic_helpers.h",
+      "bytes": 4423,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_detail.h",
+      "bytes": 1457,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_compat_overloads.h",
+      "bytes": 21591,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_basic_types.h",
+      "bytes": 3566,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_spirv.h",
+      "bytes": 923,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_alias_intrinsics.h",
+      "bytes": 103268,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl/hlsl_intrinsics.h",
+      "bytes": 19087,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/inttypes.h",
+      "bytes": 2427,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/clwbintrin.h",
+      "bytes": 1229,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/htmintrin.h",
+      "bytes": 6283,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512ifmaintrin.h",
+      "bytes": 2660,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amdgpuintrin.h",
+      "bytes": 7483,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxcomplexintrin.h",
+      "bytes": 6933,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/serializeintrin.h",
+      "bytes": 881,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg___va_copy.h",
+      "bytes": 445,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ammintrin.h",
+      "bytes": 7739,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_offload_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_offload_wrappers/__llvm_offload.h",
+      "bytes": 1063,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_offload_wrappers/__llvm_offload_host.h",
+      "bytes": 569,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_offload_wrappers/__llvm_offload_device.h",
+      "bytes": 400,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/riscv_bitmanip.h",
+      "bytes": 5725,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_size_t.h",
+      "bytes": 708,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/movrsintrin.h",
+      "bytes": 2025,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/rdseedintrin.h",
+      "bytes": 2919,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512bwintrin.h",
+      "bytes": 77845,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/wmmintrin.h",
+      "bytes": 659,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_intrinsics.h",
+      "bytes": 46120,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/raointintrin.h",
+      "bytes": 6748,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/f16cintrin.h",
+      "bytes": 5524,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vbmiintrin.h",
+      "bytes": 3920,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxintrin.h",
+      "bytes": 20304,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cmpccxaddintrin.h",
+      "bytes": 2383,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/velintrin_gen.h",
+      "bytes": 70721,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_runtime_wrapper.h",
+      "bytes": 18067,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxvnniintrin.h",
+      "bytes": 10690,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vpopcntdqvlintrin.h",
+      "bytes": 3957,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/clzerointrin.h",
+      "bytes": 1220,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/andes_vector.h",
+      "bytes": 518,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlbwintrin.h",
+      "bytes": 124474,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xsavesintrin.h",
+      "bytes": 1268,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_hip_runtime_wrapper.h",
+      "bytes": 5156,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/varargs.h",
+      "bytes": 584,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512satcvtintrin.h",
+      "bytes": 16999,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_wchar_t.h",
+      "bytes": 853,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/velintrin.h",
+      "bytes": 2153,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hexagon_types.h",
+      "bytes": 133505,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/opencl-c.h",
+      "bytes": 913161,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/algorithm",
+      "bytes": 4612,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/new",
+      "bytes": 3739,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/complex",
+      "bytes": 3618,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/cmath",
+      "bytes": 2045,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/bits",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/bits/shared_ptr_base.h",
+      "bytes": 355,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/bits/basic_string.h",
+      "bytes": 352,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/bits/c++config.h",
+      "bytes": 1739,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cuda_wrappers/bits/basic_string.tcc",
+      "bytes": 354,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/inttypes.h",
+      "bytes": 954,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/stdio.h",
+      "bytes": 2931,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/ctype.h",
+      "bytes": 3840,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/time.h",
+      "bytes": 976,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/string.h",
+      "bytes": 4028,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/stdlib.h",
+      "bytes": 1706,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/llvm_libc_wrappers/assert.h",
+      "bytes": 942,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxvnniint16intrin.h",
+      "bytes": 16222,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vbmi2intrin.h",
+      "bytes": 13493,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/yvals_core.h",
+      "bytes": 687,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/float.h",
+      "bytes": 6268,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxmovrstransposeintrin.h",
+      "bytes": 9402,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2niintrin.h",
+      "bytes": 17003,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/pkuintrin.h",
+      "bytes": 934,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_rsize_t.h",
+      "bytes": 710,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/fxsrintrin.h",
+      "bytes": 2890,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/movrs_avx10_2intrin.h",
+      "bytes": 7036,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/wasm_simd128.h",
+      "bytes": 83675,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/vaesintrin.h",
+      "bytes": 2671,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_hip_cmath.h",
+      "bytes": 27196,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxneconvertintrin.h",
+      "bytes": 14432,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/mwaitxintrin.h",
+      "bytes": 2244,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/lwpintrin.h",
+      "bytes": 5115,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/mm_malloc.h",
+      "bytes": 1929,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__wmmintrin_aes.h",
+      "bytes": 5269,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/rdpruintrin.h",
+      "bytes": 1624,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/riscv_crypto.h",
+      "bytes": 5211,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_wint_t.h",
+      "bytes": 443,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512bf16intrin.h",
+      "bytes": 23410,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_nullptr_t.h",
+      "bytes": 958,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xsaveoptintrin.h",
+      "bytes": 1026,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_max_align_t.h",
+      "bytes": 857,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/movrs_avx10_2_512intrin.h",
+      "bytes": 3973,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg_va_arg.h",
+      "bytes": 771,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxfp16transposeintrin.h",
+      "bytes": 3525,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hexagon_circ_brev_intrinsics.h",
+      "bytes": 15966,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/intrin.h",
+      "bytes": 19754,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cetintrin.h",
+      "bytes": 3351,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/uintrintrin.h",
+      "bytes": 5079,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/vecintrin.h",
+      "bytes": 429293,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/armintr.h",
+      "bytes": 843,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/shaintrin.h",
+      "bytes": 7660,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxvnniint8intrin.h",
+      "bytes": 17431,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_spirv_builtins.h",
+      "bytes": 9090,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/mm3dnow.h",
+      "bytes": 729,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/larchintrin.h",
+      "bytes": 8703,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sm4intrin.h",
+      "bytes": 8401,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/waitpkgintrin.h",
+      "bytes": 1357,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/emmintrin.h",
+      "bytes": 71273,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/mm_malloc.h",
+      "bytes": 1337,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/smmintrin.h",
+      "bytes": 23559,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/mmintrin.h",
+      "bytes": 45763,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/bmi2intrin.h",
+      "bytes": 4671,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/x86intrin.h",
+      "bytes": 1067,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/immintrin.h",
+      "bytes": 611,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/x86gprintrin.h",
+      "bytes": 499,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/pmmintrin.h",
+      "bytes": 5898,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/xmmintrin.h",
+      "bytes": 64333,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/tmmintrin.h",
+      "bytes": 16341,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/bmiintrin.h",
+      "bytes": 5002,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ppc_wrappers/nmmintrin.h",
+      "bytes": 977,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/htmxlintrin.h",
+      "bytes": 9225,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/altivec.h",
+      "bytes": 715031,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2minmaxintrin.h",
+      "bytes": 13680,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg_va_copy.h",
+      "bytes": 451,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/pconfigintrin.h",
+      "bytes": 1216,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxintrin.h",
+      "bytes": 201849,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_offsetof.h",
+      "bytes": 708,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_unreachable.h",
+      "bytes": 735,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2copyintrin.h",
+      "bytes": 2410,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512satcvtdsintrin.h",
+      "bytes": 13799,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sm4evexintrin.h",
+      "bytes": 1195,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg_header_macro.h",
+      "bytes": 417,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg_va_list.h",
+      "bytes": 448,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stdarg___gnuc_va_list.h",
+      "bytes": 467,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xsaveintrin.h",
+      "bytes": 1678,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/crc32intrin.h",
+      "bytes": 3347,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/movdirintrin.h",
+      "bytes": 1612,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avxifmaintrin.h",
+      "bytes": 5886,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ptwriteintrin.h",
+      "bytes": 1076,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlvp2intersectintrin.h",
+      "bytes": 4782,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_cmath.h",
+      "bytes": 18493,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vldqintrin.h",
+      "bytes": 47827,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/arm_acle.h",
+      "bytes": 29940,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdbool.h",
+      "bytes": 1172,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vp2intersectintrin.h",
+      "bytes": 3102,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vnniintrin.h",
+      "bytes": 4428,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/fmaintrin.h",
+      "bytes": 29337,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/builtins.h",
+      "bytes": 846,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/intrin0.h",
+      "bytes": 14093,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxtf32intrin.h",
+      "bytes": 3562,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlintrin.h",
+      "bytes": 330339,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/enqcmdintrin.h",
+      "bytes": 2167,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/riscv_ntlh.h",
+      "bytes": 744,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sm3intrin.h",
+      "bytes": 7470,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxtf32transposeintrin.h",
+      "bytes": 3643,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/tbmintrin.h",
+      "bytes": 3507,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxfp8intrin.h",
+      "bytes": 8839,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512fp16intrin.h",
+      "bytes": 160735,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_builtin_vars.h",
+      "bytes": 4892,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cet.h",
+      "bytes": 1527,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/smmintrin.h",
+      "bytes": 101720,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/arm_neon_sve_bridge.h",
+      "bytes": 9708,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/rtmintrin.h",
+      "bytes": 1280,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/wbnoinvdintrin.h",
+      "bytes": 749,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/fma4intrin.h",
+      "bytes": 6986,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxavx512intrin.h",
+      "bytes": 12986,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/ia32intrin.h",
+      "bytes": 25986,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/mmintrin.h",
+      "bytes": 60004,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/bmi2intrin.h",
+      "bytes": 7546,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/velintrin_approx.h",
+      "bytes": 3623,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlbf16intrin.h",
+      "bytes": 19922,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512convertintrin.h",
+      "bytes": 13192,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xopintrin.h",
+      "bytes": 20434,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdnoreturn.h",
+      "bytes": 1316,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/prfchiintrin.h",
+      "bytes": 2073,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_math_forward_declares.h",
+      "bytes": 8469,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/x86intrin.h",
+      "bytes": 721,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stddef.h",
+      "bytes": 5053,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__wmmintrin_pclmul.h",
+      "bytes": 2036,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/immintrin.h",
+      "bytes": 16632,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxmovrsintrin.h",
+      "bytes": 2290,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_null.h",
+      "bytes": 875,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxfp16intrin.h",
+      "bytes": 3327,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/arm64intr.h",
+      "bytes": 993,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512fintrin.h",
+      "bytes": 392651,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdckdint.h",
+      "bytes": 1666,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/usermsrintrin.h",
+      "bytes": 1572,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sgxintrin.h",
+      "bytes": 1816,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2convertintrin.h",
+      "bytes": 108821,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxbf16transposeintrin.h",
+      "bytes": 3525,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/unwind.h",
+      "bytes": 11477,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512bf16intrin.h",
+      "bytes": 10832,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlbitalgintrin.h",
+      "bytes": 4629,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdalign.h",
+      "bytes": 756,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_hip_math.h",
+      "bytes": 36683,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/prfchwintrin.h",
+      "bytes": 1842,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512niintrin.h",
+      "bytes": 14039,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/limits.h",
+      "bytes": 3794,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hvx_hexagon_protos.h",
+      "bytes": 281785,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512ifmavlintrin.h",
+      "bytes": 4712,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdint.h",
+      "bytes": 27519,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/zos_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/zos_wrappers/builtins.h",
+      "bytes": 608,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sha512intrin.h",
+      "bytes": 6088,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/keylockerintrin.h",
+      "bytes": 17973,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2_512minmaxintrin.h",
+      "bytes": 7526,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlvbmi2intrin.h",
+      "bytes": 26633,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_hip_stdlib.h",
+      "bytes": 1223,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlvnniintrin.h",
+      "bytes": 13736,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/clflushoptintrin.h",
+      "bytes": 1193,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/gpuintrin.h",
+      "bytes": 13232,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/vadefs.h",
+      "bytes": 1420,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/amxtransposeintrin.h",
+      "bytes": 10853,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hlsl.h",
+      "bytes": 1149,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlcdintrin.h",
+      "bytes": 8141,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2satcvtdsintrin.h",
+      "bytes": 15253,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/x86gprintrin.h",
+      "bytes": 1727,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512dqintrin.h",
+      "bytes": 60287,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/pmmintrin.h",
+      "bytes": 11390,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/msa.h",
+      "bytes": 25615,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512bitalgintrin.h",
+      "bytes": 2626,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512cdintrin.h",
+      "bytes": 4327,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx2intrin.h",
+      "bytes": 192637,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cldemoteintrin.h",
+      "bytes": 1207,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/nvptxintrin.h",
+      "bytes": 7911,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_texture_intrinsics.h",
+      "bytes": 56680,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xmmintrin.h",
+      "bytes": 120340,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xsavecintrin.h",
+      "bytes": 2574,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/popcntintrin.h",
+      "bytes": 1948,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/vpclmulqdqintrin.h",
+      "bytes": 1086,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/tsxldtrkintrin.h",
+      "bytes": 2015,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/iso646.h",
+      "bytes": 763,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/lsxintrin.h",
+      "bytes": 137936,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/lzcntintrin.h",
+      "bytes": 3659,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdcountof.h",
+      "bytes": 473,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/xtestintrin.h",
+      "bytes": 873,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_device_functions.h",
+      "bytes": 58740,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vpopcntdqintrin.h",
+      "bytes": 2357,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_libdevice_declares.h",
+      "bytes": 22414,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/riscv_corev_alu.h",
+      "bytes": 4033,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/tmmintrin.h",
+      "bytes": 31927,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/invpcidintrin.h",
+      "bytes": 764,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx10_2bf16intrin.h",
+      "bytes": 44658,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hresetintrin.h",
+      "bytes": 1395,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vbmivlintrin.h",
+      "bytes": 7402,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/bmiintrin.h",
+      "bytes": 20350,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/sifive_vector.h",
+      "bytes": 7041,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/arm_cmse.h",
+      "bytes": 6357,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/lasxintrin.h",
+      "bytes": 145551,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers",
+      "bytes": 0,
+      "type": "5",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/math.h",
+      "bytes": 2054,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/complex_cmath.h",
+      "bytes": 12559,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/new",
+      "bytes": 1409,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/complex",
+      "bytes": 1802,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/__clang_openmp_device_functions.h",
+      "bytes": 2603,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/cmath",
+      "bytes": 5251,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/openmp_wrappers/complex.h",
+      "bytes": 898,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_cuda_math.h",
+      "bytes": 16602,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/avx512vlfp16intrin.h",
+      "bytes": 87561,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_header_macro.h",
+      "bytes": 417,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/opencl-c-base.h",
+      "bytes": 32184,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/module.modulemap",
+      "bytes": 6808,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/cpuid.h",
+      "bytes": 12681,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__clang_hip_libdevice_declares.h",
+      "bytes": 19875,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/adxintrin.h",
+      "bytes": 3447,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/adcintrin.h",
+      "bytes": 5565,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/s390intrin.h",
+      "bytes": 604,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/nmmintrin.h",
+      "bytes": 709,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/hexagon_protos.h",
+      "bytes": 383410,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/__stddef_ptrdiff_t.h",
+      "bytes": 717,
+      "type": "0",
+      "link": ""
+    },
+    {
+      "path": "lib/clang/21/include/stdarg.h",
+      "bytes": 2497,
+      "type": "0",
+      "link": ""
+    }
+  ],
+  "actual_bytes": 75596113,
+  "actual_sha256": "ab32cf976226dc9478c9cb8331fa877163ff34d78b190fb201d6eac92cb7dab0",
+  "finished_at": "2026-11-16T17:53:30.053509+00:00"
+}

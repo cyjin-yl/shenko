@@ -1,0 +1,20 @@
+{
+  "source_base_head": "6bfc9487e0c4dd3bbfd40cf8c62a3afa57d1f14e",
+  "source_patch_sha256": "392ded7a658e94bde46f3a49de7f0fdcbc243061bdb35e4233d80a7c71e0bbb0",
+  "current_patch_matches": true,
+  "scope": "component_process and ssh_wasi_client metadata; shared helper compiled in both; not runtime execution or complete CI ratchet",
+  "exit_code": 0,
+  "all_shenko_diagnostic_counts": {
+    "clippy::collapsible_if": 4,
+    "clippy::expect_used": 5,
+    "clippy::needless_question_mark": 1,
+    "clippy::needless_return": 1,
+    "clippy::type_complexity": 1,
+    "dead_code": 2,
+    "unused_assignments": 1,
+    "unused_imports": 1,
+    "unused_variables": 10
+  },
+  "changed_files_diagnostics_including_recursive_expansion_and_children": [],
+  "compiler_errors": []
+}

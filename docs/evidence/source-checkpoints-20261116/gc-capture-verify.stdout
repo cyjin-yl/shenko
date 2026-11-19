@@ -1,0 +1,9 @@
+The bundle contains these 3 refs:
+10188718b5af116796d49dd54832ef110b8c2085 refs/heads/checkpoint/gc-registry-original-20261116
+7191f89f98e1bf3f9b197db63de1f0b97159afef refs/heads/checkpoint/capture-reader-repair-original-20261116
+5b1c8a310b959acca251d26c9d008520f7b6291f refs/heads/checkpoint/gc-capture-integration-20261116
+The bundle requires these 3 refs:
+ff771184d8dd05b4c2125483958cfb2c55319bb4 
+83bf391440adbe3e153b036ba8fd1ecfe5867202 
+2798bb37ef793dc90a6dadccab0738aacff84b04 
+The bundle uses this hash algorithm: sha1

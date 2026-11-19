@@ -1,0 +1,19 @@
+Bootstrap: {
+  "installation_id": "fc171b87-a71c-4325-b99e-0152b7f07c8b",
+  "state": "awaiting_input",
+  "needs": [
+    "owner_claim",
+    "model_binding"
+  ],
+  "subject": "existing_genesis",
+  "owner_grant_ref": null,
+  "model": {
+    "provider": null,
+    "model": null,
+    "configured": false,
+    "capacity": "blocked"
+  }
+}
+Shenko UI: http://127.0.0.1:43079
+  Subject loop: not started (model_binding needed)
+  Inference: not_connected; capacity blocked

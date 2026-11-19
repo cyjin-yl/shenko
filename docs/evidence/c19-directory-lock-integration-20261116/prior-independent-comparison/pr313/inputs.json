@@ -1,0 +1,18 @@
+{
+  "pr": 313,
+  "source_head": "fa990555ea1bde1c95ddc5118e63cdf506007182",
+  "context_commit": "a1d3fa6ed41f9ba233aad5e5b3e7dfeaad281b9f",
+  "exact_consumed_source": [
+    {
+      "path": "scripts/observe_longrun.py",
+      "git_blob": "9d6f2a32040e3dfae38f30328b1f6af612a78a03",
+      "utf8_characters": 60183
+    },
+    {
+      "path": "scripts/observe_longrun_test.py",
+      "git_blob": "c49afe66f79139877a60d91a08be2fb3a42001cd",
+      "utf8_characters": 22687
+    }
+  ],
+  "context_note": "Only the exact PR recorder and self-test blobs are executed locally; this is not the full PR CI or a main-base checkout."
+}

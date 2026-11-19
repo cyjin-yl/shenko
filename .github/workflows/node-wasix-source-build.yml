@@ -1,0 +1,39 @@
+name: Node-WASIX source build diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-wasix-source-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-build-and-original-journey:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-node-wasix-source'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 145
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build fixed Node source and observe the original cells
+        env:
+          SHENKO_SOURCE_REVISION: ${{ github.sha }}
+        run: >-
+          python3 scripts/build_node_wasix_journey.py
+          --source-revision "$SHENKO_SOURCE_REVISION"
+          --work-dir "$RUNNER_TEMP/shenko-node-wasix-source-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          --evidence-dir "$GITHUB_WORKSPACE/.ci/evidence/node-wasix-source"
+      - name: Retain source build, module, resources, cells and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-wasix-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/evidence/node-wasix-source/
+          if-no-files-found: error
+          retention-days: 30

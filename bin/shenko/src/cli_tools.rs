@@ -519,17 +519,20 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             // generation and readiness — a copied home manifest can never
             // alias a sibling installation's mounts.
             let manifest = shenko_seed::bootstrap::validate_home_for_exec(data_dir)?;
-            // Installation binding part 1: the home manifest's declared
-            // installation must be this store's ledger identity — a copied
-            // home/ manifest cannot alias a sibling installation's ledger.
-            let binding = shenko_store::Store::inspect_installation_binding(
+            // Installation binding part 1: the manifest must agree with the
+            // verified local provisioning (or legacy immutable bootstrap).
+            // A writer change never creates a new installation. Read identity
+            // and subject from the same zero-touch database/CAS snapshot.
+            let inspected = shenko_store::Store::inspect_home_installation_binding(
                 &data_dir.join("shenko.db"),
+                &data_dir.join("cas"),
             )?;
             anyhow::ensure!(
-                manifest.installation_id == binding.ledger_id,
+                manifest.installation_id == inspected.installation_id,
                 "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
-                 does not match this store's ledger; reconcile before exec"
+                 does not match this store's provisioned installation; reconcile before exec"
             );
+            let binding = inspected.binding;
             let node = Node::open_inspect(&data_dir.join("node"))?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
@@ -592,6 +595,8 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             // the materialized copy is never trusted. A tool whose bytes live
             // in the installation's content store is reassembled from its
             // chunk objects there; only then is it compiled.
+            let verification_started = std::time::Instant::now();
+            tracing::debug!(target: "shenko::tool_exec", stage = "artifact_verification_started", "tool exec timing");
             let (module, _inspection) = match record.artifact.kind {
                 shenko_wasm::ToolArtifactKind::NodeInline => {
                     shenko_wasm::tool_module(&node, &record)?
@@ -605,6 +610,8 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
                     shenko_wasm::tool_module_with_store(&node, &record, &content)?
                 }
             };
+            tracing::debug!(target: "shenko::tool_exec", stage = "artifact_verification_finished",
+                verification_secs = verification_started.elapsed().as_secs_f64(), module_bytes = module.len(), "tool exec timing");
             let stdin_bytes = match &stdin_file {
                 Some(path) => std::fs::read(path)
                     .with_context(|| format!("read stdin file {}", path.display()))?,

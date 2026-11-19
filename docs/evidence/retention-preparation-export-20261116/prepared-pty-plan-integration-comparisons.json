@@ -1,0 +1,49 @@
+{
+  "observed_at": "2026-11-16T22:37:29.239829+00:00",
+  "integrated_source": "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5",
+  "comparisons": [
+    {
+      "source": "17eb82114636a1aff428f6d9257d0b94c669ca0e",
+      "path": "crates/shenko-update/src/handoff.rs",
+      "sha256": "aaf07d5095c0419b05c2d580fd1a0028c4215e3f550b203b92ebb00051ca9b4a",
+      "exact": true
+    },
+    {
+      "source": "17eb82114636a1aff428f6d9257d0b94c669ca0e",
+      "path": "crates/shenko-update/src/handoff_tests.rs",
+      "sha256": "c1d74e41011b11c25470220c165d7b63f27a44c047094af23b8d0ecfc42463bf",
+      "exact": true
+    },
+    {
+      "source": "17eb82114636a1aff428f6d9257d0b94c669ca0e",
+      "path": "docs/specs/self-update.md",
+      "sha256": "2dd22947897099758bb3aa06a53c5f1ee143aaf95b75bb118ee5aa5d19f315bd",
+      "exact": true
+    },
+    {
+      "source": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+      "sha256": "849d6cec9e80d8cf08815ab38742a5a426cf8d23a07c1bcd972096c86fd08ca2",
+      "exact": true
+    },
+    {
+      "source": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+      "sha256": "9d55204063814422dae4da06230b1cd156fcdb11339138085d2f3600e7ffd6f7",
+      "exact": true
+    },
+    {
+      "source": "ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e",
+      "path": "docs/development/installation-write-permit-plan.md",
+      "sha256": "06d3fd314664cf2f88f17ef4c320942c01b6d1c8705cd96955835297a416e11d",
+      "exact": true
+    },
+    {
+      "source": "ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e",
+      "path": "docs/development/pty-write-flush-receipts.md",
+      "sha256": "eaa89bfdf91da84aa8c1cbffe5c305cac0e78167a4f707a83a2b1cd92921e74e",
+      "exact": true
+    }
+  ],
+  "new_rust_execution": false
+}

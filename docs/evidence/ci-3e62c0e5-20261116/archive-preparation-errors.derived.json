@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-11-16T22:56:07.603372+00:00",
+  "scope": "archive preparation only; no workflow or product replay",
+  "attempts": [
+    {
+      "exit_code": 1,
+      "error": "SyntaxError: closing parenthesis ')' does not match opening parenthesis '{' on line 179",
+      "resolution": "Removed one extra closing parenthesis before any script body executed."
+    },
+    {
+      "exit_code": 1,
+      "error": "git show 3e62c0e517a246872101cd1e61a694b2156bc919:crates/shenko-bin/tests/native_evidence_delivery.rs returned exit128",
+      "resolution": "Read actual tracked path bin/shenko/tests/native_evidence_delivery.rs; reran only byte-copy/hash archive preparation."
+    }
+  ],
+  "final_archive_script_exit_code": 0
+}

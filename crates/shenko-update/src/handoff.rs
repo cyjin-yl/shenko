@@ -47,7 +47,7 @@ use shenko_types::ids::{ControllerEpoch, EntityId, RecordRevision, RuntimeGenera
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionRef};
 use shenko_types::subject::{SubjectBranchHead, SubjectMode};
 
-use crate::build::{self, BuildOutcome, BuildProvider, CandidateArtifact};
+use crate::build::{BuildOutcome, BuildProvider, CandidateArtifact};
 use crate::migration::{self, ImportReport};
 use crate::slots::{self, AbSlot, SlotLayout, SLOT_DB_FILENAME};
 use crate::smoke::{self, SmokeReport};
@@ -184,7 +184,7 @@ impl HandoffParticipantRegistry {
 }
 
 /// Where a candidate artifact comes from.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum CandidateSource {
     /// Build it with the configured build provider.
     Build {
@@ -198,7 +198,7 @@ pub enum CandidateSource {
 }
 
 /// One prepare request.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PrepareRequest {
     pub agent_id: EntityId,
     /// The generation the candidate becomes.
@@ -322,6 +322,14 @@ pub struct UpdateService {
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
     #[error(transparent)]
+    Build(#[from] crate::build::BuildError),
+    #[error("{original}; retaining the build evidence also failed: {detail}")]
+    BuildEvidence {
+        #[source]
+        original: Box<UpdateError>,
+        detail: String,
+    },
+    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("no activation selector; the launch must create the first one")]
     SelectorMissing,
@@ -348,6 +356,32 @@ pub enum UpdateError {
 }
 
 pub type UpdateResult<T, E = UpdateError> = std::result::Result<T, E>;
+
+struct PreparationEvidence<'a> {
+    smoke: &'a SmokeReport,
+    build: &'a ObjectRef,
+}
+
+#[derive(Deserialize)]
+struct PreparedProgram {
+    path: PathBuf,
+    digest: Digest,
+}
+
+#[derive(Deserialize)]
+struct PreparedRecoveryClosure {
+    schema_version: u32,
+    to_slot: PathBuf,
+    to_artifact: PreparedProgram,
+}
+
+#[derive(Deserialize)]
+struct PreparedStateCopy {
+    schema_version: u32,
+    generation: RuntimeGeneration,
+    slot_dir: PathBuf,
+    db_path: PathBuf,
+}
 
 impl UpdateService {
     pub fn new(
@@ -759,17 +793,52 @@ impl UpdateService {
     /// authority while the working runtime has already stopped.
     fn verified_candidate_program(&self, record: &ActivationRecord) -> UpdateResult<(PathBuf, Digest)> {
         let slot_dir = self.layout().slot_dir(&record.to_generation);
+        let closure_bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&closure_bytes) == record.recovery_closure_ref.digest
+                && closure_bytes.len() as u64 == record.recovery_closure_ref.bytes,
+            "the prepared recovery closure does not match its sealed reference");
+        let prepared: PreparedRecoveryClosure = serde_json::from_slice(&closure_bytes)
+            .context("the prepared recovery closure has no readable artifact binding")?;
+        ensure!(prepared.schema_version == 1, "unsupported prepared recovery closure schema");
+        let state_bytes = self.store.cas.read_object(&record.to_state_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&state_bytes) == record.to_state_ref.digest
+                && state_bytes.len() as u64 == record.to_state_ref.bytes,
+            "the prepared state copy does not match its sealed reference");
+        let state: PreparedStateCopy = serde_json::from_slice(&state_bytes)
+            .context("the prepared state copy has no readable slot binding")?;
+        ensure!(state.schema_version == 1, "unsupported prepared state-copy schema");
+        ensure!(state.generation == record.to_generation
+                && same_slot_path(&prepared.to_slot, &slot_dir)
+                && same_slot_path(&state.slot_dir, &slot_dir)
+                && same_slot_path(&state.db_path, &slot_dir.join(SLOT_DB_FILENAME)),
+            "the sealed prepared artifact and state copy do not name this activation's generation and slot");
+
         let manifest = slots::read_slot_manifest(&slot_dir).map_err(anyhow::Error::from)?;
+        ensure!(manifest.schema_version == slots::SlotManifest::SCHEMA_VERSION,
+            "unsupported candidate slot manifest schema");
         ensure!(manifest.generation == record.to_generation.0,
             "the candidate slot manifest names generation {}, not this activation's target {}",
             manifest.generation, record.to_generation.0);
-        let executable = manifest.artifact_path.context("candidate artifact path missing")?;
-        let digest = manifest.artifact_digest.context("candidate artifact digest missing")?;
+        // The manifest can change with the executable. Only the immutable
+        // preparation receipt says which program the old smoke qualified.
+        let resolve_program = |path: PathBuf| {
+            if path.is_absolute() { path } else { slot_dir.join(path) }
+        };
+        let declared = resolve_program(PathBuf::from(
+            manifest.artifact_path.context("candidate artifact path missing")?));
+        let executable = resolve_program(prepared.to_artifact.path);
+        ensure!(same_slot_path(&declared, &executable),
+            "the candidate slot manifest does not name the sealed prepared artifact path");
+        let digest = prepared.to_artifact.digest;
+        ensure!(manifest.artifact_digest.as_ref() == Some(&digest),
+            "the candidate slot manifest does not match the sealed prepared artifact digest");
         let bytes = std::fs::read(&executable)
-            .with_context(|| format!("candidate executable {executable} is unreadable"))?;
+            .with_context(|| format!("candidate executable {} is unreadable", executable.display()))?;
         ensure!(Digest::blake3(&bytes) == digest,
-            "candidate executable {executable} does not match its prepared artifact digest");
-        Ok((PathBuf::from(executable), digest))
+            "candidate executable {} does not match its prepared artifact digest", executable.display());
+        Ok((executable, digest))
     }
 
     fn authority_snapshot(&self) -> UpdateResult<serde_json::Value> {
@@ -1008,17 +1077,11 @@ impl UpdateService {
             created_at: chrono::Utc::now().to_rfc3339(),
         }).map_err(anyhow::Error::from)?;
 
-        // 1. The candidate artifact, with a real content identity.
+        // The receipt names the original source of this preparation even if
+        // the subject advances while the bounded compiler process is running.
+        let original_head = self.store.load_subject(request.agent_id)?.0;
         let outcome = match &request.source {
-            CandidateSource::Prebuilt { path } => BuildOutcome {
-                artifact: Some(
-                    build::describe_artifact(path, &request.generation).map_err(anyhow::Error::from)?,
-                ),
-                exit_code: 0,
-                stdout_tail: String::new(),
-                stderr_tail: String::new(),
-                command: vec![path.to_string_lossy().to_string()],
-            },
+            CandidateSource::Prebuilt { path } => BuildOutcome::prebuilt(path, &request.generation),
             CandidateSource::Build {
                 source_dir,
                 profile,
@@ -1033,15 +1096,102 @@ impl UpdateService {
                     extra_args: extra_args.clone(),
                     binary_name: "shenko".to_string(),
                 };
-                self.builder
-                    .build(&build_request)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("{error}"))?
+                self.builder.build(&build_request).await
             }
         };
-        let artifact = outcome
-            .artifact
-            .ok_or_else(|| anyhow!("the build produced no artifact"))?;
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let receipt = self.seal_build_observation(&request, &current, &authority,
+                    &original_head, error.outcome(), Some(error.to_string()));
+                let original = UpdateError::Build(error);
+                return Err(match receipt {
+                    Ok(receipt) => self.retain_prepare_failure(request.agent_id, Some(&receipt), original),
+                    Err(error) => self.retain_prepare_failure(request.agent_id, None,
+                        UpdateError::BuildEvidence { original: Box::new(original), detail: error.to_string() }),
+                });
+            }
+        };
+        let receipt = self.seal_build_observation(&request, &current, &authority,
+            &original_head, Some(&outcome), None)
+            .map_err(|error| self.retain_prepare_failure(request.agent_id, None, error))?;
+        // A completed build is an observation, not a tool-effect settlement.
+        // Root it before copying or launching the candidate; cancellation after
+        // this boundary cannot make the completed compiler output unreachable.
+        let rooted = (|| -> UpdateResult<()> {
+            let observed_head = self.store.load_subject(request.agent_id)?.0;
+            self.store.append_subject_raw_fact(&observed_head, outcome.build_id,
+                "update_build_observation", &serde_json::json!({
+                    "schema_version": 1, "build_id": outcome.build_id,
+                    "build_receipt_ref": receipt,
+                    "native_operation_settled": false,
+                }))?;
+            Ok(())
+        })();
+        if let Err(error) = rooted {
+            return Err(self.retain_prepare_failure(request.agent_id, Some(&receipt), error));
+        }
+        let result = self.prepare_built_candidate(&request, &current, &outcome, &receipt).await;
+        result.map_err(|error| self.retain_prepare_failure(request.agent_id, Some(&receipt), error))
+    }
+
+    fn seal_build_observation(
+        &self,
+        request: &PrepareRequest,
+        current: &ActivationSelector,
+        authority: &serde_json::Value,
+        original_head: &SubjectBranchHead,
+        outcome: Option<&BuildOutcome>,
+        failure: Option<String>,
+    ) -> UpdateResult<ObjectRef> {
+        let outcome_ref = outcome.map(|outcome| outcome.seal(&self.store.cas)).transpose()
+            .map_err(UpdateError::Other)?;
+        self.seal_json(&serde_json::json!({
+            "schema_version": 1, "prepare_request": request,
+            "original_selector": current, "original_authority": authority,
+            "original_branch_head": original_head, "build_outcome_ref": outcome_ref,
+            "provider_error": failure,
+            "source_snapshot_frozen": false, "native_operation_settled": false,
+        }), "activation", "prepare-build-observation")
+    }
+
+    fn retain_prepare_failure(
+        &self,
+        agent_id: EntityId,
+        receipt: Option<&ObjectRef>,
+        original: UpdateError,
+    ) -> UpdateError {
+        // The journal's bounded extra stays small; complete streams and the
+        // original request belong to the typed CAS closure, not inline text.
+        let receipt = receipt.cloned().map(|mut reference| {
+            reference.locator.clear();
+            reference
+        });
+        let context = shenko_store::raw_session::RuntimeErrorContext {
+            kind: "update_prepare".into(),
+            source_module: module_path!().into(),
+            message: original.to_string(),
+            extra: serde_json::json!({ "build_receipt_ref": receipt }),
+            ..Default::default()
+        };
+        match self.store.record_runtime_error(agent_id, context) {
+            Ok(_) => original,
+            Err(error) => UpdateError::BuildEvidence {
+                original: Box::new(original), detail: format!("durable error journal: {error}"),
+            },
+        }
+    }
+
+    async fn prepare_built_candidate(
+        &self,
+        request: &PrepareRequest,
+        current: &ActivationSelector,
+        outcome: &BuildOutcome,
+        receipt: &ObjectRef,
+    ) -> UpdateResult<ActivationRecord> {
+        let artifact = outcome.artifact.as_ref().ok_or_else(|| anyhow!("the build produced no artifact"))?;
+        ensure!(outcome.exit_code == 0 && artifact.generation == request.generation,
+            "the provider outcome does not qualify the requested candidate generation");
 
         // 2. Copy the live slot into the candidate slot.
         let live = self.live_slot_handle(&current.generation);
@@ -1097,7 +1247,8 @@ impl UpdateService {
         .map_err(|error| UpdateError::SmokeFailed(format!("{error}")))?;
 
         // 6. Persist the activation record with its sealed references.
-        let record = self.build_record(&current, &request, &live, &slot, &import, &report)?;
+        let record = self.build_record(current, request, &live, &slot, &import,
+            PreparationEvidence { smoke: &report, build: receipt })?;
         let record = self.store.create_activation_record(&record)?;
         tracing::info!(
             activation_id = %record.activation_id,
@@ -1115,7 +1266,7 @@ impl UpdateService {
         live: &AbSlot,
         slot: &AbSlot,
         import: &ImportReport,
-        report: &SmokeReport,
+        evidence: PreparationEvidence<'_>,
     ) -> UpdateResult<ActivationRecord> {
         let copied = slots::read_slot_manifest(&slot.slot_dir).map_err(anyhow::Error::from)?;
         let live_watermark = copied.copied_through_seq.map(|seq|
@@ -1143,7 +1294,7 @@ impl UpdateService {
             "activation",
             "state-copy",
         )?;
-        let smoke_evidence = self.seal_json(report, "activation", "smoke-report")?;
+        let smoke_evidence = self.seal_json(evidence.smoke, "activation", "smoke-report")?;
 
         let rollback_plan = self.seal_json(
             &serde_json::json!({
@@ -1167,6 +1318,7 @@ impl UpdateService {
                 "from_slot": live.slot_dir.to_string_lossy(),
                 "to_slot": slot.slot_dir.to_string_lossy(),
                 "from_artifact": current.route_authority_ref,
+                "build_receipt_ref": evidence.build,
                 "to_artifact": {
                     "path": slot.artifact_path,
                     "digest": slot.artifact_digest,

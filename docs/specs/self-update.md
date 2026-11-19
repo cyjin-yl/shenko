@@ -49,12 +49,28 @@ snapshot is retained in the recovery closure and re-read before selection.
 Node election epoch, selector epoch and subject controller epoch are distinct.
 
 After genesis, `Store::installation_id_for_subject` obtains stable installation
-identity from the verified immutable `genesis.bootstrap_event_ref` or an explicit
-provisioning record, not the current ledger writer ID. Fresh CLI genesis already
-seals that identity in the event; a separate `bootstrap_records` projection is
-not required for restart. When both representations exist, their installation
-and subject bindings must agree; missing or conflicting identity is an error,
-not a new installation. A staged copy acquires a distinct current ledger writer ID before its first
+identity from verified bootstrap and local provisioning evidence, not the
+current ledger writer ID. Fresh CLI genesis seals its birth installation in
+`genesis.bootstrap_event_ref`; a separate `bootstrap_records` projection is
+not required for restart. When both source representations exist, their
+installation and subject bindings must agree. Local provisioning cannot hide a
+source conflict. A peer retains that immutable birth identity and exact
+`cognition_origins` genesis/source ledger, while its independently prepared home
+has its own stable installation ID. The nonreplicated
+`local_installation_provisioning` row retains the complete initial home CAS
+reference and local commit/incarnation receipt after actual seed preparation
+and readback. It is excluded from canonical row transitions and peer archives.
+Its metadata alone selects no subject, Node primary, software route or consumer.
+Missing or conflicting evidence is an error, not a new installation.
+
+Same-installation SQLite slot backup preserves this local row and its historical
+receipt; reading it does not require that receipt's writer to be the current
+writer. The initial evidence is not overwritten by a compatible home capability
+upgrade. Start, Check and peer receive resolve the persisted installation before
+preparing the home. Only an unprovisioned store with no locally bound subject
+uses its first writer ID as a proposed initial identity, and the actual seed
+must still admit the filesystem before that identity is recorded.
+A staged copy acquires a distinct current ledger writer ID before its first
 local mutation; historical `commit_log.ledger_id` values and embedded source
 CommitRefs are not rewritten. The installation, owner, subject and genesis do
 not become new identities.
@@ -62,6 +78,83 @@ not become new identities.
 ## Build, copies and typed migration
 
 `CargoBuildProvider` builds a real candidate; prebuilt input is content-checked.
+
+The builder selects the unique non-test binary reported by its own completed
+Cargo JSON stream. The reported package, manifest and target must agree with
+that invocation's separately retained `cargo metadata --no-deps
+--format-version=1 --locked` observation. A missing, malformed or ambiguous
+artifact is refused; `source/target/<profile>/<binary>` and file modification
+times are not fallback evidence. These are Cargo's documented
+[compiler messages](https://doc.rust-lang.org/cargo/reference/external-tools.html)
+and [workspace metadata](https://doc.rust-lang.org/cargo/commands/cargo-metadata.html),
+not a guessed cache layout.
+
+Each build receives a newly created `.shenko-builds/<build_id>` output directory.
+The original provider/environment target preference and Cargo configuration are
+resolved through the metadata command; one explicit extra `--target-dir` is the
+highest root preference. That argument is replaced in the actual build command
+by the unique directory beneath its canonical root. Original request, preferences,
+metadata output and actual argv are all retained. Repeated/missing directory or
+manifest arguments and overrides that cannot preserve the managed evidence,
+output or lockfile semantics are refused explicitly. Only supported metadata
+configuration/manifest and offline/frozen arguments are forwarded to the probe.
+The accepted executable must resolve inside this build's canonical output tree.
+A second ordinary build cannot overwrite its predecessor's output path; no
+immutable-source or hostile same-user filesystem guarantee is inferred from
+this directory ownership. The exclusive outputs remain available for inspection;
+they are not a shared incremental target cache.
+
+The default compiler deadline is 30 minutes and each raw stream is capped at
+16 MiB. Source/version probes use 15 seconds and 128 KiB per stream; the metadata
+probe has the same deadline and 4 MiB per stream. One compiler JSON record is
+bounded at 1 MiB. Overflow is a failed build observation with retained prefix,
+observed byte count and explicit truncation, never a successful truncated
+receipt. Both pipes are drained concurrently before reaping the leader; on a
+collection error the unreaped leader still anchors the owned process-group/job
+stop, followed by bounded reap and pipe collection. Successful collection
+proves leader exit and both EOFs. It does not prove that a Unix descendant which
+closed both pipes has exited. Direct cancellation of the build future signals
+its original owned processes but cannot synchronously join them or seal a
+terminal observation; the original native T1 remains unknown and is not resent.
+
+The build receipt retains original stdout/stderr as binary `ObjectRef`s and
+records each command's actual exit, collection and cleanup observations. Git
+HEAD/status, workspace manifest/lockfile digests and Cargo version are measured
+observations. Equal clean HEADs before and after a build do not freeze ignored
+files, environment, changing files between observations or the compiler closure.
+A dirty or unavailable checkout is recorded without inventing a source commit.
+Prebuilt input explicitly has no compiler invocation. Neither route executes
+qualification tests merely because a build succeeded.
+
+`prepare` seals the original request, started subject head, selector and authority
+alongside the build outcome. Before copying or smoke-launching a completed
+candidate, it roots that observation in the existing raw history under the
+stable build ID. The append checks the current head transactionally and never
+relabels the original started context; normal subject progress is allowed.
+The successful activation recovery closure retains that same typed reference.
+Returned build/prepare failures retain it through the existing runtime-error
+journal, with only the small reference in bounded journal extras. A competing
+append or evidence/journal failure stops preparation and preserves both errors;
+it does not trigger another build. These observations are not E1 settlements,
+new activation authority or complete S2 qualification. Historical activation
+records remain readable without fabricating missing build provenance.
+
+Forward activation reads the prepared recovery closure and state-copy references
+again, checking their content digests, byte lengths and supported schema. Their
+target generation, slot and database must agree with the activation record and
+installation layout. The program path and digest come from that immutable
+preparation, not from the current mutable slot manifest. The manifest and actual
+program must both match it at the final forward helper's existing checks: before
+that path quiesces and again before the selector CAS. The live control caller
+has already retired its original process before this helper runs; this change
+does not add candidate preflight before that earlier live retirement.
+Changing the executable and rewriting its manifest together cannot reuse the
+old preparation. Missing historical artifact bindings are explicit refusals;
+they are not reconstructed from today's manifest. Already committed selection
+recovery still follows its original committed route and receipts, and rollback
+keeps its distinct retained-program direction. This identity check does not add
+qualification tests or claim that mutable source inputs were frozen.
+
 The current executable is also verified against its committed route and retained
 as an executable recovery artifact. The candidate gets a separate SQLite backup
 and copied state. Installation-level `versions`, shared CAS, node database and

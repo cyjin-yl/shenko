@@ -1,0 +1,148 @@
+{
+  "kind": "github_open_inventory",
+  "observed_at_utc": "2026-11-16T16:07:03Z",
+  "repository": "cyjin-yl/shenko",
+  "queries": {
+    "issues": "repo:cyjin-yl/shenko is:issue is:open",
+    "pull_requests": "repo:cyjin-yl/shenko is:pr is:open"
+  },
+  "request_limit": 100,
+  "issues": [
+    {
+      "number": 300,
+      "title": "feat(memory): integrate optional Obelisk history research with durable evidence",
+      "url": "https://github.com/cyjin-yl/shenko/issues/300"
+    },
+    {
+      "number": 297,
+      "title": "[compat] Poppy 1.0 与 UCP：发现、身份签名和商务状态接续",
+      "url": "https://github.com/cyjin-yl/shenko/issues/297"
+    },
+    {
+      "number": 296,
+      "title": "[taste] Shenko engineering taste review: CI, references, docs volume, structure, UI debts — with best practices",
+      "url": "https://github.com/cyjin-yl/shenko/issues/296"
+    },
+    {
+      "number": 295,
+      "title": "[ui][upstream] Proto-UI compiler 0.3 audit: findings, best practices and rejected shortcuts",
+      "url": "https://github.com/cyjin-yl/shenko/issues/295"
+    },
+    {
+      "number": 294,
+      "title": "[ui][upstream] Proto-UI pitfalls and the Shenko workarounds waiting on them",
+      "url": "https://github.com/cyjin-yl/shenko/issues/294"
+    },
+    {
+      "number": 279,
+      "title": "[§58] 默认元认知、可恢复修剪与最小单机闭环验收",
+      "url": "https://github.com/cyjin-yl/shenko/issues/279"
+    },
+    {
+      "number": 266,
+      "title": "[subject] 一个既有的用例在 main 上永久挂起：孩子的提问在重开后由主人回答（同一段讨论继续）",
+      "url": "https://github.com/cyjin-yl/shenko/issues/266"
+    },
+    {
+      "number": 251,
+      "title": "[§57.15] QQ 官方 Bot 通道做通：能力可达 + 平台边界如实记录",
+      "url": "https://github.com/cyjin-yl/shenko/issues/251"
+    },
+    {
+      "number": 249,
+      "title": "[§57.9/§57.10] 自改留痕、能力契约优先、child 角色框可修订",
+      "url": "https://github.com/cyjin-yl/shenko/issues/249"
+    },
+    {
+      "number": 248,
+      "title": "[§57.8] 三个死接口复活：dialogue / resource policy / operating policy",
+      "url": "https://github.com/cyjin-yl/shenko/issues/248"
+    },
+    {
+      "number": 247,
+      "title": "[§57.7] 界面诚实修复：浅色不闪暗、样式单源、屏幕阅读器宣布",
+      "url": "https://github.com/cyjin-yl/shenko/issues/247"
+    },
+    {
+      "number": 246,
+      "title": "[§57.6] rich 动态文档由真实组件渲染，而不是 JSON 调试视图",
+      "url": "https://github.com/cyjin-yl/shenko/issues/246"
+    },
+    {
+      "number": 245,
+      "title": "[§57.6] playground.manage:1 —— 作品是主体伸向界面的手",
+      "url": "https://github.com/cyjin-yl/shenko/issues/245"
+    },
+    {
+      "number": 244,
+      "title": "[§57.5] 接通真实流式：broker → content_stream → StreamSink",
+      "url": "https://github.com/cyjin-yl/shenko/issues/244"
+    },
+    {
+      "number": 243,
+      "title": "[§57.4] 通道能力声明必须可达",
+      "url": "https://github.com/cyjin-yl/shenko/issues/243"
+    },
+    {
+      "number": 242,
+      "title": "[§57.4] 平台事件进入感知：撤回、入群、离开、戳一戳",
+      "url": "https://github.com/cyjin-yl/shenko/issues/242"
+    },
+    {
+      "number": 241,
+      "title": "[§57.4] 通道表面语法：@、引用、Markdown 降级（内核动词不变）",
+      "url": "https://github.com/cyjin-yl/shenko/issues/241"
+    },
+    {
+      "number": 240,
+      "title": "[§57.3] 注意力政策：未处置输入进入 deferred，[dnd] 真正生效",
+      "url": "https://github.com/cyjin-yl/shenko/issues/240"
+    },
+    {
+      "number": 89,
+      "title": "[Plugin] OXR（SoMarkAI/OXR）：按需本地批量文档解析与恢复",
+      "url": "https://github.com/cyjin-yl/shenko/issues/89"
+    },
+    {
+      "number": 19,
+      "title": "[C14] Python／Bun／Node真实WASM REPL与恢复",
+      "url": "https://github.com/cyjin-yl/shenko/issues/19"
+    },
+    {
+      "number": 12,
+      "title": "[C07] 远程执行与现有coding seats：SSH身份、TUI、OMP与Claude",
+      "url": "https://github.com/cyjin-yl/shenko/issues/12"
+    }
+  ],
+  "pull_requests": [
+    {
+      "number": 309,
+      "title": "fix(seats): bind writer epochs and publish adapter capability facts",
+      "url": "https://github.com/cyjin-yl/shenko/pull/309"
+    },
+    {
+      "number": 308,
+      "title": "fix(memory): isolate unusable intents and validate operation kinds",
+      "url": "https://github.com/cyjin-yl/shenko/pull/308"
+    },
+    {
+      "number": 305,
+      "title": "Continue ship/work: canonical claims, SSH residents and runtime evidence",
+      "url": "https://github.com/cyjin-yl/shenko/pull/305"
+    },
+    {
+      "number": 303,
+      "title": "feat: continue ship/work with canonical recovery, component coordination and SSH WASI",
+      "url": "https://github.com/cyjin-yl/shenko/pull/303"
+    },
+    {
+      "number": 302,
+      "title": "feat(poppy): 接通账号、签名请求与 UCP 结账恢复",
+      "url": "https://github.com/cyjin-yl/shenko/pull/302"
+    }
+  ],
+  "open_issue_count": 21,
+  "open_pull_request_count": 5,
+  "completion_percentage": null,
+  "note": "Counts are a time-bound inventory, not a completion measure. Search responses expose nullable state fields; the explicit open query and returned set are retained. Actual Git refs, not the stale PR base_sha snapshot, bind integration."
+}

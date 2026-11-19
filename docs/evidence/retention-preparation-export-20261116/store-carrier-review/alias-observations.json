@@ -1,0 +1,41 @@
+{
+  "source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+  "tree": "54e739ab4030bfdfb25e1be13fddebfa140a8201",
+  "parent": "7bffa671ba11f6877f9f309b30d895619466cfb9",
+  "git_diff_check_exit": 0,
+  "worktree_status": "",
+  "changed_files": [
+    {
+      "path": "crates/shenko-store/src/retained_objects.rs",
+      "bytes": 17255,
+      "sha256": "cef81185b845ab07f603acf1b500ce1c838fcbafaf705253d96bb1d547d75a6b"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+      "bytes": 8509,
+      "sha256": "ce1eaf868cbd86bda6ebd6fe2da9e410f1ad4ab845e84f8ce5a4d603b04430e2"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/closure.rs",
+      "bytes": 13029,
+      "sha256": "b1d19e66b2d51f0052552fb758de75653d6f0854d63c19decfc2514ee14c9cf8"
+    },
+    {
+      "path": "docs/development/store-retained-objects.md",
+      "bytes": 10660,
+      "sha256": "4efe82ad710b1064826f0b91f86c4219d8be3f613ad40b4160edb5addf1e71d4"
+    }
+  ],
+  "test_files_changed": false,
+  "protected_spec_files_changed": [],
+  "new_scenarios": 0,
+  "checks_not_executed": [
+    "Rust compiler",
+    "Cargo",
+    "Clippy",
+    "rustfmt",
+    "documentation parser",
+    "runtime journeys"
+  ],
+  "scope": "Static source/diff binding only; exact adapter codec check and distinct generic/tool reading cache; no runtime outcome."
+}

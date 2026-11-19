@@ -1,0 +1,50 @@
+{
+  "production": {
+    "baseline_total_compared": 757,
+    "candidate_total_compared": 759,
+    "baseline_group_count": 247,
+    "candidate_group_count": 248,
+    "deltas": [
+      {
+        "package": "shenko",
+        "lint": "unreachable_code",
+        "baseline": 0,
+        "candidate": 3,
+        "delta": 3
+      },
+      {
+        "package": "shenko-subject",
+        "lint": "clippy::expect_used",
+        "baseline": 14,
+        "candidate": 13,
+        "delta": -1
+      }
+    ],
+    "production_only_uncompared_baseline": 0,
+    "production_only_uncompared_candidate": 0
+  },
+  "all-targets": {
+    "baseline_total_compared": 1279,
+    "candidate_total_compared": 1284,
+    "baseline_group_count": 248,
+    "candidate_group_count": 249,
+    "deltas": [
+      {
+        "package": "shenko",
+        "lint": "unreachable_code",
+        "baseline": 0,
+        "candidate": 6,
+        "delta": 6
+      },
+      {
+        "package": "shenko-subject",
+        "lint": "clippy::err_expect",
+        "baseline": 3,
+        "candidate": 2,
+        "delta": -1
+      }
+    ],
+    "production_only_uncompared_baseline": 58,
+    "production_only_uncompared_candidate": 58
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "kind": "actual_hosted_source_build_failure",
+  "product_tested": false,
+  "run_id": 43922989826,
+  "job_id": 133494902423,
+  "head_sha": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+  "actual_checkout_sha": "61a813576b19b3aea0403ef6dd4fc3d64238ad0b",
+  "actual_checkout_tree": "f7c39079c0788091c311c3f01264fa2846e398f3",
+  "artifact_id": 14258178649,
+  "artifact_bytes": 2152524,
+  "artifact_sha256": "56ac75e7ca5580b4c0ce19c5a7dcc96f61ffb31e049f67f323194fb33fb8b73d",
+  "archive_entries": 98,
+  "internal_files_verified": 97,
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "phase": "OpenSSL archive recipe before final Node module link",
+  "compile": {
+    "started_at": "2026-11-16T17:53:38.562393+00:00",
+    "finished_at": "2026-11-16T18:46:54.067962+00:00",
+    "elapsed_seconds": 3195.484054378,
+    "exit_code": 2,
+    "stopped": null,
+    "leader_reaped": true,
+    "group_remaining": [],
+    "rss_peak_bytes_observed": 3328528384
+  },
+  "stderr_errors": [
+    {
+      "line": 250666,
+      "text": "make: printf: Argument list too long"
+    },
+    {
+      "line": 250667,
+      "text": "make: *** [deps/openssl/openssl.target.mk:1107: /home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/source/out/Release/obj.target/deps/openssl/libopenssl.a] Error 127"
+    }
+  ],
+  "sample_count": 640,
+  "minimum_observed_effective_headroom_bytes": 12561895424,
+  "minimum_observed_disk_free_bytes": 89381711872,
+  "full_compile_stdout": "original-artifact.zip!compile.stdout",
+  "full_compile_stderr": "original-artifact.zip!compile.stderr",
+  "source_build_summary": {
+    "started_at": "2026-11-16T17:53:04.234273+00:00",
+    "stage": "compile",
+    "checks": {},
+    "build_succeeded": false,
+    "reopen_attempted": false,
+    "feasibility_passed": false,
+    "product_capability_installed": false,
+    "named_target_acceptance": false,
+    "error": {
+      "type": "RuntimeError",
+      "message": "compile failed; see its original output and process observation"
+    },
+    "owned_groups_settled": true,
+    "compiled_cache_files": [],
+    "stop_signal": null,
+    "finished_at": "2026-11-16T18:46:54.176001+00:00"
+  },
+  "guest_executed": false,
+  "cell_result_available": false,
+  "reopen_attempted": false,
+  "scope": "Original source build ran. The original three-cell guest journey was not reached; no Shenko runtime capability or Bun acceptance is claimed. The exact command length responsible for the printf failure has not yet been reproduced."
+}

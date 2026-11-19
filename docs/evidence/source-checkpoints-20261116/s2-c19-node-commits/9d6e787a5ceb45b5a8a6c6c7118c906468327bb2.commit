@@ -1,0 +1,6 @@
+tree a99b482468456dcbb284ce17a89599fa85c69d2a
+parent 169e18bd9a633a43d50bd1e9ad4439ec47e5448c
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864219 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864219 +0000
+
+docs(s5): retain original sources and actual C19 integration checks

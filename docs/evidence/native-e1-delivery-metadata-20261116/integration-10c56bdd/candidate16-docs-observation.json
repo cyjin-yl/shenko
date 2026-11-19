@@ -1,0 +1,14 @@
+{
+  "source_commit": "10c56bdd70c07ecc3022a62ea3a8eaaa16451958",
+  "source_tree": "b59ad3df936f763e9c07d344ab889bc0dbceffb7",
+  "argv": [
+    "/workspace/scratch/d013f3e3b824/poppy-docs-venv/bin/python",
+    "scripts/check_docs.py",
+    "--verify-migration"
+  ],
+  "started_at": "2026-11-16T17:44:30.453074+00:00",
+  "ended_at": "2026-11-16T17:44:37.791556+00:00",
+  "exit_code": 0,
+  "stdout": "candidate16-docs.stdout",
+  "stderr": "candidate16-docs.stderr"
+}

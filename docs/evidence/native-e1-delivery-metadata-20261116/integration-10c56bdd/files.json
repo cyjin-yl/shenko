@@ -1,0 +1,28 @@
+{
+  "source_commit": "10c56bdd70c07ecc3022a62ea3a8eaaa16451958",
+  "source_tree": "b59ad3df936f763e9c07d344ab889bc0dbceffb7",
+  "kind": "integration_source_and_retention_checks_only",
+  "product_tested": false,
+  "files": [
+    {
+      "path": "candidate16-docs.stdout",
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de"
+    },
+    {
+      "path": "candidate16-docs.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "candidate16-docs-observation.json",
+      "bytes": 462,
+      "sha256": "3861a570622ed45f38255214f6cdf7e0f59f1fac6b599e244e5f0fca715b2d6e"
+    },
+    {
+      "path": "candidate16-retention-check.json",
+      "bytes": 1077,
+      "sha256": "90f7f76b4395ae4ffbc5f81d07e59f9e4f51a061aedeb903216173d2310035d8"
+    }
+  ]
+}

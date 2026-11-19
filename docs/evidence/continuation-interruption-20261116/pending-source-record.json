@@ -1,0 +1,58 @@
+{
+  "kind": "Last observed source checkpoints and reviewer reports; not complete raw source recovery",
+  "public_head": "41d785ae8f968a3e81cd632223cadb356c44a224",
+  "public_tree": "a237c05a4b1f095949d1996509b9e3bf653af62f",
+  "local_root_clean_before_environment_loss": "41d785ae8f968a3e81cd632223cadb356c44a224",
+  "original_local_publication_checkpoint": "d780d586821118d92ed9101b91a464aa83eb8221",
+  "host_smoke": {
+    "original_production": "0cb907ea4f2e89b805fdfd9cbd4c3e2b7194b3bd",
+    "production_tree": "667fbca9480193abfdd1210c97baf1310f059e59",
+    "six_windows": "a8b256b1ed6fa110d42b42a62a01d92a4e76cf56",
+    "tree": "bd4c97cc043e0d5ffe5422708306561a166d261e",
+    "skip_duplicate_export": "aaffb3975a6072d76df33396efb5392c6a66aedc",
+    "root_isolated_integration_commits": [
+      "b2e01d5",
+      "9e47cd5"
+    ],
+    "worktree": "shenko-smoke-observation",
+    "integration_worktree": "shenko-host-smoke-integration",
+    "new_windows": 6,
+    "rust_executed": false,
+    "published": false,
+    "confirmed_static_blocker": "rollback_inner Step7 repeats Activated update only on old source, yielding rev2 there versus rev1 on selected target; the sixth reverse journey must be refused by unchanged strict importer.",
+    "dirty_fix_status": "Author reported successful apply_patch removing redundant source update and returning mirrored record, plus same-sixth-journey bilateral record equality assertions; no commit, no completed static command, no independent readback after environment loss.",
+    "forward_existing_fault": "Candidate CAS uses candidate_record with final w1/imported_through; source mirror uses earlier record. Source Observing update precedes selected update; interruption can leave equal revisions with differing content or source ahead. Equal-selector recovery does not reconcile activation record. Static finding only; existing normal six journeys do not inject this interruption."
+  },
+  "store_coordination": {
+    "original_checkpoint": "d4805d019df80da9150d54e51ca82ffeffbac946",
+    "parent": "d780d586821118d92ed9101b91a464aa83eb8221",
+    "worktree": "shenko-store-slot-coordination",
+    "clean_at_last_observation": true,
+    "files": 30,
+    "insertions": 806,
+    "deletions": 86,
+    "rust_executed": false,
+    "published": false,
+    "incomplete": true,
+    "implemented_source_scope": "Independent domain lock and identity marker; real Store open/schema/publication migrations, central writes and 39 source-reserved sites, import metadata and two runtime lock-order callers.",
+    "pending": "Actual copy_slot, migration and three final cutovers are not connected. Resolve created-DB staging relocation without changing original markers; skip only exact physical sidecars, never arbitrary suffix-matching user files. Use verified canonical DB/CAS paths in actual Connection/ContentStore, not mutable aliases. Node independent transactions, CAS seal-to-root intervals and physical writers remain outside this first scope."
+  },
+  "reviews": [
+    {
+      "path": "retention-integration-4394226-review/all-slot-design.json",
+      "bytes": 9596,
+      "sha256": "39efbc1a4b3d6c2b258c4d8bda94e850e39d79eaeb6a0bd3df370cc5d06b0b3a"
+    },
+    {
+      "path": "smoke-0cb-independent-review/observations.json",
+      "sha256": "04d8d3f78e02057b1cb3f8d69766eec6d396238df1393403d59d88e76d20c14c"
+    },
+    {
+      "path": "smoke-a8-fixture-review",
+      "confirmed_original_command_streams": "001–020",
+      "static_result": "6 tests; 16 protected blocks unchanged; old handoff fixture differs only by four module-declaration lines; rollback revision blocker retained.",
+      "pending_write_state": "verify_static.py write unknown; no final directory inventory"
+    }
+  ],
+  "recovery_rule": "On executor recovery inspect actual Git/dirty state before writes. Preserve original author/commit/time/raw objects and failures. Do not promote reports into exact recovered source; verify the saved hashes. No gate, strict-import condition, ignore/baseline or acceptance count may be weakened."
+}

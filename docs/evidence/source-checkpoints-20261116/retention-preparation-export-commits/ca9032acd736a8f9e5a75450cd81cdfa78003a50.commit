@@ -1,0 +1,6 @@
+tree ffaf860e84bbc019a06719c49bede5e26398d1c6
+parent b10ca4c4064d7cc5d877250f8de834dc4d0dbea5
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869798 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869798 +0000
+
+evidence: retain complete 3e62 CI result and original receipt gaps

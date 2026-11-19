@@ -15,22 +15,32 @@ use crate::store::Store;
 
 impl Store {
     pub(crate) fn cognition_object_roots(&self, rows: &[CognitionRow]) -> (Vec<ObjectRef>, Vec<Digest>) {
+        self.cognition_text_object_roots(rows.iter().flat_map(|row| {
+            row.values.iter().filter_map(move |(name, value)| {
+                value.as_deref().map(|value| (row.table.as_str(), name.as_str(), value))
+            })
+        }))
+    }
+
+    /// The same reference semantics over borrowed SQL text. A canonical row
+    /// capture already owns its bounded cells; constructing a second complete
+    /// CognitionRow copy solely to discover their roots would duplicate them.
+    pub(crate) fn cognition_text_object_roots<'a>(
+        &self,
+        values: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+    ) -> (Vec<ObjectRef>, Vec<Digest>) {
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
-        for row in rows {
-            for (name, value) in &row.values {
-                if let Some(value) = value.as_deref() {
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
-                        collect_references(&json, &mut roots, &mut external);
-                    } else if row.table == "context_notes" && name == "body" {
-                        // An authored note is free text. A body that is a
-                        // bare digest is read as a possible external
-                        // reference — a non-blocking reading, never a reason
-                        // to drop or rewrite the note's bytes.
-                        if let Some(digest) = parse_digest(value) {
-                            external.push(digest);
-                        }
-                    }
+        for (table, name, value) in values {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(value) {
+                collect_references(&json, &mut roots, &mut external);
+            } else if table == "context_notes" && name == "body" {
+                // An authored note is free text. A body that is a
+                // bare digest is read as a possible external
+                // reference — a non-blocking reading, never a reason
+                // to drop or rewrite the note's bytes.
+                if let Some(digest) = parse_digest(value) {
+                    external.push(digest);
                 }
             }
         }
@@ -47,6 +57,17 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
+        self.collect_closure_bounded(roots, usize::MAX, u64::MAX)
+    }
+
+    /// A factual transport can impose its own finite inventory budget without
+    /// changing the closure semantics of existing cognition archives.
+    pub(crate) fn collect_closure_bounded(
+        &self,
+        roots: &[ObjectRef],
+        max_objects: usize,
+        max_bytes: u64,
+    ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
         // Content membership and JSON expansion are different facts. One
         // digest can have both opaque and JSON-typed references; encountering
         // the opaque alias first must not hide a later typed child closure.
@@ -54,8 +75,10 @@ impl Store {
         let mut expanded: BTreeSet<String> = BTreeSet::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
+        let mut total_bytes = 0u64;
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
+            anyhow::ensure!(queue.len() < max_objects, "CAS closure reference budget exceeded");
             let key = object.digest.to_string();
             let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
             if let Some(&index) = collected.get(&key) {
@@ -66,6 +89,11 @@ impl Store {
                 if !expand {
                     continue;
                 }
+            } else {
+                anyhow::ensure!(out.len() < max_objects, "CAS closure object budget exceeded");
+                total_bytes = total_bytes.checked_add(object.bytes)
+                    .filter(|total| *total <= max_bytes)
+                    .ok_or_else(|| anyhow::anyhow!("CAS closure byte budget exceeded"))?;
             }
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,

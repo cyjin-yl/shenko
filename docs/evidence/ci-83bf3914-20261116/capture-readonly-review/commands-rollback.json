@@ -1,0 +1,22 @@
+{
+  "working_directory": "/workspace/scratch/faaa3ccca531/ci-83bf3914-43944367545/capture-readonly-review",
+  "commands": [
+    {
+      "command": "python3 observe_rollback_handles.py > rollback-handles.json 2> rollback-handles.stderr",
+      "exit_code": 1,
+      "executed_source_retained_as": "observe_rollback_handles_attempt1.py",
+      "reason": "The diagnostic required BLOB close success instead of recording its SQLITE_ABORT result after rollback."
+    },
+    {
+      "command": "python3 observe_rollback_handles.py > rollback-handles-2.json 2> rollback-handles-2.stderr",
+      "exit_code": 0,
+      "executed_source": "observe_rollback_handles.py",
+      "loaded_library": "libsqlite3.so.0",
+      "sqlite_version": "3.46.1",
+      "project_pinned_execution": false
+    }
+  ],
+  "new_product_test_windows": 0,
+  "rust_or_project_acceptance_execution": false,
+  "product_source_modified_by_reviewer": false
+}

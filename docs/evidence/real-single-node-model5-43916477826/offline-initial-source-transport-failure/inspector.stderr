@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/faaa3ccca531/model5-43916477826/run_offline_inspection.py", line 32, in <module>
+    assert hashlib.sha1(b"blob " + str(len(src)).encode() + b"\0" + src).hexdigest() == state["inspector_blob_sha"], "published inspector blob mismatch"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: published inspector blob mismatch

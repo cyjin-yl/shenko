@@ -1,0 +1,7 @@
+{
+  "kind": "read_only_availability_observation",
+  "github_cli_installed": true,
+  "gh_auth_status_exit": 1,
+  "authenticated_cli_log_download_attempted": false,
+  "credentials_or_auth_output_retained": false
+}

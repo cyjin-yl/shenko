@@ -1,0 +1,16 @@
+{
+  "kind": "kernel_boundary_structure_only",
+  "product_tested": false,
+  "workspace_members": 34,
+  "plugins": 28,
+  "violations": {
+    "plugin_reaches_core": 19,
+    "core_depends_on_plugin": 7,
+    "interface_depends_outward": 0
+  },
+  "new_violations": [],
+  "resolved_violations": [],
+  "baseline_updated": false,
+  "trusted_baseline_commit": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+  "errors": []
+}

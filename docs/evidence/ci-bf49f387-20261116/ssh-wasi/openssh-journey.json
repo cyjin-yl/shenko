@@ -1,0 +1,420 @@
+{
+  "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+  "bootstrap": {
+    "exit_code": 0,
+    "forced": false,
+    "health": {
+      "product": "Shenko",
+      "status": "ok",
+      "version": "0.1.0"
+    },
+    "port": 36945
+  },
+  "cli_binary_sha256": "152ef275ce8530a516f1c32a132b3b0a64477f513e114825d7ee75b398b6be06",
+  "client": "installed WASI module through real CLI tool exec",
+  "installation": {
+    "install": {
+      "environment": {
+        "activated": true,
+        "activation": {
+          "activated": true,
+          "generation": {
+            "closure_version": 2,
+            "created_at": "2026-11-16T16:29:51.697194699+00:00",
+            "digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+            "generation": 1,
+            "members": [
+              {
+                "artifact_digest": "blake3:1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377",
+                "declarations": {
+                  "declared": {
+                    "atoms": [],
+                    "environment": [],
+                    "filesystem": [
+                      {
+                        "guest_path": "/home",
+                        "write": true
+                      }
+                    ],
+                    "host": [
+                      {
+                        "facility": "clock"
+                      },
+                      {
+                        "facility": "random"
+                      }
+                    ]
+                  }
+                },
+                "edges": [],
+                "revision": "0.1.0",
+                "role": "root",
+                "unit_id": "tool.ssh"
+              }
+            ],
+            "roots": [
+              "tool.ssh"
+            ],
+            "schema": 1
+          },
+          "schema": 3,
+          "selector": {
+            "generation": 1,
+            "generation_digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+            "previous_generation": null,
+            "revision": 1,
+            "schema": 1,
+            "updated_at": "2026-11-16T16:29:51.698828800+00:00"
+          }
+        },
+        "first_generation": true,
+        "pinned": true,
+        "prepared": {
+          "generation": {
+            "closure_version": 2,
+            "created_at": "2026-11-16T16:29:51.697194699+00:00",
+            "digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+            "generation": 1,
+            "members": [
+              {
+                "artifact_digest": "blake3:1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377",
+                "declarations": {
+                  "declared": {
+                    "atoms": [],
+                    "environment": [],
+                    "filesystem": [
+                      {
+                        "guest_path": "/home",
+                        "write": true
+                      }
+                    ],
+                    "host": [
+                      {
+                        "facility": "clock"
+                      },
+                      {
+                        "facility": "random"
+                      }
+                    ]
+                  }
+                },
+                "edges": [],
+                "revision": "0.1.0",
+                "role": "root",
+                "unit_id": "tool.ssh"
+              }
+            ],
+            "roots": [
+              "tool.ssh"
+            ],
+            "schema": 1
+          },
+          "note": "prepared only; nothing becomes current until the selector is advanced",
+          "schema": 3,
+          "unchanged": false
+        }
+      },
+      "installed": {
+        "abi": "wasi_preview1",
+        "already_present": false,
+        "bytes": 2552689,
+        "capabilities": {
+          "declared": {
+            "atoms": [],
+            "environment": [],
+            "filesystem": [
+              {
+                "guest_path": "/home",
+                "write": true
+              }
+            ],
+            "host": [
+              {
+                "facility": "clock"
+              },
+              {
+                "facility": "random"
+              }
+            ]
+          }
+        },
+        "digest": "blake3:8b3c60ee5cd2fce619eb17a0585c7f8bd9dbd0a48a231cd0187c919d240dcc24",
+        "imports": [
+          "wasi_snapshot_preview1.clock_time_get",
+          "wasi_snapshot_preview1.environ_get",
+          "wasi_snapshot_preview1.environ_sizes_get",
+          "wasi_snapshot_preview1.fd_close",
+          "wasi_snapshot_preview1.fd_fdstat_get",
+          "wasi_snapshot_preview1.fd_fdstat_set_flags",
+          "wasi_snapshot_preview1.fd_filestat_get",
+          "wasi_snapshot_preview1.fd_prestat_dir_name",
+          "wasi_snapshot_preview1.fd_prestat_get",
+          "wasi_snapshot_preview1.fd_read",
+          "wasi_snapshot_preview1.fd_seek",
+          "wasi_snapshot_preview1.fd_sync",
+          "wasi_snapshot_preview1.fd_write",
+          "wasi_snapshot_preview1.path_filestat_get",
+          "wasi_snapshot_preview1.path_open",
+          "wasi_snapshot_preview1.poll_oneoff",
+          "wasi_snapshot_preview1.proc_exit",
+          "wasi_snapshot_preview1.random_get",
+          "wasi_snapshot_preview1.sock_shutdown"
+        ],
+        "license": "Apache-2.0",
+        "name": "ssh",
+        "recovery_bound": true,
+        "sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+        "storage": "content_store",
+        "unit_id": "tool.ssh",
+        "version": "0.1.0"
+      }
+    },
+    "install_input_removed": true,
+    "inventory": {
+      "environment": {
+        "generations": [
+          {
+            "closure_version": 2,
+            "created_at": "2026-11-16T16:29:51.697194699+00:00",
+            "digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+            "generation": 1,
+            "members": [
+              {
+                "artifact_digest": "blake3:1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377",
+                "declarations": {
+                  "declared": {
+                    "atoms": [],
+                    "environment": [],
+                    "filesystem": [
+                      {
+                        "guest_path": "/home",
+                        "write": true
+                      }
+                    ],
+                    "host": [
+                      {
+                        "facility": "clock"
+                      },
+                      {
+                        "facility": "random"
+                      }
+                    ]
+                  }
+                },
+                "edges": [],
+                "revision": "0.1.0",
+                "role": "root",
+                "unit_id": "tool.ssh"
+              }
+            ],
+            "roots": [
+              "tool.ssh"
+            ],
+            "schema": 1
+          }
+        ],
+        "pinned": true,
+        "selector": {
+          "generation": 1,
+          "generation_digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+          "previous_generation": null,
+          "revision": 1,
+          "schema": 1,
+          "updated_at": "2026-11-16T16:29:51.698828800+00:00"
+        }
+      },
+      "named_targets": {
+        "gcc-wasm": "unresolved [W0, needs nothing beyond wasi preview1]: no verified WASM-hosted compiler artifact exists yet; the retained wasi-sdk toolchain runs on the host and *produces* wasm32-wasip1 modules, which is the target side of docs/specs/wasm-tools.md#spec-8-2, not a compiler that runs inside WASM. This target stays open until a real artifact exists",
+        "gh": "unresolved [W2, needs cap.network.tcp/1, cap.network.dns/1, cap.process.deny/1]: no verified artifact exists yet: cli/cli is Go, and a GOOS=wasip1 build links without socket support, so its API calls cannot work as built. The preview1 transport now exists (crates/shenko-wasm/ports/wasi-net/), so gh needs a wasip1 build that actually uses admitted sockets, and it still has no substitute for its browser, keyring, editor and aggregation helpers. Acquisition and the open port work are described in crates/shenko-wasm/ports/gh-wasi/. This target stays open until a real artifact exists",
+        "git": "unresolved [W2, needs cap.network.tcp/1, cap.process.deny/1]: no verified wasm32-wasip1 Git client artifact exists yet. This runtime now supplies the missing transport — admitted, target-bound stream sockets (shenko_wasm::NetworkAdmission; guest shim in crates/shenko-wasm/ports/wasi-net/) — so clone/pull/push over http(s) no longer lack sockets. What is still missing is the port: the wasip1 sysroot has no fork/exec, so the credential helper chain and the dashed builtin dispatch must run in-module, and https needs a wasm-built crypto backend. The acquisition and build recipe, with the upstream pin resolved from the project's own repository at acquisition time, is crates/shenko-wasm/ports/git-wasi/. This target stays open until a real artifact exists",
+        "ssh": "installed: ssh@0.1.0 blake3:1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377 (content_store, Apache-2.0)",
+        "tea": "unresolved [W2, needs cap.network.tcp/1, cap.network.dns/1, cap.process.deny/1]: no verified Gitea CLI WASM artifact exists yet: go-gitea/gitea's tea is Go, and a GOOS=wasip1 build links without sockets, so its API calls cannot work as built; it needs a wasip1 build over the admitted preview1 transport (crates/shenko-wasm/ports/wasi-net/). Acquisition and the open port work are described in crates/shenko-wasm/ports/tea-wasi/. This target stays open until a real artifact exists",
+        "toybox": "unresolved [W0, needs nothing beyond wasi preview1]: the toybox 0.8.15 port's applets exist and the tool-set manifest ships in crates/shenko-wasm/ports/toybox-wasi/, but no toybox applet is installed in this installation yet; install the set with `shenko tool install-set`"
+      },
+      "tools": [
+        {
+          "abi": "wasi_preview1",
+          "artifact": {
+            "bytes": 2552689,
+            "chunk_manifest": {
+              "bytes": 18472,
+              "codec": {
+                "digest": "blake3:61b0fa111918a9b0f3249857725e6fe68372b573846aa11904899f7a5353db4c",
+                "major": 1,
+                "name": "wasm-tool-artifact"
+              },
+              "digest": "blake3:3609f8980f5c14ba33ee166516e0d6a2be64d51367fbf34c93abcf63307cb1b3",
+              "locator": "file:///tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/installation/cas/36/09/3609f8980f5c14ba33ee166516e0d6a2be64d51367fbf34c93abcf63307cb1b3",
+              "media_type": "application/json",
+              "store_namespace": "wasm-tool-artifact"
+            },
+            "digest": "blake3:8b3c60ee5cd2fce619eb17a0585c7f8bd9dbd0a48a231cd0187c919d240dcc24",
+            "kind": "content_store",
+            "media_type": "application/wasm",
+            "sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+            "store_namespace": "wasm-tool-artifact"
+          },
+          "capabilities": {
+            "declared": {
+              "atoms": [],
+              "environment": [],
+              "filesystem": [
+                {
+                  "guest_path": "/home",
+                  "write": true
+                }
+              ],
+              "host": [
+                {
+                  "facility": "clock"
+                },
+                {
+                  "facility": "random"
+                }
+              ]
+            }
+          },
+          "current": true,
+          "digest": "blake3:1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377",
+          "enabled": true,
+          "entrypoint": "/tools/ssh",
+          "environment": {
+            "digest": "blake3:368302fcf84d52c18138191f4464ccf7a6db1fb17ba692636a49fc8f06d659c2",
+            "generation": 1,
+            "role": "root",
+            "selector_revision": 1
+          },
+          "imports": [
+            "wasi_snapshot_preview1.clock_time_get",
+            "wasi_snapshot_preview1.environ_get",
+            "wasi_snapshot_preview1.environ_sizes_get",
+            "wasi_snapshot_preview1.fd_close",
+            "wasi_snapshot_preview1.fd_fdstat_get",
+            "wasi_snapshot_preview1.fd_fdstat_set_flags",
+            "wasi_snapshot_preview1.fd_filestat_get",
+            "wasi_snapshot_preview1.fd_prestat_dir_name",
+            "wasi_snapshot_preview1.fd_prestat_get",
+            "wasi_snapshot_preview1.fd_read",
+            "wasi_snapshot_preview1.fd_seek",
+            "wasi_snapshot_preview1.fd_sync",
+            "wasi_snapshot_preview1.fd_write",
+            "wasi_snapshot_preview1.path_filestat_get",
+            "wasi_snapshot_preview1.path_open",
+            "wasi_snapshot_preview1.poll_oneoff",
+            "wasi_snapshot_preview1.proc_exit",
+            "wasi_snapshot_preview1.random_get",
+            "wasi_snapshot_preview1.sock_shutdown"
+          ],
+          "license": "Apache-2.0",
+          "materialized_path": "/tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/installation/tools/units/tool.ssh/0.1.0/blake3_1b9b8c945698f0f3f5c1ede5060a59563b066a9e5664d47163ea587425f92377.71973c5d/package.bin",
+          "name": "ssh",
+          "selected": true,
+          "source": {
+            "provenance": "source_build:crates/shenko-wasm/ports/ssh-wasi/build.py",
+            "release": "0.1.0",
+            "uri": "https://github.com/cyjin-yl/shenko"
+          },
+          "unit_id": "tool.ssh",
+          "version": "0.1.0"
+        }
+      ]
+    }
+  },
+  "installation_identity": {
+    "agent_id": "71447c54-b994-4ebb-a9ed-a7c255989f5c",
+    "branch_id": "5979c318-0e00-440b-be2d-98fddfda66b6",
+    "ledger_id": "13e6eb84-7d10-4947-9ea4-c4269e96790a",
+    "origin_proof": "blake3:47bddb69aefbce24972c675897a69a5dfbe93da6bcf97215c64e2b3ee68508de"
+  },
+  "kind": "real_ssh_wasi_openssh_journey",
+  "payload_bytes": 100003,
+  "payload_sha256": "635e9a7d2f64ce04a46b1503cbe287b8721795f215f4b8cf24b256908acaab1a",
+  "records": [
+    {
+      "action": "keygen",
+      "cli_elapsed_secs": 37.984543424,
+      "cli_stderr": "\u001b[2m2026-11-16T16:29:51.763854Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:29:51.776021Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:29:51.782246Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:29:59.808558Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m8.032562753 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:29:59.808892Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:29:59.809120Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:29:59.809425Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000326407\n\u001b[2m2026-11-16T16:30:29.459604Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.650176041 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.650497361\n\u001b[2m2026-11-16T16:30:29.460782Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.651684348\n\u001b[2m2026-11-16T16:30:29.461305Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.000528954 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.652207904\n\u001b[2m2026-11-16T16:30:29.461385Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.652291476\n\u001b[2m2026-11-16T16:30:29.702197Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.240795464 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.893085288\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 0,
+      "label": "guest-0",
+      "outcome": "exit status: 0",
+      "run_timeout_secs": 120,
+      "stderr": "",
+      "stdout": "{\"fingerprint\":\"SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A\",\"generated\":\"ed25519\"}\n"
+    },
+    {
+      "action": "exec",
+      "cli_elapsed_secs": 37.614231459,
+      "cli_stderr": "\u001b[2m2026-11-16T16:30:30.202557Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:30:30.214655Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:30:30.247222Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:30:37.814981Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m7.600327179 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:30:37.815331Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:30:37.815564Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:30:37.815839Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000288663\n\u001b[2m2026-11-16T16:31:07.558277Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.742433729 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.742717235\n\u001b[2m2026-11-16T16:31:07.560169Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.744617736\n\u001b[2m2026-11-16T16:31:07.560691Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.000531458 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.745142645\n\u001b[2m2026-11-16T16:31:07.560771Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.745225706\n\u001b[2m2026-11-16T16:31:07.727587Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.166799258 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.912023312\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 7,
+      "label": "guest-1",
+      "outcome": "exit status: 7",
+      "run_timeout_secs": 120,
+      "stderr": "ssh-wasi-stderr\n",
+      "stdout": "ssh-wasi-exec\n"
+    },
+    {
+      "action": "put",
+      "cli_elapsed_secs": 37.629194888,
+      "cli_stderr": "\u001b[2m2026-11-16T16:31:07.819069Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:31:07.831141Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:31:07.837398Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:31:15.401664Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m7.570524697 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:31:15.402025Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:31:15.402272Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:31:15.402554Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000297906\n\u001b[2m2026-11-16T16:31:44.987694Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.585141404 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.585433602\n\u001b[2m2026-11-16T16:31:44.989541Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.587287374\n\u001b[2m2026-11-16T16:31:44.990063Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.000532059 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.587811972\n\u001b[2m2026-11-16T16:31:44.990144Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.587896966\n\u001b[2m2026-11-16T16:31:45.415781Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.425621057 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m30.013516432\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 0,
+      "label": "guest-2",
+      "outcome": "exit status: 0",
+      "run_timeout_secs": 120,
+      "stderr": "",
+      "stdout": "{\"direction\":\"put\",\"transferred_bytes\":100003}\n"
+    },
+    {
+      "action": "get",
+      "cli_elapsed_secs": 37.78201854,
+      "cli_stderr": "\u001b[2m2026-11-16T16:31:45.449381Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:31:45.461462Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:31:45.467473Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:31:53.023464Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m7.56200313 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:31:53.023806Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:31:53.024078Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:31:53.024399Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000338845\n\u001b[2m2026-11-16T16:32:22.676641Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.652239432000002 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.6525733\n\u001b[2m2026-11-16T16:32:22.678502Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.654442516\n\u001b[2m2026-11-16T16:32:22.679020Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.000525949 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.654962176\n\u001b[2m2026-11-16T16:32:22.679104Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.655049514\n\u001b[2m2026-11-16T16:32:23.200143Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.521023507 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m30.176070817\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 0,
+      "label": "guest-3",
+      "outcome": "exit status: 0",
+      "run_timeout_secs": 120,
+      "stderr": "",
+      "stdout": "{\"direction\":\"get\",\"transferred_bytes\":100003}\n"
+    },
+    {
+      "action": "exec",
+      "cli_elapsed_secs": 37.404285562,
+      "cli_stderr": "\u001b[2m2026-11-16T16:32:23.232002Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:32:23.244457Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:32:23.250555Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:32:30.857598Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m7.613148391 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:32:30.857946Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:32:30.858239Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:32:30.858508Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000288854\n\u001b[2m2026-11-16T16:33:00.542866Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.684353989999998 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.684637886\n\u001b[2m2026-11-16T16:33:00.544779Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.686558937\n\u001b[2m2026-11-16T16:33:00.545341Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.00057416 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.687123724\n\u001b[2m2026-11-16T16:33:00.545417Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.687204542\n\u001b[2m2026-11-16T16:33:00.603115Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.057679379 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.744883139\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 255,
+      "label": "guest-4",
+      "outcome": "exit status: 255",
+      "run_timeout_secs": 120,
+      "stderr": "ssh-wasi: Unknown server key\n",
+      "stdout": ""
+    },
+    {
+      "action": "exec",
+      "cli_elapsed_secs": 37.481675486,
+      "cli_stderr": "\u001b[2m2026-11-16T16:33:00.637356Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko::runtime_lifecycle\u001b[0m\u001b[2m:\u001b[0m quota strategies installed \u001b[3mstrategies\u001b[0m\u001b[2m=\u001b[0m[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]\n\u001b[2m2026-11-16T16:33:00.650012Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_started\"\n\u001b[2m2026-11-16T16:33:00.655945Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_store::store\u001b[0m\u001b[2m:\u001b[0m store opened \u001b[3mfts5\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mwal\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3msqlite\u001b[0m\u001b[2m=\u001b[0m3.46.0\n\u001b[2m2026-11-16T16:33:08.251021Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko::tool_exec\u001b[0m\u001b[2m:\u001b[0m tool exec timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"artifact_verification_finished\" \u001b[3mverification_secs\u001b[0m\u001b[2m=\u001b[0m7.601029747 \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:33:08.251367Z\u001b[0m \u001b[32m INFO\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASM runtime init (wasmtime-45)\n\u001b[2m2026-11-16T16:33:08.251599Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"budget_started\" \u001b[3mdeadline_secs\u001b[0m\u001b[2m=\u001b[0mSome(120.0) \u001b[3mmodule_bytes\u001b[0m\u001b[2m=\u001b[0m2552689\n\u001b[2m2026-11-16T16:33:08.251908Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m0.000323973\n\u001b[2m2026-11-16T16:33:38.076432Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"compile_finished\" \u001b[3mcompile_secs\u001b[0m\u001b[2m=\u001b[0m29.824519886 \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.824839083\n\u001b[2m2026-11-16T16:33:38.077599Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_started\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.826016806\n\u001b[2m2026-11-16T16:33:38.078162Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"instantiate_finished\" \u001b[3minstantiate_secs\u001b[0m\u001b[2m=\u001b[0m0.000569033 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mfalse \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.826579459\n\u001b[2m2026-11-16T16:33:38.078250Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_entered\" \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.826671153\n\u001b[2m2026-11-16T16:33:38.080925Z\u001b[0m \u001b[34mDEBUG\u001b[0m \u001b[2mshenko_wasm::runtime\u001b[0m\u001b[2m:\u001b[0m WASI run timing \u001b[3mstage\u001b[0m\u001b[2m=\u001b[0m\"start_returned\" \u001b[3mexecution_secs\u001b[0m\u001b[2m=\u001b[0m0.002673021 \u001b[3mreturned_with_trap\u001b[0m\u001b[2m=\u001b[0mtrue \u001b[3mrun_elapsed_secs\u001b[0m\u001b[2m=\u001b[0m29.829341941\n",
+      "cli_timeout_secs": 180,
+      "event": "command_observed",
+      "exit_code": 255,
+      "label": "guest-5",
+      "outcome": "exit status: 255",
+      "run_timeout_secs": 120,
+      "stderr": "ssh-wasi: no host-admitted TCP stream matches 127.0.0.1:37589\n",
+      "stdout": ""
+    }
+  ],
+  "same_installation_after_execution": true,
+  "scope": "real CLI bootstrap, install and selected-tool execution; keygen, pinned public-key authentication, exec status/streams, SFTP put/get, key and grant refusal; no native wasi.exec T1/E1/T2, remote deployment or long-run claim",
+  "server": "local OpenSSH",
+  "server_log": "Server listening on 127.0.0.1 port 37589.\r\nConnection from 127.0.0.1 port 59430 on 127.0.0.1 port 37589 rdomain \"\"\r\nkex_exchange_identification: Connection closed by remote host\r\nConnection closed by 127.0.0.1 port 59430\r\nConnection from 127.0.0.1 port 39266 on 127.0.0.1 port 37589 rdomain \"\"\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 39266 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 39266 ssh2: ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A\r\nStarting session: command for root from 127.0.0.1 port 39266 id 0\r\nClose session: user root from 127.0.0.1 port 39266 id 0\r\nConnection closed by 127.0.0.1 port 39266\r\nTransferred: sent 2388, received 1400 bytes\r\nClosing connection to 127.0.0.1 port 39266\r\nConnection from 127.0.0.1 port 58052 on 127.0.0.1 port 37589 rdomain \"\"\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 58052 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 58052 ssh2: ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A\r\nStarting session: subsystem 'sftp' for root from 127.0.0.1 port 58052 id 0\r\nConnection closed by 127.0.0.1 port 58052\r\nClose session: user root from 127.0.0.1 port 58052 id 0\r\nTransferred: sent 2888, received 101936 bytes\r\nClosing connection to 127.0.0.1 port 58052\r\nConnection from 127.0.0.1 port 58786 on 127.0.0.1 port 37589 rdomain \"\"\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nPostponed publickey for root from 127.0.0.1 port 58786 ssh2 [preauth]\r\nAccepted key ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A found at /tmp/shenko-ssh-client-3ed29fe4-8696-43ff-9c06-bd8a7c1cfd7b/authorized_keys:1\r\nAccepted publickey for root from 127.0.0.1 port 58786 ssh2: ED25519 SHA256:ncQamQBeCbDV81o0qlUUyqdTU4EH3pizVY4qMDTsc8A\r\nStarting session: subsystem 'sftp' for root from 127.0.0.1 port 58786 id 0\r\nConnection closed by 127.0.0.1 port 58786\r\nClose session: user root from 127.0.0.1 port 58786 id 0\r\nTransferred: sent 102916, received 1940 bytes\r\nClosing connection to 127.0.0.1 port 58786\r\nConnection from 127.0.0.1 port 52868 on 127.0.0.1 port 37589 rdomain \"\"\r\nConnection closed by 127.0.0.1 port 52868 [preauth]\r\nReceived signal 15; terminating.\r\n",
+  "server_stop": {
+    "forced": false,
+    "status": "exit status: 0"
+  }
+}

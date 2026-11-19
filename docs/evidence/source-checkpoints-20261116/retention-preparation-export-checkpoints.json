@@ -1,0 +1,2741 @@
+{
+  "recorded_at": "2026-11-16T23:17:29.524341+00:00",
+  "kind": "exact_original_git_objects_and_tree_deltas",
+  "refs": {
+    "integration-before-provenance": "b4e192c70d5f35e1b71c4856fb692e25a71c4523",
+    "pty-binding-correction": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+    "prepared-artifact-identity": "17eb82114636a1aff428f6d9257d0b94c669ca0e",
+    "installation-permit-design": "832d73323eb1dbca582c8d48b9bdc4f32c86ce87",
+    "native-command-cleanup": "1d81cc6f052f6e2f14e14e4d87f96a6f1d43630f",
+    "pty-original-export": "d80d8cbb7992e6ec40e5cb7075ebc0e83fec71c1",
+    "update-original-export": "a59753d624434c17afc359df18da2b3c6e6ca490",
+    "clippy-input-scope-audit": "a3ce1e65ee30682b35bd8020cb411cb92bad6180",
+    "store-retained-object-reader": "a57aee9be5445dee27eb81ad2d04f90186f951f9"
+  },
+  "original_commit_prerequisites": [
+    "3e62c0e517a246872101cd1e61a694b2156bc919",
+    "c50a0eb7f02d8b7962ae3b43b42a98dc004a6949",
+    "4229b45b8ab33426986540a9a83d22a41a0c9948"
+  ],
+  "original_blob_sources": [
+    "3e62c0e517a246872101cd1e61a694b2156bc919",
+    "c50a0eb7f02d8b7962ae3b43b42a98dc004a6949",
+    "4229b45b8ab33426986540a9a83d22a41a0c9948",
+    "b4e192c70d5f35e1b71c4856fb692e25a71c4523"
+  ],
+  "current_source_tree": "fee7302ed99e2453dc67f620b42781bbe1169337",
+  "original_checkpoints": [
+    {
+      "commit": "1123ce99754a2e3186a87bd8c650852eb4638b59",
+      "tree": "7f2e69daf8fea4a740bf6f377fdb6987b6f94c8a",
+      "parents": [
+        "68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d"
+      ],
+      "base_tree": "39f65e771eb299d2c342d61ceb2dc8528f028276",
+      "raw_commit_path": "retention-preparation-export-commits/1123ce99754a2e3186a87bd8c650852eb4638b59.commit",
+      "raw_commit_sha256": "dfb978d84b196bc581bf81c5ed83439619c296fd247fa2a52b022734a08df43b",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794867863 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794867863 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-update/src/handoff.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "4e7d89bb8384eec9bfc38fa813f1f18ec3556dc5",
+          "sha": "5ad41d64a09b3c784eb1e942c16e764fd63d8c9a",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c0fb298bed162a575714a5d2a928f858d89a7756",
+          "sha": "d62cb08fee233d8cb1aa3fa8a3beae321ef437cd",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "069d60257e7a0ab4558a9f1c5a01988696eb0d96",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/local-static-checks.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2328b42bb1bd496767c7b9f96158ba8bdcff8db8",
+          "status": "A"
+        },
+        {
+          "path": "docs/specs/self-update.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "f823cd7afd45be7a2908e31fd89c1f740b9bc939",
+          "sha": "5b010b4f43ec51971ebd1b34badb9db4351eb8fe",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "17eb82114636a1aff428f6d9257d0b94c669ca0e",
+      "tree": "bb8391309d79eb4ec66a1fb2e1f3f0518f52cd30",
+      "parents": [
+        "1123ce99754a2e3186a87bd8c650852eb4638b59"
+      ],
+      "base_tree": "7f2e69daf8fea4a740bf6f377fdb6987b6f94c8a",
+      "raw_commit_path": "retention-preparation-export-commits/17eb82114636a1aff428f6d9257d0b94c669ca0e.commit",
+      "raw_commit_sha256": "4d6e44d0aa9bccad6ca3900db3d8731c7f563089cddebd331a1b1e1b2013c370",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868308 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868308 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "d62cb08fee233d8cb1aa3fa8a3beae321ef437cd",
+          "sha": "7e023600b5ed8381c1377c94374e386d936432b9",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/fixture-review-static-checks.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a9a041ed4c58b16f26e3f579e896bad41e421843",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "ab5e89e8867dc100997bc38526cb1ad88325b7da",
+      "tree": "1d68e1cb1c91e2c6c5e7bcddbbad45616984ac90",
+      "parents": [
+        "d2dc8ee4a23f722771eae913864ff344f3f16b83"
+      ],
+      "base_tree": "e4fab7d53be26c2b3969fe22ea9bfe5b1437592f",
+      "raw_commit_path": "retention-preparation-export-commits/ab5e89e8867dc100997bc38526cb1ad88325b7da.commit",
+      "raw_commit_sha256": "d37c36b14e883240a047befa36518537761ae47dfffc805ef38a1e6abdde8741",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865458 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "899e13db1bff1da92748d5323c9e0f1e77324937",
+          "sha": "66d43a18c19f5a2ec53f43d66cc1f30d6348e855",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "25877e64b4d814342b5b5ff3f28b3a872ae07368",
+          "sha": "5e2b3965daee4dab896d4b78323dfe5fcb8be1a4",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/stream.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "ce3cdc603a971512746c6f5ca73528ecdf0c280f",
+          "sha": "2ecb03869bd2397895827d220d7ff63141c68c7e",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "74a4ad16bb3ffaa58d93bdf46fc1031559a5cbcb",
+          "sha": "78befb86ab82c56980470ce931bc09ebf4fd3432",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8a47200c93c5c9f450a6f7a4ee43798518f30162",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4",
+          "status": "A"
+        },
+        {
+          "path": "third-party/russh-duplex/src/client/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "8c70c0303c668bced52f19a6d20f8331836ef466",
+          "sha": "c756204cb147ebc421606c89c883c57585c240c3",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "5acfa432b392525fcd4b351e06929c40a873db63",
+      "tree": "a19ad657fb356f4c7f54a3e68d61429824c1eca4",
+      "parents": [
+        "ab5e89e8867dc100997bc38526cb1ad88325b7da"
+      ],
+      "base_tree": "1d68e1cb1c91e2c6c5e7bcddbbad45616984ac90",
+      "raw_commit_path": "retention-preparation-export-commits/5acfa432b392525fcd4b351e06929c40a873db63.commit",
+      "raw_commit_sha256": "c52877af1f1f7fe3a937a9fe98f171f855b5a12d3eea261e37f19b7c5fd84862",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866133 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "9c746a0d0fc6d90c37c7e9a79b7a628c82366664",
+          "sha": "cfca6127d451a77c5ac4e59d94887ac17756cca0",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2d8a32abb51b850bc26d592ab4092c77a1c61671",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4",
+          "sha": "c7cd3d9116d58a8b75e32035664b1b6e7a445969",
+          "status": "M"
+        },
+        {
+          "path": "third-party/russh-duplex/SHENKO-PATCH.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "f6c881858e575e8e9c0f4894d5786a3e6ca8172e",
+          "sha": "a8d0bc2b92b7bd9bc3369d5c4e923d2fa0006662",
+          "status": "M"
+        },
+        {
+          "path": "third-party/russh-duplex/SHENKO-PTY-FLUSH.patch",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "69c55383cab7b14a7e8e1619ba0b9ae43e4d9959",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "ac7f99191fd6014a6503dbd9bcd6a6fcf3ca791e",
+      "tree": "a544c04349af9bff8822bfcc101823672e528fd8",
+      "parents": [
+        "5acfa432b392525fcd4b351e06929c40a873db63"
+      ],
+      "base_tree": "a19ad657fb356f4c7f54a3e68d61429824c1eca4",
+      "raw_commit_path": "retention-preparation-export-commits/ac7f99191fd6014a6503dbd9bcd6a6fcf3ca791e.commit",
+      "raw_commit_sha256": "1086cc40e335971987988f5e9ee7dbace864c0374381394ee6e9aa014c81092a",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866298 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2d8a32abb51b850bc26d592ab4092c77a1c61671",
+          "sha": "fcc2ce4543a90e5444cb79d30c4a148bbfc733f0",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "32729e9a753ea40bbee67e0231b93c59a29fc8b4",
+      "tree": "4dff42fd1c8cd91e71adff55d5c2c2c0e2aca356",
+      "parents": [
+        "ac7f99191fd6014a6503dbd9bcd6a6fcf3ca791e"
+      ],
+      "base_tree": "a544c04349af9bff8822bfcc101823672e528fd8",
+      "raw_commit_path": "retention-preparation-export-commits/32729e9a753ea40bbee67e0231b93c59a29fc8b4.commit",
+      "raw_commit_sha256": "52cfacfaf8fc2d4cfeea096d15f5b6212b39202dc96914b239862ab5de7382d0",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866579 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "fcc2ce4543a90e5444cb79d30c4a148bbfc733f0",
+          "sha": "b71eaa79dff3815689125c270f4c430b05e8fdfb",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "c9db3aa8e315a1ea320d67584fdbff1129312762",
+      "tree": "39f65e771eb299d2c342d61ceb2dc8528f028276",
+      "parents": [
+        "32729e9a753ea40bbee67e0231b93c59a29fc8b4"
+      ],
+      "base_tree": "4dff42fd1c8cd91e71adff55d5c2c2c0e2aca356",
+      "raw_commit_path": "retention-preparation-export-commits/c9db3aa8e315a1ea320d67584fdbff1129312762.commit",
+      "raw_commit_sha256": "cdc13574ee39a052cd022b3de12c039a7e17931ebe2a5b14a26fd7d354e5d998",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866663 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b71eaa79dff3815689125c270f4c430b05e8fdfb",
+          "sha": "ef7372385bad903645c9d678d2858278e092ff77",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e",
+      "tree": "0a3776aa68479a3357dff284dc40c67e791bf458",
+      "parents": [
+        "c9db3aa8e315a1ea320d67584fdbff1129312762"
+      ],
+      "base_tree": "39f65e771eb299d2c342d61ceb2dc8528f028276",
+      "raw_commit_path": "retention-preparation-export-commits/ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e.commit",
+      "raw_commit_sha256": "4a31aaa8b494efbd9839aee7dc3bdd52a861b0c0ff4a34c0b196465133daae41",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868346 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868346 +0000",
+      "changes": [
+        {
+          "path": "docs/development/installation-write-permit-plan.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a836a77fce3d7d47084c968a90eee6baec9bc0e7",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c7cd3d9116d58a8b75e32035664b1b6e7a445969",
+          "sha": "0cd1ec36af63a8cba297d3f913b572e8549a37bf",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "832d73323eb1dbca582c8d48b9bdc4f32c86ce87",
+      "tree": "a6125edf66216431ce173c9e9497d181fbff5ea5",
+      "parents": [
+        "ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e"
+      ],
+      "base_tree": "0a3776aa68479a3357dff284dc40c67e791bf458",
+      "raw_commit_path": "retention-preparation-export-commits/832d73323eb1dbca582c8d48b9bdc4f32c86ce87.commit",
+      "raw_commit_sha256": "4110a7d4662e0834855afde2856127aa16a0a0798cb5fc57ae311a1d65054865",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868757 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868757 +0000",
+      "changes": [
+        {
+          "path": "docs/development/installation-write-permit-plan.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "a836a77fce3d7d47084c968a90eee6baec9bc0e7",
+          "sha": "cbc05289acd9498d67d0d6372fba2d7d23ea5266",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "1d81cc6f052f6e2f14e14e4d87f96a6f1d43630f",
+      "tree": "fc268086e7c13184d84f4dc6092e3f848c55b673",
+      "parents": [
+        "3e62c0e517a246872101cd1e61a694b2156bc919"
+      ],
+      "base_tree": "1ccf8f0bee35915c9f6c4d886b5a7bf54050d694",
+      "raw_commit_path": "retention-preparation-export-commits/1d81cc6f052f6e2f14e14e4d87f96a6f1d43630f.commit",
+      "raw_commit_sha256": "88e0abefe8e024fb0a45c0c88cf5ad59503c7ebc08017a9017491d79cac5c3a7",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b146afa5334fb72254dd6f9f7da1dd1bdeb6dffe",
+          "sha": "df3cfd3684d3be0734dace0bcce46a2546041486",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "66d43a18c19f5a2ec53f43d66cc1f30d6348e855",
+          "sha": "98b246bb9cfc9d01ebc2db5f00170772fc2973cc",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "cfca6127d451a77c5ac4e59d94887ac17756cca0",
+          "sha": "ba707d0295e6c7c739c1605ee997c428efa4db11",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/native-command-cleanup-receipts.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b9ef36a888dec5b6458d1b77d471da0efc87c2e1",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c7cd3d9116d58a8b75e32035664b1b6e7a445969",
+          "sha": "a2ca138ec7abbb9fc37d0a3824298410f1910221",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+      "tree": "e822ee3c9bcddcdd44839b8984ecaba21c2a1497",
+      "parents": [
+        "3e62c0e517a246872101cd1e61a694b2156bc919"
+      ],
+      "base_tree": "1ccf8f0bee35915c9f6c4d886b5a7bf54050d694",
+      "raw_commit_path": "retention-preparation-export-commits/ebc39d1da7b6edf7b09929ac214bc3b7e49dca72.commit",
+      "raw_commit_sha256": "9a9c4794304207ef19ff5177ec08e83ff328c9dcb5a3525e614eaf9d5b3f44ad",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868182 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868182 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "ef7372385bad903645c9d678d2858278e092ff77",
+          "sha": "b18274917acb80b57b9226a2c0f3ab74062b75b6",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "8a47200c93c5c9f450a6f7a4ee43798518f30162",
+          "sha": "1aa251dccef466a2a3750f119965e5e81d1be895",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "470972706efc4c28fb86a2a7a3b5cce4c5ee8eee",
+      "tree": "a7a646b9a183f3b40340cbd75d8dd84dc57103d1",
+      "parents": [
+        "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72"
+      ],
+      "base_tree": "e822ee3c9bcddcdd44839b8984ecaba21c2a1497",
+      "raw_commit_path": "retention-preparation-export-commits/470972706efc4c28fb86a2a7a3b5cce4c5ee8eee.commit",
+      "raw_commit_sha256": "592afb45cc245207b50f01ab763c2119ba8642662c7190b9ffc37f3f08dfbc45",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794867863 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868422 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-update/src/handoff.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "4e7d89bb8384eec9bfc38fa813f1f18ec3556dc5",
+          "sha": "5ad41d64a09b3c784eb1e942c16e764fd63d8c9a",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c0fb298bed162a575714a5d2a928f858d89a7756",
+          "sha": "d62cb08fee233d8cb1aa3fa8a3beae321ef437cd",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "069d60257e7a0ab4558a9f1c5a01988696eb0d96",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/local-static-checks.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2328b42bb1bd496767c7b9f96158ba8bdcff8db8",
+          "status": "A"
+        },
+        {
+          "path": "docs/specs/self-update.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "f823cd7afd45be7a2908e31fd89c1f740b9bc939",
+          "sha": "5b010b4f43ec51971ebd1b34badb9db4351eb8fe",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "d78c83d1ced922b26f9fb0ccb23bab21a883f4ba",
+      "tree": "51fd5b6edb5925cec4c1233914f221f6d4c22889",
+      "parents": [
+        "470972706efc4c28fb86a2a7a3b5cce4c5ee8eee"
+      ],
+      "base_tree": "a7a646b9a183f3b40340cbd75d8dd84dc57103d1",
+      "raw_commit_path": "retention-preparation-export-commits/d78c83d1ced922b26f9fb0ccb23bab21a883f4ba.commit",
+      "raw_commit_sha256": "21f7df3a83393fc0b03f87d88252786fa81004d93f887a351c02e69b62ca2aea",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868308 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868422 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "d62cb08fee233d8cb1aa3fa8a3beae321ef437cd",
+          "sha": "7e023600b5ed8381c1377c94374e386d936432b9",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/prepared-artifact-binding-20261116/fixture-review-static-checks.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a9a041ed4c58b16f26e3f579e896bad41e421843",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5",
+      "tree": "c0ebae50248787b2e3050a56008f5e7581e215bd",
+      "parents": [
+        "d78c83d1ced922b26f9fb0ccb23bab21a883f4ba"
+      ],
+      "base_tree": "51fd5b6edb5925cec4c1233914f221f6d4c22889",
+      "raw_commit_path": "retention-preparation-export-commits/b10ca4c4064d7cc5d877250f8de834dc4d0dbea5.commit",
+      "raw_commit_sha256": "661a49cc834f435446ad9512d292f58da069b60d7c9c72bd3758587700643c65",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868346 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868510 +0000",
+      "changes": [
+        {
+          "path": "docs/development/installation-write-permit-plan.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a836a77fce3d7d47084c968a90eee6baec9bc0e7",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c7cd3d9116d58a8b75e32035664b1b6e7a445969",
+          "sha": "0cd1ec36af63a8cba297d3f913b572e8549a37bf",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "d80d8cbb7992e6ec40e5cb7075ebc0e83fec71c1",
+      "tree": "6f6fba935ac96b31a65875ac19338074b92d4663",
+      "parents": [
+        "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5"
+      ],
+      "base_tree": "c0ebae50248787b2e3050a56008f5e7581e215bd",
+      "raw_commit_path": "retention-preparation-export-commits/d80d8cbb7992e6ec40e5cb7075ebc0e83fec71c1.commit",
+      "raw_commit_sha256": "f373099da8e8acd04eec1a3c1e9b7edf2381f262c32509d824a926f110e6ae61",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869653 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869653 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b18274917acb80b57b9226a2c0f3ab74062b75b6",
+          "sha": "c8d0d090cd45fb9fbe8d308d037897c594472b25",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "0cd1ec36af63a8cba297d3f913b572e8549a37bf",
+          "sha": "5acf3997d8352d06856ae20ab0ea34e1306058b6",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "a59753d624434c17afc359df18da2b3c6e6ca490",
+      "tree": "e4c87a1db39dc4ed6b1b58cf34789e8cb0ade860",
+      "parents": [
+        "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5"
+      ],
+      "base_tree": "c0ebae50248787b2e3050a56008f5e7581e215bd",
+      "raw_commit_path": "retention-preparation-export-commits/a59753d624434c17afc359df18da2b3c6e6ca490.commit",
+      "raw_commit_sha256": "010eaebcc8043e9fe24b7686ca3107087f047bea130c4ca5ce1dbde420080256",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870332 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870332 +0000",
+      "changes": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+          "sha": "deb14615cd3ed65caf9f4e27122207753231cade",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/build_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "0cd77113d25618e440e44b8811ec47d341ba2659",
+          "sha": "9b9dd2c412fd7e871f7fe8378056d276a904399c",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "7e023600b5ed8381c1377c94374e386d936432b9",
+          "sha": "d5d84b6b0f2883b0678fcdd52d2b40fb19d82783",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "938a6f9112a36f4a60646f98a6b198b006eaec2b",
+          "sha": "50c5639eea6787b7049bb2d0f09bf7ae606e1e64",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/test_evidence.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "05be2627c9a67d67ecbe195587c48c35ca2418a1",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/update-fixture-originals.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "fccb9d93cc1d63c571d23e257596a3902a1ea232",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "a3ce1e65ee30682b35bd8020cb411cb92bad6180",
+      "tree": "dae50c5b0f2845644b9f9003ebdd9a4e5180b236",
+      "parents": [
+        "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5"
+      ],
+      "base_tree": "c0ebae50248787b2e3050a56008f5e7581e215bd",
+      "raw_commit_path": "retention-preparation-export-commits/a3ce1e65ee30682b35bd8020cb411cb92bad6180.commit",
+      "raw_commit_sha256": "367aff162575d8cf93d4869f8140f94aff94aa1e04c0263fbdb71a6ecd074b5b",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000",
+      "changes": [
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "cd6d0ceb97b2682e951ba1e7ad2a721fb12ac394",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/inspect_original.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f32e06d9b64cb864cdaed7269ff2732e0face276",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/local-availability.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "637eb1ec375c8a8f1dc8af2549e88b9b406d55ae",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/local-check.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "78860148318507f2e396e2e1c2c4bbaf1cfcfbe9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/original-analysis.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6dd27040fdfde9937f091e26a99e54f4b18a23b3",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-commands.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7411260a25712ff0b3d2ac77fa069491e576c325",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-legacy.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e76eaebfebd102d9f7ab0d0a6a7c6c3a6da6ce23",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-summary.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "45d68ac76f448abd6f942a6d4b620a9812c15c57",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "0260d28dba032b7ab1c5bdecbeb271b947a1097d",
+      "tree": "51a3d05789ea71a5ac3fa4745ed024622c83ee47",
+      "parents": [
+        "c50a0eb7f02d8b7962ae3b43b42a98dc004a6949"
+      ],
+      "base_tree": "e4fab7d53be26c2b3969fe22ea9bfe5b1437592f",
+      "raw_commit_path": "retention-preparation-export-commits/0260d28dba032b7ab1c5bdecbeb271b947a1097d.commit",
+      "raw_commit_sha256": "b342471c23176def1990c661eef9a7aba4fc211408229e558612dc02921a2b84",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868025 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868025 +0000",
+      "changes": [
+        {
+          "path": "bin/shenko/src/cli_dispatch.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "44604b83672b0cf4e2dc2ab31973f76d1be53bb7",
+          "sha": "2937e65e7a5895d0ee6f27cc32cd14a64c7ed571",
+          "status": "M"
+        },
+        {
+          "path": "bin/shenko/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "16aa648bbabbb960f86270384847586e67962031",
+          "sha": "70db948927c80dcb5ac3c4a9a8fe584e73360a1b",
+          "status": "M"
+        },
+        {
+          "path": "bin/shenko/tests/native_evidence_delivery.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b27831676aa1828517f36910df39f4133a702a9b",
+          "sha": "c1bfbdfe7489a052af6db16b822158430a49f70c",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/cas.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "001da469326cbdea4adb7b3da39680f52473af20",
+          "sha": "3112a95cdb00e51936b92a487d0bd925b9cb9401",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "32ad20d2e81b3c0c6b22fefe4f40e1f3ecd66fee",
+          "sha": "1a051411c651c97d80b79a870cc1c0a4a9320a4f",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "863470d7e3b7734673ed8e49561c4734e9002c4f",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/store.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "9e856c6c2051b19d5c8e8dfe301f6dde6a764788",
+          "sha": "983c7a1923be3be6a65da86afc5d0a2fca9c2de7",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/tests/retained_objects.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "358b927b7851ccc6bfaf41583e3de0294e9a88b1",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "c0fb298bed162a575714a5d2a928f858d89a7756",
+          "sha": "5901f436330e34725e588044deaa3481831e5ad9",
+          "status": "M"
+        },
+        {
+          "path": "docs/IMPLEMENTATION_DOCS_MAP.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "ca3425dc3b1db97447374333af6199ac651c7ab7",
+          "sha": "fea54b37f3669cafe2e39711ebd1610b33e2dd9e",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/cas-root-declarations.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2c6e1eae41a6f6f83a8948ca5836988a9598da2a",
+          "sha": "bb66ae16d0236ea5bd3527b727c3b110fbdb9cfb",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "923bd375fd9549cb0712556ebc7c4a5cd1ae3a34",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "7bffa671ba11f6877f9f309b30d895619466cfb9",
+      "tree": "b38b4b492583f2f4525045c3d0e88f3b9877dd6a",
+      "parents": [
+        "0260d28dba032b7ab1c5bdecbeb271b947a1097d"
+      ],
+      "base_tree": "51a3d05789ea71a5ac3fa4745ed024622c83ee47",
+      "raw_commit_path": "retention-preparation-export-commits/7bffa671ba11f6877f9f309b30d895619466cfb9.commit",
+      "raw_commit_sha256": "4ceca501092b254b1bf459dfcbba6f7a6d38abb3e565f84679b91fa64eb7866d",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870401 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870401 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41",
+          "sha": "b259ab0aa3ff0cdec19852e43f2900954c6de280",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b132318f79490c24781034d492ed567f35ae4a2b",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/carriers.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8fb75225cb7649903a055207dbee6e94d4a5164d",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "863470d7e3b7734673ed8e49561c4734e9002c4f",
+          "sha": "7d9ab26c8070414251943099a04a226129f786f5",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "923bd375fd9549cb0712556ebc7c4a5cd1ae3a34",
+          "sha": "4dc70f4595fe1f68dda43a5a655e99069677112b",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "tree": "54e739ab4030bfdfb25e1be13fddebfa140a8201",
+      "parents": [
+        "7bffa671ba11f6877f9f309b30d895619466cfb9"
+      ],
+      "base_tree": "b38b4b492583f2f4525045c3d0e88f3b9877dd6a",
+      "raw_commit_path": "retention-preparation-export-commits/a57aee9be5445dee27eb81ad2d04f90186f951f9.commit",
+      "raw_commit_sha256": "9f48a7d6b82dad83bf189b69a80d4fc88bbd7c73bba3e92e9f93b1a9d352140d",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870568 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870568 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b259ab0aa3ff0cdec19852e43f2900954c6de280",
+          "sha": "326302c48cbfbbfb4a04f59c0cbbfd472378343b",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b132318f79490c24781034d492ed567f35ae4a2b",
+          "sha": "d923ee9cc7169c5f0290573e3b236a4622311ca4",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "7d9ab26c8070414251943099a04a226129f786f5",
+          "sha": "c3870c04ee143b228209383954f90b5e0e7d404b",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "4dc70f4595fe1f68dda43a5a655e99069677112b",
+          "sha": "7079ae424af7cb382b9e4e6fc7f1518ebb6f04da",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "ca9032acd736a8f9e5a75450cd81cdfa78003a50",
+      "tree": "ffaf860e84bbc019a06719c49bede5e26398d1c6",
+      "parents": [
+        "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5"
+      ],
+      "base_tree": "c0ebae50248787b2e3050a56008f5e7581e215bd",
+      "raw_commit_path": "retention-preparation-export-commits/ca9032acd736a8f9e5a75450cd81cdfa78003a50.commit",
+      "raw_commit_sha256": "0e927e5ddd7bedf1f80b832f17c7b7815c5c854de584aa31c2ec3b58986f80b4",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869798 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869798 +0000",
+      "changes": [
+        {
+          "path": "docs/evidence/README.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "73df1634d46fd2547d03ecb69002dabb792109ff",
+          "sha": "57efc0ff728cc02ce86470e1fbf7ccc52b38014c",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "332046ad57021ae624a34eaddedbb0afdb1b7e5f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/actual-checkout.api.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "381445abe1414dbecdd7471a208c3fb3c4a9933d",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-index.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "add0234f34793fae1a520863c34414731bcafd1a",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-preparation-errors.derived.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "569ebb6d6d3e48745ba57e48d60917ca62c5ea96",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-transport-failure.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c9d68580314fa9411f2731c5370d03da2c64e63e",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-whitespace-check.derived.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "4192b899d69b3a80354e5cec907709eceba2a131",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-whitespace-diagnostics.original.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e9acf56d39601c72f8aa5e9807e6f79f50c52783",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive_observed_originals.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e666783fabe35db49e85a0ef0b6dc5df569e6ac9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/artifact-inventory.derived.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f385b3b683568333278bd90576615c715c552faa",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/artifacts.api.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c2a468b05a42411d4a43390b13f3a1b100729b4e",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/clippy-base.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c403125d7977803277a17545c2dd6562ac4a1225",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/clippy-derived-summary.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e696277fa0dc367db2756fc055619ba116f10f27",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/clippy-ratchet-evidence.download-verification.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "25ede6874d9ec70e8941c03aefcbb11c42bbf262",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/clippy-ratchet-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f0adfedfa7fac12e65eee3e0764eb42d534089b3",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/clippy-ratchet.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b072fd7ea38ad37159548ccbe63b6f2719dd12a1",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/actual-checkout.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "99013465dd91849e92d0e93a801b736d255f25cb",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/docs-migration.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a745d0a561c7234948696846aa6aa2fabcec38d9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/final-artifacts.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "d8d0d77bcb3d78e20d6dbda81cfa2e4e61a15812",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/final-run.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e8cec6dee8a7cc8acc7ea1335f4a4430c065dfac",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/final-rust-log.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "af9ea03dc39e72e081916886bc10b8d977790582",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/initial-fetch-0.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "823b963b84c675478e38351959bf26533a1867cf",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/initial-fetch-1.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "edcffee0ad47bdf9608811d0968ec955a4177805",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/initial-fetch-2.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e7a4de15f18997b3059c04a29d65326a49fea642",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/initial-job-snapshot-0.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "d00b72d0e412095567958578349ef1399e06cd1b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/initial-job-snapshot-1.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8136e3dfb4bd9a62fd00637ecf703897c22b5dc4",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/jobs-final.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "436a3a0f42cfc18f23fa01f120ad30049fc26ea0",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/kernel-boundary.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7861acbde3c06e489f2b5faed5e08e67dfcd4fce",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/requested-head.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "402963bf0bdafb23854ae2c6ee1d3c7fe250adf8",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/run-mid.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a274a6476695e937464661b987f726f99e32391f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/connector-originals/web.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e19809efad8305549e43853e31c1ddbc30fdd1e1",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/docs-migration.job.original.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "4210ed6e8aba99c0198d76af4ed27d36be2f14bd",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/docs.job.original.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2da1e4ab492cbfe65d9ce7cdc8c18a38113d4595",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/jobs.api.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "4db7d80fa53ead4a6aedb34083f01912b5550977",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/kernel-boundary-evidence.download-verification.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "9924283005325d675288d026bfbda4f5695ca9bd",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/kernel-boundary-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ae84bdb104317f145ca1e23b838e1538832ef5e5",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/kernel-boundary.job.original.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6845d6c6e450648cbed3482b50d52d0610b2aaea",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1-originals-validation.derived.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a79fcc6a85ab386a0443d244c3dda550b694a394",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/000-keygen.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/000-keygen.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/001-keygen.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/001-keygen.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/002-account.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/002-account.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "d8649da39ddf7910d29982e2f19cd9c0ff5ffe96",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/003-source-page.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3d604792f5367e3e4ac0bd8144ead751bdd59ada",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/003-source-page.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "308c766dfb7f0d0b3e425abb4aef1cc9d3fb88e2",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/004-source-page.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2a1d4873a966379b6be89a3ba536d00791ef0a39",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/004-source-page.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6e7d8363e93890cbf93f301db25a254ac48a9288",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/005-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c08a7e550657844c24b5dbb36a12eef21988987a",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/005-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/006-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "5ce1559e9684e4bdae3d440c2f8cb80cbb09f5b9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/006-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a329314b7fc8110d1328937a8b54143cacabb04f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/007-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "18818e4233c1bb88deb114678d496890f4f1cf8f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/007-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8bf27435a3bd7892568a63402be29a836a610380",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/008-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "890e4b646fd295264e8649f7288cc9bcc716b6e6",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/008-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "fc30b2aa05102db01d3bb6f139b0fe452940f23f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/009-receiver-page.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f7aec80b23f88a9469f9c1ff003d1367a7e69c27",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/009-receiver-page.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3145e194d5b34b09bfdfa30d9da5a071cfbb455b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/010-receiver-page.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7b7087962350a036d25fa9f977dce42fb6886277",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/010-receiver-page.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/011-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "54d8e2ff0436527461678e8e63d0500ae627e9b9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/011-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "57216aa87fa1c51939415eb6a06fc3a4771bd2cd",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/012-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c5080e976747a5a58885fe0cbff37b4a9552c7fc",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/012-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8bf27435a3bd7892568a63402be29a836a610380",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/013-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "df497a7f54505643fd61eb0d5526a0af4b50d8e4",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/013-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "97ba2a7019bbafa9171d542ca3c527b7215d66da",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/014-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "4bb0a9a96c024083d947865556a1422106d9d22a",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/014-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8bf27435a3bd7892568a63402be29a836a610380",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/015-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "29bfce475401b8f34a31aaea4a0499776cb92633",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/015-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "57216aa87fa1c51939415eb6a06fc3a4771bd2cd",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/016-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "5ff3740e95919a500ba933db00693b4d2c90602d",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/016-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/017-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "bb3939bed4f9b731ccb81dd080540f85cb94c71c",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/017-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "97ba2a7019bbafa9171d542ca3c527b7215d66da",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/018-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a6c8de3f7fe5a3c6e3a2838d9b59ef91f3afa393",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/018-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "59a9664c4902574becb8fd27c297ce4374d3648b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/019-sync-evidence.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "10bb04e57e231aff13cc8a8d605e8ec04847e1f4",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/019-sync-evidence.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3a51bfd7094e9382df714b7203af3dc5bc5325bc",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/020-capture-originals.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/020-capture-originals.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "d90a409ae27bbc2b8685aa6235436d8ac7b92c29",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/020-native-e1-originals.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "250b36476ede63281398a00bcaef129ea1ca44af",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/cleanup.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e9e33fa6ef518aef7602917e20278d36f113022d",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/commands.jsonl",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "394b015acdd01c81d36825fb69ba93f847d367f8",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/native_e1_snapshot.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f7b7615602400341cefd9baa668869c194db3a59",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/nested-manifest.original.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "d90a409ae27bbc2b8685aa6235436d8ac7b92c29",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/observations.jsonl",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "9ed98e2a844c810ef8062a8382a36976732a40cd",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/originals.jsonl",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "4ecfd329d58b3c2d578fe9813de58ced008dffa6",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/processes.jsonl",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ed7c938516ef0a2270dccd2a6b8f28ad4a87feb1",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/sshd.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ff370aa776d8548ef6cc8c40f81d11522d3827aa",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/sshd.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/native-e1/transport.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a314f8ff4dd1cd6c4d0b1574c750b48bedbe87c7",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/requested-head.api.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "66e567c2e00e617a49d3d9b715ef5453287ed737",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/run.api.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "1aec92922cc6512e379688b194958fbd25cd0e15",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/rust-evidence.download-verification.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c54c021582bb0b4e9505439784cc15fda72fa55f",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/rust-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "5971ea8f11e9fa17360bdf1f81bba936bcad22e6",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/rust.job.original.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c20ac8fb83c2095d23a84513356f07f1c0cdcb7e",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8887d22b1b20f4dde5b733593e186318b00f27dc",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/0cd77113d25618e440e44b8811ec47d341ba2659.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "0cd77113d25618e440e44b8811ec47d341ba2659",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/334e4063b2e5355d844b86030fbdf43e05856e3b.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/62965af9ae618689fff5298c391f59b21f65013a.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "62965af9ae618689fff5298c391f59b21f65013a",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/8a47200c93c5c9f450a6f7a4ee43798518f30162.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8a47200c93c5c9f450a6f7a4ee43798518f30162",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/b27831676aa1828517f36910df39f4133a702a9b.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b27831676aa1828517f36910df39f4133a702a9b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/b5e0bf42dbde21b690fc80d660a9e573e4452c1c.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b5e0bf42dbde21b690fc80d660a9e573e4452c1c",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/c0fb298bed162a575714a5d2a928f858d89a7756.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c0fb298bed162a575714a5d2a928f858d89a7756",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/source-blobs/ef7372385bad903645c9d678d2858278e092ff77.blob",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ef7372385bad903645c9d678d2858278e092ff77",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/test-summaries.derived.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "cf7929ed80150c303057b983345c19be785588ff",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/web-comparison.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "1f2698db43754744e5b548eceef3cae76f80b670",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/web-rebuild-evidence.download-verification.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "0f18523f0f6faf0108a73ce95c379d162709d1b4",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/web-rebuild-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e247ca67265282081cc6c761fac3486ed67fc8b3",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/web.job.original.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c62b13263e700e137eba6f4773e5c2833edc108b",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/workspace-check.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "901caee9a9e6f1160455ee232d62d890e305a65e",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/workspace-test.log",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "bddb04ec6cb16d5ff4cfd3eb7c8d018bf9b6e59b",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "6572f280660a0c26c60363c7299519ce53935868",
+      "tree": "770abc47ae9d57b143e5616ffdb45b8e5fc0623d",
+      "parents": [
+        "ca9032acd736a8f9e5a75450cd81cdfa78003a50"
+      ],
+      "base_tree": "ffaf860e84bbc019a06719c49bede5e26398d1c6",
+      "raw_commit_path": "retention-preparation-export-commits/6572f280660a0c26c60363c7299519ce53935868.commit",
+      "raw_commit_sha256": "278ee763e22f89ba1d21f7020ae47329d12fa3ac0cbaaec565c6fe4af092a3ae",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868757 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870210 +0000",
+      "changes": [
+        {
+          "path": "docs/development/installation-write-permit-plan.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "a836a77fce3d7d47084c968a90eee6baec9bc0e7",
+          "sha": "cbc05289acd9498d67d0d6372fba2d7d23ea5266",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "fae94e2ccfca9a427f79db6a1d40d2ae41d9ed86",
+      "tree": "d8443cd1410e6055bcdb57f9561e97461de7a7b5",
+      "parents": [
+        "6572f280660a0c26c60363c7299519ce53935868"
+      ],
+      "base_tree": "770abc47ae9d57b143e5616ffdb45b8e5fc0623d",
+      "raw_commit_path": "retention-preparation-export-commits/fae94e2ccfca9a427f79db6a1d40d2ae41d9ed86.commit",
+      "raw_commit_sha256": "396463e1b417c5d36b52dad69c4786f87883cd98e93cb19500f6f66929465432",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870210 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b146afa5334fb72254dd6f9f7da1dd1bdeb6dffe",
+          "sha": "df3cfd3684d3be0734dace0bcce46a2546041486",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "66d43a18c19f5a2ec53f43d66cc1f30d6348e855",
+          "sha": "98b246bb9cfc9d01ebc2db5f00170772fc2973cc",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "cfca6127d451a77c5ac4e59d94887ac17756cca0",
+          "sha": "ba707d0295e6c7c739c1605ee997c428efa4db11",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/native-command-cleanup-receipts.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b9ef36a888dec5b6458d1b77d471da0efc87c2e1",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "0cd1ec36af63a8cba297d3f913b572e8549a37bf",
+          "sha": "b1e92fc3c4802da1660e133c2272c774f8ab073b",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "902dd893f04e0e9ba320885b2e52e8b1ddd125bb",
+      "tree": "0637c46d7a497c892813d3006872866a6a330643",
+      "parents": [
+        "fae94e2ccfca9a427f79db6a1d40d2ae41d9ed86"
+      ],
+      "base_tree": "d8443cd1410e6055bcdb57f9561e97461de7a7b5",
+      "raw_commit_path": "retention-preparation-export-commits/902dd893f04e0e9ba320885b2e52e8b1ddd125bb.commit",
+      "raw_commit_sha256": "1e6b027f46a8f6f9736700bf01cb9ac17cc41b31b2a3469a5fd1e542dc091a26",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000",
+      "changes": [
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/README.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "332046ad57021ae624a34eaddedbb0afdb1b7e5f",
+          "sha": "9e24dc825cd8f9c48870524cfeae64bfecca08e3",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/ci-3e62c0e5-20261116/archive-index.json",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "add0234f34793fae1a520863c34414731bcafd1a",
+          "sha": "a1b8120294675edd95230f065e8f5b8940c377b9",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "7db4828521e290bc41c9360730b2d843fbc263bd",
+      "tree": "66bfa55e8d3e520cd74007816115f327ae83e958",
+      "parents": [
+        "902dd893f04e0e9ba320885b2e52e8b1ddd125bb"
+      ],
+      "base_tree": "0637c46d7a497c892813d3006872866a6a330643",
+      "raw_commit_path": "retention-preparation-export-commits/7db4828521e290bc41c9360730b2d843fbc263bd.commit",
+      "raw_commit_sha256": "d811f53ffdd1a2f2776360bf7456a77a893d9e81fe836acc6897e758ed56231b",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870457 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000",
+      "changes": [
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "cd6d0ceb97b2682e951ba1e7ad2a721fb12ac394",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/inspect_original.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f32e06d9b64cb864cdaed7269ff2732e0face276",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/local-availability.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "637eb1ec375c8a8f1dc8af2549e88b9b406d55ae",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/local-check.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "78860148318507f2e396e2e1c2c4bbaf1cfcfbe9",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/original-analysis.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6dd27040fdfde9937f091e26a99e54f4b18a23b3",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-commands.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7411260a25712ff0b3d2ac77fa069491e576c325",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-legacy.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e76eaebfebd102d9f7ab0d0a6a7c6c3a6da6ce23",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/clippy-input-scope-20261116/prior-ptrace-summary.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "45d68ac76f448abd6f942a6d4b620a9812c15c57",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "c0c5563d1262688fa1d4f70923229ed78addabff",
+      "tree": "8ffd7318de23bc53a947cd4aca67f62ccd677fcb",
+      "parents": [
+        "7db4828521e290bc41c9360730b2d843fbc263bd"
+      ],
+      "base_tree": "66bfa55e8d3e520cd74007816115f327ae83e958",
+      "raw_commit_path": "retention-preparation-export-commits/c0c5563d1262688fa1d4f70923229ed78addabff.commit",
+      "raw_commit_sha256": "987b4e8439f26a0cdf6ad6fe2c9ccee05773d9c13125b630c817006cacfb2c56",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868025 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870679 +0000",
+      "changes": [
+        {
+          "path": "bin/shenko/src/cli_dispatch.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "44604b83672b0cf4e2dc2ab31973f76d1be53bb7",
+          "sha": "2937e65e7a5895d0ee6f27cc32cd14a64c7ed571",
+          "status": "M"
+        },
+        {
+          "path": "bin/shenko/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "16aa648bbabbb960f86270384847586e67962031",
+          "sha": "70db948927c80dcb5ac3c4a9a8fe584e73360a1b",
+          "status": "M"
+        },
+        {
+          "path": "bin/shenko/tests/native_evidence_delivery.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b27831676aa1828517f36910df39f4133a702a9b",
+          "sha": "c1bfbdfe7489a052af6db16b822158430a49f70c",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/cas.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "001da469326cbdea4adb7b3da39680f52473af20",
+          "sha": "3112a95cdb00e51936b92a487d0bd925b9cb9401",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "32ad20d2e81b3c0c6b22fefe4f40e1f3ecd66fee",
+          "sha": "1a051411c651c97d80b79a870cc1c0a4a9320a4f",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "863470d7e3b7734673ed8e49561c4734e9002c4f",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/store.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "9e856c6c2051b19d5c8e8dfe301f6dde6a764788",
+          "sha": "983c7a1923be3be6a65da86afc5d0a2fca9c2de7",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/tests/retained_objects.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "358b927b7851ccc6bfaf41583e3de0294e9a88b1",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "7e023600b5ed8381c1377c94374e386d936432b9",
+          "sha": "b687c5c857a82311289330570e15655051e0a01e",
+          "status": "M"
+        },
+        {
+          "path": "docs/IMPLEMENTATION_DOCS_MAP.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "ca3425dc3b1db97447374333af6199ac651c7ab7",
+          "sha": "fea54b37f3669cafe2e39711ebd1610b33e2dd9e",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/cas-root-declarations.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2c6e1eae41a6f6f83a8948ca5836988a9598da2a",
+          "sha": "bb66ae16d0236ea5bd3527b727c3b110fbdb9cfb",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "923bd375fd9549cb0712556ebc7c4a5cd1ae3a34",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "667f62ec6fc1a16af308f5378242ef8f7b7620c3",
+      "tree": "8fd5e058a9643292974dfd04b693514274fbb2c7",
+      "parents": [
+        "c0c5563d1262688fa1d4f70923229ed78addabff"
+      ],
+      "base_tree": "8ffd7318de23bc53a947cd4aca67f62ccd677fcb",
+      "raw_commit_path": "retention-preparation-export-commits/667f62ec6fc1a16af308f5378242ef8f7b7620c3.commit",
+      "raw_commit_sha256": "174bff5b92515b9f07fdb41efbb6eb0db9ac53bf383a3846bd42b519734aa0b7",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870401 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870679 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41",
+          "sha": "b259ab0aa3ff0cdec19852e43f2900954c6de280",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b132318f79490c24781034d492ed567f35ae4a2b",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/carriers.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8fb75225cb7649903a055207dbee6e94d4a5164d",
+          "status": "A"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "863470d7e3b7734673ed8e49561c4734e9002c4f",
+          "sha": "7d9ab26c8070414251943099a04a226129f786f5",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "923bd375fd9549cb0712556ebc7c4a5cd1ae3a34",
+          "sha": "4dc70f4595fe1f68dda43a5a655e99069677112b",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "c3f936644e7436a79404daca2c14af4ef211e23b",
+      "tree": "90a990fd8a78349ccc89f15924731b3c9a87d339",
+      "parents": [
+        "667f62ec6fc1a16af308f5378242ef8f7b7620c3"
+      ],
+      "base_tree": "8fd5e058a9643292974dfd04b693514274fbb2c7",
+      "raw_commit_path": "retention-preparation-export-commits/c3f936644e7436a79404daca2c14af4ef211e23b.commit",
+      "raw_commit_sha256": "80208be0b65bad0e1a1a56ce0a91d269ee36b3625083ce5371f2704d894a27e1",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870568 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870680 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-store/src/retained_objects.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b259ab0aa3ff0cdec19852e43f2900954c6de280",
+          "sha": "326302c48cbfbbfb4a04f59c0cbbfd472378343b",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b132318f79490c24781034d492ed567f35ae4a2b",
+          "sha": "d923ee9cc7169c5f0290573e3b236a4622311ca4",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-store/src/retained_objects/closure.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "7d9ab26c8070414251943099a04a226129f786f5",
+          "sha": "c3870c04ee143b228209383954f90b5e0e7d404b",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/store-retained-objects.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "4dc70f4595fe1f68dda43a5a655e99069677112b",
+          "sha": "7079ae424af7cb382b9e4e6fc7f1518ebb6f04da",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "c43486e9cf8cdaa5e9ad4e89331c844d4f5091d8",
+      "tree": "d870bdbee725d0e82868ea1da395bd246b420674",
+      "parents": [
+        "c3f936644e7436a79404daca2c14af4ef211e23b"
+      ],
+      "base_tree": "90a990fd8a78349ccc89f15924731b3c9a87d339",
+      "raw_commit_path": "retention-preparation-export-commits/c43486e9cf8cdaa5e9ad4e89331c844d4f5091d8.commit",
+      "raw_commit_sha256": "c482a54bfb7335f0d51051ebc431b38fcf1c8a6895ab6804880601b5acea0a93",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869653 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870734 +0000",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b18274917acb80b57b9226a2c0f3ab74062b75b6",
+          "sha": "c8d0d090cd45fb9fbe8d308d037897c594472b25",
+          "status": "M"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b1e92fc3c4802da1660e133c2272c774f8ab073b",
+          "sha": "3b7f20b7f4390e7a3058e4e122d3dddb602f8e2d",
+          "status": "M"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "4394226a443f25be48791fecea918d619490a284",
+      "tree": "d947094f22e8312b7a795271b09e8f5f2777cac7",
+      "parents": [
+        "c43486e9cf8cdaa5e9ad4e89331c844d4f5091d8"
+      ],
+      "base_tree": "d870bdbee725d0e82868ea1da395bd246b420674",
+      "raw_commit_path": "retention-preparation-export-commits/4394226a443f25be48791fecea918d619490a284.commit",
+      "raw_commit_sha256": "755f3834922431864ad975fb161558095956aea494a6712766120f68c6ec5ddf",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870332 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870734 +0000",
+      "changes": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+          "sha": "deb14615cd3ed65caf9f4e27122207753231cade",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/build_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "0cd77113d25618e440e44b8811ec47d341ba2659",
+          "sha": "9b9dd2c412fd7e871f7fe8378056d276a904399c",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/handoff_tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b687c5c857a82311289330570e15655051e0a01e",
+          "sha": "010e00a39ad017b6d17b4b158ffd413d28c456e4",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/lib.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "938a6f9112a36f4a60646f98a6b198b006eaec2b",
+          "sha": "50c5639eea6787b7049bb2d0f09bf7ae606e1e64",
+          "status": "M"
+        },
+        {
+          "path": "crates/shenko-update/src/test_evidence.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "05be2627c9a67d67ecbe195587c48c35ca2418a1",
+          "status": "A"
+        },
+        {
+          "path": "docs/development/update-fixture-originals.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "fccb9d93cc1d63c571d23e257596a3902a1ea232",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    },
+    {
+      "commit": "b4e192c70d5f35e1b71c4856fb692e25a71c4523",
+      "tree": "fee7302ed99e2453dc67f620b42781bbe1169337",
+      "parents": [
+        "4394226a443f25be48791fecea918d619490a284"
+      ],
+      "base_tree": "d947094f22e8312b7a795271b09e8f5f2777cac7",
+      "raw_commit_path": "retention-preparation-export-commits/b4e192c70d5f35e1b71c4856fb692e25a71c4523.commit",
+      "raw_commit_sha256": "abd8132359af1f26ea8b231f6fa70bfbb5978b9b35d59183bfb495da982a2a32",
+      "original_author_header": "author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794871007 +0000",
+      "original_committer_header": "committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794871007 +0000",
+      "changes": [
+        {
+          "path": "docs/evidence/README.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "57efc0ff728cc02ce86470e1fbf7ccc52b38014c",
+          "sha": "405f202a2583dd7373824b60c7c204a56d254b8f",
+          "status": "M"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7a4bc67df76098bc7d624a176d3e8e9e0457199a",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/archive-index.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ad0eed1858191d73ed4bcf10c6a8aa22b5c05f67",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/diff-check.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/diff-check.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/handoff-merge.diff",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3ecccdbce70661e5fc60607623b99c29420874bf",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/handoff-merge.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/observations.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2395e2953f52307673d11282b3fba95e2382f939",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/integration-review/review.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f563b3e0414cf3a131cc0dd09d6466325605f856",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/native-command-cleanup-static.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "0647e53104a9aee241f847a04781917aa7ffa5b0",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/prepared-pty-plan-integration-comparisons.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "11319c43e4fb8ad513a99813ae9298857a7c2d51",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/pty-select-bindings-static.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e5d2f6d33e8a58e3b3b114defb5d2c853b23df91",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/pty-write-evidence-static.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "580eb16c8eb40355a7934c4288d5f87d0208f1df",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/review_update_export_static.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ab1f9e7ba686c975553e6cb9427e2cef761b3000",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/static-import-failure.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "697ba1ae5015dcb1fe1ae21aac2951eb282c4dd0",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/alias-diff-check.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/alias-diff-check.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/alias-observations.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "eedae3fb037a8ca92bdd3328d0f53be154e5b116",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/diff-check.stderr",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/diff-check.stdout",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/store-carrier-review/observations.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6710f6ff4bdb733151a623879c6bb64c076763ee",
+          "status": "A"
+        },
+        {
+          "path": "docs/evidence/retention-preparation-export-20261116/update-build-evidence-static.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c85b292b71d3672912971270dd2918fae6d79177",
+          "status": "A"
+        }
+      ],
+      "raw_git_sha_verified": true,
+      "tree_recomposed": true
+    }
+  ],
+  "additional_original_blobs": [
+    {
+      "sha": "d62cb08fee233d8cb1aa3fa8a3beae321ef437cd",
+      "bytes": 58219,
+      "sha256": "2782e7b9fadf65d75e7a31fd734ee0dc77a2b63e084b2698b89935b547d64b9d",
+      "path": "retention-preparation-export-blobs/d62cb08fee233d8cb1aa3fa8a3beae321ef437cd.blob"
+    },
+    {
+      "sha": "7e023600b5ed8381c1377c94374e386d936432b9",
+      "bytes": 58654,
+      "sha256": "c1d74e41011b11c25470220c165d7b63f27a44c047094af23b8d0ecfc42463bf",
+      "path": "retention-preparation-export-blobs/7e023600b5ed8381c1377c94374e386d936432b9.blob"
+    },
+    {
+      "sha": "a836a77fce3d7d47084c968a90eee6baec9bc0e7",
+      "bytes": 11789,
+      "sha256": "06d3fd314664cf2f88f17ef4c320942c01b6d1c8705cd96955835297a416e11d",
+      "path": "retention-preparation-export-blobs/a836a77fce3d7d47084c968a90eee6baec9bc0e7.blob"
+    },
+    {
+      "sha": "0cd1ec36af63a8cba297d3f913b572e8549a37bf",
+      "bytes": 4852,
+      "sha256": "eaa89bfdf91da84aa8c1cbffe5c305cac0e78167a4f707a83a2b1cd92921e74e",
+      "path": "retention-preparation-export-blobs/0cd1ec36af63a8cba297d3f913b572e8549a37bf.blob"
+    },
+    {
+      "sha": "a2ca138ec7abbb9fc37d0a3824298410f1910221",
+      "bytes": 4945,
+      "sha256": "b1c31ff0fcdc0265399ac4d3cf2aef3d2d352ea4f60226bca1b39fcf6b1d17f0",
+      "path": "retention-preparation-export-blobs/a2ca138ec7abbb9fc37d0a3824298410f1910221.blob"
+    },
+    {
+      "sha": "b18274917acb80b57b9226a2c0f3ab74062b75b6",
+      "bytes": 28958,
+      "sha256": "9d55204063814422dae4da06230b1cd156fcdb11339138085d2f3600e7ffd6f7",
+      "path": "retention-preparation-export-blobs/b18274917acb80b57b9226a2c0f3ab74062b75b6.blob"
+    },
+    {
+      "sha": "5acf3997d8352d06856ae20ab0ea34e1306058b6",
+      "bytes": 7609,
+      "sha256": "50f11404810b1f3d923fcc7976f39be96508ef778f6c680749bed8a8b98c8d5b",
+      "path": "retention-preparation-export-blobs/5acf3997d8352d06856ae20ab0ea34e1306058b6.blob"
+    },
+    {
+      "sha": "d5d84b6b0f2883b0678fcdd52d2b40fb19d82783",
+      "bytes": 60021,
+      "sha256": "468566c0df2aa202df920a33b72c5f0e5a3832b751b3514103b10c528b15759f",
+      "path": "retention-preparation-export-blobs/d5d84b6b0f2883b0678fcdd52d2b40fb19d82783.blob"
+    },
+    {
+      "sha": "1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41",
+      "bytes": 17528,
+      "sha256": "f3275b53a65c6794810445517caef5b87725f8bef6cd186c5d2ea87a6f0fb6aa",
+      "path": "retention-preparation-export-blobs/1a80f45d1ac5c2f0bfaf0bc424820c0ae1435d41.blob"
+    },
+    {
+      "sha": "863470d7e3b7734673ed8e49561c4734e9002c4f",
+      "bytes": 10418,
+      "sha256": "38ee16c1387dc3bf0faa69e4faffdac88976bfd0fc18638292f55282b9c213cf",
+      "path": "retention-preparation-export-blobs/863470d7e3b7734673ed8e49561c4734e9002c4f.blob"
+    },
+    {
+      "sha": "5901f436330e34725e588044deaa3481831e5ad9",
+      "bytes": 54348,
+      "sha256": "b2431e0d13529ddee8ec40dc48137c8878431c0e8d3903a8092c83310e0c13b9",
+      "path": "retention-preparation-export-blobs/5901f436330e34725e588044deaa3481831e5ad9.blob"
+    },
+    {
+      "sha": "923bd375fd9549cb0712556ebc7c4a5cd1ae3a34",
+      "bytes": 8042,
+      "sha256": "8ebf8cebed96e528eb2cc0f48fc910e609a4c8494fc42f1d74c6a80a9393cb9c",
+      "path": "retention-preparation-export-blobs/923bd375fd9549cb0712556ebc7c4a5cd1ae3a34.blob"
+    },
+    {
+      "sha": "b259ab0aa3ff0cdec19852e43f2900954c6de280",
+      "bytes": 17231,
+      "sha256": "776adbe1b8bf5b5f0e771dd16938e7cc803c0b9660c253bebd60bd2f86f9d83a",
+      "path": "retention-preparation-export-blobs/b259ab0aa3ff0cdec19852e43f2900954c6de280.blob"
+    },
+    {
+      "sha": "b132318f79490c24781034d492ed567f35ae4a2b",
+      "bytes": 7991,
+      "sha256": "a1907ea99aa227ef0ec3944d5ce046d45e017dea66e91dc743d541a67915391f",
+      "path": "retention-preparation-export-blobs/b132318f79490c24781034d492ed567f35ae4a2b.blob"
+    },
+    {
+      "sha": "7d9ab26c8070414251943099a04a226129f786f5",
+      "bytes": 11840,
+      "sha256": "2407bb69b13fc813d45658d119014c39c4b6999ddee365ad3952ef7907f369eb",
+      "path": "retention-preparation-export-blobs/7d9ab26c8070414251943099a04a226129f786f5.blob"
+    },
+    {
+      "sha": "4dc70f4595fe1f68dda43a5a655e99069677112b",
+      "bytes": 10132,
+      "sha256": "a002ebe48d6dcc6300de0eb2ff195248f8e85a362c8f690a39c39ebb8bd88255",
+      "path": "retention-preparation-export-blobs/4dc70f4595fe1f68dda43a5a655e99069677112b.blob"
+    },
+    {
+      "sha": "57efc0ff728cc02ce86470e1fbf7ccc52b38014c",
+      "bytes": 14085,
+      "sha256": "e7304ffe16e656233dda42d6f71594fc75877e37fceb90e0e1cf4e77969b1920",
+      "path": "retention-preparation-export-blobs/57efc0ff728cc02ce86470e1fbf7ccc52b38014c.blob"
+    },
+    {
+      "sha": "332046ad57021ae624a34eaddedbb0afdb1b7e5f",
+      "bytes": 9507,
+      "sha256": "9b2020214201095afd5540bf2c740cf6b34cee204a75386a6137ffb92df2f93e",
+      "path": "retention-preparation-export-blobs/332046ad57021ae624a34eaddedbb0afdb1b7e5f.blob"
+    },
+    {
+      "sha": "add0234f34793fae1a520863c34414731bcafd1a",
+      "bytes": 18849,
+      "sha256": "e8e3906320e467992a2f787482b0d5bb47ecff1356e24ccd78abe58b397006ed",
+      "path": "retention-preparation-export-blobs/add0234f34793fae1a520863c34414731bcafd1a.blob"
+    },
+    {
+      "sha": "b1e92fc3c4802da1660e133c2272c774f8ab073b",
+      "bytes": 5073,
+      "sha256": "7441ee0ef7d19139309157e08330cb67fb580e6acdf3408acc36a998d35d94e1",
+      "path": "retention-preparation-export-blobs/b1e92fc3c4802da1660e133c2272c774f8ab073b.blob"
+    },
+    {
+      "sha": "b687c5c857a82311289330570e15655051e0a01e",
+      "bytes": 59570,
+      "sha256": "14194736997bce824fb3a02e6effcc29dfb79c43a6365be59e22334fb794d8dd",
+      "path": "retention-preparation-export-blobs/b687c5c857a82311289330570e15655051e0a01e.blob"
+    }
+  ],
+  "checks": {
+    "every_raw_commit_git_sha": true,
+    "every_original_tree_recomposed": true,
+    "every_additional_blob_git_sha": true
+  },
+  "runtime_checks_added": 0,
+  "no_acceptance_authority": true,
+  "scope": "Original source authorship and bytes only; later normalized publication commits retain the same reviewed trees."
+}

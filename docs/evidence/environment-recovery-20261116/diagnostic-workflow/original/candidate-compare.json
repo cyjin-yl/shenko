@@ -1,0 +1,48 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Action completed."
+    }
+  ],
+  "structuredContent": {
+    "repository_full_name": "cyjin-yl/shenko",
+    "base": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+    "head": "a9c17717a6effb504c63ff5248401c8857d65558",
+    "status": "ahead",
+    "ahead_by": 2,
+    "behind_by": 0,
+    "total_commits": 2,
+    "too_large": null,
+    "base_commit": {
+      "sha": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/commits/51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/51a1ce435b3f83c52dcad11f19c522acb77cb59b"
+    },
+    "merge_base_commit": {
+      "sha": "51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/commits/51a1ce435b3f83c52dcad11f19c522acb77cb59b",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/51a1ce435b3f83c52dcad11f19c522acb77cb59b"
+    },
+    "files": [
+      {
+        "filename": ".github/workflows/model5-artifact-inspection.yml",
+        "status": "added",
+        "additions": 64,
+        "deletions": 0,
+        "changes": 64,
+        "previous_filename": null
+      },
+      {
+        "filename": "scripts/inspect_model5_artifact.py",
+        "status": "added",
+        "additions": 691,
+        "deletions": 0,
+        "changes": 691,
+        "previous_filename": null
+      }
+    ]
+  },
+  "isError": false
+}
+

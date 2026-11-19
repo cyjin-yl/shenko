@@ -1,0 +1,591 @@
+{
+  "candidate": "15cfee0317a6f0a7c3e088657040531c6fdd8575",
+  "receipt_source_commit": "7b59a3366df264432c368a8a617aa4f64982ed1d",
+  "receipt_source_dirty": true,
+  "recorded_inputs": 97,
+  "mismatches": [],
+  "inputs": [
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/Cargo.lock",
+      "receipt_sha256": "b0fd9207bdc52fc50c523ced357594329fc622d54269f99de9a2ce97aecdd6ed",
+      "candidate_sha256": "b0fd9207bdc52fc50c523ced357594329fc622d54269f99de9a2ce97aecdd6ed",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/Cargo.toml",
+      "receipt_sha256": "2ae44fde682647d23de662d6538525252cdb7a25e66acb4348320ec93c5feb11",
+      "candidate_sha256": "2ae44fde682647d23de662d6538525252cdb7a25e66acb4348320ec93c5feb11",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/Cargo.toml",
+      "receipt_sha256": "0deb05e7f300d2d8a29fd854ad8902c9c7db682a1ee3ca26e81b41c2b84b9a02",
+      "candidate_sha256": "0deb05e7f300d2d8a29fd854ad8902c9c7db682a1ee3ca26e81b41c2b84b9a02",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/lib.rs",
+      "receipt_sha256": "8d05218bce51a6f9c4b2e7fd591cd08f98e2f00b4cca6e072021d99d46590f5f",
+      "candidate_sha256": "8d05218bce51a6f9c4b2e7fd591cd08f98e2f00b4cca6e072021d99d46590f5f",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/runtime.rs",
+      "receipt_sha256": "8e62150b5a476fb845d1d4cd9241bd7ad23e4d862b40169e9a6d9edbabd34235",
+      "candidate_sha256": "8e62150b5a476fb845d1d4cd9241bd7ad23e4d862b40169e9a6d9edbabd34235",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/time.rs",
+      "receipt_sha256": "af4d0de1c5c2369893cc1ac61709c67762cb4b8fc38fc4dd88c13e04bd9fbef4",
+      "candidate_sha256": "af4d0de1c5c2369893cc1ac61709c67762cb4b8fc38fc4dd88c13e04bd9fbef4",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/main.rs",
+      "receipt_sha256": "e3826da3fcee6dad029f727220547af3e27752df4697648fbc419713a475d013",
+      "candidate_sha256": "e3826da3fcee6dad029f727220547af3e27752df4697648fbc419713a475d013",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/sftp.rs",
+      "receipt_sha256": "338a0b5e637a390cff4fedf7ae180f085c8e545cacad700667aa6494df2b814c",
+      "candidate_sha256": "338a0b5e637a390cff4fedf7ae180f085c8e545cacad700667aa6494df2b814c",
+      "equal": true
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/transport.rs",
+      "receipt_sha256": "6854a6fb5ad367c69a6f542c217a15c56bb2b860e50b9c8b105ecc08cbd67ca3",
+      "candidate_sha256": "6854a6fb5ad367c69a6f542c217a15c56bb2b860e50b9c8b105ecc08cbd67ca3",
+      "equal": true
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "receipt_sha256": "a468c32c2f7f04cda2c60e1bbf20b1b6549104bff473b9c19c0d8aaab1d3d72f",
+      "candidate_sha256": "a468c32c2f7f04cda2c60e1bbf20b1b6549104bff473b9c19c0d8aaab1d3d72f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/Cargo.toml",
+      "receipt_sha256": "6b3ae7c15ded92e7789933c5cbe17207d49616008e8c7af7723c3d21add5325e",
+      "candidate_sha256": "6b3ae7c15ded92e7789933c5cbe17207d49616008e8c7af7723c3d21add5325e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/benches/ciphers.rs",
+      "receipt_sha256": "8eed524c8e6d71b62ef484a6f75ea7695a5d2bb0d1824e430f8793d41e7d0b6f",
+      "candidate_sha256": "8eed524c8e6d71b62ef484a6f75ea7695a5d2bb0d1824e430f8793d41e7d0b6f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_exec_interactive.rs",
+      "receipt_sha256": "0c4bbd108da50165ee5594f17f6bcaf13a5cc712b65d2b56567ac0bb5ffc0f38",
+      "candidate_sha256": "0c4bbd108da50165ee5594f17f6bcaf13a5cc712b65d2b56567ac0bb5ffc0f38",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_exec_simple.rs",
+      "receipt_sha256": "e13d8f4cc47e8beea5c159dd05b8b04d61cfcf18514ce63540ed0e808e430d3a",
+      "candidate_sha256": "e13d8f4cc47e8beea5c159dd05b8b04d61cfcf18514ce63540ed0e808e430d3a",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_open_direct_tcpip.rs",
+      "receipt_sha256": "c36529b6fb22100793ae1d0a101f90a270751b7dcdaec96fc4a62b9c70e6595a",
+      "candidate_sha256": "c36529b6fb22100793ae1d0a101f90a270751b7dcdaec96fc4a62b9c70e6595a",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/echoserver.rs",
+      "receipt_sha256": "c3a4205515be436a05dd6985b36d4521849861ab7afaccd5ee66efd14df2650d",
+      "candidate_sha256": "c3a4205515be436a05dd6985b36d4521849861ab7afaccd5ee66efd14df2650d",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/echoserver_certificates.rs",
+      "receipt_sha256": "8ad8a45de45e5e827ebf9d346e1f004ff6fb6c86c7f6d82e5639c8e720223a44",
+      "candidate_sha256": "8ad8a45de45e5e827ebf9d346e1f004ff6fb6c86c7f6d82e5639c8e720223a44",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/ratatui_app.rs",
+      "receipt_sha256": "4674557265289d10a6cc944c5f80204a0f1919bf7da37d0256e3b8289f2bc423",
+      "candidate_sha256": "4674557265289d10a6cc944c5f80204a0f1919bf7da37d0256e3b8289f2bc423",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/ratatui_shared_app.rs",
+      "receipt_sha256": "bd2730bfac5871add71d06622b0d560bf3d76b1f8c1ba241b382ea8da1e1bf5e",
+      "candidate_sha256": "bd2730bfac5871add71d06622b0d560bf3d76b1f8c1ba241b382ea8da1e1bf5e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/sftp_client.rs",
+      "receipt_sha256": "14946af282d7ce2dce2b4132fc5e397ffcb5b042300f63ce81b016620c425b1c",
+      "candidate_sha256": "14946af282d7ce2dce2b4132fc5e397ffcb5b042300f63ce81b016620c425b1c",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/sftp_server.rs",
+      "receipt_sha256": "abc04bf296d2aea7a5a11207b0b05f375cb78247096fbf6f092dfbf51c1bdb1a",
+      "candidate_sha256": "abc04bf296d2aea7a5a11207b0b05f375cb78247096fbf6f092dfbf51c1bdb1a",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/examples/test.rs",
+      "receipt_sha256": "88d0227e4f1da352802b72c5b6ba47519907ce5e896e16bbc002dc49761a1ebc",
+      "candidate_sha256": "88d0227e4f1da352802b72c5b6ba47519907ce5e896e16bbc002dc49761a1ebc",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/auth.rs",
+      "receipt_sha256": "029f1c4c18e96ec748d63394b17dc9edec467a6e3477cb2ebc9d6821faeddb5d",
+      "candidate_sha256": "029f1c4c18e96ec748d63394b17dc9edec467a6e3477cb2ebc9d6821faeddb5d",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cert.rs",
+      "receipt_sha256": "dfaf38d70d54adb6f124e5adb8ac8fd0c63148dba291a2769788fd108375b35f",
+      "candidate_sha256": "dfaf38d70d54adb6f124e5adb8ac8fd0c63148dba291a2769788fd108375b35f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/channel_ref.rs",
+      "receipt_sha256": "8d6678c43cae06d095ae4cc242ae33ca1bf65efcdef9a5948d382cbffb101f06",
+      "candidate_sha256": "8d6678c43cae06d095ae4cc242ae33ca1bf65efcdef9a5948d382cbffb101f06",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/channel_stream.rs",
+      "receipt_sha256": "990be739b58d69e18682575a66eee123d7055a228f71429b9fb1276ed5419b9a",
+      "candidate_sha256": "990be739b58d69e18682575a66eee123d7055a228f71429b9fb1276ed5419b9a",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/mod.rs",
+      "receipt_sha256": "d058ed66458c0d5a7da50c270cb6c6a9c067c68cc328cc91a990d3ff39be8c1d",
+      "candidate_sha256": "d058ed66458c0d5a7da50c270cb6c6a9c067c68cc328cc91a990d3ff39be8c1d",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/rx.rs",
+      "receipt_sha256": "6e241986dcb5f75fdf9788000fa7e9f6c0dc7500c7062fbb16cbcba0c6e0d166",
+      "candidate_sha256": "6e241986dcb5f75fdf9788000fa7e9f6c0dc7500c7062fbb16cbcba0c6e0d166",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/tx.rs",
+      "receipt_sha256": "8c62048b5176ba6b330c5b74148a328172920ca950bfe6bddd1ba5b1a2d16767",
+      "candidate_sha256": "8c62048b5176ba6b330c5b74148a328172920ca950bfe6bddd1ba5b1a2d16767",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/mod.rs",
+      "receipt_sha256": "5285c0e988da125a9402cc72d080028860f50d22bf510b7e36e6b50013de6222",
+      "candidate_sha256": "5285c0e988da125a9402cc72d080028860f50d22bf510b7e36e6b50013de6222",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/benchmark.rs",
+      "receipt_sha256": "1632912cbd81f39684fdc57ef49f240677fd72c9176fa548eb9944b5d66ffeb9",
+      "candidate_sha256": "1632912cbd81f39684fdc57ef49f240677fd72c9176fa548eb9944b5d66ffeb9",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/block.rs",
+      "receipt_sha256": "1abade93fa680ee57634f2287f6a3ad378aaf5557e21d12ed198a4620cfc33a4",
+      "candidate_sha256": "1abade93fa680ee57634f2287f6a3ad378aaf5557e21d12ed198a4620cfc33a4",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/cbc.rs",
+      "receipt_sha256": "5349c7a22b070501fb237da568c8e4ccbf31268b393289355de17200cbac2523",
+      "candidate_sha256": "5349c7a22b070501fb237da568c8e4ccbf31268b393289355de17200cbac2523",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/chacha20poly1305.rs",
+      "receipt_sha256": "461cf944d4d2fab4e0d494ad5bd0923e44795d34e03dc6556122f1a28ba4e47f",
+      "candidate_sha256": "461cf944d4d2fab4e0d494ad5bd0923e44795d34e03dc6556122f1a28ba4e47f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/clear.rs",
+      "receipt_sha256": "0d3c514e38f353f5134e939a0912e72a3e6e01cccf7f134a2304253b56a4e238",
+      "candidate_sha256": "0d3c514e38f353f5134e939a0912e72a3e6e01cccf7f134a2304253b56a4e238",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/gcm.rs",
+      "receipt_sha256": "f734b060f43e14aabfd8fc48891f57fab804d0f378374579b4bc3a5098a7b2e4",
+      "candidate_sha256": "f734b060f43e14aabfd8fc48891f57fab804d0f378374579b4bc3a5098a7b2e4",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/mod.rs",
+      "receipt_sha256": "9aa51d28899054d98805d5b2363ba0532f5b49950156e8051ddb96f43aca1a88",
+      "candidate_sha256": "9aa51d28899054d98805d5b2363ba0532f5b49950156e8051ddb96f43aca1a88",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/encrypted.rs",
+      "receipt_sha256": "4366e6b81d60f8a124b5865bd8f86b8dbf028d1b6639d12566a4184ff71eb2a7",
+      "candidate_sha256": "4366e6b81d60f8a124b5865bd8f86b8dbf028d1b6639d12566a4184ff71eb2a7",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/kex.rs",
+      "receipt_sha256": "e70bff6125c724bf2216b6da526fb0644bbe0c7d1ac174929aa230c08781d598",
+      "candidate_sha256": "e70bff6125c724bf2216b6da526fb0644bbe0c7d1ac174929aa230c08781d598",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/mod.rs",
+      "receipt_sha256": "bc48faac2c55f13ca3c723af804624d44d499868cab405631878eb69e75a1561",
+      "candidate_sha256": "bc48faac2c55f13ca3c723af804624d44d499868cab405631878eb69e75a1561",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/session.rs",
+      "receipt_sha256": "4380af480ec8efb82126b0fa970bee1506fc534f3ee923a6f33cc9a26038023c",
+      "candidate_sha256": "4380af480ec8efb82126b0fa970bee1506fc534f3ee923a6f33cc9a26038023c",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/test.rs",
+      "receipt_sha256": "5f7be465dbd6449cec69ebf8e44cf8d65e04934c5942218c5ffc6124eff3e501",
+      "candidate_sha256": "5f7be465dbd6449cec69ebf8e44cf8d65e04934c5942218c5ffc6124eff3e501",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/compression.rs",
+      "receipt_sha256": "6393ce61af916d6fa9614b43f3e04496623c9471f2125d5adbb76c729b32f7bf",
+      "candidate_sha256": "6393ce61af916d6fa9614b43f3e04496623c9471f2125d5adbb76c729b32f7bf",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/helpers.rs",
+      "receipt_sha256": "dba6a5572aad18e881a094267210e8393d7eaad26520ec811e877bb83c93c297",
+      "candidate_sha256": "dba6a5572aad18e881a094267210e8393d7eaad26520ec811e877bb83c93c297",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/curve25519.rs",
+      "receipt_sha256": "2afb49ef6284bede5673c31ea4ade412edacdae6b7350721d44f6f2462816e54",
+      "candidate_sha256": "2afb49ef6284bede5673c31ea4ade412edacdae6b7350721d44f6f2462816e54",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/dh/groups.rs",
+      "receipt_sha256": "0699b803048c2bf750b9789a76c9243f4967bee7cb8f0e78ef873358aaec1d24",
+      "candidate_sha256": "0699b803048c2bf750b9789a76c9243f4967bee7cb8f0e78ef873358aaec1d24",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/dh/mod.rs",
+      "receipt_sha256": "99145ccbed4de1565f29c94f6374e5697fcee5afe3fddb222fbc8017b9135099",
+      "candidate_sha256": "99145ccbed4de1565f29c94f6374e5697fcee5afe3fddb222fbc8017b9135099",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/ecdh_nistp.rs",
+      "receipt_sha256": "0bb7c452200130edf71be0966983ebdc311ca57154343d93eeab509ec2beaf17",
+      "candidate_sha256": "0bb7c452200130edf71be0966983ebdc311ca57154343d93eeab509ec2beaf17",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/hybrid_mlkem.rs",
+      "receipt_sha256": "4bdce3c784fc48f8bfadd48ea3c9123ad63a8b4299b1bef36fdceb4302abc5e3",
+      "candidate_sha256": "4bdce3c784fc48f8bfadd48ea3c9123ad63a8b4299b1bef36fdceb4302abc5e3",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/mod.rs",
+      "receipt_sha256": "66b3b9a80159c06ea98581cf0fbc36864f1ed041b0af535f2f9964a18eee491b",
+      "candidate_sha256": "66b3b9a80159c06ea98581cf0fbc36864f1ed041b0af535f2f9964a18eee491b",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/none.rs",
+      "receipt_sha256": "8c0d847c2caadd7a2db77d34877d3182e38cb2e90ed44e3823b53361a770960d",
+      "candidate_sha256": "8c0d847c2caadd7a2db77d34877d3182e38cb2e90ed44e3823b53361a770960d",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/client.rs",
+      "receipt_sha256": "6c266ea9850bbdfba6d4021106c1370928b97319c54d4a64956add10fcc4e292",
+      "candidate_sha256": "6c266ea9850bbdfba6d4021106c1370928b97319c54d4a64956add10fcc4e292",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/mod.rs",
+      "receipt_sha256": "6376cae79d8faf789b2d95b23ffd7d0bfe764214c916abe5962ddf91d6662d96",
+      "candidate_sha256": "6376cae79d8faf789b2d95b23ffd7d0bfe764214c916abe5962ddf91d6662d96",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/msg.rs",
+      "receipt_sha256": "9027c37efb001d6992b68e0ff16ad1b6c14b5013729f44706d6c0f4db8dff679",
+      "candidate_sha256": "9027c37efb001d6992b68e0ff16ad1b6c14b5013729f44706d6c0f4db8dff679",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/server.rs",
+      "receipt_sha256": "b61ffc9feb8abe570602c2e1dea422c59bcd28b13df48ef9b0f99dc9ed9381f9",
+      "candidate_sha256": "b61ffc9feb8abe570602c2e1dea422c59bcd28b13df48ef9b0f99dc9ed9381f9",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/mod.rs",
+      "receipt_sha256": "867e0971d5b396acff2b7857dbc322bc5b26225a9dec3048d9e7b533db1b323e",
+      "candidate_sha256": "867e0971d5b396acff2b7857dbc322bc5b26225a9dec3048d9e7b533db1b323e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/openssh.rs",
+      "receipt_sha256": "e345287a5c5af34b95740c90431e322b86ba4230be4e116b2194c7de7bd99816",
+      "candidate_sha256": "e345287a5c5af34b95740c90431e322b86ba4230be4e116b2194c7de7bd99816",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/pkcs5.rs",
+      "receipt_sha256": "0891a67497ac4f793fcbdb83ed3fda03430ec267a09668c5c6c0ff05b0998582",
+      "candidate_sha256": "0891a67497ac4f793fcbdb83ed3fda03430ec267a09668c5c6c0ff05b0998582",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/pkcs8.rs",
+      "receipt_sha256": "69db6690bcedeaabac613859967b6ddc8ea156b41c9a0a4ca0b36614487c99d3",
+      "candidate_sha256": "69db6690bcedeaabac613859967b6ddc8ea156b41c9a0a4ca0b36614487c99d3",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/tests.rs",
+      "receipt_sha256": "977939953f4ad8db5b86d7b539f0f63bfbc6d2a2de0d1307ca3e9707b3fc7d19",
+      "candidate_sha256": "977939953f4ad8db5b86d7b539f0f63bfbc6d2a2de0d1307ca3e9707b3fc7d19",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/key.rs",
+      "receipt_sha256": "a65e5672de65c30c4ed08241a89d344f1bc00defa6a61a5a835122a095d4f981",
+      "candidate_sha256": "a65e5672de65c30c4ed08241a89d344f1bc00defa6a61a5a835122a095d4f981",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/known_hosts.rs",
+      "receipt_sha256": "b97f0dca9172db1781f58c32c47ed786d1af87bedc6d91814f34c02b5c4dd7b9",
+      "candidate_sha256": "b97f0dca9172db1781f58c32c47ed786d1af87bedc6d91814f34c02b5c4dd7b9",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/mod.rs",
+      "receipt_sha256": "f03e47b001421377e6f9d23876beddf2a1fd2f4b1fce00d65adb1c703c001d97",
+      "candidate_sha256": "f03e47b001421377e6f9d23876beddf2a1fd2f4b1fce00d65adb1c703c001d97",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/lib.rs",
+      "receipt_sha256": "8398c8b25509efa7d56b8577ec9c46e27f8ab9b20ac0f2068e7390ddfad883a9",
+      "candidate_sha256": "8398c8b25509efa7d56b8577ec9c46e27f8ab9b20ac0f2068e7390ddfad883a9",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/lib_inner.rs",
+      "receipt_sha256": "226342a2066612f1b1affc059a7eeb44f0716943fa8613e49cf91e28074bf485",
+      "candidate_sha256": "226342a2066612f1b1affc059a7eeb44f0716943fa8613e49cf91e28074bf485",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/crypto.rs",
+      "receipt_sha256": "a6f8f5a98a6d342f925bb2842650b0c92e4c57c91036caf93aa2fdaa28a0b218",
+      "candidate_sha256": "a6f8f5a98a6d342f925bb2842650b0c92e4c57c91036caf93aa2fdaa28a0b218",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/crypto_etm.rs",
+      "receipt_sha256": "36f76c3e30556c182bac25cc4b2918d6ce7f2be666531df849db4baf8fb02148",
+      "candidate_sha256": "36f76c3e30556c182bac25cc4b2918d6ce7f2be666531df849db4baf8fb02148",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/mod.rs",
+      "receipt_sha256": "a3418bb9fdc1cf9102ffd968811946e9c92cb4a3d50a0759f5cdb091cce6d18e",
+      "candidate_sha256": "a3418bb9fdc1cf9102ffd968811946e9c92cb4a3d50a0759f5cdb091cce6d18e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/none.rs",
+      "receipt_sha256": "c58fe761c9e07df4956a8e349f2053e2d3fd28988b99a4af7b152f73a7db1211",
+      "candidate_sha256": "c58fe761c9e07df4956a8e349f2053e2d3fd28988b99a4af7b152f73a7db1211",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/msg.rs",
+      "receipt_sha256": "b99ac5e26c84482587e076e923fa5ed146f8aab12858d2324d231e65ab55f4c1",
+      "candidate_sha256": "b99ac5e26c84482587e076e923fa5ed146f8aab12858d2324d231e65ab55f4c1",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/negotiation.rs",
+      "receipt_sha256": "1170797cdc2690646c2f384117eeb9297fb75ea4d73581413c1f56b679ef0c7f",
+      "candidate_sha256": "1170797cdc2690646c2f384117eeb9297fb75ea4d73581413c1f56b679ef0c7f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/parsing.rs",
+      "receipt_sha256": "d146337f8d92ef3ec4d63803efc82457f0c596604f6c1eee0b78d5d61e05e095",
+      "candidate_sha256": "d146337f8d92ef3ec4d63803efc82457f0c596604f6c1eee0b78d5d61e05e095",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/pty.rs",
+      "receipt_sha256": "db018a9139923b907999fb9870aad0e9bc93fe03d11b65752f3f08fe63c4eb3b",
+      "candidate_sha256": "db018a9139923b907999fb9870aad0e9bc93fe03d11b65752f3f08fe63c4eb3b",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/encrypted.rs",
+      "receipt_sha256": "4c9e355ed91aad60225a6e17cf8ea5a9ded4b118cb711050f135b72e82cd6b0f",
+      "candidate_sha256": "4c9e355ed91aad60225a6e17cf8ea5a9ded4b118cb711050f135b72e82cd6b0f",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/kex.rs",
+      "receipt_sha256": "a2768f7f47c5f98a9eec76ed8fab502e456b1005d09a18dee7c467ddd93c49c8",
+      "candidate_sha256": "a2768f7f47c5f98a9eec76ed8fab502e456b1005d09a18dee7c467ddd93c49c8",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/mod.rs",
+      "receipt_sha256": "c6c202c824e6add43a2796ba4a440c936670941e4659a70eeb35b829870b079e",
+      "candidate_sha256": "c6c202c824e6add43a2796ba4a440c936670941e4659a70eeb35b829870b079e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/session.rs",
+      "receipt_sha256": "6d5ad9116cd78b6b66fde2d3c96bfeba99482b6be229a0ecdc2f77bf977ad674",
+      "candidate_sha256": "6d5ad9116cd78b6b66fde2d3c96bfeba99482b6be229a0ecdc2f77bf977ad674",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/session.rs",
+      "receipt_sha256": "fa836a54dd8ecd73fe68d76a3e7f2bf878c38e6cb511a986982c5f972e279e9e",
+      "candidate_sha256": "fa836a54dd8ecd73fe68d76a3e7f2bf878c38e6cb511a986982c5f972e279e9e",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/ssh_read.rs",
+      "receipt_sha256": "0698ca2c71f0db5254422db1c7047151c31ace98e2ee224d510a2e6dba204e63",
+      "candidate_sha256": "0698ca2c71f0db5254422db1c7047151c31ace98e2ee224d510a2e6dba204e63",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/sshbuffer/pending_write_tests.rs",
+      "receipt_sha256": "fec9f15cf4d4df390b5297fed9423f98ec3639e2e65b5a8f1e05ac9020c23b0b",
+      "candidate_sha256": "fec9f15cf4d4df390b5297fed9423f98ec3639e2e65b5a8f1e05ac9020c23b0b",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/sshbuffer.rs",
+      "receipt_sha256": "426f1725af3e80a2f7eaa0f87a4358951a0c690d5ef4977e5d403cd8430d8409",
+      "candidate_sha256": "426f1725af3e80a2f7eaa0f87a4358951a0c690d5ef4977e5d403cd8430d8409",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/src/tests.rs",
+      "receipt_sha256": "68831d84d782c22ccbec8d6e0e8829b5cfc56a100d4be68ce892fbf17e0196c7",
+      "candidate_sha256": "68831d84d782c22ccbec8d6e0e8829b5cfc56a100d4be68ce892fbf17e0196c7",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_agent_req_channel_reply.rs",
+      "receipt_sha256": "d43028aadb8310e03de60e7733a436f9a7a3e13ee447718d9e78e28325707abb",
+      "candidate_sha256": "d43028aadb8310e03de60e7733a436f9a7a3e13ee447718d9e78e28325707abb",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_partial_success.rs",
+      "receipt_sha256": "0e3263643db58d543d7a07575c6a68f3fd07f927a9a6fa0721df0e9746d8fd84",
+      "candidate_sha256": "0e3263643db58d543d7a07575c6a68f3fd07f927a9a6fa0721df0e9746d8fd84",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_signer_failure.rs",
+      "receipt_sha256": "966b1def63734f83f3af3caa3932839d67aaab7870dd3d10eebe06e820bac9b7",
+      "candidate_sha256": "966b1def63734f83f3af3caa3932839d67aaab7870dd3d10eebe06e820bac9b7",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_state_reset.rs",
+      "receipt_sha256": "454c0c1175a8c489f1f09432cdb7bd0d10b153001bd05d5d86018c2635a577ed",
+      "candidate_sha256": "454c0c1175a8c489f1f09432cdb7bd0d10b153001bd05d5d86018c2635a577ed",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_agent_session_bind.rs",
+      "receipt_sha256": "f260065a21aa71e1b7309ef56aa23433ad92c5f845024559510179d8139356d8",
+      "candidate_sha256": "f260065a21aa71e1b7309ef56aa23433ad92c5f845024559510179d8139356d8",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_backpressure.rs",
+      "receipt_sha256": "45abf29e194a612f33301215363b1b049a86c0b89eecdcb6a6953d87353308d6",
+      "candidate_sha256": "45abf29e194a612f33301215363b1b049a86c0b89eecdcb6a6953d87353308d6",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_contention.rs",
+      "receipt_sha256": "4a23b7cf91bb108e8dd9c746b9db455e6d453133d9054cdbdc922dc881996eb5",
+      "candidate_sha256": "4a23b7cf91bb108e8dd9c746b9db455e6d453133d9054cdbdc922dc881996eb5",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_data_stream.rs",
+      "receipt_sha256": "85d4d75dc3eff500354c68bbaed3cc2219a713f19737035070713793b90c3af6",
+      "candidate_sha256": "85d4d75dc3eff500354c68bbaed3cc2219a713f19737035070713793b90c3af6",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_keepalive_before_auth.rs",
+      "receipt_sha256": "da74e8ef98718613e81bf6e07a682ce8f085be17a310dee9dbe0e068421c9f33",
+      "candidate_sha256": "da74e8ef98718613e81bf6e07a682ce8f085be17a310dee9dbe0e068421c9f33",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_kex_shared_secret.rs",
+      "receipt_sha256": "0b9eb35276f35546be3a5ad4ed61c81d82bc5693f340e10095a079fe942dc365",
+      "candidate_sha256": "0b9eb35276f35546be3a5ad4ed61c81d82bc5693f340e10095a079fe942dc365",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_max_channel_packet_size.rs",
+      "receipt_sha256": "d126a18d6c05680434432b67587f43409e0989dbc4fe6e3a7a9856594e13f6d8",
+      "candidate_sha256": "d126a18d6c05680434432b67587f43409e0989dbc4fe6e3a7a9856594e13f6d8",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_mlkem_kex.rs",
+      "receipt_sha256": "30f3ff3b68220811cfe9c1574fb41c759e50aec8673ec4fdce68ee35bdff3fc9",
+      "candidate_sha256": "30f3ff3b68220811cfe9c1574fb41c759e50aec8673ec4fdce68ee35bdff3fc9",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_rekey_strict_kex.rs",
+      "receipt_sha256": "d40f68ffe7b20a800a05411625313447cb33289603712752424be21abe9e5342",
+      "candidate_sha256": "d40f68ffe7b20a800a05411625313447cb33289603712752424be21abe9e5342",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_server_cert.rs",
+      "receipt_sha256": "3a83bc12cf9a06a73bdc49eecdf4a77633594baf4826f7b65865946d2c2b3158",
+      "candidate_sha256": "3a83bc12cf9a06a73bdc49eecdf4a77633594baf4826f7b65865946d2c2b3158",
+      "equal": true
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_window_adjust.rs",
+      "receipt_sha256": "90949e5d3b1c7d1e529ed6f66eb253cada7f32ab56a57ef3524b417ba79f8ce7",
+      "candidate_sha256": "90949e5d3b1c7d1e529ed6f66eb253cada7f32ab56a57ef3524b417ba79f8ce7",
+      "equal": true
+    }
+  ]
+}

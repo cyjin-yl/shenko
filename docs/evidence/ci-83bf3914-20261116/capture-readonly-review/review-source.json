@@ -1,0 +1,12 @@
+{
+  "source": "7191f89f98e1bf3f9b197db63de1f0b97159afef",
+  "base": "2798bb37ef793dc90a6dadccab0738aacff84b04",
+  "path": "crates/shenko-store/src/control_transition.rs",
+  "source_sha256": "82f2cf410aac1dd45da3004a6057520971c72e3f39097887cab0da54640ce9d4",
+  "test_block_byte_identical": true,
+  "new_product_windows": 0,
+  "rust_compilation": false,
+  "pinned_sqlite_execution": false,
+  "finite_observation_version": "3.46.1",
+  "confirmed_blockers": []
+}

@@ -1,11 +1,11 @@
 //! The S0 boundary: durable raw facts -> committed window -> native payload.
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use shenko_broker::request::{InferenceMessage, InferencePart, InferencePayload, ProviderCapabilities};
 use shenko_context_policy::{
-    Attempt, CONTRACT_VERSION, CommittedWindow, HistoryItem, HistorySource, ItemKind, ModelCaps,
+    Attempt, CONTRACT_VERSION, CallStatus, CommittedWindow, HistoryItem, HistorySource, ItemKind, ItemRef, ModelCaps,
     Projected, StorageError, StoreHistory, VisionCaps, estimate_tokens,
 };
 use shenko_store::{Store, SubjectContextRef, SubjectHistoryInput};
@@ -35,7 +35,7 @@ pub fn input_model_caps(
     })
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub(super) enum ContextSelection {
     Unavailable { reason: String },
@@ -47,7 +47,77 @@ pub(super) enum ContextSelection {
     Compacted { attempts: Vec<Attempt> },
 }
 
-#[derive(Serialize, Deserialize)]
+/// Exact partitions of the sealed payload. Counts describe rendered messages,
+/// never raw-history sequence numbers. Only the history partition may be
+/// replaced by a policy; the original idle/contribution text and correction
+/// tail remain verbatim.
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct FrozenPayloadLayout {
+    pub system_prefix_bytes: u64,
+    pub history_message_count: u64,
+    pub idle_message_count: u64,
+    pub contribution_message_count: u64,
+    pub vision_tokens: u32,
+}
+
+impl FrozenPayloadLayout {
+    pub(super) fn partitions(
+        &self,
+        payload: &InferencePayload,
+    ) -> Result<(usize, usize, usize), ShenkoError> {
+        let prefix = usize::try_from(self.system_prefix_bytes)
+            .map_err(|_| ShenkoError::conflict("frozen system prefix length overflow"))?;
+        let history = usize::try_from(self.history_message_count)
+            .map_err(|_| ShenkoError::conflict("frozen history message count overflow"))?;
+        let contribution_start = self
+            .history_message_count
+            .checked_add(self.idle_message_count)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or_else(|| ShenkoError::conflict("frozen retained message count overflow"))?;
+        let tail_start = contribution_start
+            .checked_add(
+                usize::try_from(self.contribution_message_count).map_err(|_| {
+                    ShenkoError::conflict("frozen contribution message count overflow")
+                })?,
+            )
+            .ok_or_else(|| ShenkoError::conflict("frozen correction tail offset overflow"))?;
+        if self.idle_message_count > 1
+            || prefix > payload.system_prompt.len()
+            || !payload.system_prompt.is_char_boundary(prefix)
+            || tail_start > payload.messages.len()
+            || payload.messages[history..]
+                .iter()
+                .flat_map(|message| &message.parts)
+                .any(|part| !matches!(part, InferencePart::Text { .. }))
+        {
+            return Err(ShenkoError::conflict("invalid frozen payload partitions"));
+        }
+        let has_image = payload.messages[..history]
+            .iter()
+            .flat_map(|message| &message.parts)
+            .any(InferencePart::is_image);
+        if has_image != (self.vision_tokens > 0) {
+            return Err(ShenkoError::conflict(
+                "frozen payload vision charge differs from its image partition",
+            ));
+        }
+        Ok((history, contribution_start, tail_start))
+    }
+}
+
+/// A correction is a new request. A policy may make a new observation of
+/// execution facts within the original raw-history boundary, but that is
+/// explicitly separate from what the parent seal observed.
+#[derive(Clone, Serialize, Deserialize)]
+pub(super) struct FrozenCorrectionObservation {
+    pub parent_input_ref: shenko_types::object::ObjectRef,
+    pub parent_source: SubjectContextRef,
+    pub new_execution_projection: Option<SubjectContextRef>,
+    pub tail_digest: Digest,
+    pub tail_message_count: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub(super) struct FrozenContextInput {
     pub source: SubjectContextRef,
     pub profile_digest: Digest,
@@ -62,6 +132,10 @@ pub(super) struct FrozenContextInput {
     pub token_counter: String,
     pub policy_contract: u32,
     pub selection: ContextSelection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload_layout: Option<FrozenPayloadLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction_observation: Option<FrozenCorrectionObservation>,
 }
 
 pub(super) struct PreparedContextInput {
@@ -159,21 +233,34 @@ struct PreparationSource {
     leaf: Option<u64>,
     configuration_revision: u64,
     used_tokens: u32,
+    caps: ModelCaps,
 }
 
-type PreparationResult = Result<
-    Result<shenko_context_policy::PreparedCandidate, shenko_context_policy::PrepareError>,
-    tokio::task::JoinError,
->;
+struct PreparedObservation {
+    candidate: shenko_context_policy::PreparedCandidate,
+    baseline: PreparationBaseline,
+}
+
+struct PreparationBaseline {
+    source_commit_seq: u64,
+    leaf: Option<u64>,
+    calls: HashMap<EntityId, (ItemRef, CallStatus)>,
+}
+
+enum PreparationFailure {
+    Policy(shenko_context_policy::PrepareError),
+    ObservationMoved { before: u64, after: u64 },
+}
+
+type PreparationResult =
+    Result<Result<PreparedObservation, PreparationFailure>, tokio::task::JoinError>;
 
 /// One owned worker. Only the live subject publishes its result; aborting a
 /// running blocking task cannot preempt strategy code, but dropping its owner
 /// cannot leave a worker that later publishes into the registry.
 pub(super) struct ContextPreparer {
     source: PreparationSource,
-    task: tokio::task::JoinHandle<
-        Result<shenko_context_policy::PreparedCandidate, shenko_context_policy::PrepareError>,
-    >,
+    task: tokio::task::JoinHandle<Result<PreparedObservation, PreparationFailure>>,
     completed: Option<PreparationResult>,
 }
 
@@ -193,11 +280,42 @@ fn launch_context_preparer(
     let registry = Arc::clone(registry);
     let used_tokens = source.used_tokens;
     let task = tokio::task::spawn_blocking(move || {
-        let history =
-            StoreHistory::new(store, scope_id, Arc::new(estimate_tokens));
-        registry.prepare_candidate(&history, &caps, used_tokens)
+        let policy_error = |error| {
+            PreparationFailure::Policy(shenko_context_policy::PrepareError::Storage(
+                storage_message(error),
+            ))
+        };
+        let before = store.current_commit_seq().map_err(policy_error)?;
+        let history = StoreHistory::new(Arc::clone(&store), scope_id, Arc::new(estimate_tokens));
+        let observed = RecordingHistory {
+            history: BoundedHistory {
+                history: &history,
+                leaf: source.leaf,
+            },
+            calls: parking_lot::Mutex::new(HashMap::new()),
+        };
+        let candidate = registry.prepare_candidate(&observed, &caps, used_tokens);
+        let after = store.current_commit_seq().map_err(policy_error)?;
+        if before != after {
+            return Err(PreparationFailure::ObservationMoved { before, after });
+        }
+        tracing::debug!(source_commit_seq = before, leaf = ?source.leaf,
+            call_observations = observed.calls.lock().len(),
+            "context policy prepared against a stable execution observation");
+        Ok(PreparedObservation {
+            candidate: candidate.map_err(PreparationFailure::Policy)?,
+            baseline: PreparationBaseline {
+                source_commit_seq: before,
+                leaf: source.leaf,
+                calls: observed.calls.into_inner(),
+            },
+        })
     });
-    ContextPreparer { source, task, completed: None }
+    ContextPreparer {
+        source,
+        task,
+        completed: None,
+    }
 }
 
 /// Wait without an inference permit or S0 seal. Keep completion until the
@@ -206,7 +324,9 @@ pub(super) async fn wait_for_context_preparer(
     state: &mut SubjectLoopState,
     cancel: &tokio_util::sync::CancellationToken,
 ) {
-    let Some(preparer) = state.context_preparer.as_mut() else { return };
+    let Some(preparer) = state.context_preparer.as_mut() else {
+        return;
+    };
     tokio::select! {
         biased;
         _ = cancel.cancelled() => { state.context_preparer.take(); }
@@ -222,7 +342,9 @@ struct BoundedHistory<'a> {
 }
 
 impl HistorySource for BoundedHistory<'_> {
-    fn leaf_seq(&self) -> Result<Option<u64>, StorageError> { Ok(self.leaf) }
+    fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
+        Ok(self.leaf)
+    }
 
     fn read_range(&self, from: u64, to: u64) -> Result<Vec<HistoryItem>, StorageError> {
         match self.leaf {
@@ -232,7 +354,121 @@ impl HistorySource for BoundedHistory<'_> {
     }
 
     fn read_event(&self, id: EntityId) -> Result<Option<HistoryItem>, StorageError> {
-        Ok(self.history.read_event(id)?.filter(|item| self.leaf.is_some_and(|leaf| item.at.seq <= leaf)))
+        Ok(self
+            .history
+            .read_event(id)?
+            .filter(|item| self.leaf.is_some_and(|leaf| item.at.seq <= leaf)))
+    }
+}
+
+fn storage_message(error: impl std::fmt::Display) -> StorageError {
+    StorageError(error.to_string())
+}
+
+// The policy already reads its required history. Retain only the mutable
+// execution states it actually saw, not another unbounded copy of that text.
+// Refuse this preparation before admitting more than this bounded index.
+const MAX_PREPARATION_CALL_OBSERVATIONS: usize = 65_536;
+
+struct RecordingHistory<'a> {
+    history: BoundedHistory<'a>,
+    calls: parking_lot::Mutex<HashMap<EntityId, (ItemRef, CallStatus)>>,
+}
+
+impl RecordingHistory<'_> {
+    fn observe(&self, item: &HistoryItem) -> Result<(), StorageError> {
+        let status = match &item.kind {
+            ItemKind::ToolCall { status, .. } | ItemKind::ToolResult { status, .. } => *status,
+            _ => return Ok(()),
+        };
+        let mut calls = self.calls.lock();
+        match calls.get(&item.at.event_id) {
+            Some(previous) if *previous != (item.at, status) => {
+                return Err(storage_message(
+                    "execution state changed during policy preparation",
+                ));
+            }
+            Some(_) => {}
+            None if calls.len() >= MAX_PREPARATION_CALL_OBSERVATIONS => {
+                return Err(storage_message(
+                    "policy preparation exceeds the bounded execution-observation index",
+                ));
+            }
+            None => {
+                calls.insert(item.at.event_id, (item.at, status));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl HistorySource for RecordingHistory<'_> {
+    fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
+        self.history.leaf_seq()
+    }
+    fn read_range(&self, from: u64, to: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        let items = self.history.read_range(from, to)?;
+        for item in &items {
+            self.observe(item)?;
+        }
+        Ok(items)
+    }
+    fn read_event(&self, id: EntityId) -> Result<Option<HistoryItem>, StorageError> {
+        let item = self.history.read_event(id)?;
+        if let Some(item) = &item {
+            self.observe(item)?;
+        }
+        Ok(item)
+    }
+}
+
+/// Adoption uses the worker's execution baseline for the prepared prefix.
+/// Later raw events stay live. The final projection uses the live history and
+/// the committed baseline to rehydrate any execution states that changed.
+struct AdoptionHistory<'a, 'store> {
+    history: &'a BoundedHistory<'store>,
+    prepared: &'a PreparationBaseline,
+}
+
+impl AdoptionHistory<'_, '_> {
+    fn restore(&self, item: &mut HistoryItem) -> Result<(), StorageError> {
+        if self.prepared.leaf.is_none_or(|leaf| item.at.seq > leaf) {
+            return Ok(());
+        }
+        match &mut item.kind {
+            ItemKind::ToolCall { status, .. } | ItemKind::ToolResult { status, .. } => {
+                let (at, observed) =
+                    self.prepared.calls.get(&item.at.event_id).ok_or_else(|| {
+                        storage_message("prepared prefix lacks its execution observation")
+                    })?;
+                if at != &item.at {
+                    return Err(storage_message("prepared raw event identity changed"));
+                }
+                *status = *observed;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+impl HistorySource for AdoptionHistory<'_, '_> {
+    fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
+        self.history.leaf_seq()
+    }
+    fn read_range(&self, from: u64, to: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        let mut items = self.history.read_range(from, to)?;
+        for item in &mut items {
+            self.restore(item)?;
+        }
+        Ok(items)
+    }
+    fn read_event(&self, id: EntityId) -> Result<Option<HistoryItem>, StorageError> {
+        let mut item = self.history.read_event(id)?;
+        if let Some(item) = &mut item {
+            self.restore(item)?;
+        }
+        Ok(item)
     }
 }
 
@@ -578,8 +814,9 @@ fn project_payload(
     caps: Option<&ModelCaps>,
     max_tokens: u64,
     fresh_ids: &[EntityId],
-    idle_text: &str,
-) -> Result<(InferencePayload, Option<u32>, Vec<String>), ShenkoError> {
+    idle_text: Option<&str>,
+) -> Result<(InferencePayload, Option<u32>, Vec<String>, FrozenPayloadLayout), ShenkoError> {
+    let system_prefix_bytes = base_system_prompt.len() as u64;
     let mut system_prompt = base_system_prompt;
     let mut messages = Vec::new();
     let mut unfinished = std::collections::BTreeSet::new();
@@ -669,13 +906,22 @@ fn project_payload(
     // A completed assistant turn is history, not an assistant prefill. Fresh
     // user inputs and tool results already end in a user-role turn; historical
     // users elsewhere in the window cannot request this next generation.
-    if messages.last().is_none_or(|message| message.role == "assistant") {
+    let history_message_count = messages.len() as u64;
+    if let Some(idle_text) = idle_text
+        && messages.last().is_none_or(|message| message.role == "assistant")
+    {
         messages.push(InferenceMessage::text("user", idle_text));
     }
+    let idle_message_count = messages.len() as u64 - history_message_count;
     let payload = InferencePayload { system_prompt, messages, max_tokens: Some(max_tokens),
         tools: Vec::new(), native_options: Default::default() };
     let estimate = estimate_payload_tokens(&payload, window.cost.vision_tokens_estimate);
-    Ok((payload, estimate, unfinished.into_iter().collect()))
+    let vision_tokens = if payload.messages.iter().flat_map(|message| &message.parts)
+        .any(InferencePart::is_image) { window.cost.vision_tokens_estimate } else { 0 };
+    Ok((payload, estimate, unfinished.into_iter().collect(), FrozenPayloadLayout {
+        system_prefix_bytes, history_message_count, idle_message_count,
+        contribution_message_count: 0, vision_tokens,
+    }))
 }
 
 fn budget_tokens(current: u32, previous: Option<(u32, u32)>) -> u32 {
@@ -684,6 +930,14 @@ fn budget_tokens(current: u32, previous: Option<(u32, u32)>) -> u32 {
             current.max(actual.saturating_add(current.saturating_sub(estimate))),
         None => current,
     }
+}
+
+pub(super) struct StableProjection {
+    payload: InferencePayload,
+    estimated_input_tokens: Option<u32>,
+    unfinished_call_ids: Vec<String>,
+    source_commit_seq: u64,
+    payload_layout: FrozenPayloadLayout,
 }
 
 pub(super) fn project_payload_stable(
@@ -695,19 +949,31 @@ pub(super) fn project_payload_stable(
     max_tokens: u64,
     fresh_ids: &[EntityId],
     idle_text: &str,
-) -> Result<(InferencePayload, Option<u32>, Vec<String>, u64), ShenkoError> {
+) -> Result<StableProjection, ShenkoError> {
     // The revision is acquired BEFORE any execution-status read. Equality
     // after projection is what permits this exact revision to enter the seal.
     let source_commit_seq = store.current_commit_seq()?;
-    let (payload, estimate, unfinished) = project_payload(
-        window, history, base_system_prompt, caps, max_tokens, fresh_ids, idle_text,
+    let (payload, estimate, unfinished, layout) = project_payload(
+        window,
+        history,
+        base_system_prompt,
+        caps,
+        max_tokens,
+        fresh_ids,
+        Some(idle_text),
     )?;
     if store.current_commit_seq()? != source_commit_seq {
         return Err(ShenkoError::ResnapshotRequired {
             reason: "execution facts changed during projection".into(),
         });
     }
-    Ok((payload, estimate, unfinished, source_commit_seq))
+    Ok(StableProjection {
+        payload,
+        estimated_input_tokens: estimate,
+        unfinished_call_ids: unfinished,
+        source_commit_seq,
+        payload_layout: layout,
+    })
 }
 
 /// Bind a window to the actual subject configuration without staging input or
@@ -735,6 +1001,569 @@ pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, S
         registry.ledger().rebind_model(generation, &profile_digest.0).map_err(storage)?;
     }
     Ok(profile_digest)
+}
+
+struct WindowSelection {
+    selection: ContextSelection,
+    preparation_error: Option<ShenkoError>,
+}
+
+/// Shared owned preparation/adoption. The supplied history is bounded both
+/// here and inside the worker. A caller may reserve immutable material outside
+/// the policy window by giving it a smaller preparation capacity.
+fn select_context_window(
+    state: &mut SubjectLoopState,
+    history: &BoundedHistory<'_>,
+    caps: Option<&ModelCaps>,
+    preparation_caps: Option<&ModelCaps>,
+    window: &mut CommittedWindow,
+    trigger_budget_input_tokens: u32,
+) -> Result<WindowSelection, ShenkoError> {
+    let Some(caps) = caps else {
+        return Ok(WindowSelection {
+            selection: ContextSelection::Unavailable {
+                reason: "model_context_limit_not_observed".into(),
+            },
+            preparation_error: None,
+        });
+    };
+    let preparation_caps = preparation_caps.unwrap_or(caps);
+    let registry = Arc::clone(&state.context_registry);
+    registry
+        .observe_pressure(caps, trigger_budget_input_tokens)
+        .map_err(storage)?;
+    // Keep a completed owned worker until its candidate is needed; publication
+    // and adoption below share its exact execution baseline in this call.
+    if !registry.needs_preparation(caps, trigger_budget_input_tokens) {
+        return Ok(WindowSelection {
+            selection: ContextSelection::Retained,
+            preparation_error: None,
+        });
+    }
+    let preparation_source = PreparationSource {
+        window_id: window.id,
+        model_generation: window.model_generation,
+        leaf: history.leaf,
+        configuration_revision: registry.configuration_revision(),
+        used_tokens: trigger_budget_input_tokens,
+        caps: preparation_caps.clone(),
+    };
+    let completed = state.context_preparer.as_mut().and_then(|preparer| {
+        preparer
+            .completed
+            .take()
+            .or_else(|| (&mut preparer.task).now_or_never())
+    });
+    let mut preparation_error = None;
+    let mut failed_attempts = Vec::new();
+    let mut published_current_source = false;
+    let mut prepared_baseline = None;
+    if let Some(completed) = completed {
+        let preparer = state
+            .context_preparer
+            .take()
+            .ok_or_else(|| ShenkoError::conflict("completed context preparation lost its owner"))?;
+        let result = match completed {
+            Ok(Ok(prepared)) => {
+                let result = registry
+                    .publish(prepared.candidate)
+                    .map_err(shenko_context_policy::PrepareError::Publish);
+                published_current_source = result.is_ok() && preparer.source == preparation_source;
+                if result.is_ok() {
+                    prepared_baseline = Some(prepared.baseline);
+                }
+                result
+            }
+            Ok(Err(PreparationFailure::Policy(error))) => Err(error),
+            Ok(Err(PreparationFailure::ObservationMoved { before, after })) => {
+                return Err(ShenkoError::ResnapshotRequired {
+                    reason: format!(
+                        "policy worker observed ledger movement {before}->{after}; no candidate published or request sealed",
+                    ),
+                });
+            }
+            Err(error) => {
+                tracing::warn!(%error, "context preparer stopped without a candidate");
+                if preparer.source == preparation_source {
+                    preparation_error = Some(ShenkoError::other(format!(
+                        "context preparer failed: {error}"
+                    )));
+                }
+                Ok(())
+            }
+        };
+        if let Err(error) = result {
+            tracing::warn!(%error, "context preparer produced no publishable candidate");
+            // Stale candidates are not failures of the new projection. A
+            // failed old configuration likewise cannot condemn its successor.
+            let stale = matches!(
+                &error,
+                shenko_context_policy::PrepareError::Publish(
+                    shenko_context_policy::PublishError::StaleSource { .. }
+                        | shenko_context_policy::PublishError::ModelGenerationChanged { .. }
+                        | shenko_context_policy::PublishError::StalePolicy { .. }
+                )
+            );
+            if !stale && preparer.source == preparation_source {
+                preparation_error = Some(match &error {
+                    shenko_context_policy::PrepareError::Storage(error) => storage(error),
+                    shenko_context_policy::PrepareError::Publish(
+                        shenko_context_policy::PublishError::Storage(error),
+                    ) => storage(error),
+                    _ => ShenkoError::conflict(format!("context preparation refused: {error}")),
+                });
+                if let shenko_context_policy::PrepareError::NoUsablePolicy { attempts } = error {
+                    failed_attempts = attempts;
+                }
+            }
+        }
+    }
+    let selection = {
+        // The slow strategy work (history render, policy attempts,
+        // window cut) happens OFF the S0 path: a prior step's
+        // preparer returned a candidate, or this step launches one.
+        // A fitting request can keep the current window; otherwise
+        // it waits before S0. Adoption re-verifies scope,
+        // source window, model generation, policy epoch and leaf
+        // against this exact bounded history.
+        let adopted = if let Some(prepared) = &prepared_baseline {
+            tracing::debug!(
+                source_commit_seq = prepared.source_commit_seq,
+                "adopting context policy with its worker execution baseline"
+            );
+            registry.adopt_prepared(&AdoptionHistory { history, prepared })
+        } else {
+            registry.adopt_prepared(history)
+        }
+        .map_err(adopt_error)?;
+        match adopted {
+            Some((adopted, attempts)) => {
+                if let Some(prepared) = &prepared_baseline {
+                    tracing::info!(worker_source_commit_seq = prepared.source_commit_seq,
+                                worker_leaf = ?prepared.leaf, window_id = %adopted.id,
+                                "context window adopted with its worker execution observation");
+                }
+                *window = adopted;
+                ContextSelection::Compacted { attempts }
+            }
+            None => {
+                if published_current_source
+                    && registry.last_preparation().is_some_and(|diagnostic| {
+                        diagnostic.outcome == shenko_context_policy::PreparationOutcome::Refused
+                    })
+                {
+                    preparation_error = Some(ShenkoError::conflict(
+                        "prepared context window was refused for the unchanged source",
+                    ));
+                }
+                if preparation_error.is_some() {
+                    ContextSelection::NoUsablePolicy {
+                        attempts: failed_attempts,
+                    }
+                } else {
+                    if state.context_preparer.is_none() {
+                        state.context_preparer = Some(launch_context_preparer(
+                            &registry,
+                            Arc::clone(&state.store),
+                            registry.ledger().scope_id(),
+                            preparation_caps.clone(),
+                            preparation_source,
+                        ));
+                    }
+                    ContextSelection::Preparing {
+                        attempts: Vec::new(),
+                    }
+                }
+            }
+        }
+    };
+    Ok(WindowSelection {
+        selection,
+        preparation_error,
+    })
+}
+
+fn correction_estimate(payload: &InferencePayload, vision_tokens: u32) -> Result<u32, ShenkoError> {
+    if !payload.tools.is_empty()
+        || !payload.native_options.is_empty()
+        || payload
+            .messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .any(|part| {
+                !matches!(
+                    part,
+                    InferencePart::Text { .. } | InferencePart::Image { .. }
+                )
+            })
+    {
+        return Err(ShenkoError::conflict(
+            "correction budget cannot count this frozen native/document payload; explicit reconciliation required; no dispatch",
+        ));
+    }
+    estimate_payload_tokens(payload, vision_tokens).ok_or_else(|| {
+        ShenkoError::conflict(
+            "correction budget has no trustworthy frozen image charge; no dispatch",
+        )
+    })
+}
+
+fn text_message_tokens(messages: &[InferenceMessage]) -> u32 {
+    messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .fold(0_u32, |tokens, part| match part {
+            InferencePart::Text { text } => tokens.saturating_add(estimate_tokens(text)),
+            _ => tokens,
+        })
+}
+
+fn correction_limit(caps: Option<&ModelCaps>, payload: &InferencePayload) -> Option<u32> {
+    caps.and_then(|caps| {
+        if payload
+            .messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .any(InferencePart::is_image)
+        {
+            caps.image_request_context()
+        } else {
+            Some(caps.max_context)
+        }
+    })
+}
+
+/// Materialize a policy's new observation within the parent's raw scope/leaf.
+/// The caller records this observation separately from the immutable parent
+/// seal. No new ingress, persona, contribution, idle text or provider is read.
+struct CorrectionProjection<'a> {
+    payload: &'a InferencePayload,
+    context: &'a FrozenContextInput,
+    layout: &'a FrozenPayloadLayout,
+}
+
+fn project_correction(
+    store: &Store,
+    history: &BoundedHistory<'_>,
+    window: &CommittedWindow,
+    parent: &CorrectionProjection<'_>,
+    caps: Option<&ModelCaps>,
+    tail: &[InferenceMessage],
+) -> Result<
+    (
+        InferencePayload,
+        FrozenPayloadLayout,
+        SubjectContextRef,
+        Vec<String>,
+    ),
+    ShenkoError,
+> {
+    let CorrectionProjection {
+        payload: parent_payload,
+        context: parent_context,
+        layout: parent_layout,
+    } = parent;
+    let (history_end, _, tail_start) = parent_layout.partitions(parent_payload)?;
+    let prefix_end = usize::try_from(parent_layout.system_prefix_bytes)
+        .map_err(|_| ShenkoError::conflict("frozen system prefix overflow"))?;
+    let source_commit_seq = store.current_commit_seq()?;
+    let (mut payload, _, unfinished, mut layout) = project_payload(
+        window,
+        history,
+        parent_payload.system_prompt[..prefix_end].to_owned(),
+        caps,
+        parent_payload.max_tokens.ok_or_else(|| {
+            ShenkoError::conflict("correction has no explicit frozen output reservation")
+        })?,
+        &parent_context.source.input_raw_event_ids,
+        None,
+    )?;
+    if payload.system_prompt != parent_payload.system_prompt {
+        return Err(ShenkoError::conflict(
+            "correction policy would change frozen system material; explicit reconciliation required; no dispatch",
+        ));
+    }
+    payload
+        .messages
+        .extend_from_slice(&parent_payload.messages[history_end..tail_start]);
+    payload.messages.extend_from_slice(tail);
+    payload.max_tokens = parent_payload.max_tokens;
+    payload.tools = parent_payload.tools.clone();
+    payload.native_options = parent_payload.native_options.clone();
+    layout.idle_message_count = parent_layout.idle_message_count;
+    layout.contribution_message_count = parent_layout.contribution_message_count;
+    layout.partitions(&payload)?;
+    if store.current_commit_seq()? != source_commit_seq {
+        return Err(ShenkoError::ResnapshotRequired {
+            reason: "execution facts changed during correction projection; parent result retained"
+                .into(),
+        });
+    }
+    let mut observation = parent_context.source.clone();
+    observation.source_commit_seq = source_commit_seq;
+    observation.window_id = window.id;
+    observation.window_generation = window.generation;
+    observation.model_generation = window.model_generation;
+    Ok((payload, layout, observation, unfinished))
+}
+
+/// Prepare a complete new correction before the R0 replacement transaction.
+/// None means the owned policy worker is still needed. The original
+/// ResultRecorded step and its terminal receipt remain the only request facts
+/// until this returns a fitting payload and Store accepts the replacement.
+pub(super) struct CorrectionInput<'a> {
+    pub parent_ref: &'a shenko_types::object::ObjectRef,
+    pub parent_payload: &'a InferencePayload,
+    pub parent_context: &'a FrozenContextInput,
+    pub contribution_tokens: u64,
+    pub observed_input_tokens: Option<u32>,
+    pub raw_output: &'a str,
+    pub feedback: String,
+}
+
+pub(super) fn prepare_corrected_context(
+    state: &mut SubjectLoopState,
+    correction: CorrectionInput<'_>,
+) -> Result<Option<(InferencePayload, FrozenContextInput)>, ShenkoError> {
+    let CorrectionInput {
+        parent_ref,
+        parent_payload,
+        parent_context,
+        contribution_tokens,
+        observed_input_tokens,
+        raw_output,
+        feedback,
+    } = correction;
+    if parent_payload.max_tokens != Some(u64::from(parent_context.reserved_output_tokens)) {
+        return Err(ShenkoError::conflict(
+            "correction output reservation differs from its frozen payload; no dispatch",
+        ));
+    }
+    let caps = parent_context
+        .capabilities
+        .as_deref()
+        .and_then(|capabilities| {
+            input_model_caps(capabilities, parent_context.reserved_output_tokens)
+        });
+    let mut payload = parent_payload.clone();
+    payload
+        .messages
+        .push(InferenceMessage::text("assistant", raw_output));
+    payload
+        .messages
+        .push(InferenceMessage::text("user", feedback));
+    let mut context = parent_context.clone();
+    let Some(parent_layout) = parent_context.payload_layout.as_ref() else {
+        // Old plans have no trustworthy boundary for their image/contribution
+        // charge or policy projection. Plain text can be fully recounted;
+        // never extrapolate the stale estimate produced by the old bug.
+        if contribution_tokens != 0 {
+            return Err(ShenkoError::conflict(
+                "legacy correction contribution charge requires explicit layout migration; no dispatch",
+            ));
+        }
+        let previous = correction_estimate(parent_payload, 0)?;
+        let estimate = correction_estimate(&payload, 0)?;
+        let budget = budget_tokens(estimate, observed_input_tokens.zip(Some(previous)));
+        if correction_limit(caps.as_ref(), &payload).is_some_and(|limit| budget > limit) {
+            return Err(ShenkoError::conflict(format!(
+                "legacy correction input budget {budget} exceeds available context; policy projection requires explicit layout migration; original result retained; no dispatch"
+            )));
+        }
+        context.observed_input_tokens = observed_input_tokens;
+        context.estimated_input_tokens = Some(estimate);
+        context.budget_input_tokens = Some(budget);
+        context.trigger_budget_input_tokens = Some(budget);
+        context.budget_provenance = format!(
+            "complete legacy text heuristic with immediate parent provider/estimate calibration; reserved output {}; no policy projection identity inferred",
+            context.reserved_output_tokens
+        );
+        context.selection = ContextSelection::Unavailable {
+            reason: "legacy_frozen_payload_layout_not_recorded".into(),
+        };
+        context.correction_observation = None;
+        return Ok(Some((payload, context)));
+    };
+    let (history_end, contribution_start, tail_start) = parent_layout.partitions(parent_payload)?;
+    let parent_projection = CorrectionProjection {
+        payload: parent_payload,
+        context: parent_context,
+        layout: parent_layout,
+    };
+    let tail = payload.messages[tail_start..].to_vec();
+    let contribution_estimate =
+        text_message_tokens(&parent_payload.messages[contribution_start..tail_start]);
+    let declared = u32::try_from(contribution_tokens).map_err(|_| {
+        ShenkoError::conflict("frozen contribution charge exceeds token budget type")
+    })?;
+    let contribution_extra = declared.saturating_sub(contribution_estimate);
+    let parent_estimate = correction_estimate(parent_payload, parent_layout.vision_tokens)?;
+    let parent_charged = parent_estimate.saturating_add(contribution_extra);
+    let mut estimate = correction_estimate(&payload, parent_layout.vision_tokens)?;
+    let mut budget = budget_tokens(
+        estimate.saturating_add(contribution_extra),
+        observed_input_tokens.zip(Some(parent_charged)),
+    );
+    let trigger_budget = budget;
+    let mut new_observation = None;
+    let mut layout = parent_layout.clone();
+    let mut preparation_error = None;
+    let selection = if let Some(caps) = caps.as_ref() {
+        let store = Arc::clone(&state.store);
+        let registry = Arc::clone(&state.context_registry);
+        if registry.ledger().scope_id() != parent_context.source.scope_id
+            || registry.ledger().model_generation().map_err(storage)?
+                != parent_context.source.model_generation
+            || registry.ledger().model_profile().map_err(storage)?
+                != Some((
+                    parent_context.source.model_generation,
+                    parent_context.profile_digest.0.clone(),
+                ))
+        {
+            return Err(ShenkoError::conflict(
+                "correction scope/model profile changed; original result retained; no dispatch",
+            ));
+        }
+        let source = StoreHistory::new(
+            Arc::clone(&store),
+            parent_context.source.scope_id,
+            Arc::new(estimate_tokens),
+        );
+        let history = BoundedHistory {
+            history: &source,
+            leaf: parent_context.source.leaf_seq,
+        };
+        let mut window = registry.ledger().current().map_err(storage)?;
+        if window.model_generation != parent_context.source.model_generation
+            || window.generation < parent_context.source.window_generation
+            || window
+                .covers_through
+                .is_some_and(|through| history.leaf.is_none_or(|leaf| through > leaf))
+        {
+            return Err(ShenkoError::conflict(
+                "correction window is outside its original raw-history boundary; no dispatch",
+            ));
+        }
+        let immutable_tokens = estimate_tokens(
+            &parent_payload.system_prompt[..usize::try_from(parent_layout.system_prefix_bytes)
+                .map_err(|_| ShenkoError::conflict("frozen system prefix overflow"))?],
+        )
+        .saturating_add(text_message_tokens(
+            &parent_payload.messages[history_end..tail_start],
+        ))
+        .saturating_add(text_message_tokens(&tail))
+        .saturating_add(contribution_extra);
+        let mut preparation_caps = caps.clone();
+        preparation_caps.max_context = preparation_caps
+            .max_context
+            .saturating_sub(immutable_tokens);
+        if let Some(vision) = &mut preparation_caps.vision {
+            vision.max_image_context = vision.max_image_context.saturating_sub(immutable_tokens);
+        }
+        if preparation_caps.max_context == 0 && budget > caps.max_context {
+            return Err(ShenkoError::conflict(format!(
+                "correction immutable input budget {immutable_tokens} exhausts available context {}; original result retained; no dispatch",
+                caps.max_context
+            )));
+        }
+        // A previous projection may have adopted a window immediately before
+        // an R0 CAS refusal/crash. Re-observe it explicitly; never reinterpret
+        // the parent's source_commit_seq as evidence for the new window.
+        let parent_window = window.id == parent_context.source.window_id;
+        if !parent_window {
+            let (next_payload, next_layout, observation, unfinished) = project_correction(
+                &store,
+                &history,
+                &window,
+                &parent_projection,
+                Some(caps),
+                &tail,
+            )?;
+            payload = next_payload;
+            layout = next_layout;
+            new_observation = Some(observation);
+            context.unfinished_call_ids = unfinished;
+            estimate = correction_estimate(&payload, layout.vision_tokens)?;
+            budget = estimate.saturating_add(contribution_extra);
+        }
+        let WindowSelection {
+            selection,
+            preparation_error: error,
+        } = select_context_window(
+            state,
+            &history,
+            Some(caps),
+            Some(&preparation_caps),
+            &mut window,
+            budget,
+        )?;
+        preparation_error = error;
+        if new_observation.is_some() || window.id != parent_context.source.window_id {
+            // Pressure/adoption may write the ledger. The final projection
+            // obtains its own stable execution observation after those writes;
+            // Store compares it again inside the R0 transaction.
+            let (next_payload, next_layout, observation, unfinished) = project_correction(
+                &store,
+                &history,
+                &window,
+                &parent_projection,
+                Some(caps),
+                &tail,
+            )?;
+            payload = next_payload;
+            layout = next_layout;
+            new_observation = Some(observation);
+            context.unfinished_call_ids = unfinished;
+            estimate = correction_estimate(&payload, layout.vision_tokens)?;
+            budget = estimate.saturating_add(contribution_extra);
+        }
+        selection
+    } else {
+        ContextSelection::Unavailable {
+            reason: "model_context_limit_not_observed".into(),
+        }
+    };
+    if correction_limit(caps.as_ref(), &payload)
+        .is_some_and(|limit| budget > limit || estimate > limit)
+    {
+        if matches!(selection, ContextSelection::Preparing { .. }) {
+            return Ok(None);
+        }
+        if let Some(error) = preparation_error {
+            return Err(error);
+        }
+        return Err(ShenkoError::conflict(format!(
+            "corrected input budget {budget} exceeds available context {:?}; original result retained; no dispatch",
+            correction_limit(caps.as_ref(), &payload),
+        )));
+    }
+    layout.partitions(&payload)?;
+    if let Some(observation) = &new_observation {
+        context.source = observation.clone();
+    }
+    context.observed_input_tokens = observed_input_tokens;
+    context.estimated_input_tokens = Some(estimate);
+    context.budget_input_tokens = Some(budget);
+    context.trigger_budget_input_tokens = Some(trigger_budget);
+    context.budget_provenance = format!(
+        "complete correction heuristic; {}; contribution max(rendered {contribution_estimate}, declared {declared}); reserved output {}",
+        if new_observation.is_some() {
+            "new execution projection within the parent's raw scope/leaf; parent seal retained separately"
+        } else {
+            "immediate parent provider/complete-estimate calibration; original frozen projection retained"
+        },
+        context.reserved_output_tokens,
+    );
+    context.selection = selection;
+    context.payload_layout = Some(layout);
+    context.correction_observation = Some(FrozenCorrectionObservation {
+        parent_input_ref: parent_ref.clone(),
+        parent_source: parent_context.source.clone(),
+        new_execution_projection: new_observation,
+        tail_digest: Digest::blake3(&serde_json::to_vec(&serde_json::to_value(&tail)?)?),
+        tail_message_count: tail.len() as u64,
+    });
+    Ok(Some((payload, context)))
 }
 
 pub(super) fn prepare_context(
@@ -828,121 +1657,24 @@ pub(super) fn prepare_context(
     // that provides `cap.idle-perception` words what "no new input" means to
     // this subject. The compiled sentence stays as the fallback.
     let idle_text = state.idle_perception();
-    let (mut payload, mut estimated_input_tokens, mut unfinished_call_ids, mut source_commit_seq) = project_payload_stable(
+    let StableProjection { mut payload, mut estimated_input_tokens, mut unfinished_call_ids,
+        mut source_commit_seq, mut payload_layout } = project_payload_stable(
         &state.store, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens, &input_raw_event_ids,
         &idle_text,
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
     let trigger_budget_input_tokens = budget_tokens(current_estimate, previous_anchor);
-    // Record pressure every S0 so the durable window ledger sees the used/
-    // available shape even when no strategy fires this step.
-    if let Some(caps) = caps.as_ref() {
-        registry
-            .observe_pressure(caps, trigger_budget_input_tokens)
-            .map_err(storage)?;
+    let WindowSelection { selection, preparation_error } = select_context_window(
+        state, &history, caps.as_ref(), caps.as_ref(), &mut window,
+        trigger_budget_input_tokens,
+    )?;
+    if matches!(selection, ContextSelection::Compacted { .. }) {
+        StableProjection { payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq, payload_layout } = project_payload_stable(
+            &state.store, &window, &history, system_prompt, caps.as_ref(), state.max_tokens,
+            &input_raw_event_ids, &idle_text,
+        )?;
     }
-    let preparation_source = PreparationSource {
-        window_id: window.id,
-        model_generation,
-        leaf: history.leaf,
-        configuration_revision: registry.configuration_revision(),
-        used_tokens: trigger_budget_input_tokens,
-    };
-    let completed = state.context_preparer.as_mut().and_then(|preparer|
-        preparer.completed.take().or_else(|| (&mut preparer.task).now_or_never()));
-    let mut preparation_error = None;
-    let mut failed_attempts = Vec::new();
-    let mut published_current_source = false;
-    if let Some(completed) = completed {
-        let preparer = state.context_preparer.take().expect("completed owned preparer");
-        let result = match completed {
-            Ok(Ok(candidate)) => {
-                let result = registry.publish(candidate)
-                    .map_err(shenko_context_policy::PrepareError::Publish);
-                published_current_source = result.is_ok() && preparer.source == preparation_source;
-                result
-            }
-            Ok(Err(error)) => Err(error),
-            Err(error) => {
-                tracing::warn!(%error, "context preparer stopped without a candidate");
-                if preparer.source == preparation_source {
-                    preparation_error = Some(ShenkoError::other(format!("context preparer failed: {error}")));
-                }
-                Ok(())
-            }
-        };
-        if let Err(error) = result {
-            tracing::warn!(%error, "context preparer produced no publishable candidate");
-            // Stale candidates are not failures of the new projection. A
-            // failed old configuration likewise cannot condemn its successor.
-            let stale = matches!(&error, shenko_context_policy::PrepareError::Publish(
-                shenko_context_policy::PublishError::StaleSource { .. }
-                | shenko_context_policy::PublishError::ModelGenerationChanged { .. }
-                | shenko_context_policy::PublishError::StalePolicy { .. }
-            ));
-            if !stale && preparer.source == preparation_source {
-                preparation_error = Some(match &error {
-                    shenko_context_policy::PrepareError::Storage(error) => storage(error),
-                    shenko_context_policy::PrepareError::Publish(
-                        shenko_context_policy::PublishError::Storage(error)) => storage(error),
-                    _ => ShenkoError::conflict(format!("context preparation refused: {error}")),
-                });
-                if let shenko_context_policy::PrepareError::NoUsablePolicy { attempts } = error {
-                    failed_attempts = attempts;
-                }
-            }
-        }
-    }
-    let selection = match &caps {
-        None => ContextSelection::Unavailable { reason: "model_context_limit_not_observed".into() },
-        Some(caps) => {
-            // The trigger is a cheap decision over the committed window and
-            // the observed pressure; it reads no raw history, so it can run
-            // inside an S0 seal.
-            if !registry.needs_preparation(caps, trigger_budget_input_tokens) {
-                ContextSelection::Retained
-            } else {
-                // The slow strategy work (history render, policy attempts,
-                // window cut) happens OFF the S0 path: a prior step's
-                // preparer returned a candidate, or this step launches one.
-                // A fitting request can keep the current window; otherwise
-                // it waits before S0. Adoption re-verifies scope,
-                // source window, model generation, policy epoch and leaf
-                // against this exact bounded history.
-                match registry.adopt_prepared(&history).map_err(adopt_error)? {
-                    Some((adopted, attempts)) => {
-                        window = adopted;
-                        (payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq) = project_payload_stable(
-                            &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens, &input_raw_event_ids,
-                            &idle_text,
-                        )?;
-                        ContextSelection::Compacted { attempts }
-                    }
-                    None => {
-                        if published_current_source && registry.last_preparation().is_some_and(|diagnostic|
-                            diagnostic.outcome == shenko_context_policy::PreparationOutcome::Refused)
-                        {
-                            preparation_error = Some(ShenkoError::conflict(
-                                "prepared context window was refused for the unchanged source",
-                            ));
-                        }
-                        if preparation_error.is_some() {
-                            ContextSelection::NoUsablePolicy { attempts: failed_attempts }
-                        } else {
-                            if state.context_preparer.is_none() {
-                                state.context_preparer = Some(launch_context_preparer(
-                                    &registry, Arc::clone(&state.store), scope_id,
-                                    caps.clone(), preparation_source,
-                                ));
-                            }
-                            ContextSelection::Preparing { attempts: Vec::new() }
-                        }
-                    }
-                }
-            }
-        }
-    };
     let selected_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("selected projection has no trustworthy token estimate"))?;
     // The prepared contributions are collected BEFORE the final budget
@@ -963,6 +1695,7 @@ pub(super) fn prepare_context(
             if let Some(text) = collected.material {
                 contribution_estimate = estimate_tokens(&text);
                 payload.messages.push(InferenceMessage::text("user", text));
+                payload_layout.contribution_message_count += 1;
             }
             (
                 collected.plan.contributions.iter().map(serde_json::to_value)
@@ -1032,6 +1765,7 @@ pub(super) fn prepare_context(
             unfinished_call_ids,
             token_counter: "heuristic:cjk-1-other-4@1; not a provider tokenizer".into(),
             policy_contract: CONTRACT_VERSION, selection,
+            payload_layout: Some(payload_layout), correction_observation: None,
         },
     }))
 }

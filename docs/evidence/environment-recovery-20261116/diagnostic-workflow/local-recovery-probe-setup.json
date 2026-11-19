@@ -1,0 +1,106 @@
+[
+  {
+    "argv": [
+      "git",
+      "init",
+      "-q",
+      "/tmp/model5-source-recovery-probe-15u944_n/origin"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "add",
+      "."
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "-c",
+      "user.name=Recovery Probe",
+      "-c",
+      "user.email=probe@example.invalid",
+      "commit",
+      "-qm",
+      "parent"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "stdout": "459b84eaf85be3888dd5673286205a0a42ef7cdb\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "add",
+      "."
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "-c",
+      "user.name=Recovery Probe",
+      "-c",
+      "user.email=probe@example.invalid",
+      "commit",
+      "-qm",
+      "current"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "stdout": "151efe5008be5891dff94772c481289b4b3d622a\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "rev-parse",
+      "HEAD^{tree}"
+    ],
+    "stdout": "465d85027f5d7139977d0e852906b3bad9eeef10\n",
+    "stderr": "",
+    "exit": 0
+  },
+  {
+    "argv": [
+      "git",
+      "clone",
+      "-q",
+      "--depth=1",
+      "file:///tmp/model5-source-recovery-probe-15u944_n/origin",
+      "/tmp/model5-source-recovery-probe-15u944_n/recovered-source"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exit": 0
+  }
+]

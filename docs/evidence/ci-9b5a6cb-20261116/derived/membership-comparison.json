@@ -1,0 +1,116 @@
+{
+  "sources": [
+    "0079-b-sync-members-show.stdout",
+    "0080-a-sync-members-show.stdout",
+    "0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stdout",
+    "0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stdout",
+    "0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stdout",
+    "0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stdout",
+    "0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stdout",
+    "0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stdout"
+  ],
+  "coordinator_b": {
+    "committed_at": "2026-11-16T15:21:54.265924055Z",
+    "digest": "blake3:783ab227f6d90f596c21c6bc95a765899e514ca3f1d42079f6636c446be74ad3",
+    "joint_new": null,
+    "members": [
+      "17c46b96-4607-4348-bb29-00893befe475",
+      "3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2",
+      "4bb04c00-24c0-4483-be3b-25c80755019f",
+      "548e8de4-2e57-46bf-b3d7-f06036db57b9",
+      "5e0edc30-6b87-450f-a767-b6df7f97b7ca",
+      "edcddad1-801d-44a5-9239-a3fe189da02d",
+      "fd068644-e5ed-4cce-81eb-a60b2ac55599"
+    ],
+    "revision": 3,
+    "term": 4
+  },
+  "receiver_a": {
+    "committed_at": "2026-11-16T15:21:56.710511436Z",
+    "digest": "blake3:783ab227f6d90f596c21c6bc95a765899e514ca3f1d42079f6636c446be74ad3",
+    "joint_new": null,
+    "members": [
+      "17c46b96-4607-4348-bb29-00893befe475",
+      "3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2",
+      "4bb04c00-24c0-4483-be3b-25c80755019f",
+      "548e8de4-2e57-46bf-b3d7-f06036db57b9",
+      "5e0edc30-6b87-450f-a767-b6df7f97b7ca",
+      "edcddad1-801d-44a5-9239-a3fe189da02d",
+      "fd068644-e5ed-4cce-81eb-a60b2ac55599"
+    ],
+    "revision": 3,
+    "term": 4
+  },
+  "differences": {
+    "committed_at": {
+      "coordinator_b": "2026-11-16T15:21:54.265924055Z",
+      "receiver_a": "2026-11-16T15:21:56.710511436Z"
+    }
+  },
+  "same_consensus_fields": [
+    "revision",
+    "term",
+    "members",
+    "joint_new",
+    "digest"
+  ],
+  "six_successful_push_frontiers": {
+    "0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "5e0edc30-6b87-450f-a767-b6df7f97b7ca"
+    },
+    "0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "548e8de4-2e57-46bf-b3d7-f06036db57b9"
+    },
+    "0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "edcddad1-801d-44a5-9239-a3fe189da02d"
+    },
+    "0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "fd068644-e5ed-4cce-81eb-a60b2ac55599"
+    },
+    "0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2"
+    },
+    "0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stdout": {
+      "frontier": {
+        "digest": "blake3:a83ea500cca97c074e73b4828a2c1d0aefa9fb7983f766159ab64d09af062353",
+        "index": 6,
+        "term": 4
+      },
+      "peer": "4bb04c00-24c0-4483-be3b-25c80755019f"
+    }
+  },
+  "later_nodes_member_show_not_executed": [
+    "b second loop read",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g"
+  ],
+  "star_residents_or_component_certificate_observed": false
+}

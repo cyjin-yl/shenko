@@ -14,156 +14,57 @@
 //! [`map_answer_to_terminal_input`](crate::seat::tmux::map_answer_to_terminal_input),
 //! including its refusal to blind-type y/N.
 
-use crate::native_transport::{NativePtyEvent, NativePtyObservation, NativePtySession};
+mod pump;
+pub use pump::PtyCloseError;
+
+use crate::native_transport::{
+    NativePtyObservation, NativePtySession, NativePtyWriteInput, NativePtyWriteReceipt,
+};
 use crate::seat::tmux::{ensure_terminal_question, infer_questions, map_answer_to_terminal_input};
 use crate::seat::{
-    AnswerConfirmation, AnswerTransport, PreflightRefusalKind, SeatAdapter, SeatAdapterId,
+    AnswerTransport, PreflightRefusalKind, SeatAdapter, SeatAdapterId,
     SeatAnswer, SeatEffectPlan, SeatHandle, SeatObservation, SeatPreflight,
     SeatQuestionCandidate, SeatResponse, SeatWriteFence,
 };
 use crate::terminal::{TerminalMode, TerminalScreen};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use russh::Sig;
 use shenko_store::SeatCapability;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use tokio::sync::{Mutex, mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::sync::Mutex;
 
 /// Adapter version bound into durable seat records.
 pub const SSH_PTY_ADAPTER_VERSION: &str = "ssh-pty-v1";
 
-const CLOSE_GRACE: Duration = Duration::from_millis(500);
-
-/// Writer-originated commands handled by the single-owner pump.
-enum PtyCommand {
-    Send(Vec<u8>),
-    Resize(u32, u32),
-    Signal(Sig),
-    Eof,
-    Close(Duration, oneshot::Sender<NativePtyObservation>),
-}
-
-/// One live remote seat: a screen everyone reads, and a command channel
-/// that serializes every input effect through the pump that owns the PTY.
+/// One live remote seat: observation and the physical writer belong to the
+/// same pump. Input is acknowledged only at the local SSH flush boundary.
 pub struct SshPtySeat {
     handle: SeatHandle,
     screen: Arc<Mutex<TerminalScreen>>,
-    commands: mpsc::Sender<PtyCommand>,
-    stream_open: Arc<AtomicBool>,
-    close_observation: Arc<Mutex<Option<NativePtyObservation>>>,
-    pump: Mutex<Option<JoinHandle<()>>>,
+    writer: pump::Writer,
+    pump: Mutex<pump::Owner>,
 }
 
 impl SshPtySeat {
-    /// Start pumping `session` into a fresh screen. The pump owns the
-    /// session; every writer effect is a command ordered through
-    /// `commands`, so a slow or dead remote can never wedge a caller
-    /// behind a lock the pump holds.
     pub fn spawn(session: NativePtySession, handle: SeatHandle, columns: u16, rows: u16) -> Self {
-        let (commands, mut command_rx) = mpsc::channel::<PtyCommand>(32);
-        let screen = Arc::new(Mutex::new(TerminalScreen::new(
-            columns,
-            rows,
-            TerminalMode::Stream,
-        )));
-        let pump_screen = Arc::clone(&screen);
-        let stream_open = Arc::new(AtomicBool::new(true));
-        let pump_open = Arc::clone(&stream_open);
-        let close_observation: Arc<Mutex<Option<NativePtyObservation>>> = Arc::new(Mutex::new(None));
-        let pump_observation = Arc::clone(&close_observation);
-        let pump = tokio::spawn(async move {
-            let mut session = session;
-            loop {
-                tokio::select! {
-                    event = session.recv() => {
-                        match event {
-                            Some(NativePtyEvent::Output(bytes)) |
-                            Some(NativePtyEvent::Error(bytes)) => {
-                                pump_screen.lock().await.feed(&bytes);
-                            }
-                            Some(NativePtyEvent::Exit(_))
-                            | Some(NativePtyEvent::Eof)
-                            | Some(NativePtyEvent::Closed)
-                            | None => break,
-                        }
-                    }
-                    command = command_rx.recv() => {
-                        let Some(command) = command else { break; };
-                        match command {
-                            PtyCommand::Send(bytes) => {
-                                let _ = session.send(&bytes).await;
-                            }
-                            PtyCommand::Resize(cols, rows) => {
-                                let _ = session.resize(cols, rows).await;
-                            }
-                            PtyCommand::Signal(signal) => {
-                                let _ = session.signal(signal).await;
-                            }
-                            PtyCommand::Eof => {
-                                let _ = session.eof().await;
-                            }
-                            PtyCommand::Close(grace, reply) => {
-                                let observation = session.close(grace).await;
-                                let _ = reply.send(observation);
-                                return;
-                            }
-                        }
-                    }
-                }
-            }
-            // The channel ended on the remote side. Still close our side and
-            // record what the session end looked like, so a later explicit
-            // close returns real facts instead of nothing.
-            let observation = session.close(CLOSE_GRACE).await;
-            pump_open.store(false, Ordering::SeqCst);
-            *pump_observation.lock().await = Some(observation);
-        });
-        Self {
-            handle,
-            screen,
-            commands,
-            stream_open,
-            close_observation,
-            pump: Mutex::new(Some(pump)),
-        }
+        let screen = Arc::new(Mutex::new(TerminalScreen::new(columns, rows, TerminalMode::Stream)));
+        let (writer, owner) = pump::spawn(session, Arc::clone(&screen));
+        Self { handle, screen, writer, pump: Mutex::new(owner) }
     }
 
-    pub fn screen(&self) -> Arc<Mutex<TerminalScreen>> {
-        Arc::clone(&self.screen)
-    }
+    pub fn screen(&self) -> Arc<Mutex<TerminalScreen>> { Arc::clone(&self.screen) }
 
-    pub fn is_stream_open(&self) -> bool {
-        self.stream_open.load(Ordering::SeqCst)
-    }
+    pub fn is_stream_open(&self) -> bool { self.writer.is_open() }
 
-    /// Close the PTY and observe the session end. If the remote already
-    /// ended the stream, returns the observation the pump recorded at that
-    /// moment; if this seat was already closed, returns `None`.
-    pub async fn close(&self) -> Option<NativePtyObservation> {
-        let Some(pump) = self.pump.lock().await.take() else {
-            return None;
-        };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        let close_sent = self
-            .commands
-            .send(PtyCommand::Close(CLOSE_GRACE, reply_tx))
-            .await
-            .is_ok();
-        let reply = if close_sent {
-            reply_rx.await.ok()
-        } else {
-            // The pump exited before the command arrived; join it and read
-            // the observation it recorded when the stream ended.
-            None
-        };
-        let _ = pump.await;
-        match reply {
-            Some(observation) => Some(observation),
-            None => self.close_observation.lock().await.take(),
-        }
+    /// At most the 32 outstanding original commands plus the last completed
+    /// command. This is local evidence, not a new durable Store authority.
+    pub fn write_observations(&self) -> Vec<NativePtyWriteReceipt> { self.writer.observations() }
+
+    /// Stop admission and retain the original pump handle until its join is
+    /// observed. Cancelling a closer leaves ownership and prior errors intact.
+    pub async fn close(&self) -> Result<NativePtyObservation> {
+        self.writer.request_close();
+        self.pump.lock().await.close().await
     }
 }
 
@@ -272,20 +173,9 @@ impl SeatAdapter for SshPtySeat {
         plan: &SeatEffectPlan,
         fence: &SeatWriteFence,
     ) -> Result<SeatResponse> {
-        self.commands
-            .send(PtyCommand::Send(plan.payload.as_bytes().to_vec()))
-            .await
-            .map_err(|_| anyhow::anyhow!("PTY 命令通道已关闭，seat 已结束"))?;
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::SshPty,
-            transport: AnswerTransport::TerminalInput,
-            confirmation: AnswerConfirmation::Unconfirmed,
-            detail: Some(format!(
-                "已键入 {} 字节（writer epoch {}）",
-                plan.payload.len(),
-                fence.lease_epoch
-            )),
-        })
+        self.writer.write(NativePtyWriteInput::Data {
+            bytes: plan.payload.as_bytes().to_vec(),
+        }, fence.lease_epoch).await
     }
 
     async fn submit(
@@ -296,34 +186,10 @@ impl SeatAdapter for SshPtySeat {
     ) -> Result<SeatResponse> {
         let mut bytes = text.as_bytes().to_vec();
         bytes.push(b'\r');
-        self.commands
-            .send(PtyCommand::Send(bytes))
-            .await
-            .map_err(|_| anyhow::anyhow!("PTY 命令通道已关闭，seat 已结束"))?;
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::SshPty,
-            transport: AnswerTransport::TerminalInput,
-            confirmation: AnswerConfirmation::Unconfirmed,
-            detail: Some(format!(
-                "输入已键入并回车（writer epoch {}）",
-                fence.lease_epoch
-            )),
-        })
+        self.writer.write(NativePtyWriteInput::Data { bytes }, fence.lease_epoch).await
     }
 
     async fn interrupt(&self, _seat: &SeatHandle, fence: &SeatWriteFence) -> Result<SeatResponse> {
-        self.commands
-            .send(PtyCommand::Signal(Sig::INT))
-            .await
-            .map_err(|_| anyhow::anyhow!("PTY 命令通道已关闭，seat 已结束"))?;
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::SshPty,
-            transport: AnswerTransport::TerminalInput,
-            confirmation: AnswerConfirmation::Unconfirmed,
-            detail: Some(format!(
-                "SIGINT 已排队发送（writer epoch {}）",
-                fence.lease_epoch
-            )),
-        })
+        self.writer.write(NativePtyWriteInput::SignalInt, fence.lease_epoch).await
     }
 }

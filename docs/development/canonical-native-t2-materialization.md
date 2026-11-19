@@ -121,16 +121,14 @@ passing these two journeys does not make that job green.
 In particular, the foreign-ledger journey checks honest predecessor refusal; it
 does not demonstrate a foreign native execution takeover. The read sets remain
 conservative full-table snapshots and can conflict on unrelated factual
-progress. Canonical claim/T1 integration, authoritative predecessor handling,
+progress. Canonical native claims, model/quota and publication T1, authoritative predecessor handling,
 real Node/provider journeys and physical fault acceptance remain separate work.
 
 The two journeys above are
 `canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt`
 and
 `canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results`.
-They did not exist at the candidate that has runtime evidence, so this
-increment is source-level and evidence-level only: no runtime result is
-claimed for the paired native T2 boundaries, and the Nightly scope recorded
-in the
-[component continuation evidence](../evidence/component-coordination-20261116.md)
-covers the S1 and component journeys, not these two.
+Both names occur as actual successful tests in the candidate CI linked above.
+The [later Nightly observation](../evidence/nightly-6782627-20261116/observation.json)
+retains that run's separate result; a journey pass is never substituted for
+the result of its full job or a newer candidate.

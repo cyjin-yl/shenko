@@ -1,0 +1,122 @@
+diff --git a/third-party/russh-duplex/src/client/mod.rs b/third-party/russh-duplex/src/client/mod.rs
+index 8c70c03..c756204 100644
+--- a/third-party/russh-duplex/src/client/mod.rs
++++ b/third-party/russh-duplex/src/client/mod.rs
+@@ -104,6 +104,9 @@ pub struct Session {
+     server_sig_algs: Option<Vec<Algorithm>>,
+     /// Number of EXT_INFO messages received (RFC 8308 allows at most two).
+     ext_info_count: u8,
++    /// A barrier received on the ordinary outbound FIFO. It is completed
++    /// only after all prior channel data and ciphertext have been flushed.
++    outbound_flush: Option<(Option<ChannelId>, oneshot::Sender<Result<(), String>>)>,
+ }
+ 
+ impl Drop for Session {
+@@ -245,6 +248,12 @@ pub enum Msg {
+     Ping {
+         reply_channel: oneshot::Sender<()>,
+     },
++    /// Observe local transmission of preceding messages on this same FIFO.
++    /// This is not a peer acknowledgement or an application receipt.
++    FlushOutbound {
++        channel: Option<ChannelId>,
++        reply_channel: oneshot::Sender<Result<(), String>>,
++    },
+     NoMoreSessions {
+         want_reply: bool,
+     },
+@@ -1099,6 +1108,24 @@ impl<H: Handler> Handle<H> {
+         Ok(())
+     }
+ 
++    /// Wait until preceding messages on the ordinary outbound FIFO have
++    /// reached the underlying stream's successful write/flush boundary.
++    /// Channel-window and rekey queues are included. A closed/erroring
++    /// session fails the barrier; enqueueing alone never completes it.
++    /// This does not prove that a peer received or acted on those bytes.
++    /// A channel-scoped barrier additionally refuses a channel removed before
++    /// the boundary; discarded data must not become a successful receipt.
++    /// `None` is only a connection/control-message flush (for example close).
++    pub async fn flush_outbound(&self, channel: Option<ChannelId>) -> Result<(), Error> {
++        let (reply_channel, reply) = oneshot::channel();
++        self.sender
++            .send(Msg::FlushOutbound { channel, reply_channel })
++            .await
++            .map_err(|_| Error::SendError)?;
++        reply.await.map_err(|_| Error::Disconnect)?
++            .map_err(|reason| std::io::Error::other(reason).into())
++    }
++
+     /// Send a no-more-sessions request to the remote peer.
+     pub async fn no_more_sessions(&self, want_reply: bool) -> Result<(), Error> {
+         self.sender
+@@ -1336,6 +1363,7 @@ impl Session {
+             open_global_requests: VecDeque::new(),
+             server_sig_algs: None,
+             ext_info_count: 0,
++            outbound_flush: None,
+         }
+     }
+ 
+@@ -1360,6 +1388,18 @@ impl Session {
+         self.receiver.close();
+         self.priority_receiver.close();
+         self.inbound_channel_receiver.close();
++        // Preserve the original session error before shutdown can report a
++        // second error, including barriers still waiting in the bounded FIFO.
++        let reason = result.as_ref().err().map(|error| format!("{error:?}"))
++            .unwrap_or_else(|| "SSH session ended before its outbound flush barrier".into());
++        if let Some((_, reply)) = self.outbound_flush.take() {
++            let _ = reply.send(Err(reason.clone()));
++        }
++        while let Ok(message) = self.receiver.try_recv() {
++            if let Msg::FlushOutbound { reply_channel, .. } = message {
++                let _ = reply_channel.send(Err(reason.clone()));
++            }
++        }
+         map_err!(stream_write.shutdown().await)?;
+         match result {
+             Ok(v) => {
+@@ -1425,15 +1465,26 @@ impl Session {
+             // Keep reading the network for window adjustments, but leave
+             // application output in its bounded receivers while a channel is
+             // window-blocked.
+-            let can_flush = self.common.packet_writer.has_pending_write();
++            let can_flush = self.common.packet_writer.has_pending_write()
++                || (self.outbound_flush.is_some() && !self.kex.active()
++                    && !self.common.has_any_pending_data());
+             let can_receive_outbound = !can_flush && !self.kex.active()
+-                && !self.common.has_any_pending_data();
++                && !self.common.has_any_pending_data() && self.outbound_flush.is_none();
+             let rekey_timer =
+                 crate::future_or_pending(self.rekey_time_remaining(), tokio::time::sleep);
+             pin!(rekey_timer);
+             tokio::select! {
+                 r = self.common.packet_writer.flush_into(stream_write), if can_flush => {
+                     r?;
++                    if !self.kex.active() && !self.common.has_any_pending_data()
++                        && !self.common.packet_writer.has_pending_write()
++                        && let Some((channel, reply)) = self.outbound_flush.take()
++                    {
++                        let outcome = if channel.is_some_and(|id| !self.common.is_established_channel(id)) {
++                            Err("SSH channel closed before its outbound flush boundary".into())
++                        } else { Ok(()) };
++                        let _ = reply.send(outcome);
++                    }
+                 }
+                 r = &mut reading => {
+                     let (stream_read, mut buffer, mut opening_cipher) = match r {
+@@ -1801,6 +1852,13 @@ impl Session {
+             Msg::Ping { reply_channel } => {
+                 let _ = self.send_ping(reply_channel);
+             }
++            Msg::FlushOutbound { channel, reply_channel } => {
++                if self.outbound_flush.is_some() {
++                    let _ = reply_channel.send(Err("another outbound barrier is pending".into()));
++                } else {
++                    self.outbound_flush = Some((channel, reply_channel));
++                }
++            }
+             Msg::NoMoreSessions { want_reply } => {
+                 let _ = self.no_more_sessions(want_reply);
+             }

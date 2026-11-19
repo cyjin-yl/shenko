@@ -27,9 +27,10 @@ use crate::seat::{
     AnswerConfirmation, AnswerTransport, Confidence, PreflightRefusalKind, ProcessIdentity,
     QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer,
     SeatEffectPlan, SeatHandle, SeatObservation, SeatOption, SeatPreflight, SeatQuestionCandidate,
-    SeatResponse, SeatWriteFence,
+    SeatResponse, SeatWriteFence, ManagedCloseReceipt,
 };
 use anyhow::{Context, Result, ensure};
+use super::managed_process::ManagedProcess;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
@@ -42,8 +43,8 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, ChildStdin, Command},
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
     sync::Mutex,
 };
 
@@ -63,6 +64,9 @@ pub enum OmpEvent {
     SessionSettled,
     /// A command failed.
     CommandFailed { command: String, error: String },
+    /// The decoded native response, including its original id and result.
+    /// This is a protocol observation, not evidence of completed coding work.
+    CommandResponse { response: Value },
 }
 
 /// What happened to one open question.
@@ -88,14 +92,10 @@ pub struct OmpRpcSeat {
 }
 
 struct Inner {
-    stdin: Mutex<Option<ChildStdin>>,
-    state: Mutex<State>,
+    process: ManagedProcess,
+    state: Arc<Mutex<State>>,
     session_id: String,
     command: Vec<String>,
-    /// The spawned process, kept alive for the seat's lifetime. Dropping this
-    /// `Child` (which was spawned with `kill_on_drop`) terminates the managed
-    /// OMP; without it the child is killed as soon as `spawn` returns.
-    child: Mutex<Child>,
 }
 
 #[derive(Default)]
@@ -138,36 +138,40 @@ impl OmpRpcSeat {
         let stdout = child.stdout.take().context("托管 OMP 没有可用的 stdout")?;
         let stderr = child.stderr.take().context("托管 OMP 没有可用的 stderr")?;
         let session_id = command.join(" ");
-        let inner = Arc::new(Inner {
-            stdin: Mutex::new(Some(stdin)),
-            state: Mutex::new(State::default()),
-            session_id,
-            command: command.clone(),
-            child: Mutex::new(child),
-        });
-        let reader_inner = Arc::clone(&inner);
-        tokio::spawn(async move {
+        let state = Arc::new(Mutex::new(State::default()));
+        let reader_state = Arc::clone(&state);
+        let stdout_reader = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
+            let result: Result<()> = async {
+                while let Some(line) = lines.next_line().await? {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    let mut state = reader_state.lock().await;
+                    ingest_line(&line, &mut state);
                 }
-                let mut state = reader_inner.state.lock().await;
-                ingest_line(&line, &mut state);
-            }
-            let mut state = reader_inner.state.lock().await;
-            state.ready = false;
+                Ok(())
+            }.await;
+            reader_state.lock().await.ready = false;
+            result
         });
-        let stderr_inner = Arc::clone(&inner);
-        tokio::spawn(async move {
+        let stderr_state = Arc::clone(&state);
+        let stderr_reader = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let mut state = stderr_inner.state.lock().await;
+            while let Some(line) = lines.next_line().await? {
+                let mut state = stderr_state.lock().await;
                 if state.stderr_tail.len() >= 32 {
                     state.stderr_tail.remove(0);
                 }
                 state.stderr_tail.push(line);
             }
+            Ok(())
+        });
+        let inner = Arc::new(Inner {
+            process: ManagedProcess::new(child, stdin, vec![stdout_reader, stderr_reader]),
+            state,
+            session_id,
+            command: command.clone(),
         });
         Ok(Self { inner })
     }
@@ -177,16 +181,14 @@ impl OmpRpcSeat {
         &self.inner.command
     }
 
+    /// The bounded protocol observations remain readable after close. They
+    /// are in-memory observations, not a durable replay or acceptance log.
+    pub async fn protocol_events(&self) -> Vec<OmpEvent> {
+        self.inner.state.lock().await.events.iter().cloned().collect()
+    }
+
     async fn send_frame(&self, frame: &Value) -> Result<()> {
-        let mut guard = self.inner.stdin.lock().await;
-        let stdin = guard
-            .as_mut()
-            .context("托管 OMP 的 stdin 已关闭，无法发送")?;
-        let mut line = serde_json::to_vec(frame)?;
-        line.push(b'\n');
-        stdin.write_all(&line).await?;
-        stdin.flush().await?;
-        Ok(())
+        self.inner.process.write_frame(frame).await
     }
 
     async fn next_request_id(&self) -> String {
@@ -282,6 +284,7 @@ fn ingest_frame(value: &Value, state: &mut State) {
                 .insert(id, OmpQuestionState::Open);
         }
         "response" => {
+            push_event(state, OmpEvent::CommandResponse { response: value.clone() });
             if value.get("success").and_then(Value::as_bool) == Some(false) {
                 push_event(
                     state,
@@ -466,7 +469,7 @@ impl SeatAdapter for OmpRpcSeat {
             remote_session_id: Some(self.inner.session_id.clone()),
             current_command: Some(self.inner.command.join(" ")),
             process_identity: Some(ProcessIdentity {
-                pid: None,
+                pid: self.inner.process.process_id(),
                 start_token: None,
                 executable: Some(self.inner.command.join(" ")),
             }),
@@ -474,7 +477,7 @@ impl SeatAdapter for OmpRpcSeat {
     }
 
     async fn transport_live(&self, _seat: &SeatHandle) -> Result<bool> {
-        Ok(self.inner.child.lock().await.try_wait()?.is_none())
+        self.inner.process.transport_live().await
     }
 
     async fn observe(&self, _seat: &SeatHandle) -> Result<SeatObservation> {
@@ -627,7 +630,7 @@ impl SeatAdapter for OmpRpcSeat {
             transport: AnswerTransport::NativeRpc,
             confirmation: AnswerConfirmation::Unconfirmed,
             detail: Some(format!(
-                "prompt 命令已写入（writer epoch {}）；命令被接受不等于回合完成",
+                "prompt 命令 {id} 已写入（writer epoch {}）；远端接收与回合完成均尚未确认",
                 fence.lease_epoch
             )),
         })
@@ -642,7 +645,7 @@ impl SeatAdapter for OmpRpcSeat {
             transport: AnswerTransport::NativeRpc,
             confirmation: AnswerConfirmation::Unconfirmed,
             detail: Some(format!(
-                "abort 命令已写入（writer epoch {}）；远端是否停止尚未确认",
+                "abort 命令 {id} 已写入（writer epoch {}）；远端是否停止尚未确认",
                 fence.lease_epoch
             )),
         })
@@ -690,19 +693,16 @@ fn build_ui_response(
 impl OmpRpcSeat {
     /// Close this product's side of the stdio and terminate the managed
     /// process. The seat owns the `Child` (spawned with `kill_on_drop`), so the
-    /// process also dies if the adapter is dropped without `close`.
-    pub async fn close(&self) {
-        {
-            let mut guard = self.inner.stdin.lock().await;
-            *guard = None;
-        }
-        // Reap the managed process. It was spawned with `kill_on_drop`, so this
-        // is belt-and-suspenders; an explicit kill makes teardown deterministic
-        // rather than relying on `Inner` drop order.
-        let mut child = self.inner.child.lock().await;
-        let _ = child.kill().await;
+    /// process is killed on abrupt adapter loss; only `close` proves its
+    /// join and the reader barrier.
+    pub async fn close(&self) -> Result<ManagedCloseReceipt> {
+        self.inner.process.close().await
     }
 }
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "managed_lifecycle_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {

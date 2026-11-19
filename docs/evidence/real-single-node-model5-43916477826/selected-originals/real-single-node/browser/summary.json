@@ -1,0 +1,30 @@
+{
+  "checks": {
+    "browser_first_input_from_composer": true,
+    "browser_first_durable_receipt": true,
+    "browser_no_page_errors": true
+  },
+  "observations": {
+    "served_manifest_sha256": "f2e3e44bdb4e51ec69aec79364632d2027ea898b2dc3421993a5d2eba38361a9",
+    "first_output": {
+      "observed": false,
+      "reason": "no qualifying committed model result"
+    },
+    "streaming": {
+      "observed": true,
+      "received_stream_parts": 801,
+      "scope": "actual public wire frames only; no stream-quality or latency claim"
+    },
+    "accessibility": {
+      "aria_snapshot_phases": [
+        "opened",
+        "first-submitted",
+        "final"
+      ],
+      "screen_reader_tested": false
+    }
+  },
+  "errors": [],
+  "page_errors": [],
+  "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"
+}

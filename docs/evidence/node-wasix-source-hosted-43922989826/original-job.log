@@ -1,0 +1,178 @@
+﻿2026-11-16T17:52:59.7117809Z Current runner version: '2.338.2'
+2026-11-16T17:52:59.7140126Z ##[group]Runner Image Provisioner
+2026-11-16T17:52:59.7140886Z Hosted Compute Agent
+2026-11-16T17:52:59.7141507Z Version: 20261103.629
+2026-11-16T17:52:59.7142060Z Commit: 15dbd9ccb5dbf34fae002b6ed1a2670f52df37bc
+2026-11-16T17:52:59.7142674Z Build Date: 2026-11-03T17:26:59Z
+2026-11-16T17:52:59.7143315Z Worker ID: {98007146-2b15-4ed6-b19d-acaaa4746827}
+2026-11-16T17:52:59.7143935Z Region: eastus2
+2026-11-16T17:52:59.7144544Z Cloud: Azure
+2026-11-16T17:52:59.7145032Z ##[endgroup]
+2026-11-16T17:52:59.7146372Z ##[group]Operating System
+2026-11-16T17:52:59.7147052Z Ubuntu
+2026-11-16T17:52:59.7147791Z 24.04.5
+2026-11-16T17:52:59.7148270Z LTS
+2026-11-16T17:52:59.7148858Z ##[endgroup]
+2026-11-16T17:52:59.7149446Z ##[group]Runner Image
+2026-11-16T17:52:59.7150044Z Image: ubuntu-24.04
+2026-11-16T17:52:59.7150539Z Version: 20261111.370.1
+2026-11-16T17:52:59.7151682Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261111.370/images/ubuntu/Ubuntu2404-Readme.md
+2026-11-16T17:52:59.7152923Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261111.370
+2026-11-16T17:52:59.7153761Z ##[endgroup]
+2026-11-16T17:52:59.7154739Z ##[group]GITHUB_TOKEN Permissions
+2026-11-16T17:52:59.7156702Z Contents: read
+2026-11-16T17:52:59.7157231Z Metadata: read
+2026-11-16T17:52:59.7157961Z ##[endgroup]
+2026-11-16T17:52:59.7159762Z Secret source: Actions
+2026-11-16T17:52:59.7160616Z Cache mode: write
+2026-11-16T17:52:59.7161564Z Prepare workflow directory
+2026-11-16T17:52:59.7420766Z Prepare all required actions
+2026-11-16T17:52:59.7459595Z Getting action download info
+2026-11-16T17:52:59.9879089Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-11-16T17:53:00.1362146Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-11-16T17:53:00.6960916Z Complete job name: source-build-and-original-journey
+2026-11-16T17:53:00.7681680Z ##[group]Run actions/checkout@v4
+2026-11-16T17:53:00.7682445Z with:
+2026-11-16T17:53:00.7682845Z   persist-credentials: false
+2026-11-16T17:53:00.7683322Z   repository: cyjin-yl/shenko
+2026-11-16T17:53:00.7687119Z   token: ***
+2026-11-16T17:53:00.7687773Z   ssh-strict: true
+2026-11-16T17:53:00.7688186Z   ssh-user: git
+2026-11-16T17:53:00.7688574Z   clean: true
+2026-11-16T17:53:00.7688986Z   sparse-checkout-cone-mode: true
+2026-11-16T17:53:00.7689465Z   fetch-depth: 1
+2026-11-16T17:53:00.7689860Z   fetch-tags: false
+2026-11-16T17:53:00.7690302Z   show-progress: true
+2026-11-16T17:53:00.7690719Z   lfs: false
+2026-11-16T17:53:00.7691122Z   submodules: false
+2026-11-16T17:53:00.7691541Z   set-safe-directory: true
+2026-11-16T17:53:00.7691997Z   allow-unsafe-pr-checkout: false
+2026-11-16T17:53:00.7692680Z ##[endgroup]
+2026-11-16T17:53:00.9575625Z Syncing repository: cyjin-yl/shenko
+2026-11-16T17:53:00.9578217Z ##[group]Getting Git version info
+2026-11-16T17:53:00.9579411Z Working directory is '/home/runner/work/shenko/shenko'
+2026-11-16T17:53:00.9580597Z [command]/usr/bin/git version
+2026-11-16T17:53:00.9661192Z git version 2.56.1
+2026-11-16T17:53:00.9678074Z ##[endgroup]
+2026-11-16T17:53:00.9688636Z Temporarily overriding HOME='/home/runner/work/_temp/77d8c569-2925-4618-b5bf-0966e7be42c6' before making global git config changes
+2026-11-16T17:53:00.9689987Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-16T17:53:00.9691949Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/shenko/shenko
+2026-11-16T17:53:01.0178386Z Deleting the contents of '/home/runner/work/shenko/shenko'
+2026-11-16T17:53:01.0193447Z ##[group]Initializing the repository
+2026-11-16T17:53:01.0196688Z [command]/usr/bin/git init /home/runner/work/shenko/shenko
+2026-11-16T17:53:01.0276700Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-11-16T17:53:01.0278557Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-11-16T17:53:01.0281441Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-11-16T17:53:01.0282678Z hint: call:
+2026-11-16T17:53:01.0283330Z hint:
+2026-11-16T17:53:01.0284129Z hint: 	git config --global init.defaultBranch <name>
+2026-11-16T17:53:01.0285136Z hint:
+2026-11-16T17:53:01.0286068Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-11-16T17:53:01.0287730Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-11-16T17:53:01.0288980Z hint:
+2026-11-16T17:53:01.0289670Z hint: 	git branch -m <name>
+2026-11-16T17:53:01.0290462Z hint:
+2026-11-16T17:53:01.0291448Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-11-16T17:53:01.0293780Z Initialized empty Git repository in /home/runner/work/shenko/shenko/.git/
+2026-11-16T17:53:01.0296398Z [command]/usr/bin/git remote add origin https://github.com/cyjin-yl/shenko
+2026-11-16T17:53:01.0334258Z ##[endgroup]
+2026-11-16T17:53:01.0335342Z ##[group]Disabling automatic garbage collection
+2026-11-16T17:53:01.0337579Z [command]/usr/bin/git config --local gc.auto 0
+2026-11-16T17:53:01.0366506Z ##[endgroup]
+2026-11-16T17:53:01.0367750Z ##[group]Setting up auth
+2026-11-16T17:53:01.0372661Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T17:53:01.0404878Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T17:53:01.0720759Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T17:53:01.0755454Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T17:53:01.0987533Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T17:53:01.1027000Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T17:53:01.1231905Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-16T17:53:01.1273363Z ##[endgroup]
+2026-11-16T17:53:01.1274479Z ##[group]Fetching the repository
+2026-11-16T17:53:01.1283966Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +61a813576b19b3aea0403ef6dd4fc3d64238ad0b:refs/remotes/pull/305/merge
+2026-11-16T17:53:03.7332224Z From https://github.com/cyjin-yl/shenko
+2026-11-16T17:53:03.7336158Z  * [new ref]         61a813576b19b3aea0403ef6dd4fc3d64238ad0b -> pull/305/merge
+2026-11-16T17:53:03.7338245Z ##[endgroup]
+2026-11-16T17:53:03.7338807Z ##[group]Determining the checkout info
+2026-11-16T17:53:03.7339405Z ##[endgroup]
+2026-11-16T17:53:03.7343018Z [command]/usr/bin/git sparse-checkout disable
+2026-11-16T17:53:03.7396726Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-11-16T17:53:03.7429078Z ##[group]Checking out the ref
+2026-11-16T17:53:03.7432019Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/305/merge
+2026-11-16T17:53:04.0135510Z Note: switching to 'refs/remotes/pull/305/merge'.
+2026-11-16T17:53:04.0135925Z 
+2026-11-16T17:53:04.0136188Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-11-16T17:53:04.0136865Z changes and commit them, and you can discard any commits you make in this
+2026-11-16T17:53:04.0137625Z state without impacting any branches by switching back to a branch.
+2026-11-16T17:53:04.0137962Z 
+2026-11-16T17:53:04.0138222Z If you want to create a new branch to retain commits you create, you may
+2026-11-16T17:53:04.0138798Z do so (now or later) by using -c with the switch command. Example:
+2026-11-16T17:53:04.0139123Z 
+2026-11-16T17:53:04.0139248Z   git switch -c <new-branch-name>
+2026-11-16T17:53:04.0139539Z 
+2026-11-16T17:53:04.0140061Z Or undo this operation with:
+2026-11-16T17:53:04.0140283Z 
+2026-11-16T17:53:04.0140396Z   git switch -
+2026-11-16T17:53:04.0140882Z 
+2026-11-16T17:53:04.0141305Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-11-16T17:53:04.0141714Z 
+2026-11-16T17:53:04.0154639Z HEAD is now at 61a8135 Merge 51a1ce435b3f83c52dcad11f19c522acb77cb59b into e5fbf732124ee035f235a5a9f1a20308dad5d062
+2026-11-16T17:53:04.0156269Z ##[endgroup]
+2026-11-16T17:53:04.0201850Z [command]/usr/bin/git log -1 --format=%H
+2026-11-16T17:53:04.0230066Z 61a813576b19b3aea0403ef6dd4fc3d64238ad0b
+2026-11-16T17:53:04.0237574Z ##[group]Removing auth
+2026-11-16T17:53:04.0240592Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T17:53:04.0273316Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T17:53:04.0481541Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T17:53:04.0510185Z http.https://github.com/.extraheader
+2026-11-16T17:53:04.0516621Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-16T17:53:04.0553200Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T17:53:04.0756122Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T17:53:04.0790577Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T17:53:04.0989188Z ##[endgroup]
+2026-11-16T17:53:04.1218694Z ##[group]Run python3 scripts/build_node_wasix_journey.py --source-revision "$SHENKO_SOURCE_REVISION" --work-dir "$RUNNER_TEMP/shenko-node-wasix-source-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --evidence-dir "$GITHUB_WORKSPACE/.ci/evidence/node-wasix-source"
+2026-11-16T17:53:04.1220177Z [36;1mpython3 scripts/build_node_wasix_journey.py --source-revision "$SHENKO_SOURCE_REVISION" --work-dir "$RUNNER_TEMP/shenko-node-wasix-source-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --evidence-dir "$GITHUB_WORKSPACE/.ci/evidence/node-wasix-source"[0m
+2026-11-16T17:53:04.1241948Z shell: /usr/bin/bash -e {0}
+2026-11-16T17:53:04.1242185Z env:
+2026-11-16T17:53:04.1242432Z   SHENKO_SOURCE_REVISION: 61a813576b19b3aea0403ef6dd4fc3d64238ad0b
+2026-11-16T17:53:04.1242720Z ##[endgroup]
+2026-11-16T18:46:54.2042310Z {"started_at": "2026-11-16T17:53:04.234273+00:00", "stage": "compile", "checks": {}, "build_succeeded": false, "reopen_attempted": false, "feasibility_passed": false, "product_capability_installed": false, "named_target_acceptance": false, "error": {"type": "RuntimeError", "message": "compile failed; see its original output and process observation"}, "owned_groups_settled": true, "compiled_cache_files": [], "stop_signal": null, "finished_at": "2026-11-16T18:46:54.176001+00:00"}
+2026-11-16T18:46:54.2218776Z ##[error]Process completed with exit code 1.
+2026-11-16T18:46:54.2302034Z ##[group]Run actions/upload-artifact@v4
+2026-11-16T18:46:54.2302273Z with:
+2026-11-16T18:46:54.2302452Z   name: node-wasix-source-43922989826-1
+2026-11-16T18:46:54.2302673Z   path: .ci/evidence/node-wasix-source/
+2026-11-16T18:46:54.2302887Z   if-no-files-found: error
+2026-11-16T18:46:54.2303101Z   retention-days: 30
+2026-11-16T18:46:54.2303289Z   compression-level: 6
+2026-11-16T18:46:54.2303469Z   overwrite: false
+2026-11-16T18:46:54.2303652Z   include-hidden-files: false
+2026-11-16T18:46:54.2303852Z ##[endgroup]
+2026-11-16T18:46:54.3871594Z (node:60940) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-11-16T18:46:54.3872515Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-11-16T18:46:54.4057987Z With the provided path, there will be 98 files uploaded
+2026-11-16T18:46:54.4059070Z Artifact name is valid!
+2026-11-16T18:46:54.4059369Z Root directory input is valid!
+2026-11-16T18:46:54.6651691Z Beginning upload of artifact content to blob storage
+2026-11-16T18:46:54.9720042Z (node:60940) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-11-16T18:46:55.1196085Z Uploaded bytes 2152524
+2026-11-16T18:46:55.1379281Z Finished uploading artifact content to blob storage!
+2026-11-16T18:46:55.1379953Z SHA256 digest of uploaded artifact zip is 56ac75e7ca5580b4c0ce19c5a7dcc96f61ffb31e049f67f323194fb33fb8b73d
+2026-11-16T18:46:55.1381724Z Finalizing artifact upload
+2026-11-16T18:46:55.4900353Z Artifact node-wasix-source-43922989826-1.zip successfully finalized. Artifact ID 14258178649
+2026-11-16T18:46:55.4901327Z Artifact node-wasix-source-43922989826-1 has been successfully uploaded! Final size is 2152524 bytes. Artifact ID is 14258178649
+2026-11-16T18:46:55.4906331Z Artifact download URL: https://github.com/cyjin-yl/shenko/actions/runs/43922989826/artifacts/14258178649
+2026-11-16T18:46:55.5144037Z Post job cleanup.
+2026-11-16T18:46:55.5891936Z [command]/usr/bin/git version
+2026-11-16T18:46:55.5928874Z git version 2.56.1
+2026-11-16T18:46:55.5959107Z Temporarily overriding HOME='/home/runner/work/_temp/ec08cd91-6a04-4916-9a9d-0c4646c83ace' before making global git config changes
+2026-11-16T18:46:55.5960136Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-16T18:46:55.5962907Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/shenko/shenko
+2026-11-16T18:46:55.5997745Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-16T18:46:55.6029849Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-16T18:46:55.6260268Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-16T18:46:55.6296126Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-16T18:46:55.6532133Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-16T18:46:55.6604226Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-16T18:46:55.6947029Z Cleaning up orphan processes
+2026-11-16T18:46:55.7243168Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/upload-artifact@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

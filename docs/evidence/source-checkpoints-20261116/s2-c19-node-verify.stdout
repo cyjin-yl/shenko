@@ -1,0 +1,14 @@
+The bundle contains these 8 refs:
+04a128a8d2dbd0b4244f8b6a742bef2fa99af660 refs/heads/checkpoint/fixture-lint-20261116
+f74279d7fa47d04106ca3234e65f039923defe89 refs/heads/checkpoint/c19-directory-lock-20261116
+18f5c09e47e670958fddf92d09c9809a09118b4b refs/heads/checkpoint/node-second-failure-20261116
+87a99ae088c0befd232c95a11537236746d7816d refs/heads/checkpoint/e1-successor-sql-20261116
+c0020e0c09fbb80c77e218efc9c8167d6083330c refs/heads/checkpoint/node-relative-header-20261116
+2ae047c2c442884548c928a33dc6048637bda83b refs/heads/checkpoint/ci10d4-archive-20261116
+3afe99e5fd1717a227dd38538f274f7f02c0ae43 refs/heads/checkpoint/s2-build-receipt-20261116
+c50a0eb7f02d8b7962ae3b43b42a98dc004a6949 refs/heads/checkpoint/s2-c19-node-integration-20261116
+The bundle requires these 3 refs:
+5b1c8a310b959acca251d26c9d008520f7b6291f 
+8689295761ec02e480167155d0ab0956e627fff3 
+10d4a325560a1054fbde00162e8e7696007c2eab 
+The bundle uses this hash algorithm: sha1

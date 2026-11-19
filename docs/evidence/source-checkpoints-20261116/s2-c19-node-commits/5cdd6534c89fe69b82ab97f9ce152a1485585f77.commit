@@ -1,0 +1,13 @@
+tree 599ddd69b97e36c921f2dc7034850869cbd1f7e7
+parent 04a128a8d2dbd0b4244f8b6a742bef2fa99af660
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794863881 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864236 +0000
+
+fix(s5): integrate PR314 directory-locked observation transitions
+
+Source-PR: https://github.com/cyjin-yl/shenko/pull/314
+Source-Commits: c69389f1f1106b9bb15f4157e7f1a0629806a270, 245a846ba0109a0916bad7a4a30ee7f66e2c2d01
+
+Preserve the original recorder and test blobs, merge its C19 CI step into the current workflow, and retain read-only archive reporting. The source PR and alternative PR313 remain open and untouched. This is local evidence serialization, not a 7/30-day run or multi-host fence.
+
+Co-authored-by: cyjin.yl <chenyejin2004@foxmail.com>

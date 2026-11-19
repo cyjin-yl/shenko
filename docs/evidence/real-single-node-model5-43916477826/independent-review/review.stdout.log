@@ -1,0 +1,42 @@
+{
+  "output": "/workspace/scratch/faaa3ccca531/model5-43916477826/independent-review/review.json",
+  "archive_sha256": "ab362c507c24dae49f11429c73b58ecc81cf21c90ebf4d9cc99672323759e084",
+  "actual_checkout": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "summary": {
+    "request_count": 41,
+    "terminal_status_counts": {
+      "success": 40,
+      "failed": 1
+    },
+    "step_state_counts": {
+      "retired": 40,
+      "awaiting_model": 1
+    },
+    "recorded_protocol_rejection_count": 40,
+    "recorded_protocol_reasons": {
+      "native delegation input must be one JSON value": 1,
+      "no semantic wait exists in the frozen context": 39
+    },
+    "successful_raw_streams": 40,
+    "successful_streams_equal_response_and_model_result": true,
+    "distinct_completion_ids": 40,
+    "all_successful_streams_have_done": true,
+    "successful_finish_reason_counts": {
+      "stop": 40
+    },
+    "successful_model_result_ref_counts": {
+      "blake3:dc00b62b14856d749c399b1791a608564578cd899a33bc4ebcaea55b4dea7500": 1,
+      "blake3:6045e034e6fde641142356f5ff3780b3305d2d8c88138bd8390363ec2482433f": 39
+    },
+    "successful_input_token_range": [
+      12720,
+      18502
+    ],
+    "all_successful_terminations_provider_terminal_without_length": true,
+    "all_frozen_semantic_waits_absent": true,
+    "all_frozen_system_prompts_omit_host_printf": true,
+    "all_frozen_payload_tool_arrays_empty": true,
+    "correction_transitions": 40,
+    "all_correction_transitions_preserve_original_output_feedback_and_baseline": true
+  }
+}

@@ -1,0 +1,27 @@
+[
+  {
+    "path": ".github/workflows/ci.yml",
+    "sha": "ef546ed6dd135dba81b14ed9181ddf058dc92fcd",
+    "integrated_blob": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+    "identical": false,
+    "note": "Only the added C19 self-check step is merged into the current candidate workflow; all current candidate build/runtime gates are preserved."
+  },
+  {
+    "path": "docs/development/long-run-observation.md",
+    "sha": "29e89bf9fc309b11789fe15a0f318be6cc7a4956",
+    "integrated_blob": "29e89bf9fc309b11789fe15a0f318be6cc7a4956",
+    "identical": true
+  },
+  {
+    "path": "scripts/observe_longrun.py",
+    "sha": "fff3423dfb6fb999261e690e4f02dc766707b99d",
+    "integrated_blob": "fff3423dfb6fb999261e690e4f02dc766707b99d",
+    "identical": true
+  },
+  {
+    "path": "scripts/observe_longrun_test.py",
+    "sha": "25734cd78cbb800ebecedef814aace9a9a860387",
+    "integrated_blob": "25734cd78cbb800ebecedef814aace9a9a860387",
+    "identical": true
+  }
+]

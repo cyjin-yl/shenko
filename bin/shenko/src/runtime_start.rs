@@ -23,7 +23,7 @@ pub(crate) async fn start(
     supervisor: &shenko_kernel::Supervisor,
     identity_context: &cordis_core::Context,
     identity_service: &IdentityService,
-    runtime_state: &mut crate::runtime_lifecycle::RuntimeState,
+    state: &mut crate::runtime_lifecycle::RuntimeState,
     data_dir: PathBuf,
     config: StartConfig,
 ) -> Result<()> {
@@ -66,10 +66,7 @@ pub(crate) async fn start(
         "store ready"
     );
 
-    let installation_id = match store.get_existing_agent_id()? {
-        Some(agent_id) => store.installation_id_for_subject(agent_id)?,
-        None => store.ledger.ledger_id(),
-    };
+    let installation_id = store.installation_id_for_home()?;
     // Prepare the protected installation control channel before home
     // setup, connectors, or subject work can publish runtime effects.
     // Claiming is not a prerequisite for ordinary conversation.
@@ -86,6 +83,7 @@ pub(crate) async fn start(
         data_dir: data_dir.clone(),
     };
     let prepared_home = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
+    prepared_home.record_local_provisioning(&store)?;
     info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
     for recovery in &prepared_home.recovered {
         tracing::warn!(%recovery, "completed home recovery");
@@ -150,16 +148,16 @@ pub(crate) async fn start(
         &data_dir, &store, &cancel, runtime_instance, &model_profile,
     ).await? {
         node_sync::RuntimeSelection::Selected { fence, authority, heartbeat } => {
-            runtime_state.heartbeat = Some(heartbeat);
+            state.authority_heartbeat = Some(heartbeat);
             (fence, authority)
         },
         node_sync::RuntimeSelection::Stopped => return Ok(()),
     };
-    runtime_state.authority = Some(authority_runtime.clone());
+    state.active_authority = Some(authority_runtime.clone());
     authority_runtime.activate()?;
     if let Some(request_id) = pause_at_start {
         let boundary = store.pause_subject_at_start(agent_id, request_id)?;
-        runtime_state.startup_pause_applied = true;
+        state.startup_pause_applied = true;
         info!(%request_id, boundary=?boundary.boundary_at,
             "startup paused at a durable subject boundary; use runtime resume to continue");
     }
@@ -267,12 +265,38 @@ pub(crate) async fn start(
         return runtime_result;
     }
 
-    let runtime_inference::InferenceServices { context_registry, broker_handle, capabilities } =
-        runtime_inference::install(runtime_inference::InferenceInstall {
-            supervisor, store: &store, data_dir: &data_dir, agent_id,
-            subject_inbox: &subject_inbox, cognition: &cognition,
-            installed: &installed, cancel: &cancel, consumer_cancel,
-        }).await?;
+    let inference = runtime_inference::install(runtime_inference::InferenceInstall {
+        supervisor,
+        store: &store,
+        data_dir: &data_dir,
+        agent_id,
+        subject_inbox: &subject_inbox,
+        cognition: &cognition,
+        installed: &installed,
+        cancel: &cancel,
+        consumer_cancel,
+    })
+    .await;
+    let runtime_inference::InferenceServices {
+        context_registry,
+        broker_handle,
+        capabilities,
+    } =
+        match inference {
+            Ok(Some(services)) => services,
+            stopped => {
+                cancel.cancel();
+                let result = stopped.map(|_| ());
+                return match consumers.stop(&authority_runtime).await {
+                    Ok(()) => result,
+                    Err(cleanup) => match result {
+                        Ok(()) => Err(cleanup),
+                        Err(error) => Err(error
+                            .context(format!("startup consumers also failed to stop: {cleanup}"))),
+                    },
+                };
+            }
+        };
     // The hook graph is the runtime's own service: the subject and
     // every plugin resolve the same live registry, so a handler a
     // plugin registered is visible to the subject's next step.

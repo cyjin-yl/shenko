@@ -1,0 +1,48 @@
+{
+  "commit": "10d4a325560a1054fbde00162e8e7696007c2eab",
+  "same_tree_actual_checkout": "cd4b7cc2b03397ec4657b5037e30e8d0c26553f9",
+  "files": [
+    {
+      "source_path": "crates/shenko-store/src/native_evidence_successor.rs",
+      "retained_path": "source-blobs/crates__shenko-store__src__native_evidence_successor.rs.blob",
+      "bytes": 12208,
+      "sha256": "18c798a835169ca3aa8c72712e5bb2383ecfbf7612051d8a11d2057d158df2bd",
+      "git_blob_sha1": "84778b75b65792b8e240badc298482f4349a232c"
+    },
+    {
+      "source_path": "crates/shenko-store/src/migrations.rs",
+      "retained_path": "source-blobs/crates__shenko-store__src__migrations.rs.blob",
+      "bytes": 45744,
+      "sha256": "cab69ad9b7f94310aa7ba09d07ce4b853b48d91ad321a21cfba3499e0f5cfcff",
+      "git_blob_sha1": "a547947cf2887d14db5a777936578456e855d1b0"
+    },
+    {
+      "source_path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+      "retained_path": "source-blobs/crates__shenko-exec-ssh__src__seat__runtime.rs.blob",
+      "bytes": 63347,
+      "sha256": "574ec0f00c538838811180f0b0cbc237565488161bb4ff20b400bf87cc88d550",
+      "git_blob_sha1": "dc4b4467291113f73d2f86c6a3c527a41b2ae04a"
+    },
+    {
+      "source_path": "bin/shenko/tests/native_evidence_delivery.rs",
+      "retained_path": "source-blobs/bin__shenko__tests__native_evidence_delivery.rs.blob",
+      "bytes": 54251,
+      "sha256": "9f2918ddd8ac7fdebd539448455f7fb9445582bb1af9841e0c063e49caa2ec0a",
+      "git_blob_sha1": "b27831676aa1828517f36910df39f4133a702a9b"
+    },
+    {
+      "source_path": "scripts/ci/clippy_ratchet.py",
+      "retained_path": "source-blobs/scripts__ci__clippy_ratchet.py.blob",
+      "bytes": 17305,
+      "sha256": "757f54faf70e7eddfab32aa0a83260e4a348055680e4492c1a190c10d6454c77",
+      "git_blob_sha1": "11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5"
+    },
+    {
+      "source_path": ".github/workflows/ci.yml",
+      "retained_path": "source-blobs/.github__workflows__ci.yml.blob",
+      "bytes": 10417,
+      "sha256": "4106443e9f4dead7fa80e64f661156283bae15983c0ade549a0fd90eccb81e2f",
+      "git_blob_sha1": "a71f8cf176093a102fc4d89b6cb9b95f6fd60663"
+    }
+  ]
+}

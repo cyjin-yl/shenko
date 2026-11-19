@@ -1,0 +1,457 @@
+{
+  "configuration": {
+    "committed_at": "2026-11-16T16:26:27.422150299Z",
+    "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+    "joint_new": null,
+    "members": [
+      "12bd79a6-3eca-4134-81e6-7e107f302117",
+      "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+      "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+      "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+      "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+      "c1087702-c6c7-4692-976c-a23b62605155",
+      "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+    ],
+    "revision": 3,
+    "term": 4
+  },
+  "frontier": {
+    "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+    "index": 6,
+    "term": 4
+  },
+  "members": [
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:28.631534939Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "a",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:28.631534939Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:27.422150299Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "b",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:27.422150299Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:31.515411376Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "c",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:31.515411376Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:30.806422579Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "d",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:30.806422579Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:29.362308285Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "e",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:29.362308285Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:27.890220954Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "f",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:27.890220954Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    },
+    {
+      "configuration": {
+        "committed_at": "2026-11-16T16:26:30.085577683Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      },
+      "frontier": {
+        "digest": "blake3:bb36a41de6f11af1836af936590ec02fb15bcc98c688b35cc84701b351b082d9",
+        "index": 6,
+        "term": 4
+      },
+      "node": "g",
+      "reopened": {
+        "committed_at": "2026-11-16T16:26:30.085577683Z",
+        "digest": "blake3:83024bb8f5735c2a91b50810782af3e140e8da0ae4478c8a2d4b67bbff8eba01",
+        "joint_new": null,
+        "members": [
+          "12bd79a6-3eca-4134-81e6-7e107f302117",
+          "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+          "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+          "8e6cef52-3555-47b2-87ec-08f6f60cb734",
+          "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+          "c1087702-c6c7-4692-976c-a23b62605155",
+          "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5"
+        ],
+        "revision": 3,
+        "term": 4
+      }
+    }
+  ],
+  "node_ids": [
+    "2ab37b1a-5a34-4c64-ac58-950606d7164e",
+    "c1087702-c6c7-4692-976c-a23b62605155",
+    "c1551c69-0ce5-4f2a-b20e-2ace3ded1fc5",
+    "ac1c40f0-6dc4-47f8-9d41-4e994778ae72",
+    "750f3cf7-7e6d-4228-8d31-66ebf9b0c974",
+    "12bd79a6-3eca-4134-81e6-7e107f302117",
+    "8e6cef52-3555-47b2-87ec-08f6f60cb734"
+  ],
+  "origin_health": {
+    "product": "Shenko",
+    "status": "ok",
+    "version": "0.1.0"
+  },
+  "origin_identity": {
+    "capabilities": {
+      "advertisement_seq": "1",
+      "generated_at": "2026-11-16T16:25:20.767794688Z",
+      "identity": {
+        "agent_id": "028cb053-3c76-45f0-b811-e941888efb72",
+        "branch_id": "be89d109-412f-4225-8207-cc684310b053",
+        "origin_proof": "blake3:3f7590d8c3032ddf79579da90b1d23e7d4f1110ad18a9fdc97d4ea988ec542ee"
+      },
+      "latest_runtime_observation": {
+        "details": "actual subject task and native recovery/replication consumers started as the committed primary; provider readiness remains separate",
+        "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+        "observation_id": "e5beb0ba-e7e6-4bbf-8c5b-b081ed8d4504",
+        "observed_at": "2026-11-16T16:25:20.416201318Z",
+        "process_id": 13334,
+        "roles": [
+          "primary",
+          "executor",
+          "replica",
+          "recovery"
+        ],
+        "runtime_instance_id": "20d5e30c-18f4-47d0-b8e8-a5e6ec361526",
+        "subject_id": "028cb053-3c76-45f0-b811-e941888efb72"
+      },
+      "manifest": {
+        "arch": "x86_64",
+        "artifact_digest": "blake3:818a578eb6dbe57b9508522336c65a38522fe267105714fa475ec96c88bb7338",
+        "os": "linux",
+        "schema": 1,
+        "source_revision": "92135ff8956c425748baa2560e1fbafed72498d4"
+      },
+      "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+      "provides": [
+        "cap.attention-policy",
+        "cap.child-role-frame",
+        "cap.idle-perception",
+        "cap.subject-frame"
+      ],
+      "role_assignment": null,
+      "subject_observations": 1
+    },
+    "coordination": {
+      "basis": "verified_capability_facts_and_sync_confirmations",
+      "candidates": [
+        {
+          "advertisement_seq": "1",
+          "latest_runtime_observation": {
+            "details": "actual subject task and native recovery/replication consumers started as the committed primary; provider readiness remains separate",
+            "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+            "observation_id": "e5beb0ba-e7e6-4bbf-8c5b-b081ed8d4504",
+            "observed_at": "2026-11-16T16:25:20.416201318Z",
+            "process_id": 13334,
+            "roles": [
+              "primary",
+              "executor",
+              "replica",
+              "recovery"
+            ],
+            "runtime_instance_id": "20d5e30c-18f4-47d0-b8e8-a5e6ec361526",
+            "subject_id": "028cb053-3c76-45f0-b811-e941888efb72"
+          },
+          "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+          "primary_evidence": true,
+          "provides": [
+            "cap.attention-policy",
+            "cap.child-role-frame",
+            "cap.idle-perception",
+            "cap.subject-frame"
+          ],
+          "rank": 1,
+          "role_assignment": null,
+          "self": true,
+          "subject_evidence": true,
+          "verified": "local_durable"
+        }
+      ],
+      "current_peer_liveness": "not_measured",
+      "election_provider": "durable_member_configuration_quorum_v1",
+      "global_quorum": true,
+      "is_election": false,
+      "member_configuration": {
+        "committed_at": "2026-11-16T16:25:20.262009231Z",
+        "digest": "blake3:3738178eb77d819f6257745181255b90dedcb2e339a544c9fc531ef9a3c55107",
+        "joint_new": null,
+        "members": [
+          "c1087702-c6c7-4692-976c-a23b62605155"
+        ],
+        "revision": 1,
+        "term": 1
+      },
+      "model_required_for_membership": false,
+      "primary_claim": {
+        "committed_at": "2026-11-16T16:25:20.273864422Z",
+        "committed_seq": 2,
+        "config_revision": 1,
+        "epoch": 1,
+        "leader_node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+        "term": 2
+      },
+      "quorum_basis": "committed_member_configuration",
+      "visible_nodes_are_not_the_quorum": true
+    },
+    "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+    "roles": {
+      "assignment": null,
+      "device_type_is_role": false,
+      "last_runtime_observation": {
+        "details": "actual subject task and native recovery/replication consumers started as the committed primary; provider readiness remains separate",
+        "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+        "observation_id": "e5beb0ba-e7e6-4bbf-8c5b-b081ed8d4504",
+        "observed_at": "2026-11-16T16:25:20.416201318Z",
+        "process_id": 13334,
+        "roles": [
+          "primary",
+          "executor",
+          "replica",
+          "recovery"
+        ],
+        "runtime_instance_id": "20d5e30c-18f4-47d0-b8e8-a5e6ec361526",
+        "subject_id": "028cb053-3c76-45f0-b811-e941888efb72"
+      },
+      "last_runtime_observation_fence": {
+        "committed_seq": 2,
+        "config_revision": 1,
+        "epoch": 1,
+        "leader_id": "c1087702-c6c7-4692-976c-a23b62605155",
+        "term": 2
+      },
+      "node_id": "c1087702-c6c7-4692-976c-a23b62605155",
+      "persisted_observation_is_liveness": false
+    },
+    "subject_identity": {
+      "agent_id": "028cb053-3c76-45f0-b811-e941888efb72",
+      "branch_id": "be89d109-412f-4225-8207-cc684310b053",
+      "origin_proof": "blake3:3f7590d8c3032ddf79579da90b1d23e7d4f1110ad18a9fdc97d4ea988ec542ee"
+    }
+  },
+  "origin_ledger": "4b01a817-451b-4071-a4b6-ef0f0b017181"
+}

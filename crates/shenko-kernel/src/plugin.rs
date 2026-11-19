@@ -153,8 +153,10 @@ impl PluginRegistry {
     ///
     /// A call from the plugin's own settle context is refused by Cordis
     /// rather than deadlocking on its own teardown.
+    /// Closing admission does not close this cleanup path: a resident
+    /// watcher may retire its original Fibers after the shutdown token is
+    /// cancelled. Their native barriers and diagnostic checks still apply.
     pub async fn uninstall(&self, fiber: &FiberHandle) -> Result<()> {
-        anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
         fiber
             .dispose()
             .await
@@ -217,9 +219,16 @@ impl PluginRegistry {
 }
 
 fn check_outcomes(diagnostics: &Diagnostics) -> Result<()> {
-    anyhow::ensure!(
-        !diagnostics.unknown.load(Ordering::SeqCst),
-        "Cordis reported a lifecycle failure; reconcile external outcomes before reusing this host (see diagnostics)"
-    );
+    if diagnostics.unknown.load(Ordering::SeqCst) {
+        // These are already-contained owned strings from Cordis, not calls
+        // into a failing plugin's Display implementation. Keep the first
+        // actual failure visible when the host returns a terminal error.
+        let first = diagnostics.records.lock().first()
+            .map(|record| record.text().to_owned())
+            .unwrap_or_else(|| "the original diagnostic was unavailable".into());
+        anyhow::bail!(
+            "Cordis reported a lifecycle failure; reconcile external outcomes before reusing this host: {first}"
+        );
+    }
     Ok(())
 }

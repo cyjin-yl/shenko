@@ -1,0 +1,730 @@
+{
+  "kind": "derived_read_only_diagnostic_index",
+  "source_commit": "862213d9e351f0fc1816553d6802f35be57ab4e5",
+  "base_commit": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+  "input": "raw/native-e1-clippy-final.jsonl.gz",
+  "definition": "Primary diagnostic span intersects a Rust line added or changed by the actual Git diff; test-only unwrap/expect listed separately under the existing production-only policy. This is not a workspace ratchet.",
+  "changed_line_diagnostics": [],
+  "test_only_unwrap_expect_diagnostics": [
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 162,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 163,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 184,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 185,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 204,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 207,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 216,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 222,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 228,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 235,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 238,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 240,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 241,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 255,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 273,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 279,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 301,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 304,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "native_evidence_delivery",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/bin/shenko/tests/native_evidence_delivery.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 162,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 163,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 184,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 185,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 204,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 207,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 216,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 222,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 228,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 235,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 238,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 240,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 241,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 255,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 273,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 279,
+      "message": "used `unwrap()` on an `Option` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 301,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    },
+    {
+      "lint": "clippy::unwrap_used",
+      "file": "crates/shenko-store/tests/support/canonical_native.rs",
+      "line": 304,
+      "message": "used `unwrap()` on a `Result` value",
+      "target": {
+        "kind": [
+          "test"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "store_roundtrip",
+        "src_path": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery/crates/shenko-store/tests/store_roundtrip.rs",
+        "edition": "2024",
+        "doc": false,
+        "doctest": false,
+        "test": true
+      }
+    }
+  ]
+}

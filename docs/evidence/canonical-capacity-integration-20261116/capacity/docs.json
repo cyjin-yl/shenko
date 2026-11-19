@@ -1,0 +1,16 @@
+{
+  "kind": "documentation_integrity_only",
+  "product_tested": false,
+  "migrated_contract_chunks": 365,
+  "requirements": 165,
+  "behaviors": 63,
+  "source_records": 59,
+  "acceptance_definitions": 236,
+  "archived_sources": 46,
+  "archived_entrypoints": 32,
+  "development_skills": 9,
+  "domain_specs_registered": 32,
+  "domain_specs_present": 32,
+  "domain_specs_pending": [],
+  "errors": []
+}

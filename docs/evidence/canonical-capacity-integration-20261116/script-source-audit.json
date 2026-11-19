@@ -1,0 +1,70 @@
+{
+  "kind": "immutable_source_object_comparison",
+  "product_tested": false,
+  "source": "82d0563082293577338360b43f3646269b1b7901",
+  "source_tree": "6835623f3033b51a271b1fe3991b4df7296a5674",
+  "integrated_source": "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b",
+  "integrated_tree": "6835623f3033b51a271b1fe3991b4df7296a5674",
+  "rust_check_source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+  "rust_check_tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+  "changed_paths_from_rust_check": [
+    ".github/workflows/real-single-node.yml",
+    "docs/development/real-single-node-journey.md",
+    "scripts/real_single_node_journey.py"
+  ],
+  "harness_source_files": [
+    {
+      "path": ".github/workflows/real-single-node.yml",
+      "source_blob": "f53a1b2429d06e112782a5cee8582ed553befe90",
+      "integrated_blob": "f53a1b2429d06e112782a5cee8582ed553befe90",
+      "bytes": 8610,
+      "sha256": "7afd9c1474b50ea30ba843f2b2ce28c8718cc210c01a0b0f0c3b017a7659fed0",
+      "equal": true
+    },
+    {
+      "path": "scripts/real_single_node_journey.py",
+      "source_blob": "953149ea8cb80fe2f63da09091787cada9c2d477",
+      "integrated_blob": "953149ea8cb80fe2f63da09091787cada9c2d477",
+      "bytes": 29054,
+      "sha256": "72d13c644a29521446c3b74bdc341590a82406ed8d037324f37fca4cdd05dda7",
+      "equal": true
+    },
+    {
+      "path": "docs/development/real-single-node-journey.md",
+      "source_blob": "a3ff64297507f8177bdd204122a90ca2a79c7dc7",
+      "integrated_blob": "a3ff64297507f8177bdd204122a90ca2a79c7dc7",
+      "bytes": 33424,
+      "sha256": "26b0d6567dc541a57e8366350eaeb75ec2c3369f4ccc4bdbee45c23d49b553f1",
+      "equal": true
+    }
+  ],
+  "static_report_hashes_match_source": true,
+  "all_bin_crates_paths_unchanged": true,
+  "unchanged_tracked_rust_cargo_objects": 714,
+  "rust_manifest_scope": "tracked Rust files, Cargo manifests/locks, Rust toolchain files and .cargo configuration; not a full hermetic build-input manifest",
+  "combined_default_deny_source_objects": [
+    {
+      "path": "crates/shenko-types/src/ids.rs",
+      "git_blobs": {
+        "e34efd1fed758bb2feeb5abb2ee6e50a656585b7": "84f7303d3ea566148a8d4b1a283ecc0088f0b121",
+        "0966d6990397a80881ccbb00c14635edd089c236": "84f7303d3ea566148a8d4b1a283ecc0088f0b121",
+        "bfc5f7e125a30bd86f48904617e97994c85d49a2": "84f7303d3ea566148a8d4b1a283ecc0088f0b121",
+        "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b": "84f7303d3ea566148a8d4b1a283ecc0088f0b121"
+      },
+      "unchanged": true,
+      "meaning": "Source equality only; this does not substitute for CI ratchet or diagnose all baseline warnings."
+    },
+    {
+      "path": "crates/shenko-store/src/quota.rs",
+      "git_blobs": {
+        "e34efd1fed758bb2feeb5abb2ee6e50a656585b7": "c4ef0bf2b020754d6c530e95b9fc67ae2bfca1c3",
+        "0966d6990397a80881ccbb00c14635edd089c236": "c4ef0bf2b020754d6c530e95b9fc67ae2bfca1c3",
+        "bfc5f7e125a30bd86f48904617e97994c85d49a2": "c4ef0bf2b020754d6c530e95b9fc67ae2bfca1c3",
+        "98bcf67a5ede6a9b4fb03819b6428bf5f3f9168b": "c4ef0bf2b020754d6c530e95b9fc67ae2bfca1c3"
+      },
+      "unchanged": true,
+      "meaning": "Source equality only; this does not substitute for CI ratchet or diagnose all baseline warnings."
+    }
+  ],
+  "verification_method": "Read immutable Git blobs and existing reports; no static checks, compilation or runtime journey rerun."
+}

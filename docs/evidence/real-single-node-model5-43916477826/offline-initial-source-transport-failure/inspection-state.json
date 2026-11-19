@@ -1,0 +1,19 @@
+{
+  "inspection_complete": false,
+  "mode": "offline_local_zip",
+  "started_at": "2026-11-16T18:23:59Z",
+  "original_product_outcome_unchanged": true,
+  "diagnostic_source_revision": "a9c17717a6effb504c63ff5248401c8857d65558",
+  "inspector_blob_sha": "3c0e2e7a9ca1bd9d143bdc53ed68c0eb9bda4805",
+  "inspector_sha256": "2c3544690839c5b96d56007b67615f895ef405ab2736a8b116c59762a2633471",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "phase": "zip_verification",
+  "errors": [
+    {
+      "type": "AssertionError",
+      "message": "published inspector blob mismatch"
+    }
+  ],
+  "metadata_boundary": "GitHub metadata was fetched through the connector separately. This offline adapter does not re-run verify_metadata or download_zip.",
+  "finished_at": "2026-11-16T18:23:59Z"
+}

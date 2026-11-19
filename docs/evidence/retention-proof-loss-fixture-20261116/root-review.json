@@ -1,0 +1,20 @@
+{
+  "observed_at": "2026-11-16 23:57:20 UTC",
+  "kind": "independent pure-source replacement verification; no Rust execution",
+  "original_blob": "c1bfbdfe7489a052af6db16b822158430a49f70c",
+  "candidate_blob": "829d8fe5169241d686b55a858d63e4e3c7793d86",
+  "original_utf8_bytes": 57829,
+  "candidate_utf8_bytes": 60604,
+  "exact_replacements": 3,
+  "inverse_byte_equal": true,
+  "original_delete_count": 1,
+  "candidate_delete_count": 1,
+  "unchanged_original_tail": true,
+  "complete_assert_before_original_delete": true,
+  "original_test_function_count": 1,
+  "candidate_test_function_count": 1,
+  "production_files_changed": 0,
+  "behavioral_windows_added": 0,
+  "local_executor": "unavailable",
+  "rust_run": false
+}

@@ -1,0 +1,6 @@
+tree fc268086e7c13184d84f4dc6092e3f848c55b673
+parent 3e62c0e517a246872101cd1e61a694b2156bc919
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000
+
+fix(ssh): retain native command session cleanup errors

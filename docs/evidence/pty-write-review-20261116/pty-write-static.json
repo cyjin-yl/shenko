@@ -1,0 +1,39 @@
+{
+  "kind": "pty_write_static_only",
+  "product_tested": false,
+  "base": "5309c6a0aba1da49ab201d322edd8915c68deb5d",
+  "production_checkpoint": "e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69",
+  "rust_tools": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "new_distinct_risk_windows": 5,
+  "git_diff_check_exit": 0,
+  "vendor_incremental_patch_reverse_check_exit": 0,
+  "prior_nine_scenario_sources_byte_identical": {
+    "crates/shenko-exec-ssh/src/seat/runtime.rs": "574ec0f00c538838811180f0b0cbc237565488161bb4ff20b400bf87cc88d550",
+    "crates/shenko-exec-ssh/src/ssh_exec.rs": "9fa71ed2e86e1e74a0fe7788844973d9c5dc15e42ddac3cf9bae475ce9bc881d",
+    "crates/shenko-exec-ssh/src/seat/tmux.rs": "483f6d44d39a9c53059be763469e613c16bcb816499b0b51773b82d021377285",
+    "crates/shenko-store/src/seat.rs": "20b31c82cd134892972ec39cdff05978d4a8988cc6993c8259fb6c37104826ef",
+    "crates/shenko-store/tests/seat_lifecycle.rs": "6f4550dd268607d8cfee176c5ebc202eb0d9199a2306c076633ca0f92d9c4611"
+  },
+  "all_existing_native_tests_bytes_preserved_except_new_module_declaration": true,
+  "source_sha256": {
+    "third-party/russh-duplex/src/client/mod.rs": "1c2313c9518c914664e62db0676cb442a1ec1f8cacd13dd3f12d53fff5e1eb74",
+    "crates/shenko-exec-ssh/src/native_transport/mod.rs": "70d57b4b476ccbcaf125344456a7393f69b4cd450ba8e537ef547a134d92de57",
+    "crates/shenko-exec-ssh/src/native_transport/pty.rs": "b20871fcbdef17faab23b8722053aae7c590c8c134a0ae7ab77596567d37c483",
+    "crates/shenko-exec-ssh/src/native_transport/stream.rs": "b84aa328818262546fbe1a3c472f263820233eb78708af363882eaca321dd723",
+    "crates/shenko-exec-ssh/src/seat/ssh_pty.rs": "acc346fc82b6141214be567744636c11a542d2433af28dcc8c37ccc298265315",
+    "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs": "1929f98690a24570be1d39dab44046cebbea3b7c8cb142b365e2b712a0f550c5",
+    "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs": "6b7d59e0f7b93e5c81b77719d275b95be2967cd94bff06a6f8bc413c713709d1"
+  },
+  "documentation_check": {
+    "exit_code": 1,
+    "errors": 1948,
+    "all_errors_are_unavailable_parsers": true,
+    "full_stdout": "/workspace/scratch/faaa3ccca531/pty-write-docs-check.json",
+    "stdout_sha256": "e864f899ed0ac7cc9c4669a3da16df0dfe144bfa198c4a69645c483b10edc2f5",
+    "full_stderr": "/workspace/scratch/faaa3ccca531/pty-write-docs-check.stderr"
+  }
+}

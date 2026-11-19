@@ -1,0 +1,639 @@
+{
+  "observed_at": "2026-11-16 23:51:44 UTC",
+  "run_id": 43980018541,
+  "requested_head": "41d785ae8f968a3e81cd632223cadb356c44a224",
+  "actual_rust_checkout": "dff68d76432881c8d3a99e68f56e1b27678b8641",
+  "tree": "a237c05a4b1f095949d1996509b9e3bf653af62f",
+  "terminal_conclusion": "failure",
+  "finished_at": "2026-11-16T23:46:45Z",
+  "rust": {
+    "count": 153,
+    "totals": {
+      "passed": 1095,
+      "failed": 1,
+      "ignored": 11,
+      "measured": 0,
+      "filtered_out": 90
+    },
+    "summaries": [
+      {
+        "line": "2026-11-16T23:38:30.6061583Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 0.02s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:38:34.0465499Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 0.02s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:38:36.3052939Z test result: ok. 44 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 7.13s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:38:36.3103620Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:40:03.4144083Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 87.10s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:41:15.2748570Z test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 71.86s",
+        "status": "FAILED"
+      },
+      {
+        "line": "2026-11-16T23:41:15.8691588Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.59s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:42.4151936Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 206.54s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:44.2101629Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.79s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:44.2116003Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:44.2287950Z test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:45.5440371Z test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:45.5527768Z test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:45.5620067Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:45.5675921Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:45.5798228Z test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.2645954Z test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.2661775Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.2675859Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.2712919Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.3642596Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.3655157Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.3677210Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:46.3689213Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:49.2064142Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.84s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:49.2089610Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:49.2105779Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:49.2137688Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.2458075Z test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.03s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.2523909Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.2538442Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.4986254Z test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5015222Z test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5030722Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5551907Z test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5573713Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5593789Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5664999Z test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5782553Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:44:55.5852550Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:01.9077373Z test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.32s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:01.9149418Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2709955Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2769180Z test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2786157Z test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2796284Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2807437Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.2937461Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.4549301Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:02.4593167Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.6201430Z test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.16s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.6233554Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.6257456Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.7193059Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.7208787Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.7222458Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.7580590Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.8125968Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:05.8671185Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:06.1854888Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:06.2848905Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:06.5503301Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:06.5529287Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:06.9328552Z test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:07.0615020Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:07.7290660Z test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:08.0924926Z test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:08.0974095Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:08.4078348Z test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:08.7526468Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.4034986Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.65s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.4965926Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5087194Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5101576Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5152845Z test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5183517Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5200414Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.5227350Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.8907504Z test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.8951479Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:17.8981992Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:18.0549522Z test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:18.0574236Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:18.1897822Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:18.5930102Z test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:18.6530368Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:22.6003720Z test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.94s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:22.8794141Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:23.9066226Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:24.1849798Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:24.2609969Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:24.6045949Z test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:24.8325651Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:25.4521652Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:25.8281114Z test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:25.9096816Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:26.0961057Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:26.7370964Z test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:26.9185429Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:27.0088670Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:27.7245250Z test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:27.8265538Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:45:36.5109346Z test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.68s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:15.1724281Z test result: ok. 116 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 38.66s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:15.2064457Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:15.2083885Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:15.4485666Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:15.4522777Z test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:17.7565703Z test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.30s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:18.7802530Z test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:19.1696067Z test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:19.3689466Z test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:24.4252919Z test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.05s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:24.4569592Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:24.5442643Z test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:24.5495467Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:26.0649468Z test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.51s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:26.0687484Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:26.1660859Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:26.2319969Z test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.0290138Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.1834880Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.4937869Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.6229916Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.7372993Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.7585528Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.7814230Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.8328915Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.8587533Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:27.9365363Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.0119285Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.2817596Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.3534467Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.5464405Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.6493493Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:28.6970258Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:29.8241184Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.2561025Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.2799411Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.4123742Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.5260819Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.6134267Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:30.7674958Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:31.7135435Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:31.9619559Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:32.2039097Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:32.2830561Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:33.3879430Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:33.7117082Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:34.6232090Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:35.0156936Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:35.2306657Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      },
+      {
+        "line": "2026-11-16T23:46:35.9046972Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "status": "ok"
+      }
+    ]
+  },
+  "single_failed_test": "original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution",
+  "failure_path": "bin/shenko/tests/native_evidence_delivery.rs:1238",
+  "failure_detail": "retention.complete assertion for source; four referenced_object_unreadable gaps for the same actual missing digest fdcf31db23a77579d3396c224ddcebc6f2441678db871f28f1a55915764bbcf2",
+  "hypothesis_not_yet_verified": "The original E1 journey intentionally removes a transition CAS object before this added snapshot; inspect exact source and originals before changing timing. Missing evidence must not be ignored or recreated.",
+  "clippy": "terminal failure; complete outer log unavailable through both tested MCP routes; actual ZIP emitted but locally uninspected after executor loss",
+  "local_source_recovery": "Exact 0cb/a8 source cannot be reconstructed from the remaining context; original full patch inputs/generated static JSON bytes are missing. No approximate blob/tree was created or called an original."
+}

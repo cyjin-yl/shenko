@@ -1,0 +1,158 @@
+{
+  "prepared_public_code_commit": "68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d",
+  "comparisons": [
+    {
+      "source": "3afe99e5fd1717a227dd38538f274f7f02c0ae43",
+      "path": "crates/shenko-update/src/build.rs",
+      "bytes": 36452,
+      "sha256": "e60ea854e4b6cf2e79486612b3d14dd29ae0e1eb8e16d4f7ed9efef1b5f5ee58",
+      "git_blob_sha1": "62965af9ae618689fff5298c391f59b21f65013a",
+      "byte_identical": true
+    },
+    {
+      "source": "3afe99e5fd1717a227dd38538f274f7f02c0ae43",
+      "path": "crates/shenko-update/src/build_tests.rs",
+      "bytes": 11381,
+      "sha256": "fa1859efde85be2beafa6bf2c6d45396adb06ae7ec5543c410084fbad21278e0",
+      "git_blob_sha1": "0cd77113d25618e440e44b8811ec47d341ba2659",
+      "byte_identical": true
+    },
+    {
+      "source": "3afe99e5fd1717a227dd38538f274f7f02c0ae43",
+      "path": "crates/shenko-update/src/handoff.rs",
+      "bytes": 92515,
+      "sha256": "8ad52dec26e498ec34c5adc2b36908f6b073beb40f428b97efa43399a5d62345",
+      "git_blob_sha1": "4e7d89bb8384eec9bfc38fa813f1f18ec3556dc5",
+      "byte_identical": true
+    },
+    {
+      "source": "3afe99e5fd1717a227dd38538f274f7f02c0ae43",
+      "path": "crates/shenko-update/src/handoff_tests.rs",
+      "bytes": 53432,
+      "sha256": "b5e5cd67a17c09d8a673415831855790c07e4d058dacc050e949a327499a6fac",
+      "git_blob_sha1": "c0fb298bed162a575714a5d2a928f858d89a7756",
+      "byte_identical": true
+    },
+    {
+      "source": "3afe99e5fd1717a227dd38538f274f7f02c0ae43",
+      "path": "crates/shenko-update/src/smoke.rs",
+      "bytes": 39571,
+      "sha256": "26ebf6abd47c2cb36cc85ad766403f5581ebc7585ae5cbea642d76f7149e639f",
+      "git_blob_sha1": "eb1f0165bd17b7ebea39b8b15d96972ece1a1e19",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+      "bytes": 16290,
+      "sha256": "70d57b4b476ccbcaf125344456a7393f69b4cd450ba8e537ef547a134d92de57",
+      "git_blob_sha1": "66d43a18c19f5a2ec53f43d66cc1f30d6348e855",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+      "bytes": 17436,
+      "sha256": "b20871fcbdef17faab23b8722053aae7c590c8c134a0ae7ab77596567d37c483",
+      "git_blob_sha1": "5e2b3965daee4dab896d4b78323dfe5fcb8be1a4",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/native_transport/stream.rs",
+      "bytes": 3352,
+      "sha256": "b84aa328818262546fbe1a3c472f263820233eb78708af363882eaca321dd723",
+      "git_blob_sha1": "2ecb03869bd2397895827d220d7ff63141c68c7e",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+      "bytes": 16107,
+      "sha256": "8b54b8d3c83f58390cab7cad3c3fa06eee9c6720910c7e78d6092c4660417717",
+      "git_blob_sha1": "cfca6127d451a77c5ac4e59d94887ac17756cca0",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+      "bytes": 28956,
+      "sha256": "c0da4d1a763e8277a87b7bcc298ae9ae34290ea2f4c90d22309fc6cd1498653c",
+      "git_blob_sha1": "ef7372385bad903645c9d678d2858278e092ff77",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+      "bytes": 7371,
+      "sha256": "acc346fc82b6141214be567744636c11a542d2433af28dcc8c37ccc298265315",
+      "git_blob_sha1": "78befb86ab82c56980470ce931bc09ebf4fd3432",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+      "bytes": 18310,
+      "sha256": "1929f98690a24570be1d39dab44046cebbea3b7c8cb142b365e2b712a0f550c5",
+      "git_blob_sha1": "8a47200c93c5c9f450a6f7a4ee43798518f30162",
+      "byte_identical": true
+    },
+    {
+      "source": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "path": "third-party/russh-duplex/src/client/mod.rs",
+      "bytes": 121118,
+      "sha256": "1c2313c9518c914664e62db0676cb442a1ec1f8cacd13dd3f12d53fff5e1eb74",
+      "git_blob_sha1": "c756204cb147ebc421606c89c883c57585c240c3",
+      "byte_identical": true
+    },
+    {
+      "source": "c0020e0c09fbb80c77e218efc9c8167d6083330c",
+      "path": "scripts/build_node_wasix_journey.py",
+      "bytes": 31502,
+      "sha256": "48836fc0958df4a8297397a834f16241d4f4181f588313132f49f84640508614",
+      "git_blob_sha1": "da10dcac54c158de8d41e5519bf6f1f5dfb2d797",
+      "byte_identical": true
+    },
+    {
+      "source": "c0020e0c09fbb80c77e218efc9c8167d6083330c",
+      "path": "crates/shenko-wasm/ports/node-wasix/verify_relative_header.py",
+      "bytes": 7998,
+      "sha256": "224a3f8833ccb25c6371b9106ebf06f7e11c527ed4bd00848c71cb59ca6a8080",
+      "git_blob_sha1": "d41e27985679ed018c4747dbb4d0da07e2ade39e",
+      "byte_identical": true
+    },
+    {
+      "source": "c0020e0c09fbb80c77e218efc9c8167d6083330c",
+      "path": "crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch",
+      "bytes": 495,
+      "sha256": "105193b2dc85af5297e3fbd266b42441dc5b4baef26be0dff639cb7d1aa8ecdc",
+      "git_blob_sha1": "fdb576a07dab39e1e02c04418bf2736de636bdbf",
+      "byte_identical": true
+    },
+    {
+      "source": "87a99ae088c0befd232c95a11537236746d7816d",
+      "path": "crates/shenko-store/src/native_evidence_successor.rs",
+      "bytes": 12231,
+      "sha256": "10b5a4c5846c2f7e258d288e9da54922e085b9fb22ebfc0fd34bafb8917b7763",
+      "git_blob_sha1": "b5e0bf42dbde21b690fc80d660a9e573e4452c1c",
+      "byte_identical": true
+    },
+    {
+      "source": "169e18bd9a633a43d50bd1e9ad4439ec47e5448c",
+      "path": "scripts/observe_longrun.py",
+      "bytes": 59747,
+      "sha256": "1abc5dade2e6a4acd1eb7bc9da905a4e786c98f0b9845187187d6529a3161b4f",
+      "git_blob_sha1": "fff3423dfb6fb999261e690e4f02dc766707b99d",
+      "byte_identical": true
+    },
+    {
+      "source": "169e18bd9a633a43d50bd1e9ad4439ec47e5448c",
+      "path": "scripts/observe_longrun_test.py",
+      "bytes": 19848,
+      "sha256": "9a1947caa1b99fdc319d171c2abf10eb9003a153b87d92d3bf3daef6e9f2957d",
+      "git_blob_sha1": "cb03beffcc01d0a03bd8a4a626c1fdd24e7b89f1",
+      "byte_identical": true
+    }
+  ],
+  "no_rust_execution_claimed": true
+}

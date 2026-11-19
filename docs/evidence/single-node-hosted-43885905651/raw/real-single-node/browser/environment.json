@@ -1,0 +1,18 @@
+{
+  "playwright": "1.62.0",
+  "browser": "Chromium",
+  "browser_version": "151.0.7922.34",
+  "browser_executable_sha256": "0b20b130e7edd9dd51873be867761295fe0cfad490c2b9a64f95bd3cfc08fa71",
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.36",
+  "python": "3.11.2",
+  "headless": true,
+  "channel": "chromium",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "locale": "zh-CN",
+  "color_scheme": "light",
+  "reduced_motion": "reduce",
+  "url": "http://127.0.0.1:17860"
+}

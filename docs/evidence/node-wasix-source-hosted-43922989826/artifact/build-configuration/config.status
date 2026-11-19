@@ -1,0 +1,3 @@
+#!/bin/sh
+set -x
+exec ./configure --dest-cpu=wasm32 --dest-os=wasi --cross-compiling --openssl-no-asm

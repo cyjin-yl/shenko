@@ -1,0 +1,68 @@
+[
+  {
+    "file": "sources/sqlite-3.46.0-select.c",
+    "url": "https://github.com/sqlite/sqlite/blob/version-3.46.0/src/select.c",
+    "received_characters": 320519,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-3.46.0-auth.c",
+    "url": "https://github.com/sqlite/sqlite/blob/version-3.46.0/src/auth.c",
+    "received_characters": 8977,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-3.46.0-vdbeapi.c",
+    "url": "https://github.com/sqlite/sqlite/blob/version-3.46.0/src/vdbeapi.c",
+    "received_characters": 75938,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-3.46.0-vdbeblob.c",
+    "url": "https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/src/vdbeblob.c",
+    "received_characters": 16524,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-3.46.0-fts5_index.c",
+    "url": "https://github.com/sqlite/sqlite/blob/version-3.46.0/ext/fts5/fts5_index.c",
+    "received_characters": 283812,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-3.46.0-fts5_main.c",
+    "url": "https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/ext/fts5/fts5_main.c",
+    "received_characters": 95229,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/rusqlite-0.32.1-row.rs",
+    "url": "https://github.com/rusqlite/rusqlite/blob/v0.32.1/src/row.rs",
+    "received_characters": 19977,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/rusqlite-0.32.1-inner_connection.rs",
+    "url": "https://github.com/rusqlite/rusqlite/blob/v0.32.1/src/inner_connection.rs",
+    "received_characters": 15025,
+    "trailing_newline_added": false
+  },
+  {
+    "file": "sources/sqlite-tag.json",
+    "url": "https://api.github.com/repos/sqlite/sqlite/git/ref/tags/version-3.46.0",
+    "received_characters": 363,
+    "trailing_newline_added": true
+  },
+  {
+    "file": "sources/rusqlite-tag.json",
+    "url": "https://api.github.com/repos/rusqlite/rusqlite/git/ref/tags/v0.32.1",
+    "received_characters": 345,
+    "trailing_newline_added": true
+  },
+  {
+    "file": "sources/sqlite-3.46.0-fts5_storage.c",
+    "url": "https://github.com/sqlite/sqlite/blob/bebe2d8be8acfd02592c4972f4ba32c3b4e4a33f/ext/fts5/fts5_storage.c",
+    "received_characters": 35747,
+    "trailing_newline_added": false
+  }
+]

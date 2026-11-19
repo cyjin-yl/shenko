@@ -1,0 +1,3434 @@
+   Compiling shenko-types v0.1.0 (/__w/shenko/shenko/crates/shenko-types)
+   Compiling russh v0.65.0 (/__w/shenko/shenko/third-party/russh-duplex)
+warning: constant `MAXIMUM_DECOMPRESSED_PACKET_LEN` is never used
+   --> third-party/russh-duplex/src/cipher/mod.rs:378:18
+    |
+378 | pub(crate) const MAXIMUM_DECOMPRESSED_PACKET_LEN: usize = MAXIMUM_PACKET_LEN;
+    |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `russh` (lib) generated 1 warning
+   Compiling shenko-compat-poppy v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-poppy)
+   Compiling shenko-quota v0.1.0 (/__w/shenko/shenko/crates/shenko-quota)
+   Compiling shenko-kernel v0.1.0 (/__w/shenko/shenko/crates/shenko-kernel)
+warning: function `rounds_estimate` is never used
+   --> crates/shenko-quota/src/policy.rs:683:4
+    |
+683 | fn rounds_estimate(profile: &ModelProfile, constraints: &[WindowConstraint]) -> Option<f64> {
+    |    ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `lease` is never read
+    --> crates/shenko-kernel/src/hooks.rs:1720:5
+     |
+1718 | pub struct HookSnapshot {
+     |            ------------ field in this struct
+1719 |     graph: Arc<Graph>,
+1720 |     lease: Arc<LeaseGuard>,
+     |     ^^^^^
+     |
+     = note: `HookSnapshot` has a derived impl for the trait `Clone`, but this is intentionally ignored during dead code analysis
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `errors` is never read
+  --> crates/shenko-kernel/src/plugin.rs:58:5
+   |
+53 | pub struct PluginRegistry {
+   |            -------------- field in this struct
+...
+58 |     errors: Arc<ErrorObservation>,
+   |     ^^^^^^
+
+warning: `shenko-quota` (lib) generated 1 warning
+   Compiling shenko-store v0.1.0 (/__w/shenko/shenko/crates/shenko-store)
+warning: `shenko-kernel` (lib) generated 2 warnings
+   Compiling shenko-node v0.1.0 (/__w/shenko/shenko/crates/shenko-node)
+warning: unused doc comment
+   --> crates/shenko-store/src/migrations.rs:738:1
+    |
+738 |   /// Backfill millisecond timestamps for rows written by the legacy schema.
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+739 | /     conn.execute_batch(
+740 | |         "UPDATE memory_entries
+741 | |             SET created_at_ms = CAST(strftime('%s', created_at) AS INTEGER) * 1000
+742 | |           WHERE created_at_ms = 0 AND created_at IS NOT NULL;",
+743 | |     )?;
+    | |______- rustdoc does not generate documentation for expressions
+    |
+    = help: use `//` for a plain comment
+    = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `shenko_types::object::ObjectRef`
+  --> crates/shenko-store/src/activation.rs:18:5
+   |
+18 | use shenko_types::object::ObjectRef;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `CognitionSelectorRef`, `CognitiveRootContent`, `HomeContentRef`, `RuntimeStateParticipant`, and `SoftwareSlotRef`
+  --> crates/shenko-store/src/cognitive_root.rs:21:27
+   |
+21 |     CognitiveRootCapture, CognitiveRootContent, CognitiveRootHead, CognitiveRootNode,
+   |                           ^^^^^^^^^^^^^^^^^^^^
+22 |     CognitiveRootReinstatement, CognitiveRootRequest, CognitionSelectorRef,
+   |                                                       ^^^^^^^^^^^^^^^^^^^^
+23 |     ExternalEffectDisposition, HomeContentRef, RootApplication, RootApplicationScope,
+   |                                ^^^^^^^^^^^^^^
+24 |     RootApplicationState, RootChainEntry, RootFence, RootRef, RootRequestKind,
+25 |     SoftwareSlotRef, RuntimeStateParticipant, COGNITIVE_ROOT_CODEC,
+   |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `shenko_types::error::ShenkoError`
+    --> crates/shenko-store/src/intents.rs:1173:9
+     |
+1173 |     use shenko_types::error::ShenkoError;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `tx`
+    --> crates/shenko-store/src/store.rs:1160:9
+     |
+1160 |         tx: &rusqlite::Connection,
+     |         ^^ help: if this is intentional, prefix it with an underscore: `_tx`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/memory.rs:235:9
+    |
+235 |     let mut segments: Vec<&str> = locator.split('/').collect();
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `parse` is never used
+  --> crates/shenko-node/src/units/adoption.rs:34:8
+   |
+25 | impl AdoptionDecision {
+   | --------------------- associated function in this implementation
+...
+34 |     fn parse(value: &str) -> Result<Self> {
+   |        ^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `enabled` and `atoms` are never read
+   --> crates/shenko-node/src/units/resolution.rs:202:16
+    |
+197 | pub(super) struct Candidate {
+    |                   --------- fields in this struct
+...
+202 |     pub(super) enabled: bool,
+    |                ^^^^^^^
+203 |     pub(super) atoms: Vec<AtomicCapability>,
+    |                ^^^^^
+    |
+    = note: `Candidate` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+
+warning: unused variable: `ledger_id`
+   --> crates/shenko-store/src/contacts.rs:740:13
+    |
+740 |         let ledger_id = self.ledger.ledger_id();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ledger_id`
+
+warning: unused variable: `ledger_id`
+   --> crates/shenko-store/src/contacts.rs:888:13
+    |
+888 |         let ledger_id = self.ledger.ledger_id();
+    |             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ledger_id`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/config.rs:598:13
+    |
+598 |         let mut collect = |raw: String, out: &mut Vec<ConfigChange>| -> Result<()> {
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: unused variable: `effect`
+   --> crates/shenko-store/src/channel.rs:962:9
+    |
+962 |         effect: Option<EffectStatus>,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_effect`
+
+warning: method `contacts_events` is never used
+   --> crates/shenko-store/src/contacts.rs:306:8
+    |
+287 | impl Store {
+    | ---------- method in this implementation
+...
+306 |     fn contacts_events(&self, agent_id: EntityId) -> Result<Vec<PersonIdentityEvent>, ShenkoError> {
+    |        ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `0` is never read
+   --> crates/shenko-store/src/channel.rs:161:14
+    |
+161 |     Deferred(&'static str),
+    |     -------- ^^^^^^^^^^^^
+    |     |
+    |     field in this variant
+    |
+help: consider changing the field to be of unit type to suppress this warning while preserving the field numbering, or remove the field
+    |
+161 -     Deferred(&'static str),
+161 +     Deferred(()),
+    |
+
+warning: field `control_id` is never read
+    --> crates/shenko-store/src/media.rs:1947:5
+     |
+1946 | struct StoredRecordingControl {
+     |        ---------------------- field in this struct
+1947 |     control_id: String,
+     |     ^^^^^^^^^^
+
+warning: `shenko-node` (lib) generated 2 warnings
+   Compiling shenko-identity v0.1.0 (/__w/shenko/shenko/crates/shenko-identity)
+   Compiling shenko-context-policy v0.1.0 (/__w/shenko/shenko/crates/shenko-context-policy)
+   Compiling shenko-channel-napcat v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-napcat)
+warning: unused variable: `group_id`
+   --> crates/shenko-channel-napcat/src/channel.rs:599:25
+    |
+599 |                     let group_id = params
+    |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_group_id`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-channel-napcat` (lib) generated 1 warning (run `cargo fix --lib -p shenko-channel-napcat` to apply 1 suggestion)
+   Compiling shenko-wasm v0.1.0 (/__w/shenko/shenko/crates/shenko-wasm)
+warning: unused import: `MountMode`
+ --> crates/shenko-wasm/src/runtime.rs:1:20
+  |
+1 | use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
+  |                    ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TcpListener`
+  --> crates/shenko-wasm/src/p1.rs:26:26
+   |
+26 | use std::net::{Shutdown, TcpListener, TcpStream};
+   |                          ^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/src/runtime.rs:779:36
+    |
+779 |     store.epoch_deadline_callback(|mut cx| {
+    |                                    ----^^
+    |                                    |
+    |                                    help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+    --> crates/shenko-wasm/src/p1.rs:2420:13
+     |
+2420 |         let mut file = file;
+     |             ----^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/src/mount.rs:321:17
+    |
+321 |             let mut dir = cap_std::fs::Dir::open_ambient_dir(
+    |                 ----^^^
+    |                 |
+    |                 help: remove this `mut`
+
+warning: unused variable: `manifest`
+   --> crates/shenko-wasm/src/manifest.rs:549:25
+    |
+549 | pub fn check_provenance(manifest: &ToolSetManifest, plan: &ToolInstallPlan) -> Result<()> {
+    |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_manifest`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `fault` is never used
+   --> crates/shenko-wasm/src/p1.rs:142:4
+    |
+142 | fn fault<T>(message: impl std::fmt::Display) -> Result<T, types::Error> {
+    |    ^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated items `is_dir_fd`, `read_iovs`, and `write_iovs` are never used
+    --> crates/shenko-wasm/src/p1.rs:643:8
+     |
+ 321 | impl P1Host {
+     | ----------- associated items in this implementation
+...
+ 643 |     fn is_dir_fd(&self, fd: types::Fd) -> bool {
+     |        ^^^^^^^^^
+...
+1219 |     fn read_iovs(
+     |        ^^^^^^^^^
+...
+1242 |     fn write_iovs(
+     |        ^^^^^^^^^^
+
+warning: `shenko-store` (lib) generated 13 warnings (run `cargo fix --lib -p shenko-store` to apply 9 suggestions)
+   Compiling shenko-broker v0.1.0 (/__w/shenko/shenko/crates/shenko-broker)
+warning: ambiguous glob re-exports
+  --> crates/shenko-broker/src/lib.rs:23:9
+   |
+23 | pub use admission::*;
+   |         ^^^^^^^^^^^^ the name `CapacitySnapshot` in the type namespace is first re-exported here
+...
+34 | pub use resource::*;
+   |         ----------- but the name `CapacitySnapshot` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: `shenko-wasm` (lib) generated 8 warnings (run `cargo fix --lib -p shenko-wasm` to apply 6 suggestions)
+   Compiling shenko-memory v0.1.0 (/__w/shenko/shenko/crates/shenko-memory)
+warning: unused import: `MemoryCommitOutcome`
+  --> crates/shenko-memory/src/backend.rs:16:20
+   |
+16 | use shenko_store::{MemoryCommitOutcome, MemoryEntry, Store};
+   |                    ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `shenko_types::object::ObjectRef`
+  --> crates/shenko-memory/src/backend.rs:18:5
+   |
+18 | use shenko_types::object::ObjectRef;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DateTime` and `Utc`
+  --> crates/shenko-memory/src/memory_store.rs:17:14
+   |
+17 | use chrono::{DateTime, Utc};
+   |              ^^^^^^^^  ^^^
+
+warning: unused variable: `agent_id`
+  --> crates/shenko-memory/src/backend.rs:60:17
+   |
+60 |     pub fn save(agent_id: EntityId, content: impl Into<String>) -> Self {
+   |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_agent_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `ANTHROPIC_API_VERSION_HEADER` is never used
+  --> crates/shenko-broker/src/provider.rs:30:18
+   |
+30 | pub(crate) const ANTHROPIC_API_VERSION_HEADER: &str = ANTHROPIC_API_VERSION;
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `runtime` is never read
+   --> crates/shenko-broker/src/registry.rs:204:5
+    |
+203 | pub struct ProviderInstaller {
+    |            ----------------- field in this struct
+204 |     runtime: Arc<dyn ProviderRuntime>,
+    |     ^^^^^^^
+
+warning: `shenko-memory` (lib) generated 4 warnings (run `cargo fix --lib -p shenko-memory` to apply 4 suggestions)
+   Compiling shenko-awareness-core v0.1.0 (/__w/shenko/shenko/crates/shenko-awareness-core)
+warning: `shenko-broker` (lib) generated 3 warnings
+   Compiling shenko-subject v0.1.0 (/__w/shenko/shenko/crates/shenko-subject)
+warning: unused import: `DialogueDirection`
+  --> crates/shenko-subject/src/loop_runner.rs:25:40
+   |
+25 |     AttentionPolicy, DelegationIntent, DialogueDirection, DialogueIntent, Disposition,
+   |                                        ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `ModelChildReplyGrant`
+  --> crates/shenko-subject/src/model_child.rs:53:27
+   |
+53 |         ModelChildBudget, ModelChildReplyGrant, ModelChildSpec, ModelChildTool, PublicationTarget,
+   |                           ^^^^^^^^^^^^^^^^^^^^
+
+   Compiling shenko-exec-ssh v0.1.0 (/__w/shenko/shenko/crates/shenko-exec-ssh)
+warning: ambiguous glob re-exports
+  --> crates/shenko-exec-ssh/src/lib.rs:4:9
+   |
+ 4 | pub use ssh_exec::*;
+   |         ^^^^^^^^^^^ the name `SeatObservation` in the type namespace is first re-exported here
+...
+36 | pub use seat::*;
+   |         ------- but the name `SeatObservation` in the type namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-exec-ssh/src/native_transport/pty.rs:156:27
+    |
+156 |     pub async fn open_pty(mut self, request: NativePtyRequest, handshake: Duration)
+    |                           ----^^^^
+    |                           |
+    |                           help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `MemoryInterventionPolicy`
+  --> crates/shenko-subject/src/intervention.rs:34:30
+   |
+34 |     InterventionObservation, MemoryInterventionPolicy, MemoryInterventionRegistry,
+   |                              ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+    --> crates/shenko-subject/src/model_child.rs:1027:13
+     |
+1027 |         let mut index = 1;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `termination` is never read
+    --> crates/shenko-subject/src/model_child.rs:1368:31
+     |
+1368 |         let mut termination = ModelChildTermination::Completed;
+     |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1448 |                 termination = ModelChildTermination::GenerationFailed;
+     |                 ----------------------------------------------------- `termination` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `scan_snapshot` is never used
+   --> crates/shenko-subject/src/child.rs:911:19
+    |
+186 | impl NativeChildService {
+    | ----------------------- method in this implementation
+...
+911 |     pub(crate) fn scan_snapshot(
+    |                   ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `input_ref` is never read
+    --> crates/shenko-subject/src/model_child.rs:2458:5
+     |
+2453 | struct ChildStepSink {
+     |        ------------- field in this struct
+...
+2458 |     input_ref: ObjectRef,
+     |     ^^^^^^^^^
+
+warning: fields `agent_id`, `step_id`, `input_plan_ref`, `payload_digest`, and `provider_binding_digest` are never read
+  --> crates/shenko-subject/src/subject_receipt.rs:27:9
+   |
+25 | pub(crate) struct SubjectReceiptSink {
+   |                   ------------------ fields in this struct
+26 |     pub store: Arc<shenko_store::store::Store>,
+27 |     pub agent_id: EntityId,
+   |         ^^^^^^^^
+28 |     pub step_id: EntityId,
+   |         ^^^^^^^
+29 |     pub request_id: EntityId,
+30 |     pub input_plan_ref: ObjectRef,
+   |         ^^^^^^^^^^^^^^
+31 |     pub payload_digest: Digest,
+   |         ^^^^^^^^^^^^^^
+32 |     pub provider_binding_digest: Digest,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `plugin_id`
+  --> crates/shenko-exec-ssh/src/native/support.rs:59:5
+   |
+59 |     plugin_id: EntityId,
+   |     ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_plugin_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-subject` (lib) generated 8 warnings (run `cargo fix --lib -p shenko-subject` to apply 3 suggestions)
+   Compiling shenko-update v0.1.0 (/__w/shenko/shenko/crates/shenko-update)
+warning: unused import: `CandidateArtifact`
+  --> crates/shenko-update/src/handoff.rs:50:49
+   |
+50 | use crate::build::{BuildOutcome, BuildProvider, CandidateArtifact};
+   |                                                 ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `quiesce_request`
+    --> crates/shenko-update/src/handoff.rs:1589:13
+     |
+1589 |         let quiesce_request = self.quiesce_subject(record.agent_id, request_id).await?;
+     |             ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_quiesce_request`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-exec-ssh` (lib) generated 3 warnings (run `cargo fix --lib -p shenko-exec-ssh` to apply 2 suggestions)
+   Compiling shenko-exec-host v0.1.0 (/__w/shenko/shenko/crates/shenko-exec-host)
+warning: `shenko-update` (lib) generated 2 warnings (run `cargo fix --lib -p shenko-update` to apply 2 suggestions)
+   Compiling shenko-compact-budget v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-budget)
+   Compiling shenko-compat v0.1.0 (/__w/shenko/shenko/crates/shenko-compat)
+warning: unused import: `DesktopLease`
+  --> crates/shenko-exec-host/src/computer_use.rs:55:63
+   |
+55 |     DesktopFrame, DesktopInjectOutcome, DesktopInjectRequest, DesktopLease, DesktopLeaseOp,
+   |                                                               ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: ambiguous glob re-exports
+  --> crates/shenko-exec-host/src/lib.rs:13:9
+   |
+13 | pub use browser::*;
+   |         ^^^^^^^^^^ the name `CONTRACT` in the value namespace is first re-exported here
+...
+23 | pub use net_probe::*;
+   |         ------------ but the name `CONTRACT` in the value namespace is also re-exported here
+   |
+   = note: `#[warn(ambiguous_glob_reexports)]` on by default
+
+warning: unused import: `Context as _`
+  --> crates/shenko-exec-host/src/cognition_task.rs:14:14
+   |
+14 | use anyhow::{Context as _, Result, ensure};
+   |              ^^^^^^^^^^^^
+
+warning: unused import: `Context as _`
+  --> crates/shenko-exec-host/src/cognition_query.rs:12:14
+   |
+12 | use anyhow::{Context as _, Result, ensure};
+   |              ^^^^^^^^^^^^
+
+warning: unused import: `OutputAction`
+  --> crates/shenko-exec-host/src/cognition_trial.rs:57:28
+   |
+57 | use shenko_types::output::{OutputAction, ParsedOutput};
+   |                            ^^^^^^^^^^^^
+
+warning: unused import: `PathBuf`
+  --> crates/shenko-exec-host/src/takeover_proof.rs:37:23
+   |
+37 | use std::path::{Path, PathBuf};
+   |                       ^^^^^^^
+
+warning: unused import: `Arc`
+  --> crates/shenko-exec-host/src/takeover_proof.rs:38:17
+   |
+38 | use std::sync::{Arc, Condvar, Mutex};
+   |                 ^^^
+
+   Compiling shenko-media v0.1.0 (/__w/shenko/shenko/crates/shenko-media)
+warning: unused imports: `ErrorScope` and `ProtocolError`
+  --> crates/shenko-media/src/identify.rs:33:13
+   |
+33 |     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
+   |             ^^^^^^^^^^  ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-media` (lib) generated 1 warning (run `cargo fix --lib -p shenko-media` to apply 1 suggestion)
+   Compiling shenko-compat-skill v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-skill)
+   Compiling shenko-repl v0.1.0 (/__w/shenko/shenko/crates/shenko-repl)
+warning: unused import: `BrowserProtocol`
+  --> crates/shenko-exec-host/src/browser/session.rs:16:23
+   |
+16 | use super::protocol::{BrowserProtocol, PageTarget, RestoreCoverage, TabHandle, Viewport};
+   |                       ^^^^^^^^^^^^^^^
+
+warning: value assigned to `detection` is never read
+    --> crates/shenko-exec-host/src/computer_use.rs:1174:29
+     |
+1174 |         let mut detection = false;
+     |                             ^^^^^ this value is reassigned later and never used
+...
+1205 |                             detection = raw_ok;
+     |                             ------------------ `detection` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `caller`
+   --> crates/shenko-exec-host/src/browser/actions.rs:554:9
+    |
+554 |         caller: EntityId,
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_caller`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `node`
+   --> crates/shenko-exec-host/src/browser/actions.rs:555:9
+    |
+555 |         node: &str,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_node`
+
+warning: unreachable `else` clause
+   --> crates/shenko-repl/src/install.rs:356:64
+    |
+356 |     let ModuleSource::ModulePath(executable) = &profile.module else {
+    |     ---------------------------------------------------------- ^^^^
+    |     |
+    |     assigning to binding pattern will always succeed
+    |
+    = note: this pattern always matches, so the else clause is unreachable
+    = note: `#[warn(irrefutable_let_patterns)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/install.rs:417:9
+    |
+417 |     let mut stdout = File::create(&stdout_path)?;
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/install.rs:418:9
+    |
+418 |     let mut stderr = File::create(&stderr_path)?;
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-repl/src/live.rs:530:9
+    |
+530 |     let mut file = match File::open(path) {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `sample_stop`
+    --> crates/shenko-exec-host/src/cognition_trial.rs:1146:21
+     |
+1146 |                 let sample_stop = (tokio::time::Instant::now() + window).min(stop);
+     |                     ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_sample_stop`
+
+warning: field `session_id` is never read
+   --> crates/shenko-repl/src/task.rs:194:5
+    |
+193 | struct InstallInput {
+    |        ------------ field in this struct
+194 |     session_id: EntityId,
+    |     ^^^^^^^^^^
+    |
+    = note: `InstallInput` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-exec-host/src/layerfs.rs:300:21
+    |
+300 |                 let mut reader = BufReader::new(stderr);
+    |                     ----^^^^^^
+    |                     |
+    |                     help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::session`
+   --> crates/shenko-exec-host/src/browser/session.rs:275:5
+    |
+275 |     pub(crate) fn session(&self, session_id: EntityId) -> Result<Arc<BrowserSession>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl BrowserProvider>::session` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::session_facts`
+   --> crates/shenko-exec-host/src/browser/session.rs:288:5
+    |
+288 |     pub(crate) async fn session_facts(&self, session: &Arc<BrowserSession>) -> Result<SessionFacts> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl BrowserProvider>::session_facts` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `TabEntry` is more private than the item `session::<impl BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `TabEntry` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:359:1
+    |
+359 | struct TabEntry {
+    | ^^^^^^^^^^^^^^^
+
+warning: type `BrowserSession` is more private than the item `session::<impl BrowserProvider>::observe_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:391:5
+    |
+391 | /     pub(crate) async fn observe_tab(
+392 | |         &self,
+393 | |         session: &Arc<BrowserSession>,
+394 | |         tab: &TabHandle,
+395 | |         options: &ObserveOptions,
+396 | |     ) -> Result<Observation> {
+    | |____________________________^ method `session::<impl BrowserProvider>::observe_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `MAX_ACTIONS` is never used
+  --> crates/shenko-exec-host/src/browser/mod.rs:62:7
+   |
+62 | const MAX_ACTIONS: usize = 32;
+   |       ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `MAX_INPUT_BYTES` is never used
+  --> crates/shenko-exec-host/src/cognition_task.rs:38:7
+   |
+38 | const MAX_INPUT_BYTES: usize = 32 * 1024;
+   |       ^^^^^^^^^^^^^^^
+
+warning: method `to_account` is never used
+  --> crates/shenko-exec-host/src/person_task.rs:92:8
+   |
+91 | impl PlatformAccountInput {
+   | ------------------------- method in this implementation
+92 |     fn to_account(&self) -> PlatformAccount {
+   |        ^^^^^^^^^^
+
+warning: field `name` is never read
+   --> crates/shenko-exec-host/src/layerfs.rs:171:5
+    |
+170 | struct LayerFsCompanion {
+    |        ---------------- field in this struct
+171 |     name: String,
+    |     ^^^^
+
+warning: `shenko-repl` (lib) generated 5 warnings (run `cargo fix --lib -p shenko-repl` to apply 3 suggestions)
+   Compiling shenko-seed v0.1.0 (/__w/shenko/shenko/crates/shenko-seed)
+   Compiling shenko-compat-mcp v0.1.0 (/__w/shenko/shenko/crates/shenko-compat-mcp)
+warning: `shenko-exec-host` (lib) generated 22 warnings (run `cargo fix --lib -p shenko-exec-host` to apply 10 suggestions)
+   Compiling shenko-compact-snap v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-snap)
+   Compiling shenko-compact-rollover v0.1.0 (/__w/shenko/shenko/crates/shenko-compact-rollover)
+   Compiling shenko-ui v0.1.0 (/__w/shenko/shenko/crates/shenko-ui)
+warning: unused import: `Html`
+  --> crates/shenko-ui/src/playground.rs:19:16
+   |
+19 |     response::{Html, IntoResponse, Json, Redirect, Response}, routing::{get, post}, Router,
+   |                ^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling shenko-mobile v0.1.0 (/__w/shenko/shenko/crates/shenko-mobile)
+warning: unused import: `DeviceBridge`
+  --> crates/shenko-mobile/src/handlers.rs:23:54
+   |
+23 |     BridgeAuthority, BridgeOp, BridgeSnapshotMethod, DeviceBridge,
+   |                                                      ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: type `TakeoverCheck` is more private than the item `AndroidBackend::human_takeover_check`
+   --> crates/shenko-mobile/src/backend.rs:802:5
+    |
+802 | /     pub(crate) fn human_takeover_check(
+803 | |         &self,
+804 | |         session: &MobileSession,
+805 | |         lease_acquired_at_ms: i64,
+806 | |     ) -> TakeoverCheck {
+    | |______________________^ method `AndroidBackend::human_takeover_check` is reachable at visibility `pub(crate)`
+    |
+note: but type `TakeoverCheck` is only usable at visibility `pub(self)`
+   --> crates/shenko-mobile/src/backend.rs:114:1
+    |
+114 | enum TakeoverCheck {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: struct `LeaseNormalized` is never constructed
+   --> crates/shenko-mobile/src/backend.rs:221:12
+    |
+221 | pub struct LeaseNormalized {
+    |            ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `logical_key`
+   --> crates/shenko-ui/src/config_service.rs:546:50
+    |
+546 |     pub fn current_value(&self, namespace: &str, logical_key: &str) -> Option<Value> {
+    |                                                  ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_logical_key`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `digest` is never read
+   --> crates/shenko-ui/src/presentation.rs:600:5
+    |
+597 | struct CacheEntry {
+    |        ---------- field in this struct
+...
+600 |     digest: String,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `seal_host_process` is never used
+   --> crates/shenko-ui/src/playground_backend.rs:149:19
+    |
+106 | impl BackendBinding {
+    | ------------------- associated function in this implementation
+...
+149 |     pub(crate) fn seal_host_process(
+    |                   ^^^^^^^^^^^^^^^^^
+
+warning: fields `instance_id`, `artifact_id`, `artifact_revision`, and `manifest_digest` are never read
+   --> crates/shenko-ui/src/playground_backend.rs:716:5
+    |
+715 | struct RunningService {
+    |        -------------- fields in this struct
+716 |     instance_id: EntityId,
+    |     ^^^^^^^^^^^
+717 |     artifact_id: EntityId,
+    |     ^^^^^^^^^^^
+718 |     artifact_revision: u64,
+    |     ^^^^^^^^^^^^^^^^^
+719 |     manifest_digest: Digest,
+    |     ^^^^^^^^^^^^^^^
+
+warning: trait `TrimAscii` is never used
+    --> crates/shenko-ui/src/playground_backend.rs:1372:7
+     |
+1372 | trait TrimAscii {
+     |       ^^^^^^^^^
+
+warning: `shenko-mobile` (lib) generated 3 warnings
+   Compiling shenko-channel-adapters v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-adapters)
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/feishu/plugin.rs:699:15
+    |
+699 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/ilink/plugin.rs:428:15
+    |
+428 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+
+warning: value assigned to `fenced` is never read
+   --> crates/shenko-channel-adapters/src/qq_official/outbound.rs:183:13
+    |
+183 |             fenced = !fenced;
+    |             ^^^^^^^^^^^^^^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `dispatch`
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:898:15
+    |
+898 | fn receipt_of(dispatch: ChannelDispatch, answer: Value) -> ChannelReceipt {
+    |               ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dispatch`
+
+warning: field `replies` is never read
+  --> crates/shenko-channel-adapters/src/feishu/monitor.rs:50:5
+   |
+46 | pub struct FeishuMonitor {
+   |            ------------- field in this struct
+...
+50 |     replies: ReplyContextCache,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `own_cache` is never used
+   --> crates/shenko-channel-adapters/src/feishu/plugin.rs:186:19
+    |
+122 | impl FeishuChannel {
+    | ------------------ method in this implementation
+...
+186 |     pub(crate) fn own_cache(
+    |                   ^^^^^^^^^
+
+warning: associated items `own_cache` and `media_scope` are never used
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:202:19
+    |
+117 | impl QqOfficialChannel {
+    | ---------------------- associated items in this implementation
+...
+202 |     pub(crate) fn own_cache(
+    |                   ^^^^^^^^^
+...
+241 |     fn media_scope(kind: &str, id: &str) -> MediaScope {
+    |        ^^^^^^^^^^^
+
+warning: `shenko-channel-adapters` (lib) generated 7 warnings (run `cargo fix --lib -p shenko-channel-adapters` to apply 3 suggestions)
+   Compiling shenko-document v0.1.0 (/__w/shenko/shenko/crates/shenko-document)
+   Compiling shenko v0.1.0 (/__w/shenko/shenko/bin/shenko)
+warning: `shenko-ui` (lib) generated 6 warnings (run `cargo fix --lib -p shenko-ui` to apply 2 suggestions)
+   Compiling shenko-evidence v0.1.0 (/__w/shenko/shenko/crates/shenko-evidence)
+warning: unused import: `CognitionOrigin`
+ --> bin/shenko/src/node_sync.rs:7:41
+  |
+7 |     AdoptRequest, CognitionObservation, CognitionOrigin, CognitionScope, CognitionSnapshotReport,
+  |                                         ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling shenko-channel-napcat-link v0.1.0 (/__w/shenko/shenko/crates/shenko-channel-napcat-link)
+warning: value assigned to `events_high_water` is never read
+    --> bin/shenko/src/node_sync.rs:1380:33
+     |
+1380 |     let mut events_high_water = "0".to_string();
+     |                                 ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+1401 |         events_high_water = through.clone();
+     |         ----------------- `events_high_water` is overwritten here before the previous value is read
+     |
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `worker_ctx`
+   --> bin/shenko/src/context_policy.rs:627:9
+    |
+627 |     let worker_ctx = ctx.clone();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_worker_ctx`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `runtime_config` is never used
+   --> bin/shenko/src/context_policy.rs:272:8
+    |
+272 | pub fn runtime_config(policy: &InstalledPolicy) -> Result<PolicyRuntime, String> {
+    |        ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `new_scope_id` is never used
+   --> bin/shenko/src/context_policy.rs:295:8
+    |
+295 | pub fn new_scope_id() -> EntityId {
+    |        ^^^^^^^^^^^^
+
+warning: unused variable: `agent`
+   --> bin/shenko/src/recovery_integration_tests.rs:971:9
+    |
+971 |     let agent = bootstrap_genesis(
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_agent`
+
+warning: fields `backend` and `dir` are never read
+    --> bin/shenko/src/recovery_integration_tests.rs:1932:5
+     |
+1930 | struct ComputerUseFixture {
+     |        ------------------ fields in this struct
+1931 |     store: Arc<shenko_store::store::Store>,
+1932 |     backend: Arc<shenko_exec_host::ComputerUseBackend>,
+     |     ^^^^^^^
+1933 |     handlers: ComputerUseHandlers,
+1934 |     dir: std::path::PathBuf,
+     |     ^^^
+
+warning: `shenko` (lib) generated 5 warnings (run `cargo fix --lib -p shenko` to apply 2 suggestions)
+warning: `shenko` (lib test) generated 7 warnings (5 duplicates) (run `cargo fix --lib -p shenko --tests` to apply 1 suggestion)
+warning: unused `Result` that must be used
+   --> crates/shenko-compact-rollover/tests/notes_rollover.rs:427:5
+    |
+427 | /     registry.install(Arc::new(strategy(
+428 | |         Arc::new(MemoryNotesJournal::new(scope)) as Arc<dyn NotesJournal>,
+429 | |         2,
+430 | |     )));
+    | |_______^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+427 |     let _ = registry.install(Arc::new(strategy(
+    |     +++++++
+
+warning: `shenko-compact-rollover` (test "notes_rollover") generated 1 warning
+warning: unused imports: `ComputerUseBackend`, `DesktopSessionHandle`, `HeldState`, `KernelEventFacts`, `ReleasedState`, `down_keycodes`, `newly_down`, and `self`
+  --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:51:5
+   |
+51 |     ComputerUseBackend,
+   |     ^^^^^^^^^^^^^^^^^^
+...
+54 |     DesktopSessionHandle, HumanInputFanout, HumanInputObserver, X11Provider, encode_png,
+   |     ^^^^^^^^^^^^^^^^^^^^
+...
+57 |         self, owned_xorg, uinput, DispatchRecorder, EvdevReader, Monitor, Probe,
+   |         ^^^^
+58 |         HeldState, ReleasedState, RawEventFacts, KernelEventFacts,
+   |         ^^^^^^^^^  ^^^^^^^^^^^^^                 ^^^^^^^^^^^^^^^^
+...
+61 |         down_keycodes, newly_down, wait_held_state, wait_held_release,
+   |         ^^^^^^^^^^^^^  ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DesktopSession`
+  --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:53:76
+   |
+53 |     DesktopObservation, DesktopOpenRequest, DesktopPress, DesktopProvider, DesktopSession,
+   |                                                                            ^^^^^^^^^^^^^^
+
+warning: unused variable: `press`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:638:9
+    |
+638 |     let press = keyboard.emit(KEY_F13_EVDEV, 1)
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_press`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `release`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_cli.rs:641:9
+    |
+641 |     let release = keyboard.emit(KEY_F13_EVDEV, 0)
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_release`
+
+warning: unused imports: `HeldState`, `ReleasedState`, `down_keycodes`, `newly_down`, and `self`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_native.rs:117:5
+    |
+117 |     self, owned_xorg, uinput, DispatchRecorder, EvdevReader, Monitor, Probe,
+    |     ^^^^
+118 |     HeldState, ReleasedState, RawEventFacts, KernelEventFacts,
+    |     ^^^^^^^^^  ^^^^^^^^^^^^^
+...
+121 |     down_keycodes, newly_down, wait_held_state, wait_held_release,
+    |     ^^^^^^^^^^^^^  ^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DesktopSession`
+   --> crates/shenko-exec-host/tests/computer_use_takeover_native.rs:112:76
+    |
+112 |     DesktopObservation, DesktopOpenRequest, DesktopPress, DesktopProvider, DesktopSession,
+    |                                                                            ^^^^^^^^^^^^^^
+
+warning: `shenko-exec-host` (test "computer_use_takeover_cli") generated 4 warnings (run `cargo fix --test "computer_use_takeover_cli" -p shenko-exec-host` to apply 3 suggestions)
+warning: `shenko-exec-host` (test "computer_use_takeover_native") generated 2 warnings (run `cargo fix --test "computer_use_takeover_native" -p shenko-exec-host` to apply 1 suggestion)
+warning: field `other_args` is never read
+  --> crates/shenko-exec-host/tests/cognition_self_learning/harness.rs:75:9
+   |
+61 | pub struct Options {
+   |            ------- field in this struct
+...
+75 |     pub other_args: Vec<String>,
+   |         ^^^^^^^^^^
+   |
+   = note: `Options` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-exec-host` (test "cognition_self_learning") generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/shenko-media/tests/transcript_lineage.rs:403:9
+    |
+403 |     let mut harness = open(Some(scope(false))).await;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-media/tests/transcript_lineage.rs:577:9
+    |
+577 |     let mut harness = open(None).await;
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `shenko-media` (test "transcript_lineage") generated 2 warnings (run `cargo fix --test "transcript_lineage" -p shenko-media` to apply 2 suggestions)
+warning: unused import: `object`
+  --> crates/shenko-ui/src/config_tests.rs:32:5
+   |
+32 |     object::*,
+   |     ^^^^^^
+
+warning: unused variable: `agent`
+   --> crates/shenko-ui/src/playground_manage_tests.rs:102:23
+    |
+102 |     let (root, store, agent) = fixture("lifecycle");
+    |                       ^^^^^ help: if this is intentional, prefix it with an underscore: `_agent`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `logical_key`
+   --> crates/shenko-ui/src/config_service.rs:546:50
+    |
+546 |     pub fn current_value(&self, namespace: &str, logical_key: &str) -> Option<Value> {
+    |                                                  ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_logical_key`
+
+warning: type `ManageInput` is more private than the item `PlaygroundManageHandler::freeze_for_test`
+   --> crates/shenko-ui/src/playground_manage.rs:695:5
+    |
+695 |     pub(crate) fn freeze_for_test(&self, value: Value) -> Result<ManageInput> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `PlaygroundManageHandler::freeze_for_test` is reachable at visibility `pub(crate)`
+    |
+note: but type `ManageInput` is only usable at visibility `pub(self)`
+   --> crates/shenko-ui/src/playground_manage.rs:53:1
+    |
+ 53 | struct ManageInput {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `ManageInput` is more private than the item `PlaygroundManageHandler::observe_for_test`
+   --> crates/shenko-ui/src/playground_manage.rs:700:5
+    |
+700 | /     pub(crate) fn observe_for_test(
+701 | |         &self,
+702 | |         input: &ManageInput,
+703 | |     ) -> Result<(Value, OperationOutcome, EffectStatus)> {
+    | |________________________________________________________^ method `PlaygroundManageHandler::observe_for_test` is reachable at visibility `pub(crate)`
+    |
+note: but type `ManageInput` is only usable at visibility `pub(self)`
+   --> crates/shenko-ui/src/playground_manage.rs:53:1
+    |
+ 53 | struct ManageInput {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/model_child_tests.rs:216:20
+    |
+216 |     let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    |                    ----^^^^^^^^
+    |                    |
+    |                    help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/obligation_tests.rs:640:9
+    |
+640 |     let mut export = store.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/shenko-subject/src/obligation_partition_tests.rs:594:5
+    |
+594 |     mut child: std::process::Child,
+    |     ----^^^^^
+    |     |
+    |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> crates/shenko-subject/src/model_child.rs:1027:13
+     |
+1027 |         let mut index = 1;
+     |             ----^^^^^
+     |             |
+     |             help: remove this `mut`
+
+warning: field `input_ref` is never read
+    --> crates/shenko-subject/src/model_child.rs:2458:5
+     |
+2453 | struct ChildStepSink {
+     |        ------------- field in this struct
+...
+2458 |     input_ref: ObjectRef,
+     |     ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `ServicePublication` that must be used
+   --> crates/shenko-subject/src/model_child_tests.rs:774:5
+    |
+774 |     context.provide(restored.clone()).unwrap();
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: dropping a ServicePublication leaves generation-owned publication cleanup armed
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+774 |     let _ = context.provide(restored.clone()).unwrap();
+    |     +++++++
+
+warning: `shenko-ui` (lib test) generated 10 warnings (5 duplicates) (run `cargo fix --lib -p shenko-ui --tests` to apply 2 suggestions)
+warning: unused import: `ChannelAction`
+  --> crates/shenko-subject/tests/channel_boundary.rs:12:16
+   |
+12 |     BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
+   |                ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `target` is never read
+   --> crates/shenko-subject/tests/channel_boundary.rs:475:9
+    |
+474 |     struct Intent {
+    |            ------ field in this struct
+475 |         target: PublicationTarget,
+    |         ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-subject` (test "channel_boundary") generated 2 warnings (run `cargo fix --test "channel_boundary" -p shenko-subject` to apply 1 suggestion)
+warning: `shenko-subject` (lib test) generated 10 warnings (4 duplicates) (run `cargo fix --lib -p shenko-subject --tests` to apply 4 suggestions)
+warning: unused import: `Read`
+   --> crates/shenko-exec-host/src/net_probe.rs:582:19
+    |
+582 |     use std::io::{Read as _, Write as _};
+    |                   ^^^^
+
+warning: unused import: `Write`
+   --> crates/shenko-exec-host/src/net_probe.rs:582:30
+    |
+582 |     use std::io::{Read as _, Write as _};
+    |                              ^^^^^
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::session`
+   --> crates/shenko-exec-host/src/browser/session.rs:275:5
+    |
+275 |     pub(crate) fn session(&self, session_id: EntityId) -> Result<Arc<BrowserSession>> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl browser::BrowserProvider>::session` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::session_facts`
+   --> crates/shenko-exec-host/src/browser/session.rs:288:5
+    |
+288 |     pub(crate) async fn session_facts(&self, session: &Arc<BrowserSession>) -> Result<SessionFacts> {
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method `session::<impl browser::BrowserProvider>::session_facts` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl browser::BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: type `TabEntry` is more private than the item `session::<impl browser::BrowserProvider>::resolve_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:371:5
+    |
+371 | /     pub(crate) async fn resolve_tab(
+372 | |         &self,
+373 | |         session: &Arc<BrowserSession>,
+374 | |         tab_id: Option<&str>,
+375 | |     ) -> Result<super::TabEntry> {
+    | |________________________________^ method `session::<impl browser::BrowserProvider>::resolve_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `TabEntry` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:359:1
+    |
+359 | struct TabEntry {
+    | ^^^^^^^^^^^^^^^
+
+warning: type `browser::BrowserSession` is more private than the item `session::<impl browser::BrowserProvider>::observe_tab`
+   --> crates/shenko-exec-host/src/browser/session.rs:391:5
+    |
+391 | /     pub(crate) async fn observe_tab(
+392 | |         &self,
+393 | |         session: &Arc<BrowserSession>,
+394 | |         tab: &TabHandle,
+395 | |         options: &ObserveOptions,
+396 | |     ) -> Result<Observation> {
+    | |____________________________^ method `session::<impl browser::BrowserProvider>::observe_tab` is reachable at visibility `pub(crate)`
+    |
+note: but type `browser::BrowserSession` is only usable at visibility `pub(self)`
+   --> crates/shenko-exec-host/src/browser/mod.rs:367:1
+    |
+367 | struct BrowserSession {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `run` and `normalized` are never used
+    --> crates/shenko-repl/src/task.rs:2015:18
+     |
+2010 |     impl CellHarness {
+     |     ---------------- methods in this implementation
+...
+2015 |         async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
+     |                  ^^^
+...
+2020 |         fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
+     |            ^^^^^^^^^^
+
+warning: `shenko-exec-host` (lib test) generated 23 warnings (16 duplicates)
+warning: constant `SOCKET_FD` is never used
+  --> crates/shenko-wasm/tests/network.rs:23:7
+   |
+23 | const SOCKET_FD: i32 = 4;
+   |       ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-wasm` (test "network") generated 1 warning
+warning: variable does not need to be mutable
+   --> crates/shenko-wasm/tests/wasm_state.rs:175:10
+    |
+175 |     let (mut restored, receipt) =
+    |          ----^^^^^^^^
+    |          |
+    |          help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-repl` (lib test) generated 6 warnings (5 duplicates)
+warning: `shenko-wasm` (test "wasm_state") generated 1 warning (run `cargo fix --test "wasm_state" -p shenko-wasm` to apply 1 suggestion)
+warning: `shenko-media` (lib test) generated 1 warning (1 duplicate)
+warning: `shenko-update` (lib test) generated 2 warnings (2 duplicates)
+warning: `shenko-memory` (lib test) generated 4 warnings (4 duplicates)
+warning: type `TakeoverCheck` is more private than the item `backend::AndroidBackend::human_takeover_check`
+   --> crates/shenko-mobile/src/backend.rs:802:5
+    |
+802 | /     pub(crate) fn human_takeover_check(
+803 | |         &self,
+804 | |         session: &MobileSession,
+805 | |         lease_acquired_at_ms: i64,
+806 | |     ) -> TakeoverCheck {
+    | |______________________^ method `backend::AndroidBackend::human_takeover_check` is reachable at visibility `pub(crate)`
+    |
+note: but type `TakeoverCheck` is only usable at visibility `pub(self)`
+   --> crates/shenko-mobile/src/backend.rs:114:1
+    |
+114 | enum TakeoverCheck {
+    | ^^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: `shenko-mobile` (lib test) generated 3 warnings (2 duplicates)
+warning: unused import: `TcpListener`
+  --> crates/shenko-wasm/src/p1.rs:26:26
+   |
+26 | use std::net::{Shutdown, TcpListener, TcpStream};
+   |                          ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/shenko-store/src/cognition/archive_admission_tests.rs:263:9
+    |
+263 |     let mut export = source.export_cognition(&Default::default()).unwrap();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `shenko-store` (lib test) generated 14 warnings (13 duplicates) (run `cargo fix --lib -p shenko-store --tests` to apply 1 suggestion)
+warning: `shenko-wasm` (lib test) generated 7 warnings (6 duplicates) (run `cargo fix --lib -p shenko-wasm --tests` to apply 1 suggestion)
+warning: unused import: `BranchId`
+  --> crates/shenko-store/tests/quota_store.rs:12:25
+   |
+12 | use shenko_types::ids::{BranchId, EntityId, RecordRevision};
+   |                         ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-store` (test "quota_store") generated 1 warning (run `cargo fix --test "quota_store" -p shenko-store` to apply 1 suggestion)
+warning: `shenko-exec-ssh` (lib test) generated 3 warnings (3 duplicates)
+warning: value assigned to `high_water` is never read
+   --> crates/shenko-node/tests/partition_rejoin.rs:285:30
+    |
+285 |         let mut high_water = "0".to_string();
+    |                              ^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+296 |             high_water = through.clone();
+    |             ---------- `high_water` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: `shenko-node` (test "partition_rejoin") generated 1 warning
+warning: `shenko-channel-napcat` (lib test) generated 1 warning (1 duplicate)
+warning: `shenko-kernel` (lib test) generated 2 warnings (2 duplicates)
+warning: calls to `std::mem::drop` with a value that implements `Copy` does nothing
+    --> crates/shenko-broker/src/broker.rs:2019:9
+     |
+2019 |         drop(submit_stream);
+     |         ^^^^^-------------^
+     |              |
+     |              argument has type `{closure@crates/shenko-broker/src/broker.rs:1909:29: 1909:56}`
+     |
+     = note: `#[warn(dropping_copy_types)]` on by default
+help: use `let _ = ...` to ignore the expression or result
+     |
+2019 -         drop(submit_stream);
+2019 +         let _ = submit_stream;
+     |
+
+warning: `shenko-broker` (lib test) generated 4 warnings (3 duplicates)
+warning: `shenko-node` (lib test) generated 2 warnings (2 duplicates)
+warning: `shenko-quota` (lib test) generated 1 warning (1 duplicate)
+warning: associated function `media_scope` is never used
+   --> crates/shenko-channel-adapters/src/qq_official/plugin.rs:241:8
+    |
+117 | impl QqOfficialChannel {
+    | ---------------------- associated function in this implementation
+...
+241 |     fn media_scope(kind: &str, id: &str) -> MediaScope {
+    |        ^^^^^^^^^^^
+
+warning: `shenko-channel-adapters` (lib test) generated 6 warnings (5 duplicates)
+   Compiling shenko-android-shell v0.1.0 (/__w/shenko/shenko/mobile/rust-shell)
+    Finished `test` profile [unoptimized] target(s) in 4m 00s
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko-fd5d862d0f59eefa)
+
+running 46 tests
+test compat::tests::source_import_rejects_link_roots_ancestors_and_oversized_members ... ok
+test document_runtime::tests::malformed_document_survives_reopen_without_another_upload ... ok
+test context_policy::installed_policy_tests::an_implementation_mismatch_installs_nothing ... ok
+test policy_config::tests::context_preference_is_live_and_restart_retains_unknown_strategy_requests ... ok
+test poppy::account::tests::account_continuity_preserves_unknown_refresh_and_revoke_across_reopen ... ok
+test policy_config::tests::quota_config_changes_the_admission_policy_and_reopens_without_replaying_history ... ok
+test poppy::operational::tests::checkout_unknown_is_repaired_from_immutable_observation_without_replay ... ok
+test recovery_integration_tests::computer_use_armed_reconcile_and_dead_display_fencing ... ok
+test recovery_integration_tests::computer_use_lease_exclusion_and_takeover ... ok
+test recovery_integration_tests::computer_use_stale_observation_rejected ... ok
+test recovery_integration_tests::computer_use_xvfb_observe_and_real_input ... ok
+test context_policy::installed_policy_tests::a_unit_change_on_another_connection_installs_replaces_and_stops_the_strategy ... ok
+test recovery_integration_tests::native_cancel_late_evidence_and_unknown_recovery_are_fenced ... ok
+test document_runtime::tests::accepted_task_reconciles_after_cancel_deadline_and_late_conflict ... ok
+
+running 1 test
+test recovery_integration_tests::native_printf_result_survives_real_process_reopen ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 0.04s
+
+test poppy::tests::installed_discovery_is_withdrawn_and_republished ... ok
+test recovery_integration_tests::native_ssh_installation::authenticated_other_identity_is_not_installed_signer ... ok
+test recovery_integration_tests::native_ssh_installation::cancellation_while_opening_authenticated_session_never_sends_exec ... ok
+test recovery_integration_tests::native_printf_result_survives_real_process_reopen ... ok
+test recovery_integration_tests::native_ssh_installation::child_dispatch_t1_precedes_signer_and_delivers_real_receipt ... ok
+test recovery_integration_tests::native_ssh_installation::detached_task_snapshot_and_call_context_cannot_reach_t1 ... ok
+test recovery_integration_tests::native_ssh_installation::lost_receipt_reopen_queries_original_without_dispatch_replay ... ok
+test recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay ... ignored, requires fixed no-socket helper/CLI execution approval
+test recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper ... ignored, requires fixed no-socket helper/CLI execution approval
+test recovery_integration_tests::native_ssh_installation::startup_file_installation_diagnoses_missing_key_after_t1_without_fallback ... ok
+test recovery_integration_tests::native_ssh_installation::startup_file_installation_rejects_fifo_signer_after_t1_without_fallback ... ok
+test recovery_integration_tests::node_capability_reader_is_discoverable_only_while_installed ... ok
+test recovery_integration_tests::native_ssh_installation::same_agent_other_branch_and_origin_is_not_the_installed_subject ... ok
+
+running 1 test
+test recovery_integration_tests::receipt_replay_and_source_key_conflict_survive_real_process_reopen ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 0.08s
+
+test recovery_integration_tests::receipt_replay_and_source_key_conflict_survive_real_process_reopen ... ok
+test recovery_integration_tests::ssh_public_identity::cli_displays_only_configured_public_identity_without_opening_signer_or_trust ... ok
+test recovery_integration_tests::ssh_public_identity::cli_rejects_duplicate_selected_target_without_disclosing_config ... ok
+test recovery_integration_tests::ssh_public_identity::cli_rejects_malformed_public_key_without_echoing_its_contents ... ok
+test recovery_integration_tests::reopen_reconciles_spool_from_committed_subject_disposition ... ok
+test recovery_integration_tests::node_selection_recorder_delivers_explicit_choice_only_while_installed ... ok
+test recovery_integration_tests::subject_boundary_keeps_admitted_operation_and_late_evidence ... ok
+test reply_directive_tests::identity_lines_are_actions_not_reply_text ... ok
+test recovery_integration_tests::sync_adopt_without_bound_subject_stays_coherent ... ok
+test reply_directive_tests::semantic_wait_controls_are_typed_and_atomic ... ok
+test recovery_integration_tests::sync_adopt_keeps_subject_binding_coherent ... ok
+test runtime_bootstrap::data_directory_tests::new_data_roots_are_private_without_chmod_of_existing_directories ... ok
+
+running 1 test
+test recovery_integration_tests::node_cognition_report::store_origin_cognition_report_reaches_a_peer_route_and_survives_reopen ... ok
+test runtime_branches::tests::parallel_branch_rejoin_keeps_local_head_and_refuses_incomplete_ancestry ... ok
+test runtime_owner::tests::same_directory_inode_excludes_another_owner_without_creating_a_file ... ok
+test runtime_sessions::tests::seat_generation_restart_dispose_and_reinstall_own_all_seven_handlers ... ok
+test runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners ... ok
+test runtime_authority::tests::chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown ... ok
+test runtime_branches::tests::fork_recovers_between_stores_without_replaying_original_attempts ... ok
+
+test result: ok. 44 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 14.83s
+
+     Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko-ba72b6e2122b718c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/component_process.rs (.ci/target/rust/debug/deps/component_process-34c6eacd9b3998f9)
+
+running 1 test
+test three_real_start_processes_agree_over_a_pinned_ssh_star has been running for over 60 seconds
+test three_real_start_processes_agree_over_a_pinned_ssh_star ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 121.91s
+
+     Running tests/native_evidence_delivery.rs (.ci/target/rust/debug/deps/native_evidence_delivery-2b0acff70d2c16ba)
+
+running 1 test
+test original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution has been running for over 60 seconds
+test original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 94.06s
+
+     Running tests/obelisk_lifecycle.rs (.ci/target/rust/debug/deps/obelisk_lifecycle-754d10298bec597c)
+
+running 1 test
+test optional_archive_queries_survive_source_loss_disable_and_restart ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/ssh_wasi_client.rs (.ci/target/rust/debug/deps/ssh_wasi_client-2d2c3513c6196512)
+
+running 1 test
+test ssh_wasi_auth_exec_sftp_and_refusal_journey has been running for over 60 seconds
+test ssh_wasi_auth_exec_sftp_and_refusal_journey ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 358.58s
+
+     Running tests/start_boundary.rs (.ci/target/rust/debug/deps/start_boundary-88f3fbf5cd4eeb2c)
+
+running 1 test
+test public_start_pause_survives_process_reopen_and_resume_alone_admits_inference ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.85s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_android-7b3a8c792737ff14)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_awareness_core-2bb5d3e4f9b4ab68)
+
+running 15 tests
+test perception::tests::a_failing_source_never_downgrades_another_sources_observation ... ok
+test perception::tests::a_modeled_perspective_is_never_admitted_as_the_subjects_own_observation ... ok
+test perception::tests::a_second_source_cannot_shadow_the_same_installed_revision ... ok
+test perception::tests::a_self_cadenced_source_publishes_without_blocking_the_observation ... ok
+test perception::tests::a_source_answering_for_another_revision_becomes_unavailable ... ok
+test perception::tests::an_observation_past_its_declared_validity_is_not_upgraded ... ok
+test perception::tests::an_unbound_revision_reports_unknown_rather_than_healthy ... ok
+test perception::tests::an_undeclared_perspective_is_not_defaulted_to_own ... ok
+test perception::tests::distinct_sources_share_a_binding_but_a_duplicate_source_id_is_refused ... ok
+test perception::tests::retiring_a_replaced_revision_drops_its_cached_observation ... ok
+test perception::tests::the_binding_observation_merges_sources_by_freshness ... ok
+test perception::tests::two_projections_bind_the_same_revision_once ... ok
+test cognition::tests::a_perception_card_reports_the_fact_or_its_absence ... ok
+test cognition::tests::each_reader_is_told_only_the_calls_it_can_make ... ok
+test cognition::tests::the_shipped_installation_unit_observes_this_nodes_installation ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_broker-82de9acaa0970d34)
+
+running 24 tests
+test broker::tests::a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner ... ok
+test broker::tests::fair_rotation_real_concurrency_fifo_and_zero_capacity_queueing ... ok
+test broker::tests::frozen_local_wire_length_evidence_and_unknown_occupancy ... ok
+test broker::tests::sse_frame_boundary_decodes_newline_retained_provider_lines ... ok
+test execution::tests::a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot ... ok
+test execution::tests::a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot ... ok
+test execution::tests::failure_classification_keeps_never_dispatched_local_and_unknown_remote ... ok
+test broker::tests::an_external_reservation_release_resumes_queued_dispatch ... ok
+test broker::tests::an_enforceable_external_reservation_limits_real_dispatch ... ok
+test native_provider::tests::a_sealed_residency_option_reaches_the_wire_verbatim ... ok
+test native_provider::tests::a_sealed_native_option_cannot_rewrite_the_envelope ... ok
+test resource::tests::a_registered_id_claiming_an_incarnation_owned_elsewhere_is_refused ... ok
+test resource::tests::an_alias_hit_still_runs_the_incarnation_check ... ok
+test resource::tests::an_alias_of_one_engine_resolves_to_one_budget ... ok
+test resource::tests::an_enforceable_external_reservation_gates_admission_and_diagnostics ... ok
+test resource::tests::an_unknown_incarnation_is_not_claimed_as_identity ... ok
+test resource::tests::external_reservations_saturate_instead_of_wrapping_the_budget ... ok
+test resource::tests::observe_incarnation_owns_the_observation_or_refuses_it ... ok
+test resource::tests::one_observed_engine_cannot_register_two_budgets ... ok
+test resource::tests::truly_independent_engines_keep_independent_budgets ... ok
+test resource::tests::concurrent_registration_of_one_incarnation_yields_one_budget ... ok
+test resource::tests::unknown_debt_is_reported_once_and_never_deducted_twice ... ok
+test execution::tests::a_dropped_connection_after_dispatch_stays_unknown_until_reconciled ... ok
+test execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.31s
+
+     Running tests/kv_capability.rs (.ci/target/rust/debug/deps/kv_capability-5ddc278cc244f90c)
+
+running 18 tests
+test a_pending_release_is_revoked_when_the_context_is_read_again ... ok
+test a_pool_that_shrank_requests_only_the_releases_the_excess_needs ... ok
+test a_context_being_read_keeps_its_units_until_the_reader_drains ... ok
+test a_refused_context_does_not_erase_the_context_that_was_already_there ... ok
+test a_small_drift_stays_inside_the_hysteresis_band_and_a_pool_change_is_not_held ... ok
+test a_request_naming_an_undemonstrated_residency_option_keeps_only_a_soft_claim ... ok
+test a_symmetric_workload_reaches_an_even_split_and_follows_the_demand_afterwards ... ok
+test an_engine_rebuild_or_model_switch_invalidates_handles_instead_of_inheriting_them ... ok
+test a_backend_without_a_metrics_surface_keeps_the_pool_unknown ... ok
+test actual_probe_reports_configured_pool_and_the_context_window_is_not_it ... ok
+test an_unknown_pool_claims_no_share_and_a_demonstrated_control_lifts_only_itself ... ok
+test an_unresolved_unknown_outcome_keeps_its_context_charged_and_unevictable ... ok
+test discovery_binds_handles_to_the_backend_identity_and_unknown_never_erases_it ... ok
+test documented_engine_pool_shapes_are_read_and_windows_never_become_a_pool ... ok
+test reported_reuse_is_recorded_and_stays_bounded_by_the_reported_input ... ok
+test the_handoff_record_carries_the_unknown_read_and_never_claims_termination ... ok
+test the_broker_adopts_the_discovered_pool_instead_of_only_returning_it ... ok
+test served_llama_context_is_observed_and_invalid_limits_never_become_unknown ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/kv_unknown_read.rs (.ci/target/rust/debug/deps/kv_unknown_read-27ea0d09dd46ad75)
+
+running 1 test
+test a_real_unknown_read_stays_charged_and_only_its_own_reconciliation_releases_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/provider_usage.rs (.ci/target/rust/debug/deps/provider_usage-90e56054ab86ddbc)
+
+running 2 tests
+test local_prefix_cache_hits_pass_through_or_stay_unknown ... ok
+test partial_invalid_and_explicit_zero_usage_remain_distinct ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_adapters-733c49d2f6cb8094)
+
+running 44 tests
+test common::tests::mime_for_name_known_extensions ... ok
+test common::tests::mime_for_name_unknown_extension ... ok
+test common::tests::resolved_from_media_preserves_existing_mime ... ok
+test common::tests::resolved_from_media_fills_mime_and_bytes ... ok
+test common::tests::resolved_from_media_rejects_size_mismatch ... ok
+test common::tests::verify_declared_size_mismatch_errors ... ok
+test common::tests::resolved_from_media_respects_explicit_media_type ... ok
+test common::tests::verify_declared_size_none_passes ... ok
+test common::tests::verify_declared_size_matches ... ok
+test feishu::plugin::capability_tests::a_recall_addresses_the_bots_own_last_post ... ok
+test feishu::plugin::capability_tests::an_edit_addresses_the_bots_own_last_post ... ok
+test feishu::plugin::capability_tests::an_edit_without_anything_to_edit_is_refused ... ok
+test feishu::plugin::capability_tests::message_facts_require_recognized_audience_and_sender_types ... ok
+test feishu::plugin::capability_tests::the_ordinary_reply_kinds_still_resolve ... ok
+test feishu::plugin::capability_tests::the_capability_table_only_lists_reachable_actions ... ok
+test ingress::tests::an_event_without_platform_identity_is_refused ... ok
+test ingress::tests::a_declared_revision_is_a_second_event ... ok
+test ingress::tests::ack_follows_the_disposition_commit ... ok
+test qq_official::outbound::tests::a_guild_channel_degrades_to_text ... ok
+test qq_official::outbound::tests::a_guild_channel_uses_the_platform_own_mention_markup ... ok
+test qq_official::outbound::tests::a_leading_mention_becomes_the_platform_markup ... ok
+test qq_official::outbound::tests::a_mention_and_a_quote_keep_their_order ... ok
+test qq_official::outbound::tests::a_mention_keeps_the_body_plain_so_the_mention_is_a_mention ... ok
+test qq_official::outbound::tests::a_plain_body_stays_one_text_message ... ok
+test qq_official::outbound::tests::a_private_chat_has_nobody_to_mention ... ok
+test qq_official::outbound::tests::a_quote_becomes_a_message_reference ... ok
+test qq_official::outbound::tests::a_quote_reaches_the_wire_as_a_message_reference ... ok
+test qq_official::outbound::tests::a_word_after_the_at_sign_stays_text ... ok
+test qq_official::outbound::tests::code_fences_lose_the_fence_and_keep_the_content ... ok
+test qq_official::outbound::tests::markdown_becomes_a_markdown_message_where_the_platform_shows_it ... ok
+test qq_official::outbound::tests::the_wire_body_carries_exactly_one_content_field ... ok
+test qq_official::plugin::capability_tests::a_message_outside_the_platform_window_is_not_addressable ... ok
+test qq_official::plugin::capability_tests::a_retract_carries_the_audience_of_the_message_it_retracts ... ok
+test qq_official::plugin::capability_tests::a_retract_older_than_the_platform_window_is_refused_with_its_reason ... ok
+test qq_official::plugin::capability_tests::a_retract_without_anything_to_retract_is_refused ... ok
+test qq_official::plugin::capability_tests::the_ordinary_reply_kinds_still_resolve ... ok
+test qq_official::plugin::capability_tests::the_platform_has_no_edit_so_the_plugin_offers_no_edit ... ok
+test qq_official::plugin::capability_tests::the_capability_table_only_lists_reachable_actions ... ok
+test runtime::tests::absent_platforms_are_not_registered ... ok
+test runtime::tests::credentials_are_redacted_from_debug_output ... ok
+test runtime::tests::the_channels_file_is_strict_about_accounts ... ok
+test ingress::tests::redelivery_is_one_event_with_the_shared_identity ... ok
+test runtime::tests::a_configured_adapter_is_registered_with_an_ingress_ledger ... ok
+test ingress::tests::foreign_and_newer_ledgers_are_refused ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat-e40079e444073efa)
+
+running 44 tests
+test attachments::tests::bytes_are_local_only_with_root ... ok
+test attachments::tests::decode_bounded_rejects_oversized ... ok
+test attachments::tests::finish_declared_matches ... ok
+test attachments::tests::finish_declared_mismatch ... ok
+test attachments::tests::finish_no_declared_size ... ok
+test attachments::tests::finish_preserves_existing_mime ... ok
+test attachments::tests::media_handle_from_locator_path ... ok
+test attachments::tests::finish_fills_mime_from_name ... ok
+test attachments::tests::media_handle_none_without_params ... ok
+test capability_tests::the_capability_table_is_part_of_the_plugin_contract ... ok
+test capability_tests::an_unoffered_action_is_not_addressable ... ok
+test capability_tests::a_declared_action_describes_to_a_real_platform_action ... ok
+test capability_tests::the_account_scope_is_the_bots_own_number ... ok
+test channel::tests::private_own_messages_need_an_explicit_peer ... ok
+test channel::tests::rich_segments_keep_readable_content ... ok
+test capability_tests::the_capability_table_only_lists_reachable_actions ... ok
+test channel::tests::own_sent_messages_are_the_accounts_own_line ... ok
+test client::tests::contact_query_matches_echo_with_provenance_and_ignores_duplicates ... ok
+test notice_tests::a_recall_is_classified_as_an_observation ... ok
+test notice_tests::member_events_classify_and_unknown_notices_do_not ... ok
+test outbound::tests::a_leading_mention_becomes_an_at_segment ... ok
+test outbound::tests::a_link_keeps_its_label_and_its_target ... ok
+test outbound::tests::a_mention_and_a_quote_keep_their_order ... ok
+test outbound::tests::a_mention_that_is_not_a_number_stays_text ... ok
+test outbound::tests::a_plain_body_stays_one_text_segment ... ok
+test outbound::tests::a_quote_becomes_a_reply_segment ... ok
+test outbound::tests::code_fences_lose_the_fence_and_keep_the_content ... ok
+test outbound::tests::markdown_markers_do_not_reach_the_user ... ok
+test notice_tests::ordinary_messages_still_classify ... ok
+test spool::tests::commit_failure_fences_handle_and_reopen_recovers ... ok
+test client::tests::contact_query_drop_is_unknown_and_stale_echo_not_admitted ... ok
+test spool::tests::decimal_string_revision_is_observation_of_historical_numeric_row ... ok
+test spool::tests::fresh_first_unsigned_value_is_strong_across_string_replay ... ok
+test spool::tests::connectivity_frames_are_recorded_but_are_not_messages ... ok
+test spool::tests::historical_spool_rejects_a_different_account ... ok
+test spool::tests::existing_strong_source_keeps_its_observation_routing ... ok
+test spool::tests::identities_do_not_collapse_distinct_source_events ... ok
+test spool::tests::legacy_writer_inserts_are_kept_in_the_additive_index ... ok
+test spool::tests::legacy_wire_id_does_not_collapse_typed_conversations ... ok
+
+running 1 test
+test spool::tests::numeric_replay_matches_historical_weak_without_changing_rows ... ok
+test spool::tests::published_v3_database_is_rejected_without_reinterpretation ... ok
+test spool::tests::recover_after_process_exit ... ok
+test spool::tests::v1_backfill_does_not_coalesce_old_weak_unsigned_rows ... ok
+test client::tests::socket_persists_new_observations_while_replay_is_backpressured ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.10s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat_link-bbf6bdf7b1102a3e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_budget-9d8a108248536462)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/budget_plugin.rs (.ci/target/rust/debug/deps/budget_plugin-6f5f83cd5a91d36e)
+
+running 1 test
+test budget_window_keeps_unfinished_calls_and_fences_replaced_generations ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/store_history.rs (.ci/target/rust/debug/deps/store_history-71052515ae769b32)
+
+running 1 test
+test window_over_store_survives_reopen_and_keeps_every_raw_event ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_rollover-c2feb29c13b28fde)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/notes_rollover.rs (.ci/target/rust/debug/deps/notes_rollover-cd947ea00ea84799)
+
+running 8 tests
+test a_cleared_notebook_is_not_carried_and_an_older_revision_never_resurfaces ... ok
+test a_dropped_candidate_leaves_the_request_pending_for_the_next_boundary ... ok
+test a_request_armed_before_this_process_is_pending_again_after_attach ... ok
+test only_the_latest_revision_is_read_and_only_once ... ok
+test explicit_rollover_cuts_a_boundary_window_that_drops_nothing ... ok
+test unfinished_call_units_are_kept_whole_and_carried ... ok
+test registry_bypasses_the_gain_guard_for_an_explicit_request_and_answers_it_once ... ok
+test the_notebook_is_its_own_range_free_entry_and_coverage_is_exact ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_snap-cdfebe7ca704d980)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/independent_plugins.rs (.ci/target/rust/debug/deps/independent_plugins-4c8162cc73b88ac1)
+
+running 2 tests
+test without_usable_vision_snapcompact_reports_and_budget_takes_over ... ok
+test snapcompact_renders_frames_and_uninstalls_independently ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.27s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat-f85b32dba8a216c0)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_mcp-331a9b55823a9cdb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/learning_efficacy.rs (.ci/target/rust/debug/deps/learning_efficacy-c36fc04596312db3)
+
+running 1 test
+test compatibility_learning_is_measured_on_original_sources_and_independent_effects ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/plugin_lifecycle.rs (.ci/target/rust/debug/deps/plugin_lifecycle-67d0c28c996a0862)
+
+running 19 tests
+test learning_fixture::ambiguous_identical_in_flight_producers_write_nothing ... ok
+test indexed_skill_ranges_retain_bytes_and_reject_corruption ... ok
+test learning_fixture::list_and_call_bind_one_armed_producer_despite_generated_progress_token ... ok
+test receipt_boundary_abort_during_initialize_prevents_dispatch ... ok
+test receipt_boundary_artifact_roots_require_authentication ... ok
+test receipt_boundary_malformed_manifest_records_failed_evidence ... ok
+test outlined_observation_is_retrievable_in_authenticated_ranges ... ok
+test receipt_boundary_usage_cursor_orders_ties_missing_times_and_latest_appended_evidence ... ok
+test effects_are_armed_once_and_learning_keeps_original_evidence ... ok
+test sandbox_execution::a_joined_subject_failure_retires_its_owned_sandbox ... ok
+test sandbox_execution::deferred_unknown_e1_is_reselected_and_consumed_without_settlement ... ok
+test installed_changes_retire_connections_and_independent_plugins ... ok
+test request_deadline_includes_blocked_transport_and_timeout_notification ... ok
+test sandbox_execution::unknown_mcp_e1_reaches_a_committed_continuation_without_t2 ... ok
+test sandbox_execution::failed_mcp_t2_reaches_a_committed_continuation ... ok
+test unknown_admission::interrupted_unknown_admission_recovers_original_e1_without_replay ... ok
+test usage_digest_groups_durable_observations_and_feeds_candidate_learning ... ok
+test receipt_boundary_usage_window_reaches_rare_units_and_latest_evidence ... ok
+test streamable_http_transport_bounds_json_and_sse ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.38s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_poppy-70d54299b96dad58)
+
+running 6 tests
+test discovery::tests::refuses_private_redirect_before_any_http_connection ... ok
+test discovery::tests::rejects_issuer_confusion_without_an_issuerless_downgrade ... ok
+test discovery::tests::discovers_a_newer_compatible_document_and_read_only_ucp_profile ... ok
+test session::tests::company_verifies_delegation_and_fresh_request_bindings ... ok
+test session::tests::expired_delegation_cannot_sign_another_request ... ok
+test discovery::tests::discovers_captured_allbirds_metadata_without_following_services ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_skill-c37b35014666ec9d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_context_policy-81bad361728d4793)
+
+running 20 tests
+test history::tests::ledger_status_never_reads_as_settled_while_uncertain ... ok
+test notes::tests::fork_copies_the_source_visible_note_once ... ok
+test notes::tests::oversize_write_leaves_the_previous_note_untouched ... ok
+test notes::tests::revisions_are_compare_and_append_and_clear_does_not_resurrect ... ok
+test store_history::meta_page_tests::meta_page_bounds_cost_and_preserves_identity_without_payloads ... ok
+test store_history::notes_journal_tests::durable_reminder_answer_is_recorded_once_and_survives_reopen ... ok
+test store_history::notes_journal_tests::durable_note_journal_is_bounded_compare_and_append_and_reopens ... ok
+test taste::tests::a_chain_orders_itself_and_refuses_a_double_revision ... ok
+test taste::tests::a_node_without_an_installed_taste_reports_unresolved_not_a_default ... ok
+test taste::tests::a_revision_that_is_not_retained_is_refused_with_the_real_retained_set ... ok
+test taste::tests::an_explicit_revision_shows_its_full_text_and_nothing_else ... ok
+test taste::tests::the_canonical_counters_are_carried_and_never_recomputed ... ok
+test taste::tests::the_default_collapses_older_revisions_and_keeps_the_selected_one ... ok
+test window::tests::a_window_carries_one_notebook_revision_or_none ... ok
+test window::tests::changed_execution_status_restores_the_whole_original_unit ... ok
+test store_history::notes_journal_tests::durable_rollover_request_is_armed_once_answered_once_and_survives_reopen ... ok
+test window::tests::overlapping_pointer_and_frame_restore_in_source_order ... ok
+test window::tests::restoring_raw_events_keeps_the_notebook_once ... ok
+test store_history::notes_journal_tests::fork_adoption_copies_the_source_notebook_once ... ok
+test store_history::notes_journal_tests::journal_of_another_scope_is_refused_by_scope_identity ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/contribution_registry.rs (.ci/target/rust/debug/deps/contribution_registry-0015fc47ed63bb7b)
+
+running 9 tests
+test aggregate_token_cost_cannot_wrap_or_panic ... ok
+test a_conflicted_identity_cannot_be_resurrected_by_a_third_producer ... ok
+test another_slot_does_not_satisfy_an_omitted_required_identity ... ok
+test another_tasks_requirement_does_not_block_scope_wide_collection ... ok
+test late_publication_cannot_revive_an_unregistered_producer ... ok
+test newer_preparation_fences_an_older_completion ... ok
+test single_use_consumption_is_bound_to_the_collected_scope ... ok
+test older_usage_cannot_consume_a_new_input_revision_with_identical_bytes ... ok
+test usage_replay_cannot_rewrite_a_request_or_resurrect_its_material ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rollover_lifecycle.rs (.ci/target/rust/debug/deps/rollover_lifecycle-f247ea38b3f63c7e)
+
+running 7 tests
+test a_reminder_threshold_belongs_to_the_installation_that_registered_it ... ok
+test a_request_is_armed_once_and_never_cuts_a_window_by_itself ... ok
+test a_retired_generation_cannot_answer_its_reminder_for_its_successor ... ok
+test a_strategy_retired_between_publication_and_adoption_cannot_commit ... ok
+test a_store_free_request_survives_refusal_until_a_window_commits ... ok
+test preparing_without_publication_keeps_the_explicit_boundary_pending ... ok
+test the_reminder_is_read_without_being_spent_and_answered_once ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_document-32cda63cd28e064b)
+
+running 19 tests
+test oxr_client_tests::credential_is_redacted_in_every_rendering ... ok
+test oxr_client_tests::invalid_endpoint_shape_is_unavailable ... ok
+test oxr_client_tests::local_engine_without_attestation_is_unavailable ... ok
+test oxr_client_tests::checkpoint_from_old_payload_still_deserializes ... ok
+test oxr_client_tests::credential_echo_is_withheld_from_original_response_archive ... ok
+test oxr_client_tests::run_parse_produces_page_ordered_checkpoints ... ok
+test oxr_client_tests::rate_limited_upstream_is_an_unknown_outcome_not_a_failure ... ok
+test oxr_client_tests::terminal_failure_is_a_terminal_checkpoint ... ok
+test oxr_client_tests::unknown_outcome_keeps_the_run_running ... ok
+test oxr_client_tests::async_transport_polls_by_task_id_until_success ... ok
+test oxr_client_tests::unreachable_endpoint_is_unavailable_naming_the_reason ... ok
+test tests::credential_missing_is_not_ready ... ok
+test tests::page_cache_key_binds_exact_inputs ... ok
+test tests::model_identity_missing_is_not_ready ... ok
+test tests::select_provider_never_substitutes ... ok
+test tests::parse_request_id_is_deterministic ... ok
+test tests::unprovisioned_oxr_reports_unavailable_not_a_substitute ... ok
+test oxr_client_tests::sync_transport_maps_upstream_page_exactly ... ok
+test oxr_client_tests::run_parse_respects_the_configured_concurrency_bound ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_evidence-3b0042898841c2be)
+
+running 4 tests
+test contract_input::tests::current_inventory_includes_new_rows_and_documents_without_migration_history ... ok
+test contract_input::tests::duplicate_or_missing_documents_do_not_produce_a_partial_denominator ... ok
+test contract_input::tests::document_merge_rejects_duplicate_ids_and_resolves_cross_document_references ... ok
+test contract_input::tests::missing_repeated_and_cross_document_anchors_are_rejected ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_evidence-57af424ef526341e)
+
+running 1 test
+test tests::navigation_is_not_a_zero_obligation_success ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/admission.rs (.ci/target/rust/debug/deps/admission-bc654e61b5718e1c)
+
+running 16 tests
+test executable_verification_must_cover_every_live_sample ... ok
+test acceptance_matrix_needs_one_admitted_receipt_for_every_declared_scope ... ok
+test a_correction_record_withdraws_evidence_without_deleting_its_bytes ... ok
+test missing_executable_binding_remains_unproven ... ok
+test duration_windows_only_add_up_for_one_binary_and_profile ... ok
+test modifying_observed_bytes_withdraws_previously_admitted_coverage ... ok
+test long_run_report_must_bind_this_candidate_and_its_measured_binary ... ok
+test obligation_report_states_duration_only_from_an_admitted_sealed_report ... ok
+test long_run_duration_requires_a_completed_sealed_run_of_the_declared_window ... ok
+test original_outcome_contradiction_cannot_be_overridden_by_the_record ... ok
+test qualified_ids_cannot_replace_parent_definitions ... ok
+test range_holes_remain_unresolved_instead_of_shrinking_the_obligation ... ok
+test repeated_executable_samples_cannot_inflate_coverage ... ok
+test unknown_case_family_stays_visible_as_unclassified ... ok
+test sealed_stat_only_reports_cannot_certify_the_executed_binary ... ok
+test required_model_scope_is_not_borrowed_from_native_or_stale_evidence ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/correction_cli.rs (.ci/target/rust/debug/deps/correction_cli-df56df025a2de008)
+
+running 4 tests
+test api_names_a_real_replacement_and_refuses_a_stale_digest ... ok
+test cli_writes_a_digest_bound_correction_and_the_report_reopens_it ... ok
+test report_stops_honoring_a_correction_whose_bound_bytes_changed ... ok
+test cli_refuses_missing_mismatched_duplicate_and_overwriting_references ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/report_cli.rs (.ci/target/rust/debug/deps/report_cli-4e89d6101b823791)
+
+running 4 tests
+test cli_discloses_a_rejected_long_run_report_without_dropping_its_windows ... ok
+test cli_refuses_missing_arguments_and_unreadable_specs ... ok
+test cli_writes_the_obligation_report_and_binds_a_sealed_long_run_report ... ok
+test cli_keeps_appended_obligations_and_requires_document_local_owners ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_host-3423ca112a28d9b5)
+
+running 57 tests
+test browser::actions::tests::batch_without_takeover_runs_every_action ... ok
+test cognition_judge::tests::a_refused_judgement_leaves_the_installed_version_visible ... ok
+test cognition_judge::tests::a_closed_trial_without_a_measured_sample_never_adopts_the_unit ... ok
+test cognition_judge::tests::reconcile_reads_the_judgement_and_never_replaces_a_different_one ... ok
+test cognition_query::tests::evidence_public_input_selects_the_units_retained_observation ... ok
+test cognition_judge::tests::subject_authored_candidate_is_self_tested_and_adopted_without_rewriting_it ... ok
+test cognition_query::tests::invalid_public_shapes_do_not_arm_or_mutate_the_task ... ok
+test cognition_query::tests::reopened_legacy_frozen_query_keeps_its_input_and_single_attempt ... ok
+test cognition_query::tests::list_public_pages_cover_the_installation_and_refuse_a_stale_revision ... ok
+test cognition_trial::tests::a_consuming_continuation_can_delegate_a_followup_read ... ok
+test browser::actions::tests::takeover_during_a_running_action_refuses_the_rest_of_the_batch ... ok
+test cognition_trial::tests::a_control_known_id_read_cannot_reach_the_learned_candidate ... ok
+test cognition_trial::tests::a_control_known_id_read_cannot_reach_the_seed_candidate ... ok
+test cognition_trial::tests::a_failed_native_read_remains_an_attempt_failure_after_cleanup ... ok
+test cognition_trial::tests::every_planned_slot_of_a_pair_gets_the_same_window ... ok
+test cognition_trial::tests::a_prepared_pair_starts_both_conditions_under_one_window ... ok
+test cognition_trial::tests::an_empty_judge_verdict_retains_the_original_broker_result ... ok
+test cognition_trial::tests::native_preparation_preserves_written_candidate_metadata ... ok
+test cognition_trial::tests::the_judge_verdict_is_read_from_the_judges_own_words ... ok
+test cognition_trial::tests::unstarted_slots_are_not_started_failures ... ok
+test cognition_trial::tests::a_timed_out_judge_retains_its_original_late_result_after_drain ... ok
+test computer_use::tests::raw_pixel_media_type_is_bound_to_the_provider_format ... ok
+test cognition_trial::tests::native_read_reaches_the_committed_continuation ... ok
+test computer_use::tests::capability_discovery_binds_platforms_and_layerfs_prerequisites ... ok
+test computer_use::tests::recovery_of_an_armed_batch_stays_unknown_and_provider_neutral ... ok
+test contact_task::tests::armed_contacts_query_recovers_without_replay ... ok
+test contact_task::tests::contacts_query_resolves_durable_result_with_bound_identity ... ok
+test contact_task::tests::contacts_query_typed_failures_are_classified ... ok
+test external_history::tests::incomplete_source_and_corrupt_original_are_visible_without_fabricated_evidence ... ok
+test history_task::tests::armed_history_query_recovers_on_original_attempt_without_duplicate_evidence ... ok
+test history_task::tests::search_preview_exposes_late_match_and_preserves_raw_read ... ok
+test layerfs::tests::guest_capabilities_never_upgrade_unprobed_requirements ... ok
+test layerfs::tests::readiness_distinguishes_missing_sdk_missing_script_and_spawn_failure ... ok
+test layerfs::tests::start_answer_surfaces_guest_probe_and_sdk_binding ... ok
+test layerfs::tests::unset_sdk_path_is_typed_unavailable_without_spawning ... ok
+test net_probe::tests::freeze_rejects_urls_this_observer_cannot_honour ... ok
+test net_probe::tests::measure_keeps_dns_failure_distinct_from_connection_failure ... ok
+test net_probe::tests::measure_reports_a_real_http_status ... ok
+test net_probe::tests::measure_reports_an_unreachable_port_as_a_measured_fact ... ok
+test external_history::tests::independently_imported_sources_replicate_and_old_archives_do_not_revive_retirement ... ok
+test node_capabilities_task::tests::capability_page_rejects_model_authority_and_retains_unknown_without_private_routes ... ok
+test cognition_trial::tests::native_trial_binds_the_executed_configuration_to_the_opened_plan ... ok
+test external_history::tests::complete_history_versions_keep_equal_events_and_search_chinese_tail ... ok
+test node_capabilities_task::tests::armed_node_page_recovers_later_observation_once_without_rearming ... ok
+test node_capabilities_task::tests::recovery_never_rebinds_to_another_node_installation ... ok
+test obelisk_runtime::tests::real_cli_async_script_is_stopped_by_host_deadline_and_readers_join ... ok
+test obelisk_runtime::tests::real_cli_history_preserves_source_locators_and_reads_beyond_projection ... ok
+test obelisk_runtime::tests::source_root_trim_rewrite_is_rejected_before_index_preparation ... ok
+test node_selection_task::tests::absent_choice_stays_unknown_until_original_receipt_arrives_without_replay ... ok
+test runtime_error::tests::errors_read_armed_recovery_observes_original_attempt ... ok
+test runtime_error::tests::errors_read_only_exposes_runtime_error_facts_with_bounded_preview ... ok
+test runtime_error::tests::issue_submit_publishes_digest_deduped_draft_and_reconciles ... ok
+test node_selection_task::tests::committed_choice_recovers_original_receipt_without_refresh_or_rearm ... ok
+test self_knowledge_task::tests::armed_self_knowledge_query_recovers_on_original_attempt ... ok
+test self_knowledge_task::tests::queries_answer_from_installed_resources_and_reject_unknown_pointers ... ok
+test wasi_task::tests::prepare_classifies_tool_refusal_versus_input_faults ... ok
+test node_selection_task::tests::explicit_choice_rejects_model_authority_and_never_substitutes_changed_observation ... ok
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.85s
+
+     Running tests/awareness_efficacy.rs (.ci/target/rust/debug/deps/awareness_efficacy-0e4e835e9cc81769)
+
+running 1 test
+test awareness_units_earn_their_place_in_the_sandbox ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/awareness_host.rs (.ci/target/rust/debug/deps/awareness_host-15d4b259cade56a9)
+
+running 4 tests
+test a_modeled_other_perspective_is_never_offered_as_this_subjects_observation ... ok
+test a_native_read_reports_the_capability_and_grants_nothing ... ok
+test a_host_provider_offers_an_atom_only_with_the_attention_contract ... ok
+test the_capability_is_absent_until_this_installation_adopts_it ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/cognition_self_learning.rs (.ci/target/rust/debug/deps/cognition_self_learning-1cbf7811dc6cdbca)
+SKIP cognition_self_learning: set SHENKO_USE_LOCAL_MODEL=1, SHENKO_LOCAL_MODEL_URL and SHENKO_LOCAL_MODEL, and pass --binary
+     Running tests/computer_use_takeover_cli.rs (.ci/target/rust/debug/deps/computer_use_takeover_cli-b77207976ffc259e)
+
+running 1 test
+test cli_durable_takeover_consumer ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/computer_use_takeover_native.rs (.ci/target/rust/debug/deps/computer_use_takeover_native-6c2a2d877853373d)
+
+running 1 test
+test uinput_external_key_revokes_computer_use_lease_and_releases_held_input ... ignored, spawns an owned Xorg on an owned /dev/uinput device; parent runs it explicitly (see module docs)
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/desktop_native_macos_proof.rs (.ci/target/rust/debug/deps/desktop_native_macos_proof-60616ef7efb130ea)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/desktop_native_windows_proof.rs (.ci/target/rust/debug/deps/desktop_native_windows_proof-251e1b9cb1ec90d8)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/network_change_fixture.rs (.ci/target/rust/debug/deps/network_change_fixture-a465d2ea0e679966)
+
+running 2 tests
+test network_change_awareness_runs_on_a_genuinely_broken_path ... ok
+test owned_endpoint_refusal_is_a_real_kernel_answer ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/perception_version_reopen.rs (.ci/target/rust/debug/deps/perception_version_reopen-fac2022b89e2105f)
+
+running 6 tests
+test an_expired_observation_is_never_upgraded_to_current ... ok
+test a_custom_perception_unit_is_unknown_until_a_source_observes ... ok
+test reopen_probe ... ok
+test an_updated_installation_units_version_retires_the_old_source ... ok
+test a_fresh_process_is_unbound_until_it_rebinds ... ok
+test distinct_installation_observations_keep_their_own_lineage ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.33s
+
+     Running tests/seat_fleet_behavior.rs (.ci/target/rust/debug/deps/seat_fleet_behavior-7183f61683c152cc)
+
+running 1 test
+test fleet_discovery_is_measured_through_the_real_subject_and_original_receipts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_ssh-12b331496611085c)
+
+running 99 tests
+test executor::tests::ssh_argv_and_transport_unknown ... ok
+test identity::tests::provisioned_entry_roundtrips_through_file_installation_install ... ok
+test identity::tests::generates_valid_ed25519_identity_and_reopens_idempotently ... ok
+test identity::tests::rejects_orphaned_partial_identity ... ok
+test native::exec_observation_tests::accepted_deadline_without_exit_remains_unknown ... ok
+test native::exec_observation_tests::bounded_output_with_exit_255_retains_conclusive_transport_result ... ok
+test identity::tests::rejects_mismatched_pubkey_without_overwriting ... ok
+test native::support::selected_key_file_tests::selected_key_rejects_fifo_without_writer ... ok
+test native::support::selected_key_file_tests::selected_key_accepts_protected_regular_fixture ... ok
+test native::support::selected_key_file_tests::selected_key_rejects_group_readable_mode ... ok
+test native::support::selected_key_file_tests::selected_key_rejects_final_symlink ... ok
+test native::support::selected_key_file_tests::selected_key_rejects_oversized_regular_file ... ok
+test native_installation::tests::explicit_public_installation_reader_rejects_fifo_without_waiting_for_writer ... ok
+test native::support::selected_key_file_tests::selected_key_parse_failure_has_no_path_or_contents ... ok
+test native_installation::tests::explicit_file_signer_reads_only_owned_protected_fixture_identity ... ok
+test executor::tests::local_timeout_reaps_child ... ok
+test native_transport::tests::native_protocol_cancel_during_kex_closes_owned_stream ... ok
+test native_transport::tests::native_protocol_duplex_and_unambiguous_exit_255 ... ok
+test native_transport::tests::native_protocol_output_cap_keeps_draining_and_retains_status ... ok
+test native_transport::tests::native_protocol_deadline_preserves_unknown_and_observes_local_session_end ... ok
+test native_transport::tests::native_protocol_refuses_unsolicited_session_without_breaking_outbound_command ... ok
+test native_transport::tests::native_protocol_revocation_overrides_matching_pin ... ok
+test native_transport::tests::native_protocol_rsa_sha1_only_host_refused_before_authentication ... ok
+test native_transport::tests::native_protocol_rsa_sha2_host_accepts_raw_ssh_rsa_pin ... ok
+test seat::claude_sdk::tests::a_tool_permission_becomes_a_permission_question ... ok
+test seat::claude_sdk::tests::an_allow_response_carries_the_questions_array ... ok
+test seat::claude_sdk::tests::an_ask_user_question_becomes_an_information_question ... ok
+test seat::claude_sdk::tests::the_control_protocol_flag_is_added_when_missing ... ok
+test native_transport::tests::native_protocol_wrong_pin_stops_before_authentication ... ok
+test seat::omp_rpc::lifecycle_tests::dropping_the_last_adapter_does_not_leave_its_child_owned_by_readers ... ok
+test seat::omp_rpc::lifecycle_tests::managed_close_drains_the_original_response_and_reaps_readers ... ok
+test seat::omp_rpc::tests::a_confirm_request_is_a_permission_question ... ok
+test seat::omp_rpc::tests::a_remote_timeout_is_not_recorded_as_our_decision ... ok
+test seat::omp_rpc::tests::a_select_request_becomes_a_structured_question ... ok
+test seat::omp_rpc::tests::chunk_frames_reassemble_in_index_order ... ok
+test seat::omp_rpc::tests::chunk_length_mismatch_does_not_adopt_a_valid_json_prefix ... ok
+test seat::runtime::tests::fleet_distinguishes_durable_attached_and_exited_seats_without_a_writer ... ok
+test seat::runtime::tests::native_facts_rebind_by_their_request_id ... ok
+test seat::runtime::tests::post_arm_transport_error_and_failed_close_keep_the_original_unknown_after_reopen ... ok
+test seat::runtime::tests::terminal_inference_facts_recompute_their_semantic_id ... ok
+test seat::tests::fingerprint_changes_when_the_option_set_changes ... ok
+test seat::tests::inferred_identity_is_stable_across_unrelated_screen_changes ... ok
+test seat::tmux::tests::a_question_with_highlighted_option_is_reported ... ok
+test seat::tmux::tests::a_yes_no_prompt_accepts_only_allow_or_deny ... ok
+test seat::tmux::tests::an_unmapped_decision_sends_nothing ... ok
+test seat::tmux::tests::numbered_options_map_to_their_number ... ok
+test seat::tmux::tests::reverse_video_is_the_only_selection_marker ... ok
+test seat::tmux::tests::selection_requires_a_visible_marker_not_option_position ... ok
+test seat::tmux::tests::uncertain_execution_retains_complete_evidence_and_is_never_not_sent ... ok
+test native_transport::tests::pty_closer_cancellation_keeps_the_original_pump_join_owned ... ok
+test seat::omp_rpc::lifecycle_tests::close_interrupts_a_partly_written_frame_and_keeps_its_unknown_identity ... ok
+test selected_task::tests::armed_ssh_target_never_reresolves_current_registry_references ... ok
+test selected_task::tests::changed_runtime_generation_cannot_reuse_selected_invocation ... ok
+test selected_task::tests::conflicting_retry_cannot_change_action_or_dispatch_twice ... ok
+test selected_task::tests::descriptor_cannot_substitute_target_or_smuggle_credential_fields ... ok
+test selected_task::tests::different_registered_target_is_not_a_fallback ... ok
+test selected_task::tests::forged_worker_is_refused_before_t1 ... ok
+test native_transport::tests::pty_write::original_pty_writes_observe_flush_cancel_errors_and_channel_loss ... ok
+test selected_task::tests::legacy_input_bytes_are_unchanged_when_selection_is_absent ... ok
+test selected_task::tests::legacy_selected_input_remains_query_only_without_inventing_generation ... ok
+test selected_task::tests::permission_bridge_fences_cancelled_ancestor_while_awaiting ... ok
+test selected_task::tests::permission_bridge_fences_dispatcher_takeover_while_awaiting ... ok
+test selected_task::tests::permission_bridge_fences_generation_changed_while_awaiting ... ok
+test selected_task::tests::permission_bridge_fences_stale_generation_before_callback ... ok
+test selected_task::tests::permission_bridge_fences_task_revoked_while_awaiting ... ok
+test selected_task::tests::permission_bridge_observes_exact_scope_without_grant_and_rechecks_revocation ... ok
+test selected_task::tests::permission_bridge_rechecks_sealed_public_trust_after_callback ... ok
+test selected_task::tests::permission_bridge_rechecks_task_after_provider_await ... ok
+test selected_task::tests::permission_bridge_rejects_missing_runtime_state_before_callback ... ok
+test selected_task::tests::permission_bridge_rejects_prior_reply_for_identical_request ... ok
+test selected_task::tests::permission_bridge_requires_exact_installed_binding_before_callback ... ok
+test selected_task::tests::permission_bridge_requires_exact_installed_provider_before_disclosing_action ... ok
+test selected_task::tests::permission_bridge_sanitizes_provider_failure ... ok
+test selected_task::tests::permission_bridge_uses_registered_binding_not_mutable_trust_locator ... ok
+test selected_task::tests::reference_inspection_rejects_stale_invocation_and_foreign_subject ... ok
+test ssh_exec::tests::discovery_classifies_only_the_foreground_process_group ... ok
+test ssh_exec::tests::guarded_send_refuses_stale_panes_and_maps_results ... ok
+test ssh_exec::tests::zero_pane_pid_yields_empty_evidence_and_fallback ... ok
+test selected_task::tests::registered_references_remain_unresolved_not_authority_or_admission ... ok
+test task_runner::native_query_tests::native_query_accepts_complete_receipt_on_close_without_eof ... ok
+test selected_task::tests::unrelated_authority_is_refused_before_t1 ... ok
+test selected_task::tests::selection_is_sealed_in_real_t1_and_recovery_never_reselects ... ok
+test task_runner::native_query_tests::native_query_error_keeps_native_codec_without_changing_legacy_encoding ... ok
+test task_runner::native_query_tests::native_query_records_receipt_on_original_operation_without_dispatch ... ok
+test task_runner::native_query_tests::native_query_deadline_survives_reopen_and_requeries_original_without_replay ... ok
+test task_runner::native_query_tests::native_query_rejects_other_endpoint_even_with_same_host_key_and_account ... ok
+test task_runner::native_query_tests::native_query_rejects_partial_json_despite_exit_zero_and_clean_close ... ok
+test task_runner::native_query_tests::native_query_rejects_receipt_for_another_input_seal ... ok
+test task_runner::native_query_tests::native_query_rejects_receipt_for_another_operation ... ok
+test terminal::tests::alternate_screen_is_reported_and_restored ... ok
+test terminal::tests::erase_display_clears_the_screen ... ok
+test terminal::tests::plain_text_and_cursor_follow_the_stream ... ok
+test terminal::tests::screen_dump_mode_returns_to_column_zero_per_line ... ok
+test terminal::tests::scrolling_preserves_remaining_rows_and_blanks_a_full_region ... ok
+test terminal::tests::sgr_attributes_survive_as_text_runs ... ok
+test terminal::tests::wide_characters_occupy_two_cells ... ok
+test task_runner::native_query_tests::native_query_rejects_valid_json_prefix_after_transport_output_overflow ... ok
+test task_runner::native_query_tests::previous_helper_contract_remains_queryable_after_store_reopen ... ok
+test task_runner::tests::relative_cas_trust_reaches_ssh_after_store_reopen ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.18s
+
+     Running tests/real_omp_seat.rs (.ci/target/rust/debug/deps/real_omp_seat-f9298461bd4becf8)
+
+running 1 test
+test real_omp_rpc_seat_discovers_and_observes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/real_ssh_exec.rs (.ci/target/rust/debug/deps/real_ssh_exec-be4026b3d4812473)
+
+running 1 test
+test real_ssh_exec_reports_remote_exit_and_stdout ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/seat_fleet.rs (.ci/target/rust/debug/deps/seat_fleet-f957e48a8bf06683)
+
+running 1 test
+test fleet_native_claim_is_bounded_read_only_and_replays_original_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_identity-81388b6e0159bc01)
+
+running 1 test
+test tests::directives_and_naming_origin ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_kernel-9207dd096a026fa9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cordis_lifecycle.rs (.ci/target/rust/debug/deps/cordis_lifecycle-89ab1c6682be4218)
+
+running 4 tests
+test shutdown_interrupts_abandoned_pending_creation_and_closes_admission ... ok
+test native_services_restart_join_order_reentry_and_terminal_shutdown ... ok
+test native_failure_isolation_panic_containment_and_unknown_cleanup_latch ... ok
+test shutdown_joins_native_composition_after_cancelled_detached_removal ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/generation_uninstall.rs (.ci/target/rust/debug/deps/generation_uninstall-f1099291e50e55c3)
+
+running 1 test
+test uninstall_retires_hooks_then_registrations_then_the_plugin ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/hook_generation_lifecycle.rs (.ci/target/rust/debug/deps/hook_generation_lifecycle-7139d2b58b82a969)
+
+running 3 tests
+test a_stale_publication_never_withdraws_its_successor ... ok
+test withdrawal_that_would_break_a_required_dependency_is_refused ... ok
+test upgrade_replaces_one_plugin_and_a_leased_snapshot_keeps_its_generation ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_media-9baacdb01087e723)
+
+running 6 tests
+test identify::tests::descriptor_contract_and_capability_are_aligned ... ok
+test identify::tests::native_identify_claims_the_original_sealed_audio_once ... ok
+test identify::tests::engine_wire_failure_keeps_its_typed_code ... ok
+test identify::tests::reconcile_completes_the_original_attempt_once ... ok
+test identify::tests::repeat_identification_is_one_content_identity ... ok
+test identify::tests::unavailable_engine_and_missing_audio_are_typed_refusals ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s
+
+     Running tests/recording_controls.rs (.ci/target/rust/debug/deps/recording_controls-0729fe4c0bc0e977)
+
+running 2 tests
+test admitted_stop_stops_live_capture_and_seals_only_pre_stop_audio ... ok
+test admitted_start_arms_recorder_on_unrecorded_session ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/transcript_lineage.rs (.ci/target/rust/debug/deps/transcript_lineage-4c20e078f8f95a39)
+
+running 7 tests
+test declared_scope_without_audio_stores_nothing ... ok
+test late_partial_never_displaces_the_final_observation ... ok
+test provider_bindings_are_validated_at_load ... ok
+test derived_boundary_and_per_segment_speaker_correction ... ok
+test transport_loss_records_a_durable_disconnect ... ok
+test provider_segment_correction_keeps_one_utterance_and_its_original_audio ... ok
+test voiceprint_claim_binds_to_the_original_sealed_audio ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_memory-04cedeed3eb0cfd0)
+
+running 4 tests
+test excerpt::tests::empty_query_reports_no_match ... ok
+test excerpt::tests::centers_the_match_with_flags ... ok
+test knowledge::tests::renders_frontmatter_with_supersession ... ok
+test knowledge::tests::sanitize_maps_unsafe_path_parts ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/intent_flow.rs (.ci/target/rust/debug/deps/intent_flow-2acd0cc715a81533)
+
+running 9 tests
+test forget_of_missing_or_foreign_entry_stays_unsettled ... ok
+test accepted_intent_commits_and_is_searchable_by_chinese_substring ... ok
+test concurrent_equal_admissions_share_one_durable_entry_identity ... ok
+test forget_hides_from_search_but_keeps_original_text_after_reopen ... ok
+test reopened_worker_fails_legacy_operations_without_blocking_supported_memory ... ok
+test terminal_forget_replay_with_a_different_target_is_refused ... ok
+test replay_after_reopen_preserves_the_original_memory ... ok
+test stale_worker_and_late_failure_cannot_replace_a_committed_memory ... ok
+test unsupported_intent_kind_is_recorded_as_failed ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/pma_contribution.rs (.ci/target/rust/debug/deps/pma_contribution-e34079e39f7ddb6c)
+
+running 4 tests
+test reminder_addresses_and_provenance_are_bound_to_the_visible_observation ... ok
+test explicitly_reusable_material_keeps_its_deadline_without_being_consumed ... ok
+test expiring_reminder_is_consumed_once_and_cannot_return_after_recovery ... ok
+test reminder_payload_is_readable_without_losing_source_evidence ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_mobile-b2c798ac74edc776)
+
+running 33 tests
+test backend::tests::capture_binds_the_device_digest_with_its_declared_scope ... ok
+test backend::tests::absent_hierarchy_at_capture_is_recorded_as_pixels_only ... ok
+test backend::tests::hierarchy_appearing_after_a_pixels_only_capture_is_not_unchanged ... ok
+test backend::tests::held_key_request_is_rejected_before_send ... ok
+test backend::tests::hierarchy_change_with_unchanged_pixels_never_delivers_input ... ok
+test backend::tests::region_request_answered_with_full_frame_is_unavailable ... ok
+test backend::tests::hierarchy_unavailable_on_reverify_is_not_unchanged ... ok
+test backend::tests::refused_and_missing_receipts_make_the_batch_partial ... ok
+test backend::tests::session_close_releases_only_its_own_lease ... ok
+test backend::tests::takeover_during_verification_rejects_batch_without_sending ... ok
+test backend::tests::stable_hierarchy_and_pixels_allow_delivery ... ok
+test backend::tests::tap_outside_bound_observation_is_rejected_before_send ... ok
+test bridge::tests::frame_reader_decodes_only_complete_multibyte_frames ... ok
+test bridge::tests::frame_reader_enforces_the_byte_bound_while_reading ... ok
+test bridge::tests::frame_reader_rejects_malformed_utf8_and_partial_frames ... ok
+test bridge::tests::socket_device_refusal_keeps_its_authority_and_retry_semantics ... ok
+test bridge::tests::socket_node_tree_fingerprint_carries_the_declared_scope ... ok
+test bridge::tests::socket_probe_preserves_flat_device_capability_response ... ok
+test bridge::tests::socket_shell_preserves_argv_and_flat_completion ... ok
+test fingerprint::tests::bridge_failures_keep_their_own_absence_vocabulary ... ok
+test fingerprint::tests::complete_response_binds_digest_with_its_scope ... ok
+test fingerprint::tests::response_outside_the_requested_scope_is_not_bound ... ok
+test fingerprint::tests::scope_comparability_ignores_sample_facts_but_not_bounds ... ok
+test fingerprint::tests::truncation_must_be_declared_and_consistent ... ok
+test fingerprint::tests::unreadable_digests_and_foreign_algorithms_are_absences ... ok
+test handlers::tests::copied_set_never_claims_consistency ... ok
+test handlers::tests::direct_readable_backup_never_creates_the_source ... ok
+test handlers::tests::non_sqlite_copy_reports_no_plaintext_and_no_schema ... ok
+test handlers::tests::text_actions_reject_nul_and_oversized_payloads ... ok
+test handlers::tests::unbounded_batch_duration_and_count_are_rejected ... ok
+test backend::tests::truncated_prefix_is_declared_and_rescoped_evidence_is_not_unchanged ... ok
+test backend::tests::unrecognized_authority_state_is_unknown_and_not_absent ... ok
+test backend::tests::unusable_fingerprint_answer_is_a_recorded_absence ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_node-0645cb19f396d2e3)
+
+running 35 tests
+test admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database ... ok
+test election::tests::a_configuration_push_cannot_certify_a_gapped_log ... ok
+test election::tests::a_configuration_push_requires_its_configuration_to_be_committed_in_the_log ... ok
+test capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority ... ok
+test election::tests::a_contiguous_suffix_is_accepted_and_the_commit_index_advances ... ok
+test election::tests::a_divergent_entry_is_refused_and_both_records_are_retained ... ok
+test election::tests::an_append_that_skips_the_predecessor_is_a_log_mismatch_and_changes_nothing ... ok
+test election::tests::a_replay_does_not_promote_rows_above_the_recorded_commit_frontier ... ok
+test election::tests::a_full_configuration_push_catches_up_without_replaying_or_rewinding_the_prefix ... ok
+test capability::tests::generation_safe_capability_facts_drive_candidacy ... ok
+test election::tests::an_identical_replay_is_idempotent_not_a_conflict ... ok
+test roles::tests::a_resident_follower_observation_claims_no_selected_runtime_duty ... ok
+test roles::tests::role_assignment_and_observation_remain_distinct_across_reopen ... ok
+test election::tests::delayed_votes_cannot_rewind_or_reauthorize_an_obsolete_campaign ... ok
+test selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed ... ok
+test selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches ... ok
+test selection::tests::changed_observation_returns_reason_and_never_substitutes ... ok
+test selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes ... ok
+test selection::tests::subject_bound_selection_refuses_identity_adoption_on_another_connection ... ok
+test selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready ... ok
+test units::process::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed ... ok
+test units::removal::tests::uninstall_of_the_current_version_activates_the_named_successor ... ok
+test units::process::tests::trial_records_real_success_and_real_failure ... ok
+test election::tests::membership_retries_and_joint_certificates_follow_the_committed_prefix ... ok
+test units::removal::tests::uninstall_retires_the_package_and_keeps_the_evidence ... ok
+test units::adoption::tests::orphaned_trial_cannot_certify_adoption_until_a_measurement_is_recorded ... ok
+test units::removal::tests::uninstall_refuses_a_version_a_retained_closure_still_selects ... ok
+test units::resolution::tests::digest_versions_keep_independent_edges_and_re_resolve ... ok
+test units::resolution::tests::incoming_descriptor_supersedes_its_stale_retained_candidate ... ok
+test units::schema::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows ... ok
+test units::transfer::tests::exported_root_digest_is_independent_of_package_order ... ok
+test units::transfer::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version ... ok
+test units::transfer::tests::schema_two_transfer_does_not_invent_an_old_selection ... ok
+test units::trials::tests::generic_trials_export_with_original_plans_without_inheriting_readiness ... ok
+test units::transfer::tests::package_transfers_between_nodes_without_inheriting_readiness ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_node-6548720a91751684)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cognition_report.rs (.ci/target/rust/debug/deps/cognition_report-1d1ee8ef116530e1)
+
+running 3 tests
+test report_survives_process_reopen_and_unknown_stays_unknown ... ok
+test unchanged_content_is_one_revision_and_a_change_is_a_new_one ... ok
+test peer_report_is_compared_by_content_and_coverage_never_by_liveness ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.58s
+
+     Running tests/component_agreement.rs (.ci/target/rust/debug/deps/component_agreement-0775ca5bc391777d)
+
+running 1 test
+test minority_agreement_survives_reopen_and_supersession_fences_original_branch ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/partition_rejoin.rs (.ci/target/rust/debug/deps/partition_rejoin-98f565417b4703a3)
+
+running 4 tests
+test merge_accepts_only_verified_facts_and_retains_conflicts_once ... ok
+test partitioned_domain_rejoins_and_merges_its_facts ... ok
+test a_chosen_membership_transition_survives_proposer_loss_and_keeps_both_quorums ... ok
+test lost_acceptance_reply_recovers_the_chosen_value_before_new_authority ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.54s
+
+     Running tests/reconciliation_receipts.rs (.ci/target/rust/debug/deps/reconciliation_receipts-d5179898b533cb05)
+
+running 1 test
+test peer_receipts_survive_reopen_without_settlement_or_duplication ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/unit_uninstall_wire.rs (.ci/target/rust/debug/deps/unit_uninstall_wire-9db67f63d01a1d86)
+
+running 1 test
+test unit_uninstall_crosses_the_node_json_wire ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_quota-0cc41addea5cd4a5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/policy_admission.rs (.ci/target/rust/debug/deps/policy_admission-f12e0d4ac4d670b2)
+
+running 16 tests
+test corrected_period_end_does_not_erase_pacing_debt ... ok
+test decision_respects_every_window_and_falls_back_to_local ... ok
+test admission_paces_and_keeps_wait_exhaustion_and_unknown_apart ... ok
+test bucket_reservations_survive_replay_cancel_and_coverage ... ok
+test exhaustion_fallback_capacity_block_and_cancellation ... ok
+test legacy_forecast_without_exhaustion_evidence_cannot_claim_provider_limit ... ok
+test local_configured_cap_is_not_provider_exhaustion ... ok
+test locally_reconciled_zero_is_not_provider_exhaustion ... ok
+test persisted_fractional_policy_preserves_its_bound_decision ... ok
+test passed_refill_recomputes_multiwindow_exhaustion_before_admission ... ok
+test previous_local_survives_marginal_cloud_recovery_but_not_unavailability ... ok
+test replenishing_provider_reported_empty_is_exhausted ... ok
+test source_freshness_expires_both_forecasts_and_decisions ... ok
+test profile_switch_preserves_the_prior_request_pacing_debt ... ok
+test stale_last_known_empty_is_not_current_provider_exhaustion ... ok
+test unrelated_quota_windows_do_not_share_a_pacing_clock ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/policy_planning.rs (.ci/target/rust/debug/deps/policy_planning-8940724fc4e99648)
+
+running 6 tests
+test planning_horizon_and_emergency_reserve_bound_the_plan ... ok
+test pacing_switch_burst_and_minimum_interval_change_admission_spacing ... ok
+test preserve_uses_the_lower_bound_and_target_requires_a_range ... ok
+test legacy_rows_round_trip_byte_identically ... ok
+test uncertainty_margin_withholds_a_relative_share ... ok
+test target_utilization_scales_the_planned_rate_and_round_estimates ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/quota.rs (.ci/target/rust/debug/deps/quota-df13426a9a69529d)
+
+running 6 tests
+test floating_point_costs_cannot_raise_the_conservative_budget ... ok
+test shared_token_bucket_needs_an_external_usage_bound ... ok
+test contradictory_overflowing_and_sensitive_observations_remain_unknown ... ok
+test missing_expired_and_failed_readings_stay_unknown ... ok
+test shared_usage_and_unreflected_attempts_keep_ranges ... ok
+test subscription_percent_and_api_buckets_stay_separate ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/strategy_plugins.rs (.ci/target/rust/debug/deps/strategy_plugins-ecf1a2f553307e7c)
+
+running 6 tests
+test replacement_forecaster_is_used_and_refusal_fabricates_nothing ... ok
+test cadence_withholds_fresh_admissions_without_spending_or_rewriting_history ... ok
+test replacement_router_decision_flows_through_durable_admission ... ok
+test baseline_strategy_reproduces_the_pure_functions_and_is_attributed ... ok
+test strategy_registration_refuses_ambiguous_or_reserved_identities ... ok
+test stale_evidence_keeps_its_unknown_plan_through_the_strategy_layer ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_repl-5a3986b1795756d5)
+
+running 15 tests
+test entry::tests::entry_names_refuse_traversal ... ok
+test entry::tests::corrupt_manifest_schema_is_refused ... ok
+test entry::tests::handcrafted_manifest_cannot_redirect_the_binding ... ok
+test entry::tests::native_binding_requires_an_executable_artifact ... ok
+test entry::tests::resolve_rehashes_the_artifact_and_refuses_a_replacement ... ok
+test entry::tests::replace_retires_the_previous_binding_only_after_publication ... ok
+test entry::tests::unavailable_targets_and_foreign_stdlib_are_refused ... ok
+test entry::tests::stdlib_tree_is_part_of_the_binding ... ok
+test task::tests::durable_sessions_are_listed_for_resumption ... ok
+test task::tests::kernel_binding_is_installed_listed_and_created_by_name ... ok
+test task::tests::binding_refusals_stay_explicit_and_publish_nothing ... ok
+test task::tests::advertised_session_operations_dispatch_with_their_arguments ... ok
+test task::tests::refused_t1_does_not_create_a_session_or_execute_a_cell ... ok
+test task::tests::session_ops_refuse_unknown_fields_and_missing_arguments ... ok
+test task::tests::native_repl_t1_precedes_effect_and_recovery_never_reexecutes ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.71s
+
+     Running tests/real_python_wasi.rs (.ci/target/rust/debug/deps/real_python_wasi-ee72551904f32d68)
+
+running 4 tests
+test probe_guest_sys_path ... ok
+test real_python_wasm_executes_cells_with_stdlib_and_state ... ok
+test real_python_wasm_installs_wheel_then_imports_it ... ok
+test real_python_wasm_recovers_state_by_pure_cell_replay ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/real_quickjs_wasi.rs (.ci/target/rust/debug/deps/real_quickjs_wasi-75d91aa7b07cb28f)
+
+running 1 test
+test real_qjs_wasm_executes_cells_with_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wasi_repl.rs (.ci/target/rust/debug/deps/wasi_repl-4e27dad7073dafef)
+
+running 10 tests
+test extra_preopen_cannot_contain_private_session ... ok
+test guest_symlink_cannot_redirect_reset_outside_preopen ... ok
+test live_driver_exit_without_report_retains_the_real_status ... ok
+test native_kernel_requires_an_executable_artifact ... ok
+test corrupted_effect_stream_is_not_accepted_as_receipt ... ok
+test interrupted_replay_orphan_does_not_block_next_attempt ... ok
+test duplicate_cell_is_rejected_before_replay ... ok
+test reset_boundary_prevents_pre_reset_replay ... ok
+test session_executes_cells_with_durable_r0_and_guest_file_state ... ok
+test recover_restores_only_pure_state_checkpoints_and_keeps_effect_receipts ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_seed-255a04353304cd24)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/home_capability_migration.rs (.ci/target/rust/debug/deps/home_capability_migration-9bec04f67a866be4)
+
+running 1 test
+test legacy_cow_declaration_upgrades_only_after_guest_home_readback ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/home_checkpoint_recovery.rs (.ci/target/rust/debug/deps/home_checkpoint_recovery-4034b7a92f6033e6)
+
+running 5 tests
+test damage_without_a_published_closure_stays_unrecovered ... ok
+test a_symlinked_managed_directory_is_never_repaired_by_a_restore ... ok
+test corrupt_closure_refuses_the_restore_and_keeps_the_damage ... ok
+test an_interrupted_restore_resumes_the_closure_its_intent_names ... ok
+test lost_persistent_home_is_restored_from_the_published_closure ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/home_recovery.rs (.ci/target/rust/debug/deps/home_recovery-2c2f7632c3826ad1)
+
+running 4 tests
+test symlinked_managed_directory_is_a_conflict_not_an_alias ... ok
+test exec_admission_refuses_an_unfinished_home_and_names_losses ... ok
+test ready_home_without_its_persistent_directory_is_not_rebuilt_empty ... ok
+test interrupted_first_start_rewrites_only_the_seed_readiness_marker ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_store-b5cb43e98305acae)
+
+running 28 tests
+test atoms::tests::adoption_is_explicit_and_evidence_is_never_inferred ... ok
+test atoms::tests::identical_bytes_do_not_open_a_revision ... ok
+test atoms::tests::definition_revision_keeps_old_versions_readable ... ok
+test atoms::tests::legacy_inline_bytes_are_mapped_without_touching_the_row ... ok
+test atoms::tests::reading_comes_from_reason_termination_not_a_stored_kind ... ok
+test atoms::tests::unknown_and_absent_confidence_stay_distinct ... ok
+test atoms::tests::revision_disclosure_counts_old_versions ... ok
+test cognition::archive_admission_tests::captured_json_stream_does_not_extend_the_recovery_graph ... ok
+test cognition::archive_admission_tests::later_typed_alias_expands_its_real_child_on_both_sides ... ok
+test cognition::archive_admission_tests::cognition_atoms_travel_and_are_required_archive_facts ... ok
+test cognition::archive_admission_tests::unknown_fact_does_not_produce_a_verified_partial_import ... ok
+test cognition::archive_admission_tests::reordered_labels_cannot_publish_a_paused_head_or_files ... ok
+test control_transition::tests::the_capture_budget_refusal_is_recognizable_and_typed ... ok
+test memory::tests::cjk_detection_covers_han_ranges ... ok
+test cognition::obligation_merge_tests::obligation_merge_refuses_invalid_inserts_and_creation_replacement ... ok
+test memory::tests::like_pattern_escapes_wildcards ... ok
+test memory::tests::fts_index_serves_ascii_and_repairs_on_reopen ... ok
+test reconcile::tests::acknowledgement_from_wrong_agent_is_refused ... ok
+test reconcile::tests::reconciliation_case_lifecycle_with_attitude_seam ... ok
+test reconcile::tests::resolve_without_case_is_noop ... ok
+test reconcile::tests::undecided_case_reuses_with_additional_evidence ... ok
+test research::reminder_author_admission_tests::only_the_evidenced_author_of_a_decision_is_prepared ... ok
+test store::staged_inspection_tests::staged_inspection_preserves_locks_and_rejects_swapped_members ... ok
+test trajectory::tests::delegation_brief_matches_one_bound_intent_and_leaves_missing_or_ambiguous_goals_unavailable ... ok
+test trajectory::tests::ordinary_task_briefs_preserve_text_shapes_without_serializing_private_input ... ok
+test semantic_wait::tests::clock_rollback_and_stalled_wall_clock_end_the_wait ... ok
+test cognition::obligation_merge_tests::obligation_merge_has_two_sticky_terminal_branches ... ok
+test control_transition::tests::capture_observes_cached_sql_and_refuses_unrepresented_state ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.45s
+
+     Running tests/cognition_memory_retirement.rs (.ci/target/rust/debug/deps/cognition_memory_retirement-e903232107a5646f)
+
+running 2 tests
+test a_proven_retirement_reaches_the_copy_that_never_saw_it ... ok
+test a_retirement_never_overwrites_an_unrelated_edit ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running tests/cognition_replication.rs (.ci/target/rust/debug/deps/cognition_replication-8b3a5b91c7969df6)
+
+running 7 tests
+test a_rejected_forget_cannot_tombstone_its_shared_entry ... ok
+test file_retirement_reservation_survives_a_rolled_back_import ... ok
+test debt_needs_a_verified_closure_and_a_replay_duplicates_nothing ... ok
+test divergence_is_kept_and_the_workspace_is_not_recovery_data ... ok
+test saved_then_forgotten_entry_survives_archive_roundtrip ... ok
+test receiving_store_reads_the_real_facts_after_import ... ok
+test legacy_pending_library_reference_is_not_a_verified_recovery ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+
+     Running tests/cognitive_root_chain.rs (.ci/target/rust/debug/deps/cognitive_root_chain-9f27ae51ee346fc2)
+
+running 7 tests
+test fence_mismatch_rejects_capture ... ok
+test capture_creates_first_root_node ... ok
+test capture_then_reinstate_chain ... ok
+test contradictory_root_effects_roll_back_capture_and_reinstatement ... ok
+test idempotent_capture_returns_same_node ... ok
+test root_application_recording ... ok
+test root_request_identity_survives_reopen ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.50s
+
+     Running tests/identity_profile.rs (.ci/target/rust/debug/deps/identity_profile-05218013afffd310)
+
+running 1 test
+test identity_revisions_persist_and_reject_duplicate_successor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/media_transcript.rs (.ci/target/rust/debug/deps/media_transcript-f8109447105cb7e1)
+
+running 9 tests
+test conflicting_revision_identity_is_typed_conflict ... ok
+test admission_stores_raw_effective_and_durable_event_atomically ... ok
+test late_partial_is_superseded_and_never_unfinalizes_the_segment ... ok
+test disconnect_settlement_keeps_every_terminal_notice_and_open_receipt ... ok
+test partial_then_final_replaces_effective_and_keeps_raw ... ok
+test noncanonical_sealed_audio_identity_is_rejected ... ok
+test post_final_revision_is_explicit_final_correction ... ok
+test numeric_range_is_rejected_before_mutation_gate ... ok
+test sealed_audio_is_verified_before_mutation ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+     Running tests/memory_search.rs (.ci/target/rust/debug/deps/memory_search-9dce5f320db9b6e4)
+
+running 6 tests
+test every_supported_operation_is_admitted_and_visible_to_the_worker ... ok
+test insert_rejects_nothing_and_supports_scope_limit ... ok
+test ascii_search_works_with_fts_or_like_fallback ... ok
+test chinese_substring_search_returns_entry ... ok
+test unsupported_memory_intent_kind_is_refused_at_admission ... ok
+test unchanged_tombstone_rewrite_stays_hidden ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/notebook_recovery.rs (.ci/target/rust/debug/deps/notebook_recovery-6e7c821ff279a113)
+
+running 8 tests
+test a_local_pending_rollover_is_never_discarded_by_a_handover_archive ... ok
+test a_handover_archive_is_not_a_peer_archive ... ok
+test a_divergent_authored_revision_refuses_the_whole_incoming_journal ... ok
+test a_later_handover_advances_the_same_request_to_its_answering_window ... ok
+test a_note_write_after_recovery_still_compares_and_appends_on_the_recovered_head ... ok
+test authored_notes_clear_and_fork_survive_peer_recovery_and_reopen ... ok
+test note_body_bytes_survive_recovery_byte_for_byte ... ok
+test pending_and_answered_rollover_control_survive_the_declared_handover ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.14s
+
+     Running tests/quota_store.rs (.ci/target/rust/debug/deps/quota_store-df9c8dc52177ef48)
+
+running 10 tests
+test armed_cancel_rejects_contradictory_never_dispatched ... ok
+test admitted_request_reconciles_under_refreshed_decision ... ok
+test armed_cancel_retains_unknown_charge ... ok
+test armed_reservation_survives_reopen ... ok
+test awaiting_model_cas_open_without_quota_policy ... ok
+test cadence_strategy_withholds_admission_without_spending_budget ... ok
+test awaiting_model_cas_requires_armed_reservation ... ok
+test coverage_proof_discounts_but_never_erases_reservation ... ok
+test decision_requires_policy_admitted_source_options ... ok
+test never_dispatched_releases_reservation ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/raw_session_writer.rs (.ci/target/rust/debug/deps/raw_session_writer-96488eb5674ce798)
+
+running 1 test
+test session_and_events_commit_together_replay_is_noop_and_seq_conflict_rolls_back ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/receipt_conflicts.rs (.ci/target/rust/debug/deps/receipt_conflicts-b62c134278e3a13e)
+
+running 2 tests
+test legacy_pair_index_migration_keeps_rows_and_deduplicates_normalized_replay ... ok
+test same_receipt_id_retains_distinct_facts_and_deduplicates_delivery_replay ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/research_reset_bank.rs (.ci/target/rust/debug/deps/research_reset_bank-a75dda96d6e1e808)
+
+running 10 tests
+test a_missing_sealed_brief_cannot_silently_erase_inheritance ... ok
+test candidate_identity_rejects_changed_evidence_and_preserves_first_observation ... ok
+test bank_identity_rejects_changed_evidence_and_correction_targets ... ok
+test invalid_inherited_best_is_not_presented_as_a_valid_starting_point ... ok
+test legacy_omissions_recover_from_sealed_ancestry_without_rewriting_old_briefs ... ok
+test original_writes_replay_after_freeze_correction_and_tombstone_without_reverting_them ... ok
+test inconsistent_sealed_candidate_evidence_refuses_a_new_epoch ... ok
+test successive_resets_keep_inherited_diversity_and_replay_the_sealed_projection ... ok
+test tombstones_leave_active_views_but_remain_readable_after_reopen ... ok
+test broken_ancestry_cannot_publish_a_partial_candidate_pool ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+     Running tests/runtime_error_journal.rs (.ci/target/rust/debug/deps/runtime_error_journal-c66191952c679a30)
+
+running 2 tests
+test runtime_error_journal_fail_soft_counts_drops_and_surfaces_them ... ok
+test runtime_error_facts_commit_redacted_and_readable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/seat_lifecycle.rs (.ci/target/rust/debug/deps/seat_lifecycle-aadf36707e8c627f)
+
+running 14 tests
+test active_seat_records_lists_only_live_seats ... ok
+test a_lease_epoch_must_exceed_the_current_writer_epoch ... ok
+test a_foreign_holder_cannot_acquire_the_seats_writer_lease ... ok
+test incarnation_bump_stales_existing_leases_without_ending_them ... ok
+test displaced_writer_stays_displaced_after_reopen_and_human_takeover ... ok
+test fleet_inventory_retains_history_and_bounds_rows_with_a_truncation_witness ... ok
+test managed_session_anchor_admits_only_one_active_seat ... ok
+test pane_admits_only_one_active_seat_for_registration_and_relocation ... ok
+test pre_v2_location_index_is_rebuilt_to_cover_session_anchors ... ok
+test relocation_preserves_history_and_invalidates_previous_location_lease ... ok
+test relocation_requires_the_predecessors_own_task ... ok
+test successor_walk_resolves_long_relocation_chains ... ok
+test the_fleet_entry_carries_the_adapter_declared_capability_flags ... ok
+test answer_arm_rechecks_the_committed_scope_after_another_store_handle_changes_it ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.25s
+
+     Running tests/session_event_search.rs (.ci/target/rust/debug/deps/session_event_search-1c4bc9e6a7b85817)
+
+running 2 tests
+test raw_history_cjk_mixed_failure_filters_and_refs_survive_reopen ... ok
+test raw_history_fts_rebuilds_from_committed_events ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/store_roundtrip.rs (.ci/target/rust/debug/deps/store_roundtrip-c7e7ece9e3c80f56)
+
+running 42 tests
+test bootstrap_owner_projection_resolves_the_committed_grant_after_reopen ... ok
+
+running 1 test
+test boundary_waits_for_recorded_step_and_survives_reopen ... ok
+test armed_publication_survives_a_real_process_death_without_a_second_send ... ok
+test bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence ... ok
+test cancelled_publication_is_settled_never_dispatched_without_stopping_dispatch ... ok
+test canonical_native_arming_keeps_original_intent_without_reissuing_execution ... ok
+test canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart ... ok
+test canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker ... ok
+test canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results ... ok
+test canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt ... ok
+test canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt ... ok
+test cas_seal_and_read_roundtrip ... ok
+test channel_conversation_reads_staged_messages_and_hides_publication_echoes ... ok
+test canonical_direct_native_chain_retains_original_e1_and_only_one_effect ... ok
+test canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch ... ok
+test channel_conversations_interleave_publications_with_recorded_message_times ... ok
+test channel_conversations_limit_selects_latest_publications ... ok
+test child_tool_creation_claim_and_reopen_keep_one_identity ... ok
+test competing_s1_rejects_stale_writer_without_partial_commit ... ok
+test dispatch_cursor_reaches_later_work_and_wraps_without_starving ... ok
+test empty_batch_commit_returns_receipt ... ok
+test failed_child_tool_claim_rolls_back_its_creation ... ok
+test inspection_projections_keep_each_subjects_tasks_and_messages_private ... ok
+test imported_owner_inputs_page_through_one_shared_commit_without_loss ... ok
+test imported_committed_steps_replay_in_step_order_with_a_one_item_page ... ok
+test legacy_unattributed_dispatch_never_authorizes_another_attempt ... ok
+test native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen ... ok
+test memory_receipt_resolves_the_same_raw_call_after_reopen ... ok
+test native_recovery_scans_past_pending_tasks_and_preserves_checkpoint ... ok
+test native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt ... ok
+test one_unusable_subject_memory_intent_does_not_wedge_the_batch ... ok
+test native_recovery_recovers_more_than_one_page_of_running_work ... ok
+test publication_t1_claims_and_arms_in_one_commit ... ok
+test peer_cannot_advance_successor_of_a_locally_paused_head ... ok
+test s1_commit_advances_branch_head ... ok
+test store_opens_with_wal_and_fts5_detection ... ok
+test superseded_authority_is_settled_never_dispatched_instead_of_failing ... ok
+test structural_task_roles_survive_reopen_and_archive_without_kind_inference ... ok
+test task_roundtrip ... ok
+test canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision ... ok
+test unreadable_ready_native_result_keeps_its_identity_and_the_row ... ok
+test semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1 ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.52s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_subject-760299c2f5b78a66)
+
+running 123 tests
+test loop_runner::frame_tests::an_unrelated_capability_never_resolves_the_frame ... ok
+test loop_runner::frame_tests::exactly_one_provider_speaks_for_the_subject ... ok
+test loop_runner::frame_tests::a_disabled_unit_is_not_a_provider ... ok
+test loop_runner::frame_tests::two_providers_are_an_ambiguity_not_a_silent_pick ... ok
+test loop_runner::frame_tests::the_subject_switches_between_two_providers_without_a_restart ... ok
+test loop_runner::recovery_tests::a_pause_that_ended_releases_the_held_fact ... ok
+test loop_runner::recovery_tests::a_paused_source_is_held_out_of_the_window ... ok
+test loop_runner::recovery_tests::a_policy_request_is_unbound_and_visible_not_blocked ... ok
+test loop_runner::recovery_tests::an_unmentioned_input_is_recorded_as_not_acted_on ... ok
+test loop_runner::recovery_tests::a_slow_child_never_blocks_a_finished_childs_result_projection ... ok
+test loop_runner::recovery_tests::broker_admission_error_journal_preserves_primary_and_cleanup_errors ... ok
+test loop_runner::recovery_tests::budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1 ... ok
+test loop_runner::recovery_tests::budget_projection_commits_window_and_keeps_unknown_call_verbatim ... ok
+test loop_runner::recovery_tests::canonical_root_json_text_survives_reopen_and_archive ... ok
+test loop_runner::recovery_tests::a_single_gated_reconciliation_cannot_block_a_later_ready_child ... ok
+test loop_runner::recovery_tests::cas_seal_failure_returns_error_without_head_advance_or_publication ... ok
+test loop_runner::recovery_tests::an_empty_upper_read_with_inserted_page_still_bounds_the_round ... ok
+test loop_runner::recovery_tests::catalog_publication_does_not_recover_or_fence_a_live_dispatcher ... ok
+test loop_runner::recovery_tests::compaction_wait_late_arrivals_retry_without_stale_refusal ... ok
+test loop_runner::recovery_tests::compaction_wait_refuses_when_prepared_window_cannot_fit ... ok
+test loop_runner::recovery_tests::context_preparer_fitting_requests_share_worker_and_tolerate_failure ... ok
+test loop_runner::recovery_tests::context_preparer_replacement_does_not_inherit_old_failure ... ok
+test loop_runner::recovery_tests::context_preparer_cancellation_and_owner_drop_prevent_late_publication ... ok
+test loop_runner::recovery_tests::context_preparer_unchanged_failure_refuses_without_restart_or_s0 ... ok
+test loop_runner::recovery_tests::contribution_final_budget_calibrates_complete_payload_without_double_charge ... ok
+test loop_runner::recovery_tests::context_preparer_waits_before_s0_and_seals_same_step_after_completion ... ok
+test loop_runner::recovery_tests::contribution_final_budget_keeps_image_estimate ... ok
+test loop_runner::recovery_tests::contribution_recovery_includes_steps_older_than_the_committed_head ... ok
+test loop_runner::recovery_tests::contribution_final_budget_rejects_underreported_body_before_s0 ... ok
+test loop_runner::recovery_tests::contribution_recovery_keeps_retired_and_correction_request_usage ... ok
+test loop_runner::recovery_tests::an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child ... ok
+test loop_runner::recovery_tests::durable_web_selection_requires_actual_s0_seal ... ok
+test loop_runner::recovery_tests::deferred_channel_restage_preserves_first_projection ... ok
+test loop_runner::recovery_tests::execution_commit_during_projection_is_rejected ... ok
+test loop_runner::recovery_tests::correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail ... ok
+test loop_runner::recovery_tests::expiring_pma_material_reaches_s0_once_and_stays_consumed_after_reopen ... ok
+test loop_runner::recovery_tests::identity_revision_applies_at_step_boundary_behind_fixed_contract ... ok
+
+running 1 test
+test loop_runner::recovery_tests::identity_s1_crash_and_concurrent_editor_keep_durable_decision ... ok
+test loop_runner::recovery_tests::idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill ... ok
+test loop_runner::recovery_tests::frozen_input_survives_shutdown_rejection_and_recorded_result_reopen ... ok
+test loop_runner::recovery_tests::late_history_change_rejects_s0_seal_without_advancing_step ... ok
+test loop_runner::recovery_tests::legacy_zero_without_a_bound_raw_input_count_is_not_observed ... ok
+test loop_runner::recovery_tests::installed_awareness_reaches_the_sealed_prompt_as_advisory_text ... ok
+test loop_runner::recovery_tests::model_child_tests::a_child_question_is_answered_by_the_same_discussion_after_reopen ... ok
+test loop_runner::recovery_tests::model_child_tests::a_decided_run_reopens_without_a_second_generation ... ok
+test loop_runner::recovery_tests::model_child_tests::a_nested_child_cannot_widen_its_parents_granted_tools ... ok
+test loop_runner::recovery_tests::model_child_tests::cancelled_stopped_waiter_retains_late_provider_e1_without_t2 ... ok
+test loop_runner::recovery_tests::model_child_tests::child_authored_budget_is_not_capped_by_defaults ... ok
+test loop_runner::recovery_tests::model_child_tests::a_rejected_generation_settles_the_run_as_failed_with_its_original_e1 ... ok
+test loop_runner::recovery_tests::model_child_tests::child_contributions_survive_registry_replacement_and_reopen_without_reuse ... ok
+test loop_runner::recovery_tests::model_child_tests::child_step_decodes_late_references_before_bounding_display_text ... ok
+test loop_runner::recovery_tests::model_child_tests::cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget ... ok
+test loop_runner::recovery_tests::model_child_tests::convergence_bound_interrupts_a_stuck_pass_and_a_diverging_dispatch ... ok
+test loop_runner::recovery_tests::model_child_tests::distinct_authored_children_use_selected_wire_and_reopen_owned_results ... ok
+test loop_runner::recovery_tests::model_child_tests::failed_generation_reopens_after_e1_without_a_second_send ... ok
+test loop_runner::recovery_tests::model_child_tests::owner_message_reaches_a_running_child_and_is_settled_once ... ok
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_converge_store_d ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_refuse_b_into_a ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_refuse_b_into_d ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_relay_store_e ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_settle_peer_a ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_child_settle_peer_b ... ignored, OS-process obligation partition proof: run through partition_orchestrator
+test loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator ... ignored, requires SHENKO_OBLIGATION_PARTITION_ROOT: real OS-process obligation partition proof
+test loop_runner::recovery_tests::model_child_tests::uncertain_child_restores_original_debt_and_never_redispatches ... ok
+test loop_runner::recovery_tests::native_identity_replacement_is_bound_to_sealed_request ... ok
+test loop_runner::recovery_tests::native_result_replay_keeps_first_delivery_metadata ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_historical_creation_preserves_terminal_state_and_rejects_identity_drift ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_archive_required_conflict_rolls_back_before_file_publication ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_creation_keeps_its_sealed_provenance_through_the_publication_migration ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_late_sealed_request_rejects_without_discarding_other_actions ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_modern_recovery_never_infers_a_missing_terminal_settlement ... ok
+test loop_runner::recovery_tests::obligation_tests::due_obligation_admits_deterministic_self_wake_through_input_lanes ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_origin_event_conflict_refuses_the_whole_required_unit ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_origin_outside_the_selected_events_corrects_instead_of_aborting ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_projection_keeps_full_bodies_and_charges_the_normal_context_budget ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_projection_survives_real_history_compaction ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_successor_conflict_rolls_back_projection_and_settlement ... ok
+test loop_runner::recovery_tests::obligation_tests::obligations_reach_model_and_retire_with_exact_creation_provenance ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_schema7_archive_reopens_replays_and_relays_exact_settlements ... ok
+test loop_runner::recovery_tests::obligation_tests::unreadable_unrelated_decision_keeps_degraded_recovery_and_the_dispatcher ... ok
+test loop_runner::recovery_tests::obligation_tests::settled_obligation_settlement_is_never_replaced_by_peer_convergence ... ok
+test loop_runner::recovery_tests::oversized_fresh_batch_stays_pending_across_reopen ... ok
+test loop_runner::recovery_tests::personality_stays_out_of_the_tool_contract ... ok
+test loop_runner::recovery_tests::real_loop_pauses_and_reopens_without_redispatch ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_s1_rejects_spoofed_unsealed_foreign_and_duplicate_changes ... ok
+test loop_runner::recovery_tests::pending_backlog_larger_than_inbox_reaches_bounded_s0 ... ok
+test loop_runner::recovery_tests::rejected_s0_does_not_consume_a_prepared_contribution ... ok
+test loop_runner::recovery_tests::reopening_awaiting_model_keeps_original_request_blocked ... ok
+test loop_runner::recovery_tests::request_recovery_tests::a_refusal_without_retry_evidence_stops_the_subject_instead_of_replaying ... ok
+test loop_runner::recovery_tests::request_recovery_tests::a_requested_pause_is_honoured_at_a_retry_boundary ... ok
+test loop_runner::recovery_tests::request_recovery_tests::armed_unsent_reopen_records_positive_retry_without_capacity_debt ... ok
+test loop_runner::recovery_tests::request_recovery_tests::broker_admission_rejection_stops_with_durable_primary_cause ... ok
+test loop_runner::recovery_tests::request_recovery_tests::a_recorded_provider_rejection_continues_the_same_sealed_subject_step ... ok
+test loop_runner::recovery_tests::request_recovery_tests::broker_admission_retry_state_read_failure_preserves_primary_and_journal ... ok
+test loop_runner::recovery_tests::request_recovery_tests::the_live_loop_stops_on_unknown_dispatch_debt_without_a_second_request ... ok
+test loop_runner::recovery_tests::request_recovery_tests::the_loop_keeps_polling_an_active_semantic_wait_and_a_restart_keeps_its_deadline ... ok
+test loop_runner::recovery_tests::retained_calibrated_budget_over_limit_blocks_dispatch ... ok
+test loop_runner::recovery_tests::request_recovery_tests::terminal_refusals_reopen_with_live_policy_instead_of_model_text_adoption ... ok
+test loop_runner::recovery_tests::request_recovery_tests::unknown_dispatch_recovery_keeps_capacity_and_original_evidence ... ok
+test loop_runner::recovery_tests::same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch ... ok
+test loop_runner::recovery_tests::staged_input_recovers_before_s0_without_duplication ... ok
+test loop_runner::recovery_tests::semantic_wait_is_durable_and_never_renewed_by_polling ... ok
+test loop_runner::recovery_tests::stop_joins_workers_even_while_a_service_handle_is_retained ... ok
+test loop_runner::recovery_tests::subject_loop_error_is_journaled_as_runtime_error_fact ... ok
+test loop_runner::recovery_tests::the_attention_budget_comes_from_the_subjects_own_policy ... ok
+test loop_runner::recovery_tests::stop_unit_boundaries_leave_recoverable_step_state ... ok
+test loop_runner::recovery_tests::the_policy_control_line_parses_into_a_policy_request ... ok
+test loop_runner::recovery_tests::undecodable_admitted_input_does_not_block_unrelated_subject_work ... ok
+test model_child::grant_account_tests::a_contradicting_account_is_refused ... ok
+test model_child::grant_account_tests::a_legacy_contract_still_validates ... ok
+test model_child::grant_account_tests::an_explicit_grant_account_wins_when_it_agrees ... ok
+test model_child::grant_account_tests::an_unknown_contract_version_is_refused ... ok
+test model_child::grant_account_tests::only_the_registered_grants_name_a_call ... ok
+test model_child::grant_account_tests::parsed_child_display_keeps_literals_separate_from_controls ... ok
+test loop_runner::recovery_tests::unselected_disposition_preserves_evidence_and_reopens_a_correction ... ok
+test model_child::grant_account_tests::the_cognition_directory_travels_only_when_it_exists ... ok
+test model_child::grant_account_tests::the_contract_binds_the_account_namespace_not_the_audience_kind ... ok
+test loop_runner::recovery_tests::unselected_obligation_origin_preserves_evidence_and_reopens_correction ... ok
+test stream_journal::tests::a_multibyte_character_is_never_split ... ok
+test stream_journal::tests::units_are_bounded_and_ordered ... ok
+test loop_runner::recovery_tests::obligation_tests::obligation_incomplete_archives_publish_no_files_facts_or_baselines ... ok
+test model_child::grant_account_tests::the_childs_role_frame_comes_from_the_installed_unit ... ok
+test quota_gate::policy_change_tests::waiting_admission_observes_replacement_policy ... ok
+
+test result: ok. 116 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 43.68s
+
+     Running tests/channel_boundary.rs (.ci/target/rust/debug/deps/channel_boundary-85189d20842b6c08)
+
+running 8 tests
+test legacy_qq_publication_records_still_read ... ok
+test inline_html_examples_remain_root_text ... ok
+test opaque_reply_ids_reach_the_channel_without_reclassifying_root_literals ... ok
+test registry_rejects_duplicate_and_invalid_descriptors ... ok
+test stub_channel_is_a_first_class_reply_target ... ok
+test staging_binds_labels_to_the_owning_channel ... ok
+test registered_and_unknown_reply_kinds ... ok
+test contract_text_comes_from_the_registry ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/local_model_behavior.rs (.ci/target/rust/debug/deps/local_model_behavior-319e5ac9b5a5b943)
+
+running 1 test
+test local_model_follows_the_shipped_control_protocol ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/pma_decision_settlement.rs (.ci/target/rust/debug/deps/pma_decision_settlement-5bd208fa8895f475)
+
+running 4 tests
+test an_unreadable_answer_settles_as_a_failure_without_a_decision ... ok
+test an_unroutable_reminder_fails_without_committing_a_poisoned_decision ... ok
+test a_silent_answer_settles_with_exactly_one_durable_decision ... ok
+test reminder_batches_are_scoped_and_rebind_after_plugin_restart ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_types-84defe117711640d)
+
+running 14 tests
+test channel::tests::attachment_bytes_accepts_within_limit ... ok
+test channel::tests::attachment_bytes_empty_chunks_are_fine ... ok
+test channel::tests::attachment_bytes_rejects_at_limit ... ok
+test channel::tests::attachment_bytes_rejects_oversized_first_chunk ... ok
+test channel::tests::attachment_bytes_zero_limit ... ok
+test cognition::tests::confidence_states_never_collapse ... ok
+test cognition::tests::reading_follows_reason_termination ... ok
+test ids::tests::ledger_seq_next ... ok
+test channel::tests::max_attachment_bytes_is_eight_mib ... ok
+test ids::tests::entity_id_unique ... ok
+test output::tests::a_grant_binds_the_account_namespace ... ok
+test output::tests::control_boundaries_preserve_commonmark_literals ... ok
+test output::tests::streamed_reference_tail_stays_unpublished_until_eof ... ok
+test output::tests::only_the_versioned_target_deserializes ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_ui-41031c2a04738fda)
+
+running 32 tests
+test api::context_tests::unwired_context_does_not_invent_plugins_or_windows ... ok
+test api::context_tests::window_report_retains_policy_cost_and_derivative_identity_not_payload ... ok
+test api::naming_tests::a_participant_cannot_name_the_instance ... ok
+test api::naming_tests::the_owner_names_the_instance_and_the_name_becomes_a_revision ... ok
+test config_service::tests::builtin_page_limit_is_live_adopted_and_survives_reopen ... ok
+test config_service::tests::config_manage_applies_through_the_native_ledger ... ok
+test config_service::tests::different_payload_under_same_intent_is_refused ... ok
+test config_service::tests::repeated_intent_applies_once_and_precedes_revision_check ... ok
+test config_service::tests::input_history_recovers_committed_selection_from_sealed_s0_and_s1 ... ok
+test config_service::tests::stale_base_is_refused_without_overwrite ... ok
+test owner::tests::malformed_pending_verifier_is_not_replaced_on_startup ... ok
+test owner::tests::consumed_claim_reopens_with_the_original_grant_and_bearer ... ok
+test playground::tests::a_work_page_is_served_as_a_trusted_revision ... ok
+test playground::tests::a_readers_action_is_bound_to_a_revision_and_a_request ... ok
+test playground::tests::concurrent_content_stage_and_publish_preserve_committed_facts ... ok
+test playground::tests::the_adopted_page_is_served_until_a_new_publication ... ok
+test playground::tests::interrupted_versions_and_exact_rollback_keep_new_business_data ... ok
+test playground::tests::public_action_executes_wasi_and_reopen_replays_original_receipt ... ok
+test playground::tests::unavailable_runtime_is_rejected_before_durable_task_or_guest_effect ... ok
+test playground::tests::unknown_guest_attempt_survives_reopen_without_rearm ... ok
+test playground_manage::playground_manage_tests::a_request_the_contract_does_not_allow_is_refused ... ok
+test ws::tests::an_unreadable_submission_table_does_not_report_not_admitted ... ok
+test playground_manage::playground_manage_tests::committed_manage_effect_recovers_original_attempt_without_repeating_mutations ... ok
+test playground_manage::playground_manage_tests::the_subject_can_create_iterate_and_adopt_a_work ... ok
+test ws::tests::committed_projection_reuses_message_part_identity ... ok
+test ws::tests::append_and_steer_bind_real_subject_with_next_boundary_placement ... ok
+test ws::tests::closed_writer_reconciles_lost_ack_from_original_record ... ok
+test ws::tests::conflicting_payload_cannot_rewrite_the_original_submission ... ok
+test ws::tests::full_inbox_does_not_delay_durable_acceptance ... ok
+test ws::tests::wrong_subject_is_rejected_without_admission ... ok
+test ws::tests::input_history_retains_admission_order_and_withdrawal_after_reopen ... ok
+test config_service::tests::config_manage_rejects_invalid_input_without_a_change ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.50s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_update-df6203419fe8912b)
+
+running 19 tests
+test build::build_tests::overflowing_real_compiler_output_is_stopped_and_never_an_artifact ... ok
+test build::build_tests::two_real_matching_cargo_targets_are_refused_as_ambiguous ... ok
+test handoff::handoff_tests::activate_admits_a_saved_smoke_report_that_passed ... ok
+test handoff::handoff_tests::activate_commits_a_new_generation_and_fences_the_retired_writer ... ok
+test build::build_tests::redirected_cargo_rebuild_keeps_the_actual_artifact_and_failed_attempt ... ok
+test handoff::handoff_tests::activate_refuses_a_candidate_program_that_changed_after_its_smoke ... ok
+test handoff::handoff_tests::activate_refuses_a_record_without_smoke_evidence ... ok
+test handoff::handoff_tests::activate_refuses_a_saved_smoke_report_that_failed ... ok
+test handoff::handoff_tests::reconcile_fences_the_retired_writer_of_a_committed_selection ... ok
+test handoff::handoff_tests::prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure ... ok
+test handoff::handoff_tests::reconcile_leaves_a_deliberate_pause_alone ... ok
+test handoff::handoff_tests::prepare_refuses_a_candidate_whose_smoke_did_not_pass ... ok
+test handoff::handoff_tests::reconcile_refuses_to_revive_a_fenced_retired_writer ... ok
+test migration::coverage_tests::a_handover_refuses_two_different_subjects ... ok
+test migration::coverage_tests::a_selected_destination_refuses_a_snapshot_that_stops_short ... ok
+test migration::coverage_tests::a_selected_destination_refuses_facts_committed_after_the_snapshot ... ok
+test handoff::handoff_tests::reconcile_refuses_a_boundary_bound_to_another_frozen_request ... ok
+test handoff::handoff_tests::reconcile_resumes_the_same_controller_after_an_interrupted_handoff ... ok
+test handoff::handoff_tests::rollback_refuses_a_retained_executable_whose_smoke_did_not_pass ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests/rollback_append_node.rs (.ci/target/rust/debug/deps/rollback_append_node-facea61f8467fb9f)
+
+running 15 tests
+test parse_node_digest_accepts_canonical_blake3 ... ok
+test parse_node_digest_rejects_non_canonical ... ok
+test rollback_refuses_unknown_target_node ... ok
+test rollback_records_external_effects_in_outcome ... ok
+test rollback_refuses_when_append_returns_current_head ... ok
+test partial_state_rollback_reports_missing_classes ... ok
+test rollback_refuses_when_cas_objects_missing ... ok
+test rollback_refuses_when_chain_subject_differs ... ok
+test rollback_refuses_when_appended_node_classes_differ ... ok
+test state_class_as_str_roundtrips_with_serde ... ok
+test state_class_mandatory_covers_all_six ... ok
+test rollback_refuses_when_chain_head_moved ... ok
+test rollback_with_unobserved_effects_records_the_gap ... ok
+test rollback_refuses_when_no_subject_exists ... ok
+test successful_full_state_rollback ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.70s
+
+     Running tests/rollback_migration.rs (.ci/target/rust/debug/deps/rollback_migration-04cbe4c66b58e080)
+
+running 2 tests
+test a_rollback_import_refuses_a_diverged_fact_and_keeps_the_local_one ... ok
+test a_rollback_import_carries_the_newer_generations_facts_into_the_retained_copy ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_wasm-662fc9b07c3fc402)
+
+running 16 tests
+test runtime::tests::basic_instantiate ... ok
+test runtime::tests::cancellation_stops_guest_before_and_during_execution ... ok
+test p1::tests::fd_readdir_paginates_every_entry ... ok
+test runtime::tests::command_passes_arguments_environment_and_file_streams_to_guest ... ok
+test runtime::tests::command_stream_effects_remain_visible_after_a_trap ... ok
+test runtime::tests::consecutive_commands_do_not_share_process_state ... ok
+test runtime::tests::invalid_command_strings_fail_before_guest_effects ... ok
+test runtime::tests::home_dir_preopened_and_guest_writable ... ok
+test runtime::tests::read_only_mount_rejects_guest_writes ... ok
+test runtime::tests::wasi_start_runs_and_reports_exit_code ... ok
+test tool::tests::environment_refuses_incomplete_closure_bytes_and_stale_selector ... ok
+test tool::tests::inspection_proves_real_abi ... ok
+test tool::tests::environment_generation_pins_closure_and_rolls_back ... ok
+test tool::tests::installed_tool_unit_executes ... ok
+test net::stop_tests::dns_and_guest_clock_waits_obey_run_stop ... ok
+test runtime::tests::deadline_stops_cpu_bound_guest_and_runtime_recovers ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.08s
+
+     Running tests/checkpoint_closure.rs (.ci/target/rust/debug/deps/checkpoint_closure-2b4d8d8ca59b9152)
+
+running 4 tests
+test special_files_are_refused_and_absent_mounts_are_recorded_as_absent ... ok
+test missing_object_refuses_the_restore_before_any_mutation ... ok
+test head_journal_and_ownership_are_strict ... ok
+test capture_restore_round_trips_bytes_modes_links_and_removals ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/home_mounts.rs (.ci/target/rust/debug/deps/home_mounts-363d5e83f1bf3220)
+
+running 8 tests
+test cow_diff_accounts_for_file_directory_replacements ... ok
+test absent_declared_mount_fails_explicitly_and_guest_stays_confined ... ok
+test cow_overlay_symlink_masks_base_descendants ... ok
+test cow_missing_roots_refuse_commit_without_advancing_head ... ok
+test cow_unreadable_contents_refuse_diff_and_commit ... ok
+test cow_tombstone_open_failure_rejects_mount_readmission ... ok
+test cow_mount_keeps_base_unchanged_and_isolates_branches ... ok
+test guest_writes_nested_state_and_a_reopened_runtime_reads_it_back ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/mount_admission.rs (.ci/target/rust/debug/deps/mount_admission-e449c7bb02eae26a)
+
+running 4 tests
+test declared_sources_are_classified_by_cause_and_never_created ... ok
+test unenterable_declared_source_is_reported_as_inaccessible ... ok
+test runtime_construction_refuses_a_bad_declared_mount ... ok
+test refused_cow_admission_leaves_no_managed_workspace_state ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/network.rs (.ci/target/rust/debug/deps/network-e04b98dd3c390fc7)
+
+running 7 tests
+test admission_refuses_contradictory_or_widened_targets ... ok
+test caller_supplied_transport_descriptors_are_refused ... ok
+test installed_target_admits_exactly_one_outbound_stream ... ok
+test networked_run_without_a_bound_is_refused_before_any_socket ... ok
+test guest_half_close_is_visible_to_the_peer ... ok
+test guest_echoes_bytes_from_the_admitted_socket ... ok
+test cancellation_ends_a_guest_blocked_in_a_socket_read ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+     Running tests/real_ssh_wasm.rs (.ci/target/rust/debug/deps/real_ssh_wasm-21cb68a748ef5275)
+
+running 1 test
+test ssh_banner_exchange_runs_inside_the_module ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/tool_artifact_roots.rs (.ci/target/rust/debug/deps/tool_artifact_roots-dc39e081f61144b0)
+
+running 1 test
+test installed_tool_bytes_are_roots_and_an_unrelated_orphan_is_collected ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/wasm_state.rs (.ci/target/rust/debug/deps/wasm_state-521f7ca1ad19d55c)
+
+running 4 tests
+test mismatched_module_backend_and_missing_objects_are_refused ... ok
+test a_guest_without_the_protocol_is_memory_only_and_never_claimed_resumed ... ok
+test published_state_records_pin_their_objects_and_report_missing_continuations ... ok
+test captured_continuation_resumes_the_guests_own_execution ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+   Doc-tests shenko
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_awareness_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_broker
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_channel_adapters
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_channel_napcat
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_channel_napcat_link
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compact_budget
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compact_rollover
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compact_snap
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compat
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compat_mcp
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compat_poppy
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_compat_skill
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_context_policy
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_document
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_evidence
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_exec_host
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_exec_ssh
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_identity
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_kernel
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_media
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_memory
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_mobile
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_node
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_quota
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_repl
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_seed
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_store
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_subject
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_types
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_ui
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_update
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shenko_wasm
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

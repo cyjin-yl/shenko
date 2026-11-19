@@ -1,0 +1,24 @@
+Auto-merging bin/shenko/src/cli.rs
+CONFLICT (content): Merge conflict in bin/shenko/src/cli.rs
+Auto-merging bin/shenko/src/cli_dispatch.rs
+CONFLICT (content): Merge conflict in bin/shenko/src/cli_dispatch.rs
+Auto-merging bin/shenko/src/cli_tools.rs
+Auto-merging bin/shenko/src/context_policy.rs
+Auto-merging bin/shenko/src/node_sync.rs
+Auto-merging bin/shenko/src/policy_config.rs
+CONFLICT (content): Merge conflict in bin/shenko/src/policy_config.rs
+Auto-merging bin/shenko/src/runtime_lifecycle.rs
+CONFLICT (content): Merge conflict in bin/shenko/src/runtime_lifecycle.rs
+Auto-merging bin/shenko/src/runtime_start.rs
+CONFLICT (content): Merge conflict in bin/shenko/src/runtime_start.rs
+Auto-merging crates/shenko-broker/src/broker.rs
+CONFLICT (content): Merge conflict in crates/shenko-broker/src/broker.rs
+Auto-merging crates/shenko-broker/src/execution.rs
+CONFLICT (content): Merge conflict in crates/shenko-broker/src/execution.rs
+Auto-merging crates/shenko-store/src/cognition.rs
+CONFLICT (content): Merge conflict in crates/shenko-store/src/cognition.rs
+Auto-merging crates/shenko-store/src/store.rs
+CONFLICT (content): Merge conflict in crates/shenko-store/src/store.rs
+Auto-merging docs/IMPLEMENTATION_DOCS_MAP.md
+CONFLICT (content): Merge conflict in docs/IMPLEMENTATION_DOCS_MAP.md
+Automatic merge failed; fix conflicts and then commit the result.

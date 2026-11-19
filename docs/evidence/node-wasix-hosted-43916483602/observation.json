@@ -1,0 +1,77 @@
+{
+  "kind": "real_node_wasix_hosted_observation",
+  "run_id": 43916483602,
+  "job_id": 133471893851,
+  "artifact_id": 14249304171,
+  "head_commit": "be46be34593452f47b824d3ae62f625032e2d54c",
+  "checkout_commit": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "tree": "58e5e59b230a5020ee56ccf800deea1466c3151b",
+  "source_binding_verified": true,
+  "harness_driver_and_input_verified": {
+    "harness": "6218ed78275c4423160c93fbdb384901a7fd89b2a8eaf06f01efcad464abebaa",
+    "driver": "a9419c9aa0abbced7c69145806768153971d37121a8c20e63e0c623f0991f150",
+    "input": "f1c895141dd1cbb589de36e6c93900da14b1f24f96ee24c2016afc303d43c0dc"
+  },
+  "artifact_sha256": "2d0fb9a4f51a23c506c360ebfadb6aa42e2f3eeafd75ca9e9d03896120657106",
+  "artifact_bytes": 38884,
+  "artifact_file_count": 26,
+  "all_internal_hashes_verified": true,
+  "first_invocation": {
+    "started_at": "2026-11-16T17:15:53.120846+00:00",
+    "finished_at": "2026-11-16T17:16:51.502260+00:00",
+    "elapsed_seconds": 58.37976508999998,
+    "exit_code": 1,
+    "rss_peak_bytes_observed": 1831038976,
+    "spawn_requested": true,
+    "owned_pid": 2461,
+    "leader_reaped": true,
+    "group_remaining": [],
+    "stopped": null,
+    "cleanup_attempts": []
+  },
+  "resources": {
+    "budget": {
+      "rss_monitor_bytes": 6442450944,
+      "available_memory_reserve_bytes": 3943718912,
+      "free_disk_reserve_bytes": 4294967296,
+      "address_space_hard_bytes": 12884901888,
+      "wall_seconds_per_guest": 180,
+      "cpu_soft_seconds": 150,
+      "file_hard_bytes": 16777216,
+      "monitor_interval_seconds": 0.05,
+      "basis": "min(system MemAvailable, finite visible ancestor max/high minus current); reserve max(1 GiB, one quarter); RSS remainder capped at 6 GiB and rounded down to 64 MiB",
+      "enforcement": "RLIMIT_AS/CPU/file-size are hard per-process limits; RSS and remaining headroom are sampled group/system/cgroup guards, not hard resident-memory enforcement"
+    },
+    "before_memory_bytes": {
+      "MemTotal": 16760344576,
+      "MemAvailable": 15770460160,
+      "SwapTotal": 3221221376,
+      "SwapFree": 3221221376,
+      "CommitLimit": 11601391616,
+      "Committed_AS": 2060492800
+    },
+    "minimum_sampled_headroom_bytes": 14069149696,
+    "minimum_sampled_free_disk_bytes": 91110133760,
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "samples": 59,
+    "visible_cgroup_limits": "Both observed non-root ancestors had memory.max/high=max and cpu.max=max 100000; their observed memory.events oom/oom_kill remained zero."
+  },
+  "guest_stderr": "WASM32_UNSUPPORTED_BUILTIN id=256 name=BigIntConstructor\nTypeError: BigIntConstructor\n(Use `node --trace-uncaught ...` to show where the exception was thrown)\n\nNode.js v25.0.0-pre\n",
+  "cell_reports_observed": [],
+  "filesystem_witness_observed": false,
+  "checkpoint_observed": false,
+  "reopen_attempted": false,
+  "compiled_cache_files": [],
+  "conclusion": "failed_unsupported_builtin_BigIntConstructor",
+  "failure_is_resource_guard": false,
+  "exact_first_throw_site": "unconfirmed: no guest stack trace was emitted",
+  "source_build_attestation": null,
+  "product_capability_installed": false,
+  "named_target_acceptance": false,
+  "root_or_remote_changed": false
+}

@@ -1,0 +1,21 @@
+0.00.007.845 I srv  llama_server: initializing ...
+0.00.007.861 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.007.966 I srv  init_listene: The UI is disabled
+0.00.007.971 I srv  init_listene: Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable
+0.00.008.040 W srv  server_setup: security: no API key is set and CORS allows all origins (see https://github.com/ggml-org/llama.cpp/pull/25655)
+0.00.009.303 I srv    load_model: loading model '.ci/model/model.gguf'
+0.00.285.176 W load: control-looking token: 128247 '</s>' was not control-type; this is probably a bug in the model. its type will be overridden
+0.01.099.463 I cmn          init: llama threadpool init, n_threads = 4
+0.01.394.647 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 16384, kv_unified = 'false'
+0.01.404.688 I srv  server_run_i: model loaded
+0.01.404.703 I srv  server_on_li: listening on http://127.0.0.1:18832
+0.05.600.308 I slot get_availabl: id  0 | task -1 | selected slot by LRU, n_tokens = 0, t_last = -1
+0.05.600.403 I slot launch_slot_: id  0 | task 0 | processing task, is_child = 0
+0.35.965.344 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   2048, progress = 0.16, t =  30.36 s / 67.45 tokens per second
+2.10.144.125 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   4096, progress = 0.32, t = 124.54 s / 32.89 tokens per second
+4.47.337.549 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   6144, progress = 0.48, t = 281.74 s / 21.81 tokens per second
+8.24.973.622 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =   8192, progress = 0.64, t = 499.37 s / 16.40 tokens per second
+13.03.073.338 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =  10240, progress = 0.80, t = 777.47 s / 13.17 tokens per second
+18.42.082.326 I slot print_timing: id  0 | task 0 | prompt processing, n_tokens =  12288, progress = 0.97, t = 1116.48 s / 11.01 tokens per second
+20.05.767.043 W srv          stop: cancel task, id_task = 0
+20.06.167.557 I srv    operator(): operator(): cleaning up before exit...

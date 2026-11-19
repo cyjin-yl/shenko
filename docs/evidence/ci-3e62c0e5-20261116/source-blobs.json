@@ -1,0 +1,70 @@
+{
+  "source_head": "3e62c0e517a246872101cd1e61a694b2156bc919",
+  "actual_checkout": "1c01c95a4915856312746b5c7ef404c1d7a84cec",
+  "tree": "1ccf8f0bee35915c9f6c4d886b5a7bf54050d694",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "git_blob": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+      "bytes": 10563,
+      "sha256": "ea409b123ed0299be13238fbf46fe38fc94065173e1dea82668df8272ae4f40a",
+      "retained_as": "source-blobs/334e4063b2e5355d844b86030fbdf43e05856e3b.blob"
+    },
+    {
+      "path": "scripts/ci/clippy_ratchet.py",
+      "git_blob": "11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5",
+      "bytes": 17305,
+      "sha256": "757f54faf70e7eddfab32aa0a83260e4a348055680e4492c1a190c10d6454c77",
+      "retained_as": "source-blobs/11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5.blob"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+      "git_blob": "8a47200c93c5c9f450a6f7a4ee43798518f30162",
+      "bytes": 18310,
+      "sha256": "1929f98690a24570be1d39dab44046cebbea3b7c8cb142b365e2b712a0f550c5",
+      "retained_as": "source-blobs/8a47200c93c5c9f450a6f7a4ee43798518f30162.blob"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+      "git_blob": "ef7372385bad903645c9d678d2858278e092ff77",
+      "bytes": 28956,
+      "sha256": "c0da4d1a763e8277a87b7bcc298ae9ae34290ea2f4c90d22309fc6cd1498653c",
+      "retained_as": "source-blobs/ef7372385bad903645c9d678d2858278e092ff77.blob"
+    },
+    {
+      "path": "crates/shenko-update/src/build.rs",
+      "git_blob": "62965af9ae618689fff5298c391f59b21f65013a",
+      "bytes": 36452,
+      "sha256": "e60ea854e4b6cf2e79486612b3d14dd29ae0e1eb8e16d4f7ed9efef1b5f5ee58",
+      "retained_as": "source-blobs/62965af9ae618689fff5298c391f59b21f65013a.blob"
+    },
+    {
+      "path": "crates/shenko-update/src/build_tests.rs",
+      "git_blob": "0cd77113d25618e440e44b8811ec47d341ba2659",
+      "bytes": 11381,
+      "sha256": "fa1859efde85be2beafa6bf2c6d45396adb06ae7ec5543c410084fbad21278e0",
+      "retained_as": "source-blobs/0cd77113d25618e440e44b8811ec47d341ba2659.blob"
+    },
+    {
+      "path": "crates/shenko-update/src/handoff_tests.rs",
+      "git_blob": "c0fb298bed162a575714a5d2a928f858d89a7756",
+      "bytes": 53432,
+      "sha256": "b5e5cd67a17c09d8a673415831855790c07e4d058dacc050e949a327499a6fac",
+      "retained_as": "source-blobs/c0fb298bed162a575714a5d2a928f858d89a7756.blob"
+    },
+    {
+      "path": "crates/shenko-store/src/native_evidence_successor.rs",
+      "git_blob": "b5e0bf42dbde21b690fc80d660a9e573e4452c1c",
+      "bytes": 12231,
+      "sha256": "10b5a4c5846c2f7e258d288e9da54922e085b9fb22ebfc0fd34bafb8917b7763",
+      "retained_as": "source-blobs/b5e0bf42dbde21b690fc80d660a9e573e4452c1c.blob"
+    },
+    {
+      "path": "bin/shenko/tests/native_evidence_delivery.rs",
+      "git_blob": "b27831676aa1828517f36910df39f4133a702a9b",
+      "bytes": 54251,
+      "sha256": "9f2918ddd8ac7fdebd539448455f7fb9445582bb1af9841e0c063e49caa2ec0a",
+      "retained_as": "source-blobs/b27831676aa1828517f36910df39f4133a702a9b.blob"
+    }
+  ]
+}

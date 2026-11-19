@@ -180,8 +180,13 @@ pub enum Command {
         #[command(subcommand)]
         command: cli::ContactsCommand,
     },
-    /// Validate configuration and exit
-    Check,
+    /// Validate configuration, or audit an existing Store's retained objects.
+    Check {
+        /// Read one existing database and its CAS without opening a writer or
+        /// preparing home state. Print a bounded retention report, not a GC plan.
+        #[arg(long)]
+        retained_objects: bool,
+    },
     /// Print version info
     Version,
     /// Drive the native browser provider directly (native proof / diagnostics):

@@ -1,0 +1,52 @@
+{
+  "kind": "fixture-parameter-grouping-static-observation",
+  "observed_utc": "2026-11-16T22:31:48.337857+00:00",
+  "source_parent": "1123ce99754a2e3186a87bd8c650852eb4638b59",
+  "reason": "Independent review identified eight fixture helper parameters, exceeding the seven-parameter Clippy default. Group the actual smoke/program evidence without changing behavior.",
+  "rust_compilation_executed": false,
+  "rust_fixture_executed": false,
+  "new_test_windows": 0,
+  "coherent_build_and_binding_windows": 9,
+  "tool_paths": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "source_file": {
+    "path": "crates/shenko-update/src/handoff_tests.rs",
+    "bytes": 58654,
+    "sha256": "c1d74e41011b11c25470220c165d7b63f27a44c047094af23b8d0ecfc42463bf",
+    "staged_git_blob": "7e023600b5ed8381c1377c94374e386d936432b9"
+  },
+  "commands": [
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--cached",
+        "--check"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--cached",
+        "--unified=0",
+        "--",
+        "crates/shenko-update/src/handoff_tests.rs"
+      ],
+      "exit_code": 0,
+      "stdout": "diff --git a/crates/shenko-update/src/handoff_tests.rs b/crates/shenko-update/src/handoff_tests.rs\nindex d62cb08..7e02360 100644\n--- a/crates/shenko-update/src/handoff_tests.rs\n+++ b/crates/shenko-update/src/handoff_tests.rs\n@@ -266,0 +267,5 @@ fn candidate_slot(fixture: &Installation, generation: &RuntimeGeneration) -> Pat\n+struct FixturePreparation<'a> {\n+    smoke: Option<ObjectRef>,\n+    program: Option<(&'a Path, Digest)>,\n+}\n+\n@@ -276,2 +281 @@ fn activation_record(\n-    smoke_evidence_ref: Option<ObjectRef>,\n-    prepared_program: Option<(&Path, Digest)>,\n+    preparation: FixturePreparation<'_>,\n@@ -278,0 +283 @@ fn activation_record(\n+    let FixturePreparation { smoke: smoke_evidence_ref, program: prepared_program } = preparation;\n@@ -467,2 +472 @@ async fn activate_refuses_a_saved_smoke_report_that_failed() {\n-        Some(evidence),\n-        None,\n+        FixturePreparation { smoke: Some(evidence), program: None },\n@@ -512,2 +516 @@ async fn activate_refuses_a_record_without_smoke_evidence() {\n-        None,\n-        None,\n+        FixturePreparation { smoke: None, program: None },\n@@ -575,2 +578 @@ async fn activate_admits_a_saved_smoke_report_that_passed() {\n-        Some(evidence),\n-        Some((program.as_path(), Digest::blake3(b\"candidate executable fixture\\n\"))),\n+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), Digest::blake3(b\"candidate executable fixture\\n\"))) },\n@@ -664,2 +666 @@ async fn rollback_refuses_a_retained_executable_whose_smoke_did_not_pass() {\n-        Some(passed_evidence),\n-        None,\n+        FixturePreparation { smoke: Some(passed_evidence), program: None },\n@@ -748,2 +749 @@ async fn reconcile_resumes_the_same_controller_after_an_interrupted_handoff() {\n-        None,\n-        None,\n+        FixturePreparation { smoke: None, program: None },\n@@ -898,2 +898 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {\n-        None,\n-        None,\n+        FixturePreparation { smoke: None, program: None },\n@@ -1037,2 +1036 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {\n-        Some(evidence),\n-        Some((program.as_path(), digested)),\n+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), digested)) },\n@@ -1120,2 +1118 @@ async fn reconcile_refuses_a_boundary_bound_to_another_frozen_request() {\n-        None,\n-        None,\n+        FixturePreparation { smoke: None, program: None },\n@@ -1256,2 +1253 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {\n-        Some(evidence),\n-        Some((program.as_path(), artifact_digest)),\n+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), artifact_digest)) },\n",
+      "stderr": ""
+    }
+  ],
+  "original_checkpoint_retained": "1123ce99754a2e3186a87bd8c650852eb4638b59",
+  "limitations": [
+    "No Rust compilation, Clippy execution or runtime result.",
+    "Only textual diff checks establish unchanged assertion lines and no new test function."
+  ]
+}

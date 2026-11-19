@@ -1,0 +1,137 @@
+[
+  {
+    "path": ".github/workflows/model5-artifact-inspection.yml",
+    "bytes": 11380,
+    "sha256": "569b7c1e78e9ea51f5f093762909b99dba2f670c78ac00c26cf9f084219aa5cc"
+  },
+  {
+    "path": "candidate-blob-readback.json",
+    "bytes": 24571,
+    "sha256": "2357b29ea340c70e52f70196de251208e4fed397210970b3b930d6fb78d19afe"
+  },
+  {
+    "path": "candidate-commit.json",
+    "bytes": 5389,
+    "sha256": "1008a389c98df3dc14c92c14288f58a7ee90de6531d4f7de66c1fee63467361c"
+  },
+  {
+    "path": "candidate-compare.json",
+    "bytes": 51406,
+    "sha256": "475b1acec6344ccbc8ed2cf5b7affedcc133401f182c0992596be832fce78359"
+  },
+  {
+    "path": "candidate-metadata.json",
+    "bytes": 663,
+    "sha256": "f65c878f212246aa04f8f9aeffed04632acbe1cf2139dfe548defedbf16f9d9b"
+  },
+  {
+    "path": "local-recovery-probe-manifest.json",
+    "bytes": 3100,
+    "sha256": "85923a542b0d29632573d7c15786a5a6141b4a2325eeedc96bde23bf0454897d"
+  },
+  {
+    "path": "local-recovery-probe-setup.json",
+    "bytes": 1668,
+    "sha256": "efae1e0d304721af9becbed3080cbfeecb94e88e773025f4b221be23fff3b9c5"
+  },
+  {
+    "path": "local-recovery-probe.initial.stderr",
+    "bytes": 112,
+    "sha256": "ede36a1e6fefc653f2b09ff745ed3cd12dab710e0317adcf169d3ac99b950c20"
+  },
+  {
+    "path": "local-recovery-probe.initial.stdout",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "local-recovery-probe.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "local-recovery-probe.stdout",
+    "bytes": 3100,
+    "sha256": "85923a542b0d29632573d7c15786a5a6141b4a2325eeedc96bde23bf0454897d"
+  },
+  {
+    "path": "local-validation.initial.stderr",
+    "bytes": 388,
+    "sha256": "58f4a6274b6c6effe3d86661ba450c89a39231edd213f6e17012963e0a812a64"
+  },
+  {
+    "path": "local-validation.initial.stdout",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "local-validation.json",
+    "bytes": 1679,
+    "sha256": "e2321ed98aa8f9ccec253665713544e056607d004e51342b5ac7d3041853d694"
+  },
+  {
+    "path": "local-validation.py",
+    "bytes": 6550,
+    "sha256": "4633bac7005c3f12d5d192b16f6ec658d067dd6fc54093f83e8faaccb6624670"
+  },
+  {
+    "path": "local-validation.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "local-validation.stdout",
+    "bytes": 1679,
+    "sha256": "e2321ed98aa8f9ccec253665713544e056607d004e51342b5ac7d3041853d694"
+  },
+  {
+    "path": "original/candidate-compare.json",
+    "bytes": 1464,
+    "sha256": "469970a1047f613502477ccbbe3eba4cc1f9c96d9e418c0936073268e879efac"
+  },
+  {
+    "path": "original/check-runs.json",
+    "bytes": 863,
+    "sha256": "8ce7343def7e0493756346e6d9a70e9038917f3190fc0e2528e6b708353d0162"
+  },
+  {
+    "path": "original/diagnostic-artifacts.json",
+    "bytes": 224,
+    "sha256": "b829d0403eca359f72da5510dea1cace4e49db56a0064cd6680ad0e1097e32a7"
+  },
+  {
+    "path": "original/diagnostic-jobs.json",
+    "bytes": 219,
+    "sha256": "454d4b814ddbd34db3ad7dd412bf4bc07d988c71f9a6bbb034aee2a35496e51a"
+  },
+  {
+    "path": "original/diagnostic-push-runs.json",
+    "bytes": 27319,
+    "sha256": "0675eb67d8fe0775ba5450cee483fb29e517baddf5acd893825acd4234d053ff"
+  },
+  {
+    "path": "original/diagnostic-run.json",
+    "bytes": 27135,
+    "sha256": "c216140a4b838ea706d705b82cd6e393359f1a8424ec95d67e2aebbafc0d3aac"
+  },
+  {
+    "path": "original/model5-artifact-inspection.yml",
+    "bytes": 2644,
+    "sha256": "224a2737963359955e11efb1e5382e1784482c314759408373e42bad69555cba"
+  },
+  {
+    "path": "original/recovery-source-7905.json",
+    "bytes": 4671,
+    "sha256": "23b526cca1f7bf742d6bba23bd0a5c8e1cdb574794c0e9590f52276a866d14c4"
+  },
+  {
+    "path": "original/validation-observation.json",
+    "bytes": 712,
+    "sha256": "7bdf86f31ed50261a55e03e86cbf2c918297ee8566a4a7be458b154d9bdfeceb"
+  },
+  {
+    "path": "scripts/inspect_model5_artifact.py",
+    "bytes": 36604,
+    "sha256": "e40016d24ba1692785fea22c48f886136325064a2bae98fa931628873d342657"
+  }
+]

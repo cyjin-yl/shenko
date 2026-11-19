@@ -1,0 +1,181 @@
+{
+  "excludes_self": true,
+  "entries": [
+    {
+      "path": "README.md",
+      "bytes": 6049,
+      "sha256": "5028a14e27228d514d472a0378c143b69177d1e8ed98063be49e45bcc47f8b0e"
+    },
+    {
+      "path": "api/actual-checkout.tool.json.gz",
+      "bytes": 1447,
+      "sha256": "c052b1061407939365b1f73ef2510df1836d161baca6e368120acf503edb1b6d",
+      "decoded_bytes": 6217,
+      "decoded_sha256": "ea29e8824e73254f47e561a91ab1efa902b6e99514b2fc8f03b52e85d7b64f9c"
+    },
+    {
+      "path": "api/artifacts-final.tool.json.gz",
+      "bytes": 774,
+      "sha256": "32b91052582d8f68b5e9bc912781f1eb54a88c74ecdc306e47846be4c70756a7",
+      "decoded_bytes": 3586,
+      "decoded_sha256": "d449f8d2004c068999c02186f82a4a47bb1996b37eaae470ca2c21b965b1a114"
+    },
+    {
+      "path": "api/artifacts-initial.tool.json.gz",
+      "bytes": 597,
+      "sha256": "936d6a8f5fffe9c0dbcca4d5754c4402af54c1259063898a0b847b2c167ef028",
+      "decoded_bytes": 1879,
+      "decoded_sha256": "7308d688fa472ab5817d72a465c86ffc498f305070edd1385ea42d19b4b52efd"
+    },
+    {
+      "path": "api/artifacts-observation2.tool.json.gz",
+      "bytes": 680,
+      "sha256": "34f3823003948fcae44fd48325a1feb538c5569cab8199ded8af94e03eae9506",
+      "decoded_bytes": 2726,
+      "decoded_sha256": "7324e140d315bdb8b8410675a598b25b063e7a8d616d2746793f118caed8cf36"
+    },
+    {
+      "path": "api/clippy-log.tool.json.gz",
+      "bytes": 172,
+      "sha256": "3f702b383f9c6c3cc03be7f399e86c85637c7a774262fe24394ffee4a1c1446c",
+      "decoded_bytes": 210,
+      "decoded_sha256": "94706eab5bc599a6309f59bd5b1923c166c13dc39ca3a08038dbaf0b15c51b01"
+    },
+    {
+      "path": "api/jobs-final-full.tool.json.gz",
+      "bytes": 2310,
+      "sha256": "4f4bfc2394a260662adabf9499015a9c7b2f12617f5bc3690c5d079e319f711a",
+      "decoded_bytes": 40065,
+      "decoded_sha256": "8b8a5c3e9bac4b17c9ffced0aa5ee61ecd4ca5a72237483962034f2df71582cf"
+    },
+    {
+      "path": "api/jobs-initial.tool.json.gz",
+      "bytes": 1198,
+      "sha256": "b235c8b7afa3e74bdc0d3a0ccd1c6fb5c9ac89146ce6acbb7aef56da1312bf5e",
+      "decoded_bytes": 13479,
+      "decoded_sha256": "4ca9fe0fca0dade468ecc742d7f0a4fae1f5a6b706559e0fb7680b43e56d004c"
+    },
+    {
+      "path": "api/jobs-observation2.tool.json.gz",
+      "bytes": 1221,
+      "sha256": "6be347a067092ee78f59a822ea6c3daec95b12bd18c3daf12c0b0a8c55dc06cd",
+      "decoded_bytes": 13877,
+      "decoded_sha256": "64a2f8d9ed721aaa8e2b144a0f087d18608eeb98a2958d0341cb1aebe70a01e0"
+    },
+    {
+      "path": "api/jobs-observation3.tool.json.gz",
+      "bytes": 1190,
+      "sha256": "db748a07243fb17b2d57efbbbdcbe4ab01a217ea1a3cb59d09ee939c131ef75a",
+      "decoded_bytes": 14069,
+      "decoded_sha256": "847ebf0187d03c366f7d71ef94790ddb533cc45b618f3ba2a760d346bc544dab"
+    },
+    {
+      "path": "api/run-final.tool.json.gz",
+      "bytes": 2225,
+      "sha256": "43614a0b4a30e910ebece00921bc261ea6893f4d8629b7cd59ef281795db6e1a",
+      "decoded_bytes": 27482,
+      "decoded_sha256": "a42d597d0d08d14623df3308f3eba5d70cd9fdd5a56b7ca0ccd105fab52afb76"
+    },
+    {
+      "path": "api/run-initial.tool.json.gz",
+      "bytes": 2227,
+      "sha256": "f9287328fab6ec26defd6a34f39639c89c484ace174938771cefbf6067974090",
+      "decoded_bytes": 27472,
+      "decoded_sha256": "bf4f5ec70245a9e2838c12e682f9415788c64a66a7f605f097fe2efdae39225d"
+    },
+    {
+      "path": "artifact-sources/clippy.json",
+      "bytes": 3883,
+      "sha256": "d5a9948823591eccbf85a00e6d4e73320e3d6b1a0d5b64efaf1d4d6178f048bf"
+    },
+    {
+      "path": "artifact-sources/kernel.json",
+      "bytes": 610,
+      "sha256": "d70cf65f2c54515e3222e4d51e33f56d3c85541b1708583b35fe0200257056cb"
+    },
+    {
+      "path": "artifact-sources/rust.json",
+      "bytes": 1133,
+      "sha256": "cc5b0e4b614c78ebbcc165e11e38e750477f2296dc7bfc8be3ba4b8887423149"
+    },
+    {
+      "path": "artifact-sources/web.json",
+      "bytes": 9238,
+      "sha256": "6e5c35eb137d6f52fa4d837798abde5ed13af4378ef71ce56d1b2832d29b3e2e"
+    },
+    {
+      "path": "clippy-derived-counts.json",
+      "bytes": 1674,
+      "sha256": "3a4955b5b3e0e6c686b9367665fa051d31833430b8ad85d8908518de97b6a248"
+    },
+    {
+      "path": "derive_clippy_counts.py",
+      "bytes": 2268,
+      "sha256": "416cc89b445c1228480dc09cfb7e07a72a5d25ed6a2b9576654d5b0792f73fb9"
+    },
+    {
+      "path": "logs/docs-job.log.gz",
+      "bytes": 12867,
+      "sha256": "09ba52fb8aff79167e53b42aaf17740acb03dd963614d0ceabfe2baa2f676087",
+      "decoded_bytes": 62586,
+      "decoded_sha256": "b4aabe4b208487dbdcdd5d43ad11db38d54de943a2e7bbba47ce7bef622f2988"
+    },
+    {
+      "path": "logs/kernel-job.log.gz",
+      "bytes": 13163,
+      "sha256": "e6449e20fbed58c686d70aa9e6c2de6ceb6101fd3c0199b38eca45f549a3d77e",
+      "decoded_bytes": 62230,
+      "decoded_sha256": "69aeaa818f4b0a2294073d378ee5e894ffc3793e029bb9ba622cd4c6b5c63896"
+    },
+    {
+      "path": "logs/migration-job.log.gz",
+      "bytes": 12900,
+      "sha256": "67acb2fc12fff81b313eff4afcacc03e1eba58c31f9e6d24fcf8023c3c85abe6",
+      "decoded_bytes": 62695,
+      "decoded_sha256": "4fd54fb64b83c38e6f4af9f11588c8c5a2b64fb0b0ae22b2662d64d77c687fb6"
+    },
+    {
+      "path": "logs/rust-job.log.gz",
+      "bytes": 33281,
+      "sha256": "c4cd08806ac621bb7d6bafa6322a203bb52d8a1da7a38d3ad279f67b599cd2d6",
+      "decoded_bytes": 159070,
+      "decoded_sha256": "bf3c8dec28717851a64e90e4ff306b21402a6fb281baff9de739de33b97be564"
+    },
+    {
+      "path": "logs/web-job.log.gz",
+      "bytes": 12074,
+      "sha256": "7a97acee594fed00b8a572f5d6bae36b73055d54aaeb9d9eb15b8f81d849d8c2",
+      "decoded_bytes": 45255,
+      "decoded_sha256": "a4566f53e347ab79a50ae70c6c19fdb4e97a907c98f5e40928282f695f521006"
+    },
+    {
+      "path": "observations.json",
+      "bytes": 1168,
+      "sha256": "01afb6808471054083ad8b3a051d88e19d19d04e9867997c90924bca4ef4687b"
+    },
+    {
+      "path": "originals/clippy-evidence.original.zip",
+      "bytes": 1917530,
+      "sha256": "8187d001ae8e31ceca71cb1a2de54cac21cd4f10389af633a7e21a72f4a3098a",
+      "member_count": 17
+    },
+    {
+      "path": "originals/kernel-boundary-evidence.original.zip",
+      "bytes": 231,
+      "sha256": "ec5be14b1cac12e2c7342f6506f2e4c6fe0889dd60916dd451c760fce614caf0",
+      "member_count": 1
+    },
+    {
+      "path": "originals/rust-evidence.original.zip",
+      "bytes": 9031,
+      "sha256": "25cd6739d27a863f7bed011e3fac38bab52e9336cd324b66b36e27855987a5ba",
+      "member_count": 1
+    },
+    {
+      "path": "originals/web-evidence.original.zip",
+      "bytes": 2287308,
+      "sha256": "d52d9c33da806660e6cc5d166cb000a472c2f7ff9e9bd8c507213dcba34f9b6c",
+      "member_count": 49
+    }
+  ]
+}

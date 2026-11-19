@@ -28,9 +28,10 @@ use crate::seat::{
     AnswerConfirmation, AnswerTransport, Confidence, PreflightRefusalKind, ProcessIdentity,
     QuestionKind, QuestionSourceKind, SeatAdapter, SeatAdapterId, SeatAnswer,
     SeatEffectPlan, SeatHandle, SeatObservation, SeatOption, SeatPreflight, SeatQuestionCandidate,
-    SeatResponse, SeatWriteFence,
+    SeatResponse, SeatWriteFence, ManagedCloseReceipt,
 };
 use anyhow::{Context, Result, ensure};
+use super::managed_process::ManagedProcess;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use shenko_store::SeatCapability;
@@ -41,7 +42,7 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     process::Command,
     sync::Mutex,
 };
@@ -64,14 +65,9 @@ pub struct ClaudeSdkSeat {
 }
 
 struct Inner {
-    stdin: Mutex<Option<tokio::process::ChildStdin>>,
-    state: Mutex<State>,
+    process: ManagedProcess,
+    state: Arc<Mutex<State>>,
     command: Vec<String>,
-    /// The spawned process, kept alive for the seat's lifetime. Dropping
-    /// this `Child` (which was spawned with `kill_on_drop`) terminates the
-    /// managed agent; without it the child is killed as soon as `spawn`
-    /// returns.
-    child: Mutex<tokio::process::Child>,
 }
 
 #[derive(Default)]
@@ -115,38 +111,51 @@ impl ClaudeSdkSeat {
         let stdin = child.stdin.take().context("托管 Claude Code 没有可用的 stdin")?;
         let stdout = child.stdout.take().context("托管 Claude Code 没有可用的 stdout")?;
         let stderr = child.stderr.take().context("托管 Claude Code 没有可用的 stderr")?;
-        let inner = Arc::new(Inner {
-            stdin: Mutex::new(Some(stdin)),
-            state: Mutex::new(State::default()),
-            command: command.clone(),
-            child: Mutex::new(child),
-        });
-        let reader_inner = Arc::clone(&inner);
-        tokio::spawn(async move {
+        let state = Arc::new(Mutex::new(State::default()));
+        let reader_state = Arc::clone(&state);
+        let stdout_reader = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
+            let result: Result<()> = async {
+                while let Some(line) = lines.next_line().await? {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+                    if let Ok(value) = serde_json::from_str::<Value>(&line) {
+                        let mut state = reader_state.lock().await;
+                        ingest_frame(&value, &mut state);
+                    }
                 }
-                if let Ok(value) = serde_json::from_str::<Value>(&line) {
-                    let mut state = reader_inner.state.lock().await;
-                    ingest_frame(&value, &mut state);
-                }
-            }
+                Ok(())
+            }.await;
+            reader_state.lock().await.initialized = false;
+            result
         });
-        let stderr_inner = Arc::clone(&inner);
-        tokio::spawn(async move {
+        let stderr_state = Arc::clone(&state);
+        let stderr_reader = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let mut state = stderr_inner.state.lock().await;
+            while let Some(line) = lines.next_line().await? {
+                let mut state = stderr_state.lock().await;
                 if state.stderr_tail.len() >= 32 {
                     state.stderr_tail.remove(0);
                 }
                 state.stderr_tail.push(line);
             }
+            Ok(())
+        });
+        let inner = Arc::new(Inner {
+            process: ManagedProcess::new(child, stdin, vec![stdout_reader, stderr_reader]),
+            state,
+            command: command.clone(),
         });
         let seat = Self { inner };
-        seat.send_initialize().await?;
+        if let Err(error) = seat.send_initialize().await {
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!(
+                    "managed Claude initialization teardown also failed: {close_error:#}"
+                ))),
+            };
+        }
         Ok(seat)
     }
 
@@ -159,15 +168,7 @@ impl ClaudeSdkSeat {
     }
 
     async fn send_frame(&self, frame: &Value) -> Result<()> {
-        let mut guard = self.inner.stdin.lock().await;
-        let stdin = guard
-            .as_mut()
-            .context("托管 Claude Code 的 stdin 已关闭，无法发送")?;
-        let mut line = serde_json::to_vec(frame)?;
-        line.push(b'\n');
-        stdin.write_all(&line).await?;
-        stdin.flush().await?;
-        Ok(())
+        self.inner.process.write_frame(frame).await
     }
 
     async fn next_request_id(&self) -> String {
@@ -386,7 +387,7 @@ impl SeatAdapter for ClaudeSdkSeat {
             remote_session_id: state.session_id.clone(),
             current_command: Some(self.inner.command.join(" ")),
             process_identity: Some(ProcessIdentity {
-                pid: None,
+                pid: self.inner.process.process_id(),
                 start_token: None,
                 executable: Some(self.inner.command.join(" ")),
             }),
@@ -394,7 +395,7 @@ impl SeatAdapter for ClaudeSdkSeat {
     }
 
     async fn transport_live(&self, _seat: &SeatHandle) -> Result<bool> {
-        Ok(self.inner.child.lock().await.try_wait()?.is_none())
+        self.inner.process.transport_live().await
     }
 
     async fn observe(&self, _seat: &SeatHandle) -> Result<SeatObservation> {
@@ -669,17 +670,10 @@ fn sub_question_text(question: &SeatQuestionCandidate, option_id: &str) -> Optio
 impl ClaudeSdkSeat {
     /// Close this product's side of the stdio and terminate the managed
     /// process. The seat owns the `Child` (spawned with `kill_on_drop`), so
-    /// the process also dies if the adapter is dropped without `close`.
-    pub async fn close(&self) {
-        {
-            let mut guard = self.inner.stdin.lock().await;
-            *guard = None;
-        }
-        // Reap the managed process. It was spawned with `kill_on_drop`, so
-        // this is belt-and-suspenders; an explicit kill makes teardown
-        // deterministic rather than relying on `Inner` drop order.
-        let mut child = self.inner.child.lock().await;
-        let _ = child.kill().await;
+    /// the process is killed on abrupt adapter loss; only `close` proves its
+    /// join and the reader barrier.
+    pub async fn close(&self) -> Result<ManagedCloseReceipt> {
+        self.inner.process.close().await
     }
 }
 

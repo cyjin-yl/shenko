@@ -1,0 +1,41 @@
+{
+  "observed_at_utc": "2026-11-16T18:24:28.115875+00:00",
+  "worktree": "/workspace/scratch/faaa3ccca531/shenko-native-e1-delivery",
+  "exists": false,
+  "session_80554": "poll failed: exec-server transport disconnected; recovery timed out after 45s; no exit code obtained",
+  "commands_started": "read-only inventory only; no Cargo or source mutation",
+  "logs": {
+    "clippy-initial-source.tree": {
+      "exists": false
+    },
+    "clippy-second-source.tree": {
+      "exists": false
+    },
+    "clippy-initial-source.patch": {
+      "exists": false
+    },
+    "clippy-second-source.patch": {
+      "exists": false
+    },
+    "clippy-initial.jsonl": {
+      "exists": false
+    },
+    "clippy-initial.log": {
+      "exists": false
+    },
+    "clippy-second.jsonl": {
+      "exists": false
+    },
+    "clippy-second.log": {
+      "exists": false
+    },
+    "docs-initial.log": {
+      "exists": false
+    }
+  },
+  "shared_lock": {
+    "path": "/tmp/shenko-cargo.lock",
+    "exists": false
+  },
+  "compiler_processes_without_argv": []
+}

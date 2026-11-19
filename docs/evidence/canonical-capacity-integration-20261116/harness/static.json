@@ -1,0 +1,26 @@
+{
+  "kind": "static_script_workflow_check_only",
+  "product_tested": false,
+  "base": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+  "script_sha256": "72d13c644a29521446c3b74bdc341590a82406ed8d037324f37fca4cdd05dda7",
+  "workflow_sha256": "7afd9c1474b50ea30ba843f2b2ce28c8718cc210c01a0b0f0c3b017a7659fed0",
+  "retained_function_asts": [
+    "evaluate_first",
+    "contains_expected_product",
+    "outcome_succeeded",
+    "first_request_contains_input",
+    "stop",
+    "clean_pause",
+    "admit_then_resume",
+    "start",
+    "continued"
+  ],
+  "only_model_argv_change": {
+    "argument": "--ctx-size",
+    "before": "16384",
+    "after": "32768"
+  },
+  "bash_syntax_blocks": 5,
+  "python_heredocs_parsed": 2,
+  "python_script_parsed": true
+}

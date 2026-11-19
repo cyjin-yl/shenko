@@ -1,0 +1,18 @@
+{
+  "started_at": "2026-11-16T17:53:04.234273+00:00",
+  "stage": "compile",
+  "checks": {},
+  "build_succeeded": false,
+  "reopen_attempted": false,
+  "feasibility_passed": false,
+  "product_capability_installed": false,
+  "named_target_acceptance": false,
+  "error": {
+    "type": "RuntimeError",
+    "message": "compile failed; see its original output and process observation"
+  },
+  "owned_groups_settled": true,
+  "compiled_cache_files": [],
+  "stop_signal": null,
+  "finished_at": "2026-11-16T18:46:54.176001+00:00"
+}

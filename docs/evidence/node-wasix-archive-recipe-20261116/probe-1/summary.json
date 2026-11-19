@@ -1,0 +1,32 @@
+{
+  "started_at": "2026-11-16T19:30:53.904197+00:00",
+  "scope": "local GNU make/native ar command-length diagnostic only",
+  "node_or_wasix_executed": false,
+  "original_ci_argv_captured": false,
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "page_bytes": 4096,
+  "arg_max_bytes": 2097152,
+  "work": "/workspace/scratch/faaa3ccca531/node-command-length-probe-1",
+  "original_inputs": {
+    "zip_sha256": "56ac75e7ca5580b4c0ce19c5a7dcc96f61ffb31e049f67f323194fb33fb8b73d",
+    "generated_makefile": {
+      "member": "build-configuration/out/Makefile",
+      "sha256": "de432c8271a6d84f4da35d12a709709d6df67783e5ae251478ca83acb1f31584"
+    },
+    "compile_stdout": {
+      "member": "compile.stdout",
+      "sha256": "6d1435602ffb505d104d9dee7403c95bc185701d040b034184e3ecb32d6c1d5d"
+    }
+  },
+  "observed_object_path_count": 928,
+  "observed_joined_path_bytes": 138346,
+  "native_object_sha256": "84b6753b5a3d04207df9c929254d29f284bf2489d40576460061f15520eccd64",
+  "local_joined_path_bytes": 142986,
+  "legacy_exit_code": 1,
+  "passed": false,
+  "failure": {
+    "type": "AssertionError",
+    "message": ""
+  },
+  "finished_at": "2026-11-16T19:30:54.655852+00:00"
+}

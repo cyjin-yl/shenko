@@ -59,6 +59,6 @@ async fn real_omp_rpc_seat_discovers_and_observes() -> Result<()> {
     }
     assert!(ready, "omp --mode rpc never emitted its ready frame");
 
-    seat.close().await;
+    seat.close().await?;
     Ok(())
 }

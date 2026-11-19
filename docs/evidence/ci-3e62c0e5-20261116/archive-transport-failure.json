@@ -1,0 +1,6 @@
+{
+  "operation": "Saving the completed docs-migration/web job-log tool responses after read-only fetch",
+  "error": "exec_command failed: CreateProcess { message: \"Rejected(\\\"Failed to create unified exec process: exec-server transport disconnected\\\")\" }",
+  "first_read_only_recovery_observed_at": "2026-11-16 22:29:49 UTC",
+  "recovery": "A single pwd read succeeded; only missing log fetches are repeated. No workflow is rerun."
+}

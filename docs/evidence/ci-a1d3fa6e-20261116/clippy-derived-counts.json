@@ -1,0 +1,63 @@
+{
+  "scope": "derived only; no Cargo invocation or source-policy evaluation",
+  "comparisons": [
+    {
+      "scope": "production",
+      "baseline_build_finished": true,
+      "candidate_build_finished": true,
+      "observed_increases": [
+        {
+          "package": "shenko",
+          "lint": "clippy::large_enum_variant",
+          "increase": 1,
+          "candidate_locations": [
+            {
+              "jsonl_line": 1439,
+              "message": "large size difference between variants",
+              "spans": [
+                {
+                  "file": "bin/shenko/src/native_evidence_sync.rs",
+                  "line": 21
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scope": "all-targets",
+      "baseline_build_finished": true,
+      "candidate_build_finished": false,
+      "observed_increases": [
+        {
+          "package": "shenko",
+          "lint": "clippy::large_enum_variant",
+          "increase": 2,
+          "candidate_locations": [
+            {
+              "jsonl_line": 1615,
+              "message": "large size difference between variants",
+              "spans": [
+                {
+                  "file": "bin/shenko/src/native_evidence_sync.rs",
+                  "line": 21
+                }
+              ]
+            },
+            {
+              "jsonl_line": 1638,
+              "message": "large size difference between variants",
+              "spans": [
+                {
+                  "file": "bin/shenko/src/native_evidence_sync.rs",
+                  "line": 21
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "artifact_collection_failure",
+  "stage": "fetch_complete_clippy_job_log_retry",
+  "job_id": 133569962820,
+  "tool_result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "tool call error: tool call failed for `codex_apps/github.fetch_workflow_job_logs`\n\nCaused by:\n    Transport closed"
+      }
+    ],
+    "isError": true
+  }
+}

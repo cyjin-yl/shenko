@@ -1,0 +1,8 @@
+{
+  "cli_sha256": "888a870f456a148b36c8820afb000d30f2256ff6726983717b24bab31b6d396a",
+  "port": 35899,
+  "remote_launcher_sha256": "18799dbd12f3b0e88f53fdb43b21a61288271cb17bf6ad8b34f5fa453cfc3ea3",
+  "scope": "real pinned OpenSSH routes to source and receiver Stores through the actual CLI; Store control grants are retained-value fixtures",
+  "source_revision": "1c01c95a4915856312746b5c7ef404c1d7a84cec",
+  "system_ssh_sha256": "04f2ff5f506a3f332e7adeb1478a4c551ae74acdd328e6fb5c2495664d4064e6"
+}

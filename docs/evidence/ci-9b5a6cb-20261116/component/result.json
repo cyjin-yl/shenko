@@ -1,0 +1,8 @@
+{
+  "error": "member configuration was not actually retained",
+  "foreign_inflight_takeover_tested": false,
+  "model_inference_tested": false,
+  "passed": false,
+  "physical_partition_tested": false,
+  "source_revision": "6621968fbb2528475157d30488215ec16fa62e90"
+}

@@ -1,0 +1,11 @@
+{
+  "edited_paths": [
+    "bin/shenko/src/lib.rs",
+    "docs/evidence/README.md",
+    "docs/specs/nodes.md"
+  ],
+  "other_index_before_sha256": "8e5dbcf8731a42807c879d74aa3f886d140f5d349b5a55b07d285a2015df79cb",
+  "other_index_after_sha256": "8e5dbcf8731a42807c879d74aa3f886d140f5d349b5a55b07d285a2015df79cb",
+  "lib_equals_8407": true,
+  "commit_performed": false
+}

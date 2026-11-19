@@ -296,26 +296,56 @@ fn confirm(
 ) -> Result<()> {
     certificate.validate()?;
     let observed = observe_component(node, cancel)?;
+    let own = observed.presence.node_id;
+    let agreed_local = certificate
+        .proposal
+        .observations
+        .iter()
+        .find(|observation| observation.presence.node_id == own)
+        .context("local observation absent from component certificate")?;
     available(
-        observed.complete && observed.reachable == certificate.proposal.members(),
-        "component reachability changed",
+        observed.complete && observed.reachable == agreed_local.reachable,
+        "local component neighbourhood changed",
     )?;
     available(
         observed.presence.committed.as_ref() == Some(certificate),
         "local component selection changed",
     )?;
-    for agreed in &certificate.proposal.observations {
-        let member = agreed.presence.node_id;
-        let presence = if member == observed.presence.node_id {
-            observed.presence.clone()
+    // A coordinator must freshly confirm every member before it may admit
+    // work. A follower confirms its full direct neighbourhood, including the
+    // coordinator; that local confirmation grants no execution authority and
+    // makes no claim about an unreachable member's current state.
+    let confirmations = if certificate.proposal.coordinator == own {
+        certificate.proposal.members()
+    } else {
+        agreed_local.reachable.clone()
+    };
+    for member in confirmations {
+        let agreed = certificate
+            .proposal
+            .observations
+            .iter()
+            .find(|observation| observation.presence.node_id == member)
+            .context("confirmed member absent from component certificate")?;
+        let observation = if member == own {
+            observed.clone()
         } else {
-            let peer = peer_route(node, member)?.context("component route disappeared")?;
-            serde_json::from_value::<ComponentPresence>(component_rpc(
+            let peer = peer_route(node, member)?
+                .ok_or_else(|| ComponentUnavailable("component route disappeared".into()))?;
+            serde_json::from_value::<ComponentObservation>(component_rpc(
                 &peer,
-                &shenko_node::Request::ComponentPresence,
+                &shenko_node::Request::ComponentObserve,
                 cancel,
-            )?)?
+            )?)
+            .map_err(|error| {
+                ComponentUnavailable(format!("component observation was not usable: {error}"))
+            })?
         };
+        available(
+            observation.complete && observation.reachable == agreed.reachable,
+            "component member neighbourhood changed or is unknown",
+        )?;
+        let presence = observation.presence;
         available(
             presence.node_id == member && presence.committed.as_ref() == Some(certificate),
             "component member no longer confirms the same coordinator",
@@ -354,8 +384,9 @@ pub fn confirm_component_authority(
     }
 }
 
-/// Reuse only a unanimously retained selection whose full observed component
-/// is unchanged. It is not a stored global-primary shortcut.
+/// A coordinator resumes only after full component confirmation. A follower's
+/// neighbourhood confirmation keeps it resident without admitting work; the
+/// stored selection alone never substitutes for the required observations.
 pub(super) fn resume_component(
     data_dir: &Path,
     store: &Store,

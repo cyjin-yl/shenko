@@ -26,7 +26,7 @@ use crate::{
         PreflightRefusalKind, SeatHandle, SeatObservation, SeatOption, SeatPreflight,
         SeatQuestionCandidate, SeatResponse, SeatWriteFence, inferred_question_id,
     },
-    ssh_exec::{SeatRefusal, TmuxSeat},
+    ssh_exec::{ExecFailure, ExecResult, SeatRefusal, TmuxSeat},
     terminal::{ScreenGrid, TerminalMode, TerminalScreen},
 };
 use anyhow::{Result, ensure};
@@ -241,40 +241,10 @@ impl SeatAdapter for TmuxSeatAdapter {
             .seat
             .send_input_verified(&seat.location_id, &plan.payload, &expected, expected_pid)
             .await;
-        let (confirmation, detail) = match result {
-            Ok(_) => (
-                AnswerConfirmation::Unconfirmed,
-                Some(
-                    format!(
-                        "按键已写入 pane（writer epoch {}）；tmux 不提供“核对问题并输入”的原子操作，也没有观察到远端确认",
-                        fence.lease_epoch
-                    ),
-                ),
-            ),
-            Err(error) => {
-                let refusal = error.downcast_ref::<SeatRefusal>().copied();
-                match refusal {
-                    Some(refusal) => (
-                        AnswerConfirmation::NotSent {
-                            reason: format!("受管通道拒绝了这次写入：{refusal}"),
-                        },
-                        None,
-                    ),
-                    None => (
-                        AnswerConfirmation::NotSent {
-                            reason: format!("写入失败：{error}"),
-                        },
-                        None,
-                    ),
-                }
-            }
-        };
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::Tmux,
-            transport: AnswerTransport::TerminalInput,
-            confirmation,
-            detail,
-        })
+        terminal_write_response(result, format!(
+            "按键已写入 pane（writer epoch {}）；tmux 不提供“核对问题并输入”的原子操作，也没有观察到远端确认",
+            fence.lease_epoch,
+        ))
     }
 
     async fn submit(
@@ -292,21 +262,10 @@ impl SeatAdapter for TmuxSeatAdapter {
             .seat
             .send_input_verified(&seat.location_id, text, &expected, expected_pid)
             .await;
-        let confirmation = match result {
-            Ok(_) => AnswerConfirmation::Unconfirmed,
-            Err(error) => AnswerConfirmation::NotSent {
-                reason: format!("写入失败：{error}"),
-            },
-        };
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::Tmux,
-            transport: AnswerTransport::TerminalInput,
-            confirmation,
-            detail: Some(format!(
-                "文本已写入 pane（writer epoch {}）；未观察到远端确认",
-                fence.lease_epoch
-            )),
-        })
+        terminal_write_response(result, format!(
+            "文本已写入 pane（writer epoch {}）；未观察到远端确认",
+            fence.lease_epoch,
+        ))
     }
 
     async fn interrupt(&self, seat: &SeatHandle, fence: &SeatWriteFence) -> Result<SeatResponse> {
@@ -319,22 +278,43 @@ impl SeatAdapter for TmuxSeatAdapter {
             .seat
             .send_keys_verified(&seat.location_id, "C-c", &expected, expected_pid)
             .await;
-        let confirmation = match result {
-            Ok(_) => AnswerConfirmation::Unconfirmed,
-            Err(error) => AnswerConfirmation::NotSent {
-                reason: format!("中断写入失败：{error}"),
-            },
-        };
-        Ok(SeatResponse {
-            adapter: SeatAdapterId::Tmux,
-            transport: AnswerTransport::TerminalInput,
-            confirmation,
-            detail: Some(format!(
-                "已发送中断按键（writer epoch {}）；未观察到远端确认",
-                fence.lease_epoch
-            )),
-        })
+        terminal_write_response(result, format!(
+            "已发送中断按键（writer epoch {}）；未观察到远端确认",
+            fence.lease_epoch,
+        ))
     }
+}
+
+/// A guarded target-side refusal proves that no input was attempted.
+/// SshExecutor keeps every post-spawn uncertainty/non-success in ExecResult;
+/// send_*_verified wraps that complete result in ExecFailure. Preserve it as
+/// Unknown, including stdout/stderr and local-reap observations. Other errors
+/// on this exact call path are command validation/spawn failures before send.
+fn terminal_write_response(result: Result<ExecResult>, sent_detail: String) -> Result<SeatResponse> {
+    let (confirmation, detail) = match result {
+        Ok(_) => (AnswerConfirmation::Unconfirmed, Some(sent_detail)),
+        Err(error) => {
+            if let Some(refusal) = error.downcast_ref::<SeatRefusal>() {
+                (AnswerConfirmation::NotSent {
+                    reason: format!("受管通道拒绝了这次写入：{refusal}"),
+                }, None)
+            } else if let Some(failure) = error.downcast_ref::<ExecFailure>() {
+                (AnswerConfirmation::Unknown {
+                    reason: format!("写入结果未知；保留原执行证据，不自动重发：{error:#}"),
+                }, Some(serde_json::to_string(&failure.result)?))
+            } else {
+                (AnswerConfirmation::NotSent {
+                    reason: format!("写入派发前失败：{error:#}"),
+                }, None)
+            }
+        }
+    };
+    Ok(SeatResponse {
+        adapter: SeatAdapterId::Tmux,
+        transport: AnswerTransport::TerminalInput,
+        confirmation,
+        detail,
+    })
 }
 
 /// Map a decision onto the narrowest terminal input that is justified by
@@ -576,6 +556,42 @@ mod tests {
     use super::*;
     use crate::seat::ConfidenceLevel;
     use crate::terminal::{CellStyle, TerminalColor};
+
+    #[test]
+    fn uncertain_execution_retains_complete_evidence_and_is_never_not_sent() -> Result<()> {
+        use anyhow::Context;
+        use crate::executor::{ExecDiagnostic, ExecOutcome, ExecUncertainty};
+        let original = ExecResult {
+            stdout: "original output\n\0字节".into(),
+            stderr: "original SSH diagnostic\n".into(),
+            exit_code: 255,
+            timed_out: false,
+            execution_id: Some(uuid::Uuid::new_v4()),
+            outcome: Some(ExecOutcome::Unknown),
+            diagnostic: Some(ExecDiagnostic {
+                reason: ExecUncertainty::SshExit255,
+                local_process_reaped: true,
+                reconciliation: "local reap does not prove remote stop".into(),
+            }),
+        };
+        let expected = serde_json::to_value(&original)?;
+        let response = terminal_write_response(
+            Err(ExecFailure { result: original }.into()), "must not claim written".into(),
+        )?;
+        assert!(matches!(response.confirmation, AnswerConfirmation::Unknown { .. }));
+        let retained: serde_json::Value = serde_json::from_str(
+            response.detail.as_deref().context("original ExecFailure must be retained")?,
+        )?;
+        assert_eq!(retained, expected);
+        // The explicit target-side precondition refusal remains a no-send
+        // observation, distinct from the post-spawn uncertainty above.
+        let refused = terminal_write_response(
+            Err(SeatRefusal::PaneReplaced.into()), "must not claim written".into(),
+        )?;
+        assert!(matches!(refused.confirmation, AnswerConfirmation::NotSent { .. }));
+        assert!(refused.detail.is_none());
+        Ok(())
+    }
 
     fn handle() -> SeatHandle {
         SeatHandle {

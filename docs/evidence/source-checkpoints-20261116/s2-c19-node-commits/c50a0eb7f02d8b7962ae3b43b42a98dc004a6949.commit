@@ -1,0 +1,8 @@
+tree e4fab7d53be26c2b3969fe22ea9bfe5b1437592f
+parent 2ae047c2c442884548c928a33dc6048637bda83b
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864862 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865606 +0000
+
+fix(update): bind candidate builds to owned Cargo outputs and durable receipts
+
+(cherry picked from commit 3afe99e5fd1717a227dd38538f274f7f02c0ae43)

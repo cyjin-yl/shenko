@@ -1,0 +1,14 @@
+tree b8bce60b332c573c112c8dd5511b9224b9c6f573
+parent c69389f1f1106b9bb15f4157e7f1a0629806a270
+author cyjin.yl <chenyejin2004@foxmail.com> 1794862373 +0800
+committer cyjin.yl <chenyejin2004@foxmail.com> 1794862373 +0800
+
+test(s5): run 17 C19 evidence cases in CI and document serial protocol
+
+WHY: The existing docs CI did not run the Python observation consumer, so a
+new concurrency proof would otherwise remain source-only. Execute all 15
+original and 2 bounded CLI subprocess cases on each candidate; late samples
+remain explicitly rejected after a concurrent stop. Document inode locking,
+recovery limits and unchanged candidate-bound wall-clock requirements.
+
+No test skips, baselines, schema or admission thresholds changed.

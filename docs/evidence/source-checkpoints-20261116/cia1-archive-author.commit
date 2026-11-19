@@ -1,0 +1,6 @@
+tree b740aa8de90bcbfded0312ae13d16542caa31531
+parent 8689295761ec02e480167155d0ab0956e627fff3
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794862527 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794862527 +0000
+
+docs: retain a1d3 CI compilation failures and exact corrective scope

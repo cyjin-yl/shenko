@@ -1,0 +1,9 @@
+The bundle contains these 3 refs:
+95e0a2d68b459f3cfee9561d5211a40b3d6a1499 refs/heads/checkpoint/seat-reviewed-20261116
+74ea34d6c6c7f52875a575d74b869480b63aac4b refs/heads/checkpoint/native-e1-successor-reviewed-20261116
+ff771184d8dd05b4c2125483958cfb2c55319bb4 refs/heads/checkpoint/seat-successor-integration-20261116
+The bundle requires these 3 refs:
+5a1075de15b3ef17cade103bc5f6acddd5229dcd 
+e4d45747d53f7701aea4a293310192dac2126205 
+83bf391440adbe3e153b036ba8fd1ecfe5867202 
+The bundle uses this hash algorithm: sha1

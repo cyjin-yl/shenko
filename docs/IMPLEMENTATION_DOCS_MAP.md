@@ -48,6 +48,8 @@
   - `crates/shenko-store/tests/receipt_conflicts.rs` 的真实 Store/SQLite/CAS 回归均已通过：`same_receipt_id_retains_distinct_facts_and_deduplicates_delivery_replay` 覆盖 A 接纳、同 ID 的 B/C 均拒绝且重开后仍可读、不同 delivery commit 的 B 重放无新增提交、metadata 差异和跨 ledger/投递顺序的稳定冲突身份；`legacy_pair_index_migration_keeps_rows_and_deduplicates_normalized_replay` 覆盖旧唯一索引与 pair-only 行迁移、完整行字节/身份不变、旧 B 重放与新增 C、再次重开去重。[X04](specs/durable-state.md#spec-41-4) 与[回执合同](specs/plugins.md#spec-41-7-3)保持不变。
 
 - **协议类型（ID、CommitRef、TaskRecord 等）** — 已接线
+  - 原生首次 E1 的独立传递为部分已接线：`native_evidence.rs` 的 v2 reader 固定原 fold；`native_evidence_delivery.rs` 拥有 source manifest、本地 delivery debt 与原子物化，`bin/shenko/src/native_evidence_sync.rs` 使用实际注册 SSH/CAS 通道。限本安装已实际物化同一 canonical T1 的首次 definite/Unknown，不授予执行许可、不复制源 acknowledgement。新增真实 SSH 旅程待远端执行，见[范围与验证边界](development/canonical-native-e1-delivery.md)。
+  - 后继候选：`native_evidence_successor.rs` 只接受同一原 attempt 的首次 codec-2 Unknown → 一次 definite，严格核对原因果引用和本安装真实 first-E1 物化；原 ack 不覆盖，本地 resolution 另记。新 scope 明确拒绝旧 first-only 完整性声明，T2 reader 保留原 1/2 范围。[七个新增窗口及限制](development/canonical-native-e1-successor.md)已编写，尚无本候选 Rust/运行通过声明。
   - [§41.3](specs/durable-state.md#spec-41-3)
   - docs/requirements/requirements.json（R029）
 
@@ -116,7 +118,7 @@
   - [§7](specs/plugins.md#spec-7)、[§37](specs/context-policies.md#spec-37)
   - docs/specs/plugins.md
   - 上下文策略观察器退出时直接等待已持有 Fiber 的 `dispose` 屏障；全局 shutdown 关闭新操作准入后，已有策略与工具仍须完成清理，清理失败保留原始错误。
-  - `shenko-broker` 的 `execute_request` / `journal_provider_error` 与 `Store::journal_capture_budget_refusal` 保留[运行时错误事实](specs/cognition-units.md#spec-45-14)；具体推理原因只记一次。`node_sync::observe_follower` 的[角色事实](specs/nodes.md#spec-5-4-3)与 `store::commit_error` 的[接收账本缺前驱分类](specs/nodes.md#connected-store-admission-and-materialization)由对应命名消费者保留。
+  - `shenko-broker` 的 `execute_request` / `journal_provider_error` 与 `Store::journal_capture_budget_refusal` 发起具名的[运行时错误报告](specs/cognition-units.md#spec-45-14)；写入失败仍保留 dropped 计数，报告尝试不等于持久化成功，也不解除 Unknown 占用。`node_sync::observe_follower` 保留[角色事实](specs/nodes.md#spec-5-4-3)；`store::commit_error` 保留原 SQLite 诊断，不能把尚未分类的外键失败当作已证明的[缺前驱债务](specs/nodes.md#connected-store-admission-and-materialization)。
 
 - **Hook API（HookRegistry）** — 已接线（`Supervisor` 持有 registry，共享运行库将同一实例注入 subject loop）
   - [§37](specs/context-policies.md#spec-37)
@@ -160,6 +162,8 @@
   - [§8.2](specs/wasm-tools.md#spec-8-2)
   - docs/specs/wasm-tools.md
   - `ToolArtifactRoots` 从安装清单枚举 ContentStore 工具的 chunk manifest 与分块；重组模块的摘要不是 CAS 对象根。原生消费者验证安装工具在回收后仍可读取、同命名空间无主对象被回收；此证据不代表生产 GC 调度器已接线。
+  - `CasGc::plan` 严格核对 registry、实际 producer 与各次枚举（含 `RecordedRoots`）的命名空间声明；多余、缺失、重复或漂移均拒绝，不限制根的跨命名空间引用。[声明一致性增量](development/cas-root-declarations.md)复用原工具根旅程，当前候选执行待 CI；Store 根生产者、共享 CAS 写入排他和运行时 GC 装配仍未完成。
+  - `Store::retained_object_snapshot` 与 `check --retained-objects` 提供[单库只读保留对象审计](development/store-retained-objects.md)：绑定原 ledger/schema/水位，检查本地控制和 E1 收据、交付债、构建观察及递归 CAS 闭包，容量或缺失显式 incomplete。它不注册完整 GC producer，不证明所有槽或跨写入排他；新增三项保留观察待 CI 执行。
 
 - **REPL（shenko-repl：kernel、journal、state）** — 已接线（`ReplSessionHandler` 与 `ReplCellHandler` 共用会话 owner；会话参加升级交接。具体语言、WASM 兼容性与 R0/R1/R2 恢复证据分别核对）
   - [§19](specs/repl.md#spec-19)、[§19.1](specs/repl.md#spec-19-1)
@@ -224,11 +228,11 @@
 - **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
   - [§21](specs/web-interface.md#spec-21)、[§43](specs/configuration-playground.md#spec-43)
   - docs/specs/web-interface.md
+  - [同一真实单机旅程的浏览器观察](development/real-browser-journey.md) — harness 已接线；实际浏览器/模型结果待命名候选运行，不是完整 UI 验收收据。
   - `crates/shenko-ui/web/src/projection.ts#UI_PROJECTION_SCHEMA` 为 `shenko.ui-projection/v2`，应用语义投影允许 `LocalizedText`；`UI_INTENT_SCHEMA` 仍为 v1，服务器 WS 帧与服务 DTO 保持各自协议。结构任务角色、canonical public text、历史缺失来源和本地化显示分别保留类型，界面不增加模型控制行解析。
   - `crates/shenko-ui/web/src/messages.ts` 的 `MessageId`、`MessageArguments`、`UiMessage`、`message` 与 `resolveMessage` 拥有带参数的中文/英文消息目录。语言变体先经 `resolveLocale`，未知语言及缺译项确定地回到 `zh-CN`；服务器和模型原文继续按原文显示，`live-read-models.ts#HistoryReadError` 保留本地诊断的消息 ID 与参数。
   - `LiveController` 只协调连接和状态；`SocketTransport` 拥有 WS 与重连，`LiveReadModels` 拥有读取和历史页，input/timeline reducer、preferences、pending-input store 各守其状态边界。渲染由 timeline surface/entries、composer、delegation branches、submission history、work frame 直接组成；IM 的内容 `ResizeObserver` 阅读锚点与 Inspect 的选择恢复随其组件保留。
   - `main.tsx` 仅在 `?demo=1` 动态载入 `demo-controller`，后者才引入 `demo-fixtures`。`build.mjs` 通过 esbuild 的实际 outputs 记录分块模块及摘要；Rust 的 `build.rs` 按 manifest 嵌入具名 chunks，HTTP 只服务该生成集合。这里记录源码接线；实际浏览器请求、语言、重连及阅读稳定性仍由各自运行回执说明。
-  - [同一真实单机旅程的浏览器观察](development/real-browser-journey.md) — harness 已接线；实际浏览器/模型结果待命名候选运行，不是完整 UI 验收收据。
 
 - **可执行策略配置（`bin/shenko/src/policy_config.rs`）** — 已接线（`shenko.quota/policy` 读回实际配额账本；`shenko.context-policy/compaction_preference` 修改实际策略选择器，重启恢复已保存顺序。未知策略 id 保留在请求顺序并在回执中披露；不把自然语言 `[policy]` 请求当成结构化配置执行，也不表示完整 S2 策略验收已完成）
   - [§43.1](specs/configuration-playground.md#spec-43-1)、[§12.3.1](specs/context-policies.md#spec-12-3-1)、[§42](specs/quota-resources.md#spec-42)

@@ -408,54 +408,13 @@ impl Store {
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
 
-    /// Installation identity comes from the immutable bootstrap event or an
-    /// explicit provisioning record, never the current ledger writer identity.
-    /// If both representations exist, their installation bindings must agree.
+    /// Validate the immutable source bootstrap before projecting the local
+    /// physical installation. A foreign subject requires its exact imported
+    /// origin; a local provisioning record never grants subject authority.
     pub fn installation_id_for_subject(&self, agent: EntityId) -> Result<EntityId, ShenkoError> {
-        let (genesis, indexed) = {
-            let conn = self.ledger.conn.lock();
-            let raw: String = conn.query_row("SELECT data FROM subject_genesis WHERE subject_id=?1",
-                [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
-            let genesis: shenko_types::subject::SubjectGenesis = serde_json::from_str(&raw).map_err(storage_error)?;
-            if genesis.subject_id != agent {
-                return Err(ShenkoError::conflict("bootstrap genesis subject binding mismatch"));
-            }
-            let indexed: Option<(String, String, String)> = conn.query_row(
-                "SELECT installation_id,subject_id,data FROM bootstrap_records WHERE bootstrap_id=?1",
-                [genesis.bootstrap_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-                .optional().map_err(storage_error)?;
-            (genesis, indexed)
-        };
-        let parse_identity = |value: &serde_json::Value| -> Result<EntityId, ShenkoError> {
-            value.as_str()
-                .ok_or_else(|| ShenkoError::storage("invalid bootstrap installation_id"))?
-                .parse::<EntityId>().map_err(storage_error)
-        };
-        let path = self.cas.verified_object_path(&genesis.bootstrap_event_ref).map_err(storage_error)?;
-        let event: serde_json::Value = serde_json::from_slice(&std::fs::read(path).map_err(storage_error)?)
-            .map_err(storage_error)?;
-        let event_installation = event.get("installation_id").map(parse_identity).transpose()?;
-        let indexed_installation = if let Some((installation, subject, data)) = indexed {
-            let installation = installation.parse::<EntityId>().map_err(storage_error)?;
-            let value: serde_json::Value = serde_json::from_str(&data).map_err(storage_error)?;
-            let recorded = value.get("installation_id")
-                .ok_or_else(|| ShenkoError::storage("bootstrap record has no installation_id"))?;
-            if subject.parse::<EntityId>().map_err(storage_error)? != agent
-                || parse_identity(recorded)? != installation
-            {
-                return Err(ShenkoError::conflict("bootstrap installation identity differs from indexed binding"));
-            }
-            Some(installation)
-        } else {
-            None
-        };
-        match (event_installation, indexed_installation) {
-            (Some(event), Some(indexed)) if event != indexed => Err(ShenkoError::conflict(
-                "bootstrap event and provisioning installation identities differ",
-            )),
-            (Some(installation), _) | (_, Some(installation)) => Ok(installation),
-            (None, None) => Err(ShenkoError::storage("bootstrap has no persisted installation identity")),
-        }
+        crate::local_installation::installation_id_for_subject_conn(
+            &self.ledger.conn.lock(), &self.cas, agent,
+        )
     }
 
     /// Explicit same-installation migration, NOT peer election authority.

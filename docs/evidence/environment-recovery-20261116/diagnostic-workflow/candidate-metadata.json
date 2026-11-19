@@ -1,0 +1,19 @@
+{
+  "commit": "283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+  "tree": "9562c84baf3a7393b38e178853163b81668723c5",
+  "parent": "a9c17717a6effb504c63ff5248401c8857d65558",
+  "workflow_blob": "b9d68fde90aaf1fad1aea388d7d5e1818e303fba",
+  "unchanged_inspector_blob": "3c0e2e7a9ca1bd9d143bdc53ed68c0eb9bda4805",
+  "changed_files": [
+    ".github/workflows/model5-artifact-inspection.yml"
+  ],
+  "source_recovery": {
+    "commit": "7905e8413b96015d96ea301bd1f3b6937dcfff90",
+    "tree": "241909742fd73225b08b88fea967197a74f65334",
+    "fetch_depth": 1,
+    "history_complete": false
+  },
+  "ref_changed": false,
+  "workflow_triggered": false,
+  "product_tested": false
+}

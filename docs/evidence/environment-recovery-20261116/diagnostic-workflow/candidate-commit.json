@@ -1,0 +1,28 @@
+{
+  "status": "fulfilled",
+  "value": {
+    "name": "commit",
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Action completed."
+        }
+      ],
+      "structuredContent": {
+        "content": "{\"sha\":\"283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"node_id\":\"C_kwDOVUFCKtoAKDI4M2I1ZjM3Y2U1ZWMyZWE5N2JiN2U3YmM5NTUwNDQ0NGRiMGM5OWU\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"author\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T18:30:49Z\"},\"committer\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T18:30:49Z\"},\"tree\":{\"sha\":\"9562c84baf3a7393b38e178853163b81668723c5\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/trees/9562c84baf3a7393b38e178853163b81668723c5\"},\"message\":\"fix: validate diagnostic context and recover fixed source objects\\n\\nMove runner.temp from job env to the supported compile-step env. Preserve\\nrun 43927382049 as an invalid-workflow failure before any job or download.\\nThe original read-only model 5 inspector remains byte-for-byte unchanged.\\n\\nRecover only commit 7905e841 and tree 24190974 with a depth-one checkout.\\nRetain a complete source archive checked against every Git tree blob, an\\nexact object pack, the original commit and parent IDs, and the explicit\\nshallow boundary. Import the pack into an empty repository and fsck it;\\nrecord incomplete history rather than reconstructing or claiming ancestors.\\nNo checkout configuration, environment dump, credentials or product code\\nexecution is included. Always upload recovery evidence, including failures.\\n\\nLocal verification: exact a9 inspector py_compile, YAML parse, all run-step\\nbash -n, inline Python parse, and the actual recovery shell on one generated\\nlocal shallow Git repository. No GitHub workflow or product test has run.\",\"parents\":[{\"sha\":\"a9c17717a6effb504c63ff5248401c8857d65558\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/a9c17717a6effb504c63ff5248401c8857d65558\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/a9c17717a6effb504c63ff5248401c8857d65558\"}],\"verification\":{\"verified\":false,\"reason\":\"unsigned\",\"signature\":null,\"payload\":null,\"verified_at\":null}}",
+        "title": "283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+        "modified_date": null,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+        "display_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+        "display_title": "283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+        "structuredContent": {
+          "title": "283b5f37ce5ec2ea97bb7e7bc95504444db0c99e",
+          "content": "{\"sha\":\"283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"node_id\":\"C_kwDOVUFCKtoAKDI4M2I1ZjM3Y2U1ZWMyZWE5N2JiN2U3YmM5NTUwNDQ0NGRiMGM5OWU\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e\",\"author\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T18:30:49Z\"},\"committer\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T18:30:49Z\"},\"tree\":{\"sha\":\"9562c84baf3a7393b38e178853163b81668723c5\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/trees/9562c84baf3a7393b38e178853163b81668723c5\"},\"message\":\"fix: validate diagnostic context and recover fixed source objects\\n\\nMove runner.temp from job env to the supported compile-step env. Preserve\\nrun 43927382049 as an invalid-workflow failure before any job or download.\\nThe original read-only model 5 inspector remains byte-for-byte unchanged.\\n\\nRecover only commit 7905e841 and tree 24190974 with a depth-one checkout.\\nRetain a complete source archive checked against every Git tree blob, an\\nexact object pack, the original commit and parent IDs, and the explicit\\nshallow boundary. Import the pack into an empty repository and fsck it;\\nrecord incomplete history rather than reconstructing or claiming ancestors.\\nNo checkout configuration, environment dump, credentials or product code\\nexecution is included. Always upload recovery evidence, including failures.\\n\\nLocal verification: exact a9 inspector py_compile, YAML parse, all run-step\\nbash -n, inline Python parse, and the actual recovery shell on one generated\\nlocal shallow Git repository. No GitHub workflow or product test has run.\",\"parents\":[{\"sha\":\"a9c17717a6effb504c63ff5248401c8857d65558\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/a9c17717a6effb504c63ff5248401c8857d65558\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/a9c17717a6effb504c63ff5248401c8857d65558\"}],\"verification\":{\"verified\":false,\"reason\":\"unsigned\",\"signature\":null,\"payload\":null,\"verified_at\":null}}",
+          "display_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/283b5f37ce5ec2ea97bb7e7bc95504444db0c99e"
+        }
+      },
+      "isError": false
+    }
+  }
+}

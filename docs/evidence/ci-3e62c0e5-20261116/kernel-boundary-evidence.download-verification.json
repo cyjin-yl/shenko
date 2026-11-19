@@ -1,0 +1,34 @@
+{
+  "artifact": {
+    "id": 14278165179,
+    "name": "kernel-boundary-evidence",
+    "size_in_bytes": 232,
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14278165179",
+    "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14278165179/zip",
+    "expired": false,
+    "created_at": "2026-11-16T22:17:51Z",
+    "expires_at": "2027-02-14T22:17:03Z",
+    "updated_at": "2026-11-16T22:17:51Z",
+    "digest": "sha256:d6cfb596ea8fe4160ca7200d36c040fcbcc80e014ef18125fa07cb9c5dc6c0e9",
+    "workflow_run": {
+      "id": 43968540714,
+      "repository_id": 1430340138,
+      "head_repository_id": 1430340138,
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919"
+    }
+  },
+  "file_name": "kernel-boundary-evidence.original.zip",
+  "sha256": "d6cfb596ea8fe4160ca7200d36c040fcbcc80e014ef18125fa07cb9c5dc6c0e9",
+  "size": 232,
+  "crc_checked": true,
+  "member_count": 1,
+  "members": [
+    {
+      "path": "base.json",
+      "size": 120,
+      "sha256": "42781f3dbf97c56ea90a077bbc9539855d2b791f7a3bc44e2f62120c2b8de835"
+    }
+  ],
+  "observed_at": "2026-11-16T22:25:49.295216+00:00"
+}

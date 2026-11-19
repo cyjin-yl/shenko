@@ -1,0 +1,6 @@
+tree a417a44a32446bb4bc2b1338ea2b3cb25d64cf3f
+parent 9ff28184593431b40fdb56574c188f680e37a4c7
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865283 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865384 +0000
+
+fix(store): query the serialized task identity for successor E1 scope

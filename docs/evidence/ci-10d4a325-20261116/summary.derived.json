@@ -1,0 +1,82 @@
+{
+  "recorded_at": "2026-11-16T21:44:21.048307+00:00",
+  "run_id": 43957583118,
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43957583118",
+  "requested_head": "10d4a325560a1054fbde00162e8e7696007c2eab",
+  "actual_checkout": "cd4b7cc2b03397ec4657b5037e30e8d0c26553f9",
+  "tree": "86af69f6e0a2c4434c252d570f23a8afa1c5d5ec",
+  "baseline": "84ae19404f2a17d259362c99091db408b7262e14",
+  "status": "completed",
+  "conclusion": "failure",
+  "completed_by": "2026-11-16T21:31:45Z",
+  "jobs": [
+    {
+      "name": "web",
+      "id": 133616170339,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:14:21Z"
+    },
+    {
+      "name": "clippy-ratchet",
+      "id": 133616170758,
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:18:27Z"
+    },
+    {
+      "name": "rust",
+      "id": 133616170881,
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:31:45Z"
+    },
+    {
+      "name": "kernel-boundary",
+      "id": 133616170963,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:12:56Z"
+    },
+    {
+      "name": "docs-migration",
+      "id": 133616170971,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:12:48Z"
+    },
+    {
+      "name": "docs",
+      "id": 133616171082,
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-11-16T21:12:02Z",
+      "completed_at": "2026-11-16T21:12:56Z"
+    }
+  ],
+  "test_aggregate": {
+    "passed": 1088,
+    "failed": 1,
+    "ignored": 11,
+    "measured": 0,
+    "filtered_out": 90
+  },
+  "test_summaries": 152,
+  "artifact_count": 4,
+  "zip_members_total": 1900,
+  "original_logs_retained": 5,
+  "clippy_wrapper_failure_retained": true,
+  "new_runtime_tests_added_by_archive": 0,
+  "claims_not_made": [
+    "native E1 successor accepted",
+    "complete S2 journey",
+    "installed named Node/Bun capability",
+    "real model behavior",
+    "7-day or 30-day observation"
+  ]
+}
