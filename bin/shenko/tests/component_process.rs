@@ -651,6 +651,7 @@ impl Fixture {
             "request_attempts":count("subject_request_attempts")?,
             "external_attempts":count("attempts")?,
             "authority_bindings":count("subject_authority_bindings")?,
+            "dispatcher_owners":count("subject_dispatch_owner")?,
         });
         tx.commit()?;
         Ok(result)
@@ -1054,15 +1055,21 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
             ensure!(
                 snapshot["head"]["branch_id"] == json!(certificate.proposal.branch_id)
                     && snapshot["head"]["mode"] == "paused"
-                    && snapshot["authority_bindings"] == 1,
+                    && snapshot["authority_bindings"] == 1
+                    && snapshot["dispatcher_owners"] == 1,
                 "coordinator did not activate the actual agreed Store branch"
             );
         } else {
+            let follower_health = fixture.ready(index, ui_ports[index])?;
             ensure!(
                 snapshot["authority_bindings"] == 0
-                    && TcpStream::connect(("127.0.0.1", ui_ports[index])).is_err(),
+                    && snapshot["dispatcher_owners"] == 0,
                 "follower started selected-runtime consumers"
             );
+            fs::write(
+                fixture.logs().join(format!("{}-recovery-health.json", NODES[index])),
+                serde_json::to_vec_pretty(&follower_health)?,
+            )?;
             let request = json!({"command":"availability_branch","branch_id":certificate.proposal.branch_id,"subject_id":subject_id,"reason":"follower must not acquire the coordinator branch"});
             let (status, _) = fixture.invoke(index, &["node"], Some(&request))?;
             ensure!(!status.success(), "follower opened the coordinator branch");

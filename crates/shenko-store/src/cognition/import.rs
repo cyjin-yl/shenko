@@ -287,6 +287,15 @@ impl Store {
                 self.validate_obligation_rows(&manifest.rows)?;
                 check_import_order_conn(&tx, manifest)?;
                 validate_subject_boundaries(&tx, manifest)?;
+                // One admission decision governs both head archival and the
+                // complete activation unit. A parallel branch's newer selector
+                // revision cannot grant authority over the retained local head.
+                let mut parallel_head_agents = HashSet::new();
+                for row in ordered.iter().filter(|row| row.table == "subject_branch_heads") {
+                    if archives_parallel_head(&tx, row)? {
+                        parallel_head_agents.insert(row.value("agent_id").context("subject head agent missing")?);
+                    }
+                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
                 let mut updated = 0usize;
@@ -312,7 +321,9 @@ impl Store {
                     // replace this installation's active controller projection.
                     // Retain every exact head by content identity instead of
                     // treating distinct branches as competing updates to it.
-                    if row.table == "subject_branch_heads" && archives_parallel_head(&tx, row)? {
+                    if row.table == "subject_branch_heads"
+                        && parallel_head_agents.contains(row.value("agent_id").context("subject head agent missing")?)
+                    {
                         let data = row.value("data").context("parallel head data missing")?;
                         let snapshot = Digest::blake3(data.as_bytes());
                         let historical = CognitionRow {
@@ -386,7 +397,7 @@ impl Store {
                     // applied or refused together.
                     if !semantic_units_applied && is_unit_table(&row.table) {
                         let (outcome, owned) =
-                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest)?;
+                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest, &parallel_head_agents)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;
