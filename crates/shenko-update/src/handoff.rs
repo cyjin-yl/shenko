@@ -994,6 +994,74 @@ impl UpdateService {
         })
     }
 
+    /// A completed activation may later carry the selected runtime's live
+    /// rollback request and resource receipts. Those writes do not reopen the
+    /// old handoff or authorize changing any of its selection facts.
+    fn verify_completed_observing_activation(
+        &self,
+        source: &ActivationRecord,
+        selected: &ActivationRecord,
+        selector: &ActivationSelector,
+    ) -> UpdateResult<()> {
+        ensure!(source.phase == ActivationPhase::Observing
+            && selected.phase == ActivationPhase::Observing,
+            "SELECTED_RECOVERY_RECORD_CONFLICT: selected and retired activation facts did not converge");
+        if source == selected {
+            return Ok(());
+        }
+        let mut historical = selected.clone();
+        historical.record_revision = source.record_revision;
+        historical.recovery_closure_ref = source.recovery_closure_ref.clone();
+        historical.pending_operations_ref = source.pending_operations_ref.clone();
+        historical.inference_allocations_ref = source.inference_allocations_ref.clone();
+        ensure!(historical == *source && selected.record_revision > source.record_revision,
+            "SELECTED_RECOVERY_RECORD_CONFLICT: completed activation selection facts changed");
+
+        let read_json = |reference: &ObjectRef| -> UpdateResult<serde_json::Value> {
+            let bytes = self.store.cas.read_object(&reference.digest).map_err(anyhow::Error::from)?;
+            ensure!(Digest::blake3(&bytes) == reference.digest && bytes.len() as u64 == reference.bytes,
+                "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback reference integrity mismatch");
+            Ok(serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?)
+        };
+        let original = read_json(&source.recovery_closure_ref)?;
+        let mut updated = read_json(&selected.recovery_closure_ref)?;
+        let reference: ObjectRef = serde_json::from_value(updated.get("process_handoff_request_ref")
+            .cloned().context("completed activation changed without a frozen rollback request")?)
+            .map_err(anyhow::Error::from)?;
+        let request = read_json(&reference)?;
+        let command: crate::cli::UpdateCommand = serde_json::from_value(request.get("command")
+            .cloned().context("frozen rollback command missing")?).map_err(anyhow::Error::from)?;
+        let frozen: FrozenProcessHandoff = serde_json::from_value(request)
+            .map_err(anyhow::Error::from)?;
+        ensure!(matches!(command, crate::cli::UpdateCommand::Rollback {
+            activation, expected_selector_revision,
+        } if activation == selected.activation_id
+            && expected_selector_revision == selector.selector_revision)
+            && frozen.schema_version == 1 && frozen.agent_id == selector.agent_id
+            && frozen.installation_id == self.store.installation_id_for_subject(selector.agent_id)?
+            && frozen.source_selector == *selector
+            && same_slot_path(&frozen.source_slot, &self.state_slot(&selector.state_ref)?),
+            "SELECTED_RECOVERY_RECORD_CONFLICT: frozen request is not this selected activation's rollback");
+        let updated = updated.as_object_mut().context("updated recovery closure is not an object")?;
+        match original.get("process_handoff_request_ref") {
+            Some(previous) => { updated.insert("process_handoff_request_ref".into(), previous.clone()); }
+            None => { updated.remove("process_handoff_request_ref"); }
+        }
+        ensure!(original.as_object() == Some(&*updated),
+            "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback changed the original recovery closure");
+        if selected.pending_operations_ref != source.pending_operations_ref
+            || selected.inference_allocations_ref != source.inference_allocations_ref
+        {
+            ensure!(selected.pending_operations_ref == selected.inference_allocations_ref,
+                "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback resource references disagree");
+            let reference = selected.pending_operations_ref.as_ref()
+                .context("live rollback removed its resource receipts")?;
+            let _: Vec<HandoffParticipantReceipt> = serde_json::from_value(read_json(reference)?)
+                .map_err(anyhow::Error::from)?;
+        }
+        Ok(())
+    }
+
     /// Complete the non-authoritative Activated -> Observing projection after
     /// the selector and launcher pointer have committed. The two independent
     /// ledgers cannot update this phase in one SQLite transaction. Either
@@ -1019,6 +1087,10 @@ impl UpdateService {
             .ok_or(UpdateError::ActivationNotFound(activation_id))?;
         let mut selected = candidate.activation_record(activation_id)?
             .ok_or(UpdateError::ActivationNotFound(activation_id))?;
+        if source.phase == ActivationPhase::Observing && selected.phase == ActivationPhase::Observing {
+            self.verify_completed_observing_activation(&source, &selected, selector)?;
+            return Ok(selected);
+        }
         let mut source_facts = source.clone();
         let mut selected_facts = selected.clone();
         source_facts.phase = ActivationPhase::Activated;
@@ -1033,8 +1105,7 @@ impl UpdateService {
         let next_selected = selected.record_revision.checked_add(1)
             .ok_or_else(|| anyhow!("selected activation revision exhausted"))?;
         match (source.phase, selected.phase) {
-            (ActivationPhase::Activated, ActivationPhase::Activated)
-            | (ActivationPhase::Observing, ActivationPhase::Observing) => {
+            (ActivationPhase::Activated, ActivationPhase::Activated) => {
                 ensure!(source.record_revision == selected.record_revision,
                     "OBSERVING_REVISION_CONFLICT: equal phases have different revisions");
             }
@@ -1071,7 +1142,10 @@ impl UpdateService {
     /// success/abandonment from the last error or from the launcher pointer.
     /// The caller holds the runtime's control lane or exclusive offline owner.
     pub fn finish_committed_handoff(&self, agent_id: EntityId) -> UpdateResult<()> {
-        for source_record in self.store.activation_records(agent_id)? {
+        // B may still select A->B after C commits B->C. Finish committed
+        // successors before following B's historical predecessor: returning
+        // through A would hide C and could let reconciliation resume B.
+        for source_record in self.store.activation_records(agent_id)?.into_iter().rev() {
             let target_slot = self.state_slot(&source_record.to_state_ref)?;
             if target_slot == self.live_slot || !target_slot.join(SLOT_DB_FILENAME).is_file() { continue; }
             let candidate = Store::open(target_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?;
@@ -1106,7 +1180,55 @@ impl UpdateService {
             if matches!(committed.phase, ActivationPhase::Activated | ActivationPhase::Observing) {
                 self.converge_observing_activation(&candidate, &selected, source_record.activation_id)?;
             }
+            let mirrored = self.store.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
+            let committed_selector = candidate.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
+            ensure!(mirrored == selected && committed_selector == selected,
+                "COMMITTED_RECOVERY_SELECTOR_CONFLICT: completion did not retain the exact selected authority");
             return Ok(());
+        }
+
+        // A cold start can instead open selected B while retired A still
+        // needs its mirror, fence or phase projection completed. Recovery
+        // through A must prove those exact postconditions before admitting B.
+        if let Some(selected) = self.store.activation_selector(agent_id)?
+            && let ActivationOrigin::Activation { activation_id } = &selected.origin
+            && let Some(record) = self.store.activation_record(*activation_id)?
+            && selected.generation == record.to_generation
+            && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
+        {
+            ensure!(selected.state_ref == record.to_state_ref,
+                "SELECTED_RECOVERY_STATE_CONFLICT: selected state differs from committed activation");
+            let source_slot = self.state_slot(&record.from_state_ref)?;
+            if !same_slot_path(&source_slot, &self.live_slot) {
+                let versions = self.data_dir.join("versions");
+                ensure!(same_slot_path(&source_slot, &self.data_dir)
+                    || source_slot.parent().is_some_and(|parent| same_slot_path(parent, &versions)),
+                    "SELECTED_RECOVERY_SOURCE_CONFLICT: retired slot is outside this installation");
+                ensure!(source_slot.join(SLOT_DB_FILENAME).is_file(),
+                    "SELECTED_RECOVERY_SOURCE_MISSING: retired ledger is not available");
+                let source = Arc::new(Store::open(
+                    source_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?);
+                let retired = UpdateService::new(
+                    self.data_dir.clone(), source_slot, source,
+                    Arc::clone(&self.participants), Arc::clone(&self.builder));
+                retired.finish_committed_handoff(agent_id)?;
+                let retired_selector = retired.store.activation_selector(agent_id)?
+                    .ok_or(UpdateError::SelectorMissing)?;
+                let selected_selector = self.store.activation_selector(agent_id)?
+                    .ok_or(UpdateError::SelectorMissing)?;
+                ensure!(retired_selector == selected && selected_selector == selected,
+                    "SELECTED_RECOVERY_SELECTOR_CONFLICT: retired ledger has not mirrored selected authority");
+                let (retired_head, _) = retired.store.load_subject(agent_id)?;
+                ensure!(retired_head.mode == SubjectMode::Handoff
+                    && retired_head.software_generation == record.from_generation,
+                    "SELECTED_RECOVERY_UNFENCED: retired writer still has an admissible head");
+                let retired_record = retired.store.activation_record(*activation_id)?
+                    .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                let selected_record = self.store.activation_record(*activation_id)?
+                    .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                self.verify_completed_observing_activation(&retired_record, &selected_record, &selected)?;
+                return Ok(());
+            }
         }
         Ok(())
     }

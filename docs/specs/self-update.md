@@ -272,6 +272,19 @@ it does not decide who won from the last exception or a PID. Before a selection
 commit, compensation may resume the same old controller. After a commit, old
 admissions remain closed and recovery completes the selected route.
 
+Recovery scans a slot's committed successors before following the activation
+that originally selected that slot. If C committed B→C while B still mirrors
+A→B, completion must mirror and fence B, publish C and read back that exact
+selector; the historical A→B pair cannot make B resumable. Selected-side
+recovery also verifies the retired selector and source-generation fence after
+predecessor completion. Unfinished phase projections still require identical
+activation facts and the exact adjacent revisions. Once both ledgers reached
+`Observing`, the selected runtime may freeze its later live rollback request
+and current resource receipts in that activation. Recovery preserves those
+later references only when the original selection facts and recovery closure
+remain intact and the sealed request names that exact selected activation,
+selector, installation and slot. Other record differences remain conflicts.
+
 Rollback uses the retained previous slot/executable and is a new activation with
 an increasing selector revision/epoch. Current facts pass through typed recovery
 into the previous copy; conflicts and unreadable formats are retained/refused,
