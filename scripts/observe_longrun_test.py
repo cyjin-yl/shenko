@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seventeen independent C19 consumer scenarios; no long-run results are asserted.
+"""Twenty independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -11,6 +11,8 @@ Also covers equal-stat different bytes, a replaced reported executable path,
 and unknown executed-file identity in a real-observation-shaped fixture.
 Synthetic clocks/processes exercise the actual manifest/log/report consumer.
 Two additional real-process cases cover concurrent appends and stop barriers.
+A subject-outage case rejects wall-clock-only coverage.
+Reserved S5 duration names cannot be shortened by a caller or retained manifest.
 Real procfs smoke and all execution belong to the integrating parent.
 """
 import contextlib
@@ -88,6 +90,53 @@ def scenario_window_boundary(tmp):
     assert rep["integrity"]["intact"]
     assert window["qualifying_span_seconds"] == 60
     assert window["status"] == "observed"
+
+
+def scenario_subject_absence_does_not_qualify_window(tmp):
+    """A gap-free clock cannot turn an observed dead subject into service uptime."""
+    manifest = init_run(tmp, windows=("demo=120",))
+    take(tmp, manifest, 1000.0)
+    take(tmp, manifest, 1060.0, process={"pid": 7, "alive": False})
+    take(tmp, manifest, 1120.0)
+    with patch.object(ol, "utcnow", return_value=1121.0):
+        code, output = cli(["stop", "--dir", str(tmp), "--reason", "completed"])
+    assert code == 0, output
+    observed = report(tmp, "--require-observed", expected_code=3)
+    assert observed["integrity"]["intact"]
+    assert observed["lifecycle"]["sealed"]
+    assert observed["subject_absent_samples"] == 1
+    assert any(item["kind"] == "subject_not_running" for item in observed["outages"])
+    window = observed["declared_windows"][0]
+    assert window["observed_span_seconds"] == 120
+    assert window["qualifying_span_seconds"] == 0
+    assert window["status"] == "unobserved"
+    assert observed["eligible_as_product_evidence"] is False
+
+
+def scenario_reserved_s5_window_durations(tmp):
+    """A "7d"/"30d" label cannot disguise a seconds-long real observation."""
+    for name, seconds in (("7d", 60), ("30d", 120)):
+        directory = tmp / name
+        code, output = cli([
+            "init", "--dir", str(directory), "--run-id", "run-a",
+            "--workload", "duration validation", "--interval", "60",
+            "--pid", "7", "--window", f"{name}={seconds}",
+        ])
+        assert code == 2 and f"reserved S5 window {name}" in output, output
+        assert not (directory / "manifest.json").exists()
+
+    directory = tmp / "correct"
+    manifest = init_run(directory, windows=("7d=604800", "30d=2592000"))
+    assert manifest["declared_windows_seconds"] == {
+        "7d": 604800, "30d": 2592000}
+    # Retained manifests are checked on read, not just at initial creation.
+    take(directory, manifest, 1000.0)
+    tampered = dict(manifest)
+    tampered["declared_windows_seconds"] = dict(manifest["declared_windows_seconds"])
+    tampered["declared_windows_seconds"]["7d"] = 60
+    ol.manifest_path(directory).write_text(json.dumps(tampered), encoding="utf-8")
+    code, output = cli(["report", "--dir", str(directory)])
+    assert code == 2 and "reserved S5 window 7d" in output, output
 
 
 def scenario_known_gap(tmp):
@@ -267,6 +316,25 @@ def scenario_checkpoint_binding(tmp):
     code, out = cli(["checkpoint", "--dir", str(tmp), "--id", "review-1"])
     assert code == 2 and "already recorded" in out, out
     assert report(tmp)["integrity"]["intact"] is True
+    # Even with a correct sample sequence, a backdated checkpoint cannot
+    # claim to have reviewed a sample that had not happened yet.
+    backdated = tmp.with_name(tmp.name + "-backdated")
+    earlier = init_run(backdated)
+    take(backdated, earlier, 1000.0)
+    take(backdated, earlier, 1060.0)
+    with patch.object(ol, "utcnow", return_value=1061.0):
+        code, out = cli(["checkpoint", "--dir", str(backdated), "--id", "valid"])
+    assert code == 0, out
+    original = [json.loads(line) for line in ol.log_path(backdated).read_bytes().splitlines()
+                if b'"record":"checkpoint"' in line]
+    assert len(original) == 1
+    forged_time = dict(original[0], checkpoint_id="backdated", epoch=1059.0)
+    ol.append_record(ol.log_path(backdated), forged_time)
+    temporal = report(backdated, "--require-observed", expected_code=3)
+    assert temporal["integrity"]["checkpoint_time_mismatches"] == [
+        ["backdated", 1059.0, 1060.0]]
+    assert not temporal["integrity"]["intact"]
+    assert temporal["declared_windows"][0]["status"] == "unobserved"
     # A checkpoint that names a sample the run had not written cannot be
     # ignored: the retained bytes stay, but the run stops qualifying.
     forged = dict(checkpoints[0], checkpoint_id="forged", sample_seq=7)
@@ -311,6 +379,26 @@ def scenario_seal_binds_written_sample(tmp):
     # A mismatched seal also blocks further appends instead of extending it.
     code, out = cli(["sample", "--dir", str(tmp)])
     assert code == 2 and "invalid evidence" in out, out
+
+    # Sequence/count equality alone does not validate a seal dated before
+    # the final observed sample: a backward clock jump must not be promoted.
+    backdated = tmp.with_name(tmp.name + "-backdated-stop")
+    earlier = init_run(backdated)
+    take(backdated, earlier, 1000.0)
+    take(backdated, earlier, 1060.0)
+    ol.append_record(ol.log_path(backdated), {
+        "record": "run_end", "schema": ol.SCHEMA, "run_id": earlier["run_id"],
+        "stop_reason": "completed", "note": None,
+        "sample_seq": 2, "samples": 2,
+        "epoch": 1059.0, "wall_utc": "1970-01-01T00:17:39.000Z",
+        "manifest_sha256": ol.sha256_file(ol.manifest_path(backdated)),
+    })
+    temporal = report(backdated, "--require-observed", expected_code=3)
+    assert temporal["integrity"]["run_end_mismatches"] == []
+    assert temporal["integrity"]["run_end_time_mismatches"] == [
+        {"stop_epoch": 1059.0, "last_sample_epoch": 1060.0}]
+    assert not temporal["integrity"]["intact"]
+    assert temporal["declared_windows"][0]["status"] == "unobserved"
 
 
 def scenario_equal_stat_different_binary(tmp):
@@ -378,6 +466,63 @@ def scenario_unknown_executable_stays_unobserved(tmp):
     assert rep["eligible_as_product_evidence"] is False
 
 
+def scenario_pid_reused_during_binary_measurement(tmp):
+    """A digest from a replacement PID cannot verify the earlier subject."""
+    argv = ["init", "--dir", str(tmp), "--run-id", "pid-race",
+            "--workload", "process identity reuse fixture",
+            "--candidate-commit", "0" * 40, "--binary-path", sys.executable,
+            "--profile", "fixture", "--evidence-class", "real_observation",
+            "--interval", "60", "--pid", "7", "--window", "demo=60"]
+    with patch.object(ol, "utcnow", return_value=1000.0):
+        code, output = cli(argv)
+    assert code == 0, output
+    manifest = ol.load_manifest(tmp)
+    candidate = manifest["candidate"]["binary_measured"]
+    first = {"pid": 7, "alive": True, "comm": "subject",
+             "rss_kb": 100, "proc_start_jiffies": 100}
+    replacement = dict(first, proc_start_jiffies=200)
+    with patch.object(ol, "read_subject_exe", return_value=candidate):
+        with capture_frame(1000.0, process=first):
+            ol._take_sample(tmp, manifest, None, None, epoch=1000.0)
+        with capture_frame(1060.0, process=first), \
+                patch.object(ol, "read_process_or_absent",
+                             side_effect=[first.copy(), replacement]):
+            raced = ol._take_sample(tmp, manifest, None, None, epoch=1060.0)
+    binary = raced["main"]["binary"]
+    assert binary["exe"]["sha256"] == candidate["sha256"]
+    assert binary["process_identity_stable"] is False
+    assert binary["matches_declared_candidate"] is None
+    assert binary["identity_after_measurement"]["proc_start_jiffies"] == 200
+    with patch.object(ol, "utcnow", return_value=1061.0):
+        code, output = cli(["stop", "--dir", str(tmp), "--reason", "completed"])
+    assert code == 0, output
+    rep = report(tmp, "--require-observed", expected_code=3)
+    assert rep["integrity"]["candidate_binary_unverified_sample_seqs"] == [2]
+    assert not rep["integrity"]["intact"]
+    assert rep["declared_windows"][0]["status"] == "unobserved"
+    assert rep["eligible_as_product_evidence"] is False
+
+    # A replacement executable whose digest differs is also Unknown; it is
+    # not evidence that the *original* Shenko candidate drifted on disk.
+    other = tmp.with_name(tmp.name + "-different-executable")
+    other_argv = [str(other) if value == str(tmp) else value for value in argv]
+    with patch.object(ol, "utcnow", return_value=1000.0):
+        code, output = cli(other_argv)
+    assert code == 0, output
+    other_manifest = ol.load_manifest(other)
+    different_sha = ("0" if candidate["sha256"][0] != "0" else "1") + candidate["sha256"][1:]
+    replacement_exe = dict(candidate, sha256=different_sha)
+    with capture_frame(1000.0, process=first):
+        with patch.object(ol, "read_process_or_absent",
+                          side_effect=[first.copy(), replacement]):
+            with patch.object(ol, "read_subject_exe", return_value=replacement_exe):
+                ol._take_sample(other, other_manifest, None, None, epoch=1000.0)
+    other_report = report(other)
+    assert other_report["integrity"]["candidate_binary_unverified_sample_seqs"] == [1]
+    assert other_report["integrity"]["candidate_binary_drift_sample_seqs"] == []
+    assert not other_report["integrity"]["intact"]
+
+
 def _external_observe(tmp, command):
     return subprocess.run(
         [sys.executable, "-I", str(Path(ol.__file__).resolve()), command,
@@ -436,6 +581,8 @@ def main():
     scenarios = (
         ("boundary", scenario_window_boundary),
         ("gap", scenario_known_gap),
+        ("subject-absent", scenario_subject_absence_does_not_qualify_window),
+        ("s5-window-durations", scenario_reserved_s5_window_durations),
         ("header", scenario_missing_header),
         ("torn", scenario_torn_append),
         ("boot", scenario_boot_id_path),
@@ -449,6 +596,7 @@ def main():
         ("equal-stat-binary", scenario_equal_stat_different_binary),
         ("reported-path", scenario_reported_path_is_not_executed_file),
         ("unknown-executable", scenario_unknown_executable_stays_unobserved),
+        ("pid-race", scenario_pid_reused_during_binary_measurement),
         ("concurrent-writers", scenario_concurrent_writers_share_header_and_sequence),
         ("concurrent-stop", scenario_concurrent_stop_is_terminal_barrier),
     )
