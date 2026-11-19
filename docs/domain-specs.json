@@ -624,6 +624,14 @@
       "current_agent": "Main",
       "sections": "Optional external history research; installation, provenance, bounded retrieval, original evidence, lifecycle and replication",
       "canonical_sections": []
+    },
+    {
+      "file": "docs/specs/workspace-tools.md",
+      "owner": "ArchExecHost",
+      "current_agent": "Main",
+      "sections": "Configurable workspace tool plugins; durable profile, editing dialects, observed effects and provisional default rationale",
+      "contract_manifest": "docs/contracts.json",
+      "canonical_sections": []
     }
   ]
 }

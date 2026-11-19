@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "observed_date_utc": "2026-11-17",
+  "started_at_utc": "2026-11-17T08:57:23.327019968Z",
+  "finished_at_utc": "2026-11-17T09:03:53.579624666Z",
+  "scope": "Two one-sample real-model diagnostics through the production Store, subject, provider and parser. No finite child or workspace tool operation was reached; this is not an editor benchmark or reference-model acceptance.",
+  "candidate": {
+    "local_commit": "3548b1347ae2f129a31724c0fced86eb9a98675c",
+    "published_equivalent_commit": "cde65bf741e15efb5b47b841506170c06e9a7c37",
+    "tree": "3a4a33a24826352bf9cb2cf6e05b7d557a62f9c5",
+    "binary_sha256": "1d2c759b4a8066fa71fcaa82dd1f01adb2195616d8f2fbb76ea669c55cdcb03e",
+    "source_bindings": {
+      "compiled_child_digest": "blake3:a874071b5b56fce15b2580b34575cef2ac71ba459dac6917d13d2fa8e6e94f12",
+      "compiled_runner_digest": "blake3:9aee79eb7c948667a9848a5740b1d2223a14ec3cb5f5dc460f19ba06aeefe267",
+      "compiled_subject_parser_digest": "blake3:ad18586a29ca8deb019260ab269776501ae03f9326a10e7bd0603f9fee313d08",
+      "compiled_subject_prompt_source_digest": "blake3:17490873a67f20d6de03f244ee20f590783052314932aa9868214587d8ad2a0e",
+      "workspace_implementation_digest": "blake3:5af4bd27134ea28e71f2d9d9a56e74fbc746d72b4a3bfe3a3c01f711980851bb"
+    }
+  },
+  "runtime": {
+    "model_id": "Qwen3-0.6B-Q8_0",
+    "model_repository": "Qwen/Qwen3-0.6B-GGUF",
+    "model_revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+    "model_file_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+    "model_file_bytes": 639446688,
+    "official_model_url": "https://huggingface.co/Qwen/Qwen3-0.6B-GGUF",
+    "runtime_version": "version: 1.0.0-dev (build 12359, commit b1b770d90)\nbuilt with GNU 11.4.0 for Linux x86_64",
+    "runtime_commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+    "runtime_archive_sha256": "0bc1f091e8916102b6d8f2cf944233a620e90a0f856c72d0ce41150c65c2e72e",
+    "runtime_release_url": "https://github.com/ggml-org/llama.cpp/releases/tag/b12359",
+    "context_tokens": 32768,
+    "parallel_slots": 1,
+    "cpu_threads": 4,
+    "reasoning": "off",
+    "provider_seed": null,
+    "sampling": "server defaults retained; exact props and argv in private archive",
+    "model_and_runner_same_network_namespace": true
+  },
+  "task": {
+    "scenario": "active_shipping_policy_with_duplicate_thresholds",
+    "fixture_seed": 20261117,
+    "condition_order": [
+      "replace",
+      "hashline"
+    ],
+    "samples_per_condition": 1,
+    "deadline_seconds_per_condition": 180,
+    "subject_max_output_tokens_per_step": 2048,
+    "requested_child_budget": {
+      "max_steps": 8,
+      "max_tool_calls": 12,
+      "max_total_tokens": 16384
+    },
+    "actual_child_budgets_comparable": false,
+    "oracle": "Shipping behavior at five boundary amounts, plus unchanged README and example bytes. Scope is the three fixture files."
+  },
+  "observations": [
+    {
+      "editor": "replace",
+      "samples": 1,
+      "provider_requests": 7,
+      "provider_results_success_stop": true,
+      "subject_step_records": 8,
+      "committed_subject_steps": 0,
+      "child_contracts": 0,
+      "native_operations": 0,
+      "protocol_rejections": 7,
+      "rejection_kinds": [
+        [
+          "CONTROL_PROTOCOL_INVALID",
+          "reply id is not resolvable on this channel"
+        ]
+      ],
+      "all_three_fixture_files_unchanged": true,
+      "artifact_passed": false,
+      "elapsed_ms_including_cleanup": 192832,
+      "usage": {
+        "input_tokens": 26504,
+        "output_tokens": 642,
+        "cache_read_tokens": 22269,
+        "cache_write_tokens": null
+      },
+      "cost_per_success": null
+    },
+    {
+      "editor": "hashline",
+      "samples": 1,
+      "provider_requests": 4,
+      "provider_results_success_stop": true,
+      "subject_step_records": 5,
+      "committed_subject_steps": 0,
+      "child_contracts": 0,
+      "native_operations": 0,
+      "protocol_rejections": 4,
+      "rejection_kinds": [
+        [
+          "CONTROL_PROTOCOL_INVALID",
+          "reply id is not resolvable on this channel"
+        ]
+      ],
+      "all_three_fixture_files_unchanged": true,
+      "artifact_passed": false,
+      "elapsed_ms_including_cleanup": 194512,
+      "usage": {
+        "input_tokens": 15074,
+        "output_tokens": 894,
+        "cache_read_tokens": 12834,
+        "cache_write_tokens": null
+      },
+      "cost_per_success": null
+    }
+  ],
+  "failure": {
+    "stage": "subject_control_protocol_before_S1",
+    "code": "CONTROL_PROTOCOL_INVALID",
+    "reason": "reply id is not resolvable on this channel",
+    "provider_requests_returned_success_stop": 11,
+    "committed_subject_steps": 0,
+    "finite_children": 0,
+    "workspace_operations": 0,
+    "raw_failures_preserved": true,
+    "fixtures_unchanged": true
+  },
+  "interpretation": {
+    "editor_comparison": "not_reached",
+    "editor_winner": null,
+    "cost_per_success": null,
+    "default_editor": "replace",
+    "default_basis": "reasoned provisional; the smaller local old/new-text protocol shares exact matching, version checking and explicit failure behavior with hashline",
+    "no_cost_or_reliability_ranking": "The request/token difference occurred before either editor ran and cannot establish an editor advantage.",
+    "token_accounting": "All admitted subject requests, including rejected-output retries, are counted once by request_id. Cached input is not added again. Unreported cache-write usage remains null."
+  },
+  "measurement_correction": {
+    "old_raw_field": "subject_steps",
+    "meaning": "S0 records including retired retries and a preparing successor, not committed S1 decisions",
+    "record_counts": {
+      "replace": 8,
+      "hashline": 5
+    },
+    "committed_counts": {
+      "replace": 0,
+      "hashline": 0
+    },
+    "future_fields": [
+      "subject_step_records",
+      "committed_subject_steps"
+    ],
+    "raw_report_rewritten": false,
+    "source_followup_local_commit": "fc106aed80cbec3b8a52178b39a8e019c1460e2c",
+    "source_followup_published_commit": "1ba48698358f04586a12d7c62096317678f490a1"
+  },
+  "mechanism_regression": {
+    "test": "unresolved_tool_e1_reaches_the_next_child_wire_without_t2_or_replay",
+    "result": "passed",
+    "pre_fix_failure_retained": true,
+    "post_fix_observation": "The next provider wire and sealed payload contain the original normalized E1 diagnostic and raw evidence reference; the tool and parent still have no T2, and execute/attempt/E1 counts remain one.",
+    "limits": "Scripted provider and unresolved native fixture; not real-model behavior or a real filesystem fault injection."
+  },
+  "evidence_archive": {
+    "file_name": "workspace-tools-evidence-20261117.tar.gz",
+    "bytes": 690041,
+    "sha256": "32be4337d6a88ba5c2dba51fefc79e3d6b2c3cb79d3c183ac99ef8ef47644151",
+    "verified_payload_files": 126,
+    "visibility": "private downloadable artifact; raw Store/CAS and model transcripts are not committed here",
+    "original_report_sha256": "f2adfd6f7f9a02b038323cda510f7320fe838917b9c7b53fd19b8c424d4307c0"
+  },
+  "reproducer": "cargo run -p shenko --example workspace_tools_acceptance -- --base-url <actual endpoint> --model <served model> --context-tokens 32768 --output <new directory> --trials 1 --deadline-secs 180 --max-output-tokens 2048",
+  "uncovered": [
+    "27B reference-model acceptance",
+    "Successful subject-to-finite-child-to-workspace edit behavior with a real model",
+    "Execution-only disabled-editor baseline",
+    "Repeated behavioral efficacy samples",
+    "Stale-snapshot scenario",
+    "Cross-file behavior-repair scenario"
+  ],
+  "cleanup": {
+    "runtime_cleanup_ok": true,
+    "broker_debt_after_each_condition": [],
+    "runner_exit_code": 1,
+    "model_server_exit_code": 0,
+    "model_process_stopped": true
+  }
+}

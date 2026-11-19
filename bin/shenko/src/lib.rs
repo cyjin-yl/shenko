@@ -38,6 +38,7 @@ mod runtime_start;
 mod tool_install;
 mod update_control;
 mod update_runtime;
+pub mod workspace_tools;
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
@@ -135,7 +136,7 @@ pub enum Command {
         #[command(subcommand)]
         command: cli::RuntimeCommand,
     },
-    /// Manage named WASM tools in the seed's managed tool store.
+    /// Manage native workspace profiles and named WASM tool packages.
     /// Artifacts are real upstream WASI binaries; declared targets with no
     /// verified artifact are reported unresolved, never faked.
     Tool {
