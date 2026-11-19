@@ -2823,19 +2823,17 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     let original_rows = {
         let mut query = predecessor.prepare(
             "SELECT conflict_key,action_id,data,updated_commit_seq FROM control_materializations ORDER BY conflict_key")?;
-        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
             row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
     assert!(!original_rows.is_empty());
     let original_event: String = predecessor.query_row(
         "SELECT data FROM inbox_events WHERE event_id=?1", [applied_id.to_string()], |row| row.get(0))?;
     let original_commits = {
         let mut query = predecessor.prepare("SELECT ledger_id,seq FROM commit_log ORDER BY ledger_id,seq")?;
-        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
     let copied_path = dir.join("canonical-copied-slot.db");
     predecessor.backup(rusqlite::DatabaseName::Main, &copied_path, None)?;
@@ -2855,19 +2853,17 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     let preserved_rows = {
         let mut query = copied_conn.prepare(
             "SELECT conflict_key,action_id,data,updated_commit_seq FROM control_materializations ORDER BY conflict_key")?;
-        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
             row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
     assert_eq!(preserved_rows, original_rows);
     assert_eq!(copied_conn.query_row("SELECT data FROM inbox_events WHERE event_id=?1",
         [applied_id.to_string()], |row| row.get::<_, String>(0))?, original_event);
     let copied_commits = {
         let mut query = copied_conn.prepare("SELECT ledger_id,seq FROM commit_log ORDER BY ledger_id,seq")?;
-        let rows = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
     assert_eq!(copied_commits, original_commits);
     assert_eq!(serde_json::to_value(copied.load_subject(agent)?.0)?, serde_json::to_value(&follower_head)?);
