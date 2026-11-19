@@ -71,6 +71,8 @@ export interface Thread {
   messages: ThreadMessage[];
   /** Loads the full thread when it is opened (e.g. a delegation trajectory). */
   load?: () => Promise<ThreadMessage[]>;
+  /** Changes when member identities or states require a new snapshot. */
+  loadRevision?: string;
   /** Whether the shell's composer posts into this thread. */
   composer: boolean;
   /** Why the viewer only reads this thread, when it is so. */
@@ -413,6 +415,8 @@ registerThreadSource({
         messages: demo ? teamMessages(members.map((task) => demo.trajectory(task.task_id)), subject) : [],
         composer: false,
         note: t('delegation.teamReadonly'),
+        loadRevision: JSON.stringify(members.map((task) => [task.task_id, task.state])
+          .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)),
         load: projection.source === 'demo' ? undefined
           : async () => teamMessages(await Promise.all(members.map((task) => trajectory(task.task_id))), subject),
       } satisfies Thread;

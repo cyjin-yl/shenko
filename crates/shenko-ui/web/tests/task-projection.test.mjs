@@ -130,3 +130,31 @@ test('delegation threads are named by their frozen labels and a finished team is
   assert.equal(byId['delegation:bare'].title, text('delegation.child', { id: 'bare' }));
   assert.equal(byId['delegation:bare'].active, false);
 });
+
+test('team load revisions follow every member state without changing thread identity', () => {
+  const live = { source: 'live', nodes: [], identity: { display_name: subject.name } };
+  const member = (id, state) => ({
+    ...task, task_id: id, state, created_by_step_id: 'team-step', team: 'checkers', name: id,
+  });
+  const team = (tasks) => collectThreads({ projection: live, conversations: [], tasks })
+    .find((thread) => thread.id === 'team:team-step|checkers');
+  const running = team([member('a', 'running'), member('b', 'running')]);
+  const waiting = team([member('a', 'waiting'), member('b', 'running')]);
+  const partial = team([member('a', 'terminal'), member('b', 'running')]);
+  const swapped = team([member('a', 'running'), member('b', 'terminal')]);
+  const finished = team([member('a', 'terminal'), member('b', 'terminal')]);
+
+  for (const next of [waiting, partial, swapped, finished]) {
+    assert.equal(next.id, running.id, 'the selected view keeps its React key');
+    assert.notEqual(next.loadRevision, running.loadRevision);
+  }
+  assert.equal(partial.active, true, 'one member completing still reloads an active team');
+  assert.equal(swapped.subtitle, partial.subtitle, 'the same running count cannot identify member states');
+  assert.notEqual(swapped.loadRevision, partial.loadRevision);
+  assert.notEqual(finished.loadRevision, partial.loadRevision, 'the final completion reloads too');
+  assert.equal(finished.active, false);
+  assert.equal(team([member('b', 'running'), member('a', 'terminal')]).loadRevision,
+    partial.loadRevision, 'task-list ordering alone does not refetch');
+  assert.notEqual(team([member('a', 'terminal'), member('c', 'running')]).loadRevision,
+    partial.loadRevision, 'member identity participates even when state counts are unchanged');
+});

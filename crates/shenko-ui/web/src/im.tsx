@@ -136,7 +136,7 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
     thread.load().then((messages) => { if (live) { setLoaded(messages); setError(null); } })
       .catch((reason) => { if (live) setError(String(reason?.message ?? reason)); });
     return () => { live = false; };
-  }, [thread.id, thread.state, demo]);
+  }, [thread.id, thread.state, thread.loadRevision, demo]);
   const messages = loaded ?? thread.messages;
   const viewport = React.useRef<MessageViewport>(null);
   const group = thread.audience === 'group';
