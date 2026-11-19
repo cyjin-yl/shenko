@@ -103,6 +103,14 @@ non-blocking `migrated_legacy_column` gap instead of disappearing silently.
 The current schema is checked strictly: a row whose column layout does not
 match exactly is refused.
 
+Output parts retain the complete `(agent_id, stream_id, message_id, part_id,
+chunk_seq)` identity in both the exported key and column values. An output
+row emitted without `part_id` cannot be recovered: neither content nor row
+order establishes that identity. Archives without output rows remain
+admissible under the existing schema and closure rules. Adding the missing
+column needs no wire-version change because the old strict column-count
+and column-order checks already refuse the corrected output rows.
+
 **REQUIRED facts.** Some facts cannot exist without their anchor: a stream
 unit without its stream, a seat lease without its seat, an answer decision
 without its question, a research candidate without its epoch, a memory
@@ -152,8 +160,7 @@ and every member is reported:
 - `output/{agent}/{stream}/{message}` — output parts of one message
 - `stream/{stream_id}` — the journal stream and all of its units
 
-**Merge rules per class, not a blind verbatim copy.** Two classes have their
-own rule:
+**Merge rules per class.** These facts have dedicated admission rules.
 
 - *Monotone* facts (`intervention_bank_entries`, `retention_tombstones`) —
   a peer may retire a live local row; a peer may never revive a retired
@@ -170,6 +177,9 @@ own rule:
   terminal state is never rewritten. The stored state text is read in both
   the bare and the serialized form, so the writer's encoding does not
   change the rule.
+- *Append-only* output parts preserve each committed chunk. A different
+  value for an existing chunk conflicts with the entire message, even when
+  the peer supplied the original value.
 
 Every other class keeps the delivered-baseline rule: the peer may update a
 record only while this store still holds the value the peer last delivered,

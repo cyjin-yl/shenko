@@ -3,7 +3,7 @@
 //! Real streaming starts at the provider stream (ArchBroker), is gated to
 //! public text using the canonical output source boundaries, and is
 //! persisted here as ordered bounded batches BEFORE the terminal S1 decision.
-//! The UI replays parts by a durable `(commit_seq, chunk_seq)` cursor, so a
+//! The UI replays parts by a durable commit and complete part-key cursor, so a
 //! reconnect resumes without re-deriving keys from text length or wall clock.
 //!
 //! Durability contract:
@@ -13,7 +13,7 @@
 //!   with different content is a conflict and never overwrites.
 //! - No update or delete path exists. A corrected tail is a NEW chunk_seq
 //!   (higher revision), never a rewrite — history stays intact.
-//! - Recovery is a cursor re-read by `(agent_id, commit_seq)`; a gap at the
+//! - Recovery is an agent-filtered cursor re-read by commit and part key; a gap at the
 //!   terminal boundary is surfaced by the reader, never silently patched.
 //! - `content_kind` is `public_text` by construction: internal control or
 //!   reasoning text never enters this table (redaction is the producer's
@@ -44,8 +44,9 @@ CREATE TABLE IF NOT EXISTS subject_output_parts (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (agent_id, stream_id, message_id, part_id, chunk_seq)
 );
-CREATE INDEX IF NOT EXISTS idx_subject_output_parts_cursor
-    ON subject_output_parts(agent_id, commit_seq);
+CREATE INDEX IF NOT EXISTS idx_subject_output_parts_replay
+    ON subject_output_parts(agent_id, commit_seq, stream_id, message_id, part_id, chunk_seq);
+DROP INDEX IF EXISTS idx_subject_output_parts_cursor;
 ";
 
 /// The only content kind this table admits. Provider-native/internal frames
@@ -100,10 +101,39 @@ pub struct OutputPart {
 #[derive(Debug, Clone)]
 pub struct StoredOutputPart {
     pub part: OutputPart,
-    /// Receiver-local commit sequence for cursor replay. Together with
-    /// `chunk_seq` it pages parts committed in one ledger transaction.
+    /// Receiver-local commit sequence for cursor replay. Imported rows may
+    /// share this sequence and chunk number; the full part key breaks ties.
     pub commit_seq: u64,
     pub commit: CommitRef,
+    stream_key: String,
+    message_key: String,
+}
+
+/// An in-process replay position within one agent's receiving ledger.
+///
+/// Import can admit many streams, messages and parts in one commit, including
+/// equal chunk numbers. Every primary-key component after the fixed agent is
+/// therefore required to resume a bounded page without dropping tied rows.
+/// This cursor is independent of the browser's existing stream-part envelope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputPartCursor {
+    commit_seq: u64,
+    stream_key: String,
+    message_key: String,
+    part_id: String,
+    chunk_seq: u64,
+}
+
+impl From<&StoredOutputPart> for OutputPartCursor {
+    fn from(stored: &StoredOutputPart) -> Self {
+        Self {
+            commit_seq: stored.commit_seq,
+            stream_key: stored.stream_key.clone(),
+            message_key: stored.message_key.clone(),
+            part_id: stored.part.part_id.clone(),
+            chunk_seq: stored.part.chunk_seq,
+        }
+    }
 }
 
 pub enum OutputPartAdmission {
@@ -203,15 +233,31 @@ impl Store {
         Ok(OutputPartAdmission::Appended(commit))
     }
 
-    /// Durable replay cursor: parts committed after `after_commit_seq`, in
-    /// commit then chunk order. A hole in `chunk_seq` within a returned part
-    /// is left for the reader to surface — this query never fabricates rows.
+    /// Durable replay after a complete row cursor, or from the beginning for
+    /// `None`. The order is receiving commit, stream, message, part, chunk;
+    /// page boundaries may fall inside an imported commit. A hole in chunk
+    /// order is left for the reader to surface — this query fabricates no rows.
     pub fn output_parts_after(
         &self,
         agent_id: EntityId,
-        after_commit_seq: u64,
+        after: Option<&OutputPartCursor>,
         limit: usize,
     ) -> Result<Vec<StoredOutputPart>, ShenkoError> {
+        let after_commit_seq = after
+            .map(|cursor| i64::try_from(cursor.commit_seq))
+            .transpose()
+            .map_err(|_| ShenkoError::conflict("output part cursor commit is too large"))?
+            .unwrap_or(-1);
+        let after_chunk_seq = after
+            .map(|cursor| i64::try_from(cursor.chunk_seq))
+            .transpose()
+            .map_err(|_| ShenkoError::conflict("output part cursor chunk is too large"))?
+            .unwrap_or(-1);
+        // Archive rows retain their stored UUID spelling. The seek must
+        // compare the same text even when the parsed UUID formats differently.
+        let stream_key = after.map(|cursor| cursor.stream_key.as_str()).unwrap_or("");
+        let message_key = after.map(|cursor| cursor.message_key.as_str()).unwrap_or("");
+        let part_id = after.map(|cursor| cursor.part_id.as_str()).unwrap_or("");
         let limit = i64::try_from(limit)
             .map_err(|_| ShenkoError::conflict("output part replay limit is too large"))?;
         let conn = self.ledger.conn.lock();
@@ -220,13 +266,18 @@ impl Store {
                 "SELECT stream_id, request_id, attempt_id, message_id, part_id,
                         part_revision, chunk_seq, terminal, content, content_kind, commit_seq
                  FROM subject_output_parts
-                 WHERE agent_id=?1 AND commit_seq>?2
-                 ORDER BY commit_seq, chunk_seq LIMIT ?3",
+                 WHERE agent_id=?1 AND commit_seq>=?2
+                   AND (commit_seq, stream_id, message_id, part_id, chunk_seq)
+                       > (?2, ?3, ?4, ?5, ?6)
+                 ORDER BY commit_seq, stream_id, message_id, part_id, chunk_seq LIMIT ?7",
             )
             .map_err(storage_error)?;
         let rows = stmt
             .query_map(
-                params![agent_id.to_string(), after_commit_seq as i64, limit],
+                params![
+                    agent_id.to_string(), after_commit_seq,
+                    stream_key, message_key, part_id, after_chunk_seq, limit,
+                ],
                 |row| {
                     // Column order must mirror the SELECT list exactly.
                     let stream_id: String = row.get(0)?;
@@ -292,6 +343,8 @@ impl Store {
                         },
                         commit_seq: seq,
                         commit: CommitRef::new(self.ledger.ledger_id(), LedgerSeq(seq)),
+                        stream_key: stream_id,
+                        message_key: message_id,
                     })
                 },
             )

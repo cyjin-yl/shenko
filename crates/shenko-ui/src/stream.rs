@@ -19,7 +19,9 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use shenko_store::Store;
-use shenko_store::output_parts::{OutputPart, OutputPartAdmission, StoredOutputPart};
+use shenko_store::output_parts::{
+    OutputPart, OutputPartAdmission, OutputPartCursor, StoredOutputPart,
+};
 use shenko_types::ids::EntityId;
 
 /// One stream chunk as broadcast to browsers. `commit_ref` binds the chunk to
@@ -147,18 +149,19 @@ impl StreamSink {
         }
     }
 
-    /// Durable resume for a reconnecting client. `after_commit_seq` is the
-    /// last commit the client durably applied (0 = from the beginning).
+    /// Durable resume after the last delivered row (`None` = beginning).
+    /// The cursor includes the complete part key so a bounded page can
+    /// continue within an imported commit, even when chunk numbers tie.
     /// Holes in chunk_seq are returned as-is; the client buffers and waits
     /// for the missing seq instead of patching text.
     pub fn parts_after(
         &self,
-        after_commit_seq: u64,
+        after: Option<&OutputPartCursor>,
         limit: usize,
     ) -> anyhow::Result<Vec<StoredOutputPart>> {
         Ok(self
             .store
-            .output_parts_after(self.subject_id, after_commit_seq, limit)?)
+            .output_parts_after(self.subject_id, after, limit)?)
     }
 }
 

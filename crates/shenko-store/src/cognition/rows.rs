@@ -645,7 +645,7 @@ pub(super) const TABLES: &[TableSpec] = &[
         key: &["agent_id", "stream_id", "message_id", "part_id", "chunk_seq"],
         columns: &[
             "agent_id", "stream_id", "request_id", "attempt_id", "message_id",
-            "part_revision", "chunk_seq", "terminal", "content",
+            "part_id", "part_revision", "chunk_seq", "terminal", "content",
             "content_kind",
         ],
         local_seq: Some("commit_seq"),

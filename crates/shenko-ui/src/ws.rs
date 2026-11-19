@@ -431,7 +431,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     // `client_hello` re-degrades its documents for the renegotiated surface,
     // so a richer client is not left holding the baseline fallback.
     let mut last_committed: Option<OutboxMessage> = None;
-    let mut stream_cursor = 0u64;
+    let mut stream_cursor = None;
     let mut stream_history = std::collections::VecDeque::new();
     loop {
         tokio::select! {
@@ -697,7 +697,7 @@ async fn recv_committed(
 /// the ledger, so a reconnect never depends on volatile delivery.
 async fn recv_stream(
     state: &WsState,
-    cursor: &mut u64,
+    cursor: &mut Option<shenko_store::output_parts::OutputPartCursor>,
     history: &mut std::collections::VecDeque<shenko_store::output_parts::StoredOutputPart>,
     wake: &mut Option<broadcast::Receiver<crate::stream::StreamChunkDto>>,
 ) -> Option<shenko_store::output_parts::StoredOutputPart> {
@@ -706,10 +706,12 @@ async fn recv_stream(
     };
     loop {
         if let Some(chunk) = history.pop_front() {
-            *cursor = (*cursor).max(chunk.commit_seq);
+            if history.is_empty() {
+                *cursor = Some((&chunk).into());
+            }
             return Some(chunk);
         }
-        match sink.parts_after(*cursor, 64) {
+        match sink.parts_after(cursor.as_ref(), 64) {
             Ok(parts) if !parts.is_empty() => history.extend(parts),
             Ok(_) => {
                 tokio::select! {
@@ -963,6 +965,147 @@ mod tests {
         assert!(WebInputService::history(state.store.as_ref().context("fixture has no Store")?, subject, None, 10).is_err());
         assert_eq!(database.query_row("SELECT COUNT(*) FROM retained_unavailable_submissions", [],
             |row| row.get::<_, i64>(0))?, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn imported_output_pages_reach_stream_receiver_and_live_boundary() -> anyhow::Result<()> {
+        use shenko_store::output_parts::{OutputPart, OutputPartAdmission, OutputPartKind};
+        use std::collections::{BTreeMap, VecDeque};
+        use std::time::Duration;
+
+        let dir = std::env::temp_dir().join(format!("shenko-output-replay-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir)?;
+        let source_db = dir.join("source.db");
+        let source = shenko_store::Store::open(source_db.clone(), dir.join("source-cas"))?;
+        let subject = EntityId::new();
+        let messages = [EntityId::new(), EntityId::new()];
+        let mut ordered = BTreeMap::new();
+        // 144 real append admissions become one receiver-local import commit.
+        // Streams and messages reuse part IDs; every part reuses chunk 0/1.
+        for stream_id in [EntityId::new(), EntityId::new()] {
+            for message_id in messages {
+                for number in 0..18 {
+                    let request_id = EntityId::new();
+                    let attempt_id = EntityId::new();
+                    for chunk_seq in 0..2 {
+                        let part = OutputPart {
+                            stream_id, message_id,
+                            request_id, attempt_id,
+                            part_id: format!("text/{number:02}"), part_revision: "r1".into(),
+                            chunk_seq, terminal: chunk_seq == 1,
+                            content: format!("{stream_id}/{message_id}/{number}/{chunk_seq}"),
+                            kind: OutputPartKind::PublicText,
+                        };
+                        assert!(matches!(source.append_output_part(subject, &part)?,
+                            OutputPartAdmission::Appended(_)));
+                        ordered.insert((stream_id.to_string(), message_id.to_string(),
+                            part.part_id.clone(), chunk_seq), part);
+                    }
+                }
+            }
+        }
+        let imported_parts: Vec<_> = ordered.into_values().collect();
+        // Identical output keys under another agent travel in the same import.
+        // They must never consume a page slot or appear in this agent's stream.
+        assert!(matches!(source.append_output_part(EntityId::new(), &imported_parts[0])?,
+            OutputPartAdmission::Appended(_)));
+        // Historical exports can carry uppercase UUID text. Keep the
+        // native rows and exercise that spelling through the actual archive.
+        let source_sql = rusqlite::Connection::open(source_db)?;
+        assert_eq!(source_sql.execute(
+            "UPDATE subject_output_parts SET stream_id=upper(stream_id), message_id=upper(message_id)", [],
+        )?, imported_parts.len() + 1);
+        drop(source_sql);
+        let mut archive = Vec::new();
+        let receipt = source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+        assert!(receipt.complete, "incomplete source archive: {:?}", receipt.gaps);
+        let receiver_path = dir.join("receiver.db");
+        let receiver_cas = dir.join("receiver-cas");
+        let receiver = shenko_store::Store::open(receiver_path.clone(), receiver_cas.clone())?;
+        let outcome = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(outcome.conflicts.is_empty(), "import conflicts: {:?}", outcome.conflicts);
+        assert!(outcome.ack(EntityId::new()).verified);
+        drop(receiver);
+        let receiver = Arc::new(shenko_store::Store::open(receiver_path, receiver_cas)?);
+        let sink = crate::stream::StreamSink::new(Arc::clone(&receiver), subject, 16);
+        let first_page = sink.parts_after(None, 64)?;
+        assert_eq!(first_page.len(), 64);
+        let import_commit = first_page[0].commit;
+        assert!(first_page.iter().all(|row| row.commit == import_commit));
+        assert_eq!(import_commit.ledger_id, receiver.ledger.ledger_id());
+        assert!(sink.parts_after(None, 0)?.is_empty());
+        drop(first_page);
+
+        let mut state = WsState::new();
+        state.store = Some(receiver);
+        state.subject_id = Some(subject);
+        state.stream = Some(Arc::clone(&sink));
+        let mut wake = Some(sink.subscribe());
+        let mut cursor = None;
+        let mut history = VecDeque::new();
+        let mut expected = imported_parts;
+        let imported_count = expected.len();
+        let live_parts: Vec<_> = (0..20).map(|number| OutputPart {
+            stream_id: EntityId::new(), message_id: EntityId::new(),
+            request_id: EntityId::new(), attempt_id: EntityId::new(),
+            part_id: "text/0".into(), part_revision: "r1".into(),
+            chunk_seq: 0, terminal: false, content: format!("live-{number}"),
+            kind: OutputPartKind::PublicText,
+        }).collect();
+        expected.extend(live_parts.iter().cloned());
+        for (index, expected_part) in expected.iter().enumerate() {
+            if index == 17 {
+                // Broadcasts arrive while an imported page is only partly read.
+                // Overflow the volatile wake channel; durable replay must win.
+                for part in &live_parts {
+                    sink.publish(part)?.context("live append has no commit")?;
+                }
+            }
+            let stored = tokio::time::timeout(Duration::from_secs(2),
+                recv_stream(&state, &mut cursor, &mut history, &mut wake))
+                .await.context("stream receiver stalled at a page boundary")?
+                .context("stream receiver closed before the expected output")?;
+            assert_eq!(&stored.part, expected_part, "wrong output at row {index}");
+            assert!(history.len() < 64, "receiver exceeded its bounded replay page");
+            if index < imported_count {
+                assert_eq!(stored.commit, import_commit, "import split its local commit");
+                assert_eq!(stored.commit_seq, import_commit.seq.0);
+            } else {
+                assert!(stored.commit_seq > import_commit.seq.0);
+            }
+            // The normal receiver still emits the established v2 wire envelope.
+            let wire = serde_json::to_value(crate::stream::StreamChunkDto::from(stored))?;
+            assert_eq!(wire["schema_version"], 2);
+            assert_eq!(wire["type"], "stream_part");
+            assert_eq!(wire["message_id"], expected_part.message_id.to_string());
+            assert_eq!(wire["part_id"], expected_part.part_id);
+            assert_eq!(wire["chunk_seq"], expected_part.chunk_seq);
+            assert_eq!(wire["content"], expected_part.content);
+            assert_eq!(wire["committed_only"], true);
+        }
+        assert!(history.is_empty());
+        assert!(sink.parts_after(cursor.as_ref(), 64)?.is_empty());
+        assert!(matches!(wake.as_mut().context("missing live subscription")?.try_recv(),
+            Err(broadcast::error::TryRecvError::Lagged(_))));
+
+        // Cross the empty durable-read / broadcast-wait boundary as well.
+        let tail = OutputPart { content: "after replay drained".into(),
+            stream_id: EntityId::new(), ..live_parts[0].clone() };
+        let waiting = async {
+            tokio::time::timeout(Duration::from_secs(2),
+                recv_stream(&state, &mut cursor, &mut history, &mut wake))
+                .await.context("live boundary did not resume")?
+                .context("live boundary closed the stream")
+        };
+        let publishing = async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            sink.publish(&tail)
+        };
+        let (received, published) = tokio::join!(waiting, publishing);
+        assert_eq!(received?.part, tail);
+        assert!(published?.is_some());
+        assert!(sink.parts_after(cursor.as_ref(), 64)?.is_empty());
         Ok(())
     }
 
