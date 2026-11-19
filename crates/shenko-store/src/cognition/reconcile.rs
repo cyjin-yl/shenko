@@ -205,6 +205,13 @@ pub(super) fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
+    // Output chunks are append-only facts. A peer's delivered baseline
+    // cannot authorize rewriting an already committed chunk.
+    if spec.name == "subject_output_parts"
+        && local.as_ref().is_some_and(|local| !rows_equivalent(spec, local, &row.values))
+    {
+        return Ok(RecoveryFactOutcome::Conflict);
+    }
     if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions"
         | "media_recordings" | "media_recording_controls" | "media_priority_inputs" | "inbox_events")
         && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))

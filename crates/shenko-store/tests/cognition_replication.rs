@@ -228,6 +228,176 @@ fn saved_then_forgotten_entry_survives_archive_roundtrip() {
     assert_eq!(kept.content, "被遗忘的正文");
 }
 
+/// Distinct parts of one message survive a real archive, replay and reopen.
+/// A divergent part rejects the whole message, including its other part,
+/// even when the same peer previously delivered the local baseline.
+#[test]
+fn output_part_identities_survive_archive_roundtrip_and_atomic_conflict() {
+    use shenko_store::output_parts::{OutputPart, OutputPartAdmission, OutputPartKind};
+
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let agent = EntityId::new();
+    let first = OutputPart {
+        stream_id: EntityId::new(),
+        request_id: EntityId::new(),
+        attempt_id: EntityId::new(),
+        message_id: EntityId::new(),
+        part_id: "text/0".into(),
+        part_revision: "1".into(),
+        chunk_seq: 0,
+        content: "第一部分\nexact bytes 🦀".into(),
+        kind: OutputPartKind::PublicText,
+        terminal: true,
+    };
+    let second = OutputPart {
+        part_id: "text/1".into(),
+        content: "第二部分\nother bytes".into(),
+        ..first.clone()
+    };
+    for part in [&first, &second] {
+        assert!(matches!(
+            source.append_output_part(agent, part).unwrap(),
+            OutputPartAdmission::Appended(_)
+        ));
+    }
+
+    let snapshot = source.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(!snapshot.manifest.gaps.iter().any(|gap| gap.blocking));
+    let rows: Vec<_> = snapshot.manifest.rows.iter()
+        .filter(|row| row.table == "subject_output_parts")
+        .collect();
+    assert_eq!(rows.len(), 2);
+    for (row, part) in rows.iter().zip([&first, &second]) {
+        let expected_key = [
+            agent.to_string(), part.stream_id.to_string(), part.message_id.to_string(),
+            part.part_id.clone(), part.chunk_seq.to_string(),
+        ].join("\u{1f}");
+        assert_eq!(row.key, expected_key);
+        assert_eq!(row.value("part_id"), Some(part.part_id.as_str()));
+        assert_eq!(row.value("content"), Some(part.content.as_str()));
+    }
+    let mut archive = Vec::new();
+    snapshot.write_archive(&mut archive).unwrap();
+    let options = CognitionImportOptions {
+        peer_id: Some(EntityId::new()),
+        ..Default::default()
+    };
+    let receiver_db = dir.join("receiver.db");
+    let receiver_cas = dir.join("receiver-cas");
+    let receiver = Store::open(receiver_db.clone(), receiver_cas.clone()).unwrap();
+    let imported = receiver.import_cognition_archive(&archive[..], &options).unwrap();
+    assert!(imported.ack(EntityId::new()).verified, "{:?}", imported.conflicts);
+    let read_parts = |store: &Store| {
+        let mut parts = store.output_parts_after(agent, None, 10).unwrap();
+        parts.sort_by(|a, b| a.part.part_id.cmp(&b.part.part_id));
+        parts
+    };
+    let received = read_parts(&receiver);
+    assert_eq!(received.len(), 2);
+    assert_eq!(received[0].part, first);
+    assert_eq!(received[1].part, second);
+    let positions: Vec<_> = received.iter().map(|stored| stored.commit).collect();
+
+    let replay = receiver.import_cognition_archive(&archive[..], &options).unwrap();
+    assert!(replay.ack(EntityId::new()).verified);
+    assert_eq!(replay.inserted, 0);
+    assert_eq!(replay.updated, 0);
+    assert_eq!(read_parts(&receiver).len(), 2);
+    for (part, position) in [&first, &second].into_iter().zip(&positions) {
+        match receiver.append_output_part(agent, part).unwrap() {
+            OutputPartAdmission::Replayed(commit) => assert_eq!(commit, *position),
+            _ => panic!("archive replay must retain the original receiver commit"),
+        }
+    }
+    drop(receiver);
+    let mut receiver = Store::open(receiver_db.clone(), receiver_cas.clone()).unwrap();
+    let reopened = read_parts(&receiver);
+    assert_eq!(reopened.len(), 2);
+    assert_eq!(reopened[0].part, first);
+    assert_eq!(reopened[1].part, second);
+    assert_eq!(reopened.iter().map(|stored| stored.commit).collect::<Vec<_>>(), positions);
+
+    // This peer already supplied the receiver's baseline. A second real
+    // source supplies a new sibling before a divergent existing identity;
+    // neither that sibling nor any baseline change may escape the unit.
+    let baselines = || {
+        let conn = rusqlite::Connection::open(&receiver_db).unwrap();
+        let mut statement = conn.prepare(
+            "SELECT entity_key,row_values,updated_at FROM cognition_baselines
+             WHERE peer_id=?1 AND table_name='subject_output_parts' ORDER BY entity_key",
+        ).unwrap();
+        statement.query_map([options.peer_id.unwrap().to_string()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+        }).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap()
+    };
+    let original_baselines = baselines();
+    assert_eq!(original_baselines.len(), 2);
+    let divergent = Store::open(dir.join("divergent.db"), dir.join("divergent-cas")).unwrap();
+    let sibling = OutputPart {
+        part_id: "text/-1".into(),
+        content: "new sibling must remain unpublished".into(),
+        ..first.clone()
+    };
+    let replacement = OutputPart {
+        content: "same identity, different source bytes".into(),
+        ..first.clone()
+    };
+    for part in [&sibling, &replacement] {
+        assert!(matches!(
+            divergent.append_output_part(agent, part).unwrap(),
+            OutputPartAdmission::Appended(_)
+        ));
+    }
+    let mut divergent_archive = Vec::new();
+    divergent.write_cognition_archive(&Default::default(), None, &mut divergent_archive).unwrap();
+    for _ in 0..2 {
+        let outcome = receiver.import_cognition_archive(&divergent_archive[..], &options).unwrap();
+        assert!(!outcome.ack(EntityId::new()).verified);
+        assert_eq!(outcome.inserted, 0);
+        assert_eq!(outcome.updated, 0);
+        assert_eq!(outcome.conflicts.iter()
+            .filter(|conflict| conflict.table == "subject_output_parts").count(), 2);
+        assert_eq!(baselines(), original_baselines, "refusal must retain all baseline bytes and timestamps");
+        drop(receiver);
+        receiver = Store::open(receiver_db.clone(), receiver_cas.clone()).unwrap();
+        let kept = read_parts(&receiver);
+        assert_eq!(kept.len(), 2, "a rejected message must not publish its new sibling");
+        assert_eq!(kept[0].part, first);
+        assert_eq!(kept[1].part, second);
+        assert_eq!(kept.iter().map(|stored| stored.commit).collect::<Vec<_>>(), positions);
+        assert_eq!(baselines(), original_baselines, "reopen must preserve the original baselines");
+    }
+    let replay = receiver.import_cognition_archive(&archive[..], &options).unwrap();
+    assert!(replay.ack(EntityId::new()).verified);
+    assert_eq!(replay.inserted, 0);
+    assert_eq!(replay.updated, 0);
+    for (part, position) in [&first, &second].into_iter().zip(&positions) {
+        match receiver.append_output_part(agent, part).unwrap() {
+            OutputPartAdmission::Replayed(commit) => assert_eq!(commit, *position),
+            _ => panic!("refused replacement must retain the original receiver commit"),
+        }
+    }
+
+    // The first part sorts before the conflicting second part. If the
+    // message savepoint leaked partial inserts, it would appear here.
+    let conflicting = Store::open(dir.join("conflict.db"), dir.join("conflict-cas")).unwrap();
+    let local = OutputPart { content: "receiver's original bytes".into(), ..second.clone() };
+    assert!(matches!(
+        conflicting.append_output_part(agent, &local).unwrap(),
+        OutputPartAdmission::Appended(_)
+    ));
+    for _ in 0..2 {
+        let outcome = conflicting.import_cognition_archive(&archive[..], &options).unwrap();
+        assert!(!outcome.ack(EntityId::new()).verified);
+        assert_eq!(outcome.conflicts.iter()
+            .filter(|conflict| conflict.table == "subject_output_parts").count(), 2);
+        let kept = read_parts(&conflicting);
+        assert_eq!(kept.len(), 1, "a rejected message must not publish its other part");
+        assert_eq!(kept[0].part, local);
+    }
+}
+
 /// An entry, its producing save and the forget that targets it reconcile as
 /// one conflict unit: when the receiver settled the same forget request as
 /// `failed` while the source committed it, the divergent terminal refuses the
