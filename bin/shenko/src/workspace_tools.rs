@@ -182,35 +182,21 @@ fn default_config(mounts: &[MountSpec]) -> Result<WorkspaceToolsConfig> {
     })
 }
 
-/// First use installs one default combination. A compiled package update
-/// preserves the existing configuration and disabled state, including on an
-/// installation created before this package existed. An absent optional
-/// package without a usable default mount stays absent; its failure cannot
-/// make an otherwise usable subject installation unbootable.
+/// Startup adopts only an already installed profile. An absent package stays
+/// absent until explicit configuration or enablement. A compiled package
+/// update preserves the existing configuration and enabled state.
 fn reconcile(
     node: &mut Node,
-    mounts: &[MountSpec],
     package_root: &Path,
 ) -> Result<Option<InstalledUnitFact>> {
-    let current = installed(node)?;
+    let Some(current) = installed(node)? else {
+        return Ok(None);
+    };
     let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
-    if current
-        .as_ref()
-        .is_none_or(|record| record.artifact_digest != expected)
-    {
-        let (config, enabled) = match current {
-            Some(record) => (record.descriptor.config, record.enabled),
-            None => match default_config(mounts) {
-                Ok(config) => (serde_json::to_value(config)?, true),
-                Err(error) => {
-                    tracing::warn!(unit = UNIT_ID, error = %format!("{error:#}"),
-                        "workspace tool package unavailable: no usable default root; configure an explicit host root");
-                    return Ok(None);
-                }
-            },
-        };
-        import_record(node, config, enabled, package_root)?;
+    if current.artifact_digest == expected {
+        return Ok(Some(current));
     }
+    import_record(node, current.descriptor.config, current.enabled, package_root)?;
     Ok(Some(installed(node)?.context(
         "workspace tool installation record is absent after import",
     )?))
@@ -222,11 +208,10 @@ pub async fn install(
     supervisor: &Supervisor,
     store: &Arc<Store>,
     data_dir: &Path,
-    mounts: &[MountSpec],
 ) -> Result<()> {
     let record = {
         let mut node = crate::node_sync::open_node(data_dir, store)?;
-        reconcile(&mut node, mounts, &data_dir.join("workspace-tool-units"))?
+        reconcile(&mut node, &data_dir.join("workspace-tool-units"))?
     };
     let Some(record) = record else {
         return Ok(());
@@ -410,6 +395,21 @@ mod tests {
             true,
             false,
         )];
+        assert_eq!(
+            default_config(&mounts)?.root,
+            directory(&dir.join("home"))?
+        );
+        let absent = runtime(&store).await?;
+        install(&absent, &store, &dir).await?;
+        {
+            let node = Node::open_inspect(&dir.join("node"))?.unwrap();
+            assert!(
+                installed(&node)?.is_none(),
+                "startup must leave an absent profile absent even when a valid root is available"
+            );
+        }
+        assert!(kinds(&absent)?.is_empty());
+        absent.stop().await?;
         let unavailable = runtime(&store).await?;
         let cow_home = vec![MountSpec::new(
             dir.join("home"),
@@ -418,7 +418,8 @@ mod tests {
             true,
             true,
         )];
-        install(&unavailable, &store, &dir, &cow_home).await?;
+        assert!(default_config(&cow_home).is_err());
+        install(&unavailable, &store, &dir).await?;
         assert!(kinds(&unavailable)?.is_empty());
         let node = Node::open_inspect(&dir.join("node"))?.unwrap();
         assert!(
@@ -438,7 +439,7 @@ mod tests {
             })?;
         }
         assert_eq!(report(Some(&node))?["configuration_status"], "unconfigured");
-        install(&unavailable, &store, &dir, &mounts).await?;
+        install(&unavailable, &store, &dir).await?;
         assert!(
             kinds(&unavailable)?.is_empty(),
             "a later usable mount must not re-enable the package"
@@ -450,6 +451,10 @@ mod tests {
                 root: Some(dir.join("home")),
             },
         )?;
+        assert!(
+            kinds(&unavailable)?.is_empty(),
+            "explicit configuration must not change the running catalog"
+        );
         assert!(
             !installed(&node)?.unwrap().enabled,
             "configuration must preserve explicit disable"
@@ -468,7 +473,7 @@ mod tests {
         drop(node);
 
         let first = runtime(&store).await?;
-        install(&first, &store, &dir, &mounts).await?;
+        install(&first, &store, &dir).await?;
         let original = kinds(&first)?;
         assert_eq!(original.len(), 4);
         assert!(original.contains(&"workspace.edit.replace".into()));
@@ -487,7 +492,7 @@ mod tests {
         );
         first.stop().await?;
         let second = runtime(&store).await?;
-        install(&second, &store, &dir, &mounts).await?;
+        install(&second, &store, &dir).await?;
         let selected = kinds(&second)?;
         assert_eq!(selected.len(), 4);
         assert!(selected.contains(&"workspace.edit.hashline".into()));
@@ -497,7 +502,7 @@ mod tests {
         assert_eq!(kinds(&second)?, selected);
         second.stop().await?;
         let third = runtime(&store).await?;
-        install(&third, &store, &dir, &mounts).await?;
+        install(&third, &store, &dir).await?;
         assert!(
             kinds(&third)?.is_empty(),
             "startup must preserve an explicitly disabled unit"

@@ -14,7 +14,7 @@
 
 本轮提供 `workspace.read`、`workspace.search`、`workspace.create`，以及 **`workspace.edit.replace` / `workspace.edit.hashline` 两个互斥的编辑插件**。它们进入已有 native handler、能力目录与 Node 安装单元路径，不另设工具注册表或安装数据库。同一 profile 只选择其中一个编辑器，避免给 child 同时披露两套互相竞争的语法。
 
-默认组合为读取、搜索、创建和 **replace**。配置入口：
+显式配置时的暂定组合为读取、搜索、创建和 **replace**。完成参考模型行为验收前，启动与能力发现不会自动安装或启用缺少的 profile，即使已有可用的 home。显式配置及启停入口：
 
 ```sh
 shenko tool profile inspect
@@ -24,11 +24,11 @@ shenko tool profile disable
 shenko tool profile enable
 ```
 
-首次创建 profile 且未提供 root 时，从已配置 WASM `/home` 的可写 `ReadWrite` host mount 取得真实宿主目录，不把虚拟 `/home` 当作宿主路径，也不猜测当前 shell 目录。COW mount 的 source 只是 base，不能据此推定写入目录；没有合适挂载时明确报告工具包 unavailable，主体仍可启动，使用该包前需配置实际 root。所选编辑器与 root 由本节点的 `tools.workspace` Code unit 持久保存；之后 `configure` 省略 `--root` 会保留旧值。旧／新 Node 缺少该单元时才尝试补默认 replace，已有单元的 root、editor 和 enabled 状态保留，disabled 不被默认装配重新打开。未配置的包也可以关闭，disabled 且未配置与已有有效配置分别可见。Node 自身保留的 `cognition` 观察元数据独立于严格校验的工具配置，不因登记观察而使工具配置失效。
+显式创建 profile 且未提供 root 时，从已配置 WASM `/home` 的可写 `ReadWrite` host mount 取得真实宿主目录，不把虚拟 `/home` 当作宿主路径，也不猜测当前 shell 目录。COW mount 的 source 只是 base，不能据此推定写入目录；没有合适挂载时明确报告工具包 unavailable，主体仍可启动，使用该包前需配置实际 root。所选编辑器与 root 由本节点的 `tools.workspace` Code unit 持久保存；之后 `configure` 省略 `--root` 会保留旧值。旧／新 Node 缺少该单元时保持缺少；已有单元仍迁移至编译包，保留 root、editor 和 enabled 状态，disabled 不被启动重新打开。现有记录不区分早期自动启用与显式启用，保留 enabled 不证明旧记录曾被显式选择，也不会覆盖可能已有的用户选择。未配置的包也可以关闭，disabled 且未配置与已有有效配置分别可见。Node 自身保留的 `cognition` 观察元数据独立于严格校验的工具配置，不因登记观察而使工具配置失效。
 
 配置及启停改变下次 runtime start 的装配选择，不能把写入配置报告为已热切换当前运行器。这是本轮 CLI 的实现边界，[共享能力与运行时替换](model-children.md#spec-5-5)的既有目标不因此缩减。
 
-目录已注册与某个 child 已获工具是不同事实。作者仍在 `ModelChildSpec.tools` 显式选择真实 `(kind, definition_version)`；已有 `tools: []` 的纯文本 child 保持原义，不能因为 profile 默认安装工具就自动获得它们。主体本身的角色边界保持不变。
+目录已注册与某个 child 已获工具是不同事实。作者仍在 `ModelChildSpec.tools` 显式选择真实 `(kind, definition_version)`；已有 `tools: []` 的纯文本 child 保持原义，不能因为 profile 已安装工具就自动获得它们。主体本身的角色边界保持不变。
 
 `wasi.exec`、REPL 和 SSH 继续复用各自已经存在的执行路径。这里没有新增 code mode 的 tools callback 桥接，也没有实现 patch 方言；能运行代码不能被记成代码可以回调任意工具。工作区编辑插件也不是对全部 shell／远端写入的全局拦截器。
 

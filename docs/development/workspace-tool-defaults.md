@@ -2,6 +2,8 @@
 
 当前[工作区工具合同](../specs/workspace-tools.md)按用户允许的推理方式暂选 replace。本页保留可运行入口与后续比较设计，并记录首次小模型诊断的明确失败边界；尚未形成编辑器成效排名。真实模型验收继续遵守 [shenko-dev](../../.agents/skills/shenko-dev/SKILL.md) 和[本地模型行为验收](local-model-behavior.md)。
 
+replace 是显式配置时的暂定选择；参考模型行为验收完成前，启动与能力发现均让缺少的 profile 保持缺少，即使 home 可用。显式 Configure / Enable 仍走真实 CLI 配置路径，下一次 runtime 才采用保存的选择。已有 profile 的 root、editor 与 enabled 在编译包迁移时保留；当前记录不能区分早期自动启用与显式启用，因此这一限制不能追溯证明已有 enabled 记录的选择来源。工具安装也不代替有限 child 的显式工具授权，不改变主体角色边界。
+
 ## 可运行的最小诊断
 
 [`workspace_tools_acceptance`](../../bin/shenko/examples/workspace_tools_acceptance.rs) 复用 `PreparedSandbox` / `run_prepared_sandbox`，通过真实 CLI 配置与启动安装入口读取 `tools.workspace`，再由产品主体、有限模型 child 和共享 native runtime 执行。它只展开下面第一个任务模板：同名配送配置中调整在用普通配送门槛，同时保持加急配送行为以及 README、示例文件的原始字节。oracle 读取实际配置，检查五个边界金额的运费；没有向模型提供预期工具调用或输出。快照范围是这三个给定文件，不宣称审核了整个工作区。

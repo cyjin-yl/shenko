@@ -238,7 +238,7 @@ impl SandboxRuntime for Runtime {
     ) -> Result<()> {
         // Exactly the CLI's persisted Node record and production startup
         // composition. The explicit root needs no guessed home mount.
-        workspace_tools::install(supervisor, sandbox.store(), sandbox.installation(), &[]).await?;
+        workspace_tools::install(supervisor, sandbox.store(), sandbox.installation()).await?;
         let child: Arc<dyn NativeTaskHandler> = Arc::new(ModelChildHandler::new(
             sandbox.store().clone(),
             self.broker.clone(),

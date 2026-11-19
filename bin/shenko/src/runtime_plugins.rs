@@ -255,7 +255,7 @@ pub(crate) async fn install_native_definitions(
     // One persisted workspace profile supplies four ordinary native plugins.
     // Its editor/root stay fixed for this process; a changed Node record is
     // adopted on the next start, alongside the next child's tool catalog.
-    crate::workspace_tools::install(supervisor, store, data_dir, &wasi_mounts).await?;
+    crate::workspace_tools::install(supervisor, store, data_dir).await?;
     // Real named-WASM-tool execution: wasi.exec resolves this
     // installation's own unit inventory and runs their verified
     // artifact bytes in the real WasmRuntime under the home mounts.
