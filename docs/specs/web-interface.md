@@ -184,7 +184,8 @@ selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.
 | 会话 | 参与者 | 查看者一侧 | 每条消息的事实来源 |
 | --- | --- | --- | --- |
 | 直接对话 | 你、主体 | 你 | 你的提交与回执；主体的消息是**选入了你那条消息的已提交步骤**（回执的 `selected_step_id`），不猜测；主体自己思考的轮次合并为一行“独自思考了 N 轮”，可跳到 Inspect；只有真实持久流式内容显示为“正在输出” |
-| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | `GET /api/tasks/{id}/trajectory`：任务的封存输入（委派内容）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），以及它拥有的子任务（工具 child） |
+| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | 会话以委派给的名字命名，没有名字时用目标首行（`/api/tasks` 行的 `name`、`goal`，按运行时的同一读法从冻结输入取出），两者都缺才用短 id；仍在运行的会话在头像上标出。`GET /api/tasks/{id}/trajectory`：任务的冻结输入（委派内容，按运行时的同一读法从决定中取出）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），每步带证据的观察时间，以及它拥有的子任务（工具 child） |
+| 团队（群聊） | 主体、同一团队的子代理 | 主体（旁观） | 同一个决定里 `team` 相同的委派（`/api/tasks` 行的 `name`、`team`）合成一个会话：先列出各成员的委派内容，再按观察时间交织每一步。成员之间的消息只在发送方显示一次，标为“→ 名字”；等待显示为一行事实（[model-children §5.1](model-children.md#team)） |
 | 渠道群聊/私聊 | 主体、对方或群成员 | 主体（旁观） | `GET /api/conversations`，见下文“主体全部对外沟通” |
 
 <a id="5-2-external"></a>
@@ -1049,3 +1050,79 @@ inline-script source references; no Rust build/tests ran), and
 `pr293-conversation-app-r1/runtime.json` (failed before HTTP readiness).
 The later successful receipts do not rewrite those outcomes or the historical
 acceptance ledger.
+
+## Proto-UI mainline pin 2026-11-18
+
+The build pin advances from `7521cd501f454b4e013ec6e9656fb4b6e4951514` to the
+Proto-UI mainline head `3a537056b14bc8fd143d67ff63a55b2334981690` (247 commits
+later). Changes at this pin:
+
+- **Packages.** The three public entries move from `0.3.0-alpha.1` to
+  `0.3.0-alpha.2`.
+- **Lock.** The upstream `pnpm-lock.yaml` digest is now
+  `e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8`.
+- **Closure.** The 42-package public closure was rebuilt at this commit.
+- **Anatomy ordering.** The upstream mainline now carries its own fix for
+  anatomy ordering cost during notifications (#1487). Within one notification
+  pass it reuses logical domain reads and host comparisons, and it notifies
+  only the current family's subscribers. The local Proto-UI patch `5db86b49`
+  recorded in §6 is therefore not proposed upstream.
+
+Checked on this pin:
+
+- The Shenko bundle was regenerated through `web/build.mjs`, with both Shenko
+  Prototypes compiled by the pinned compiler.
+- `tsc` passes, and the web tests pass (36).
+- The demo IM and its team thread load in Chromium with no page errors.
+- Not yet measured at this pin: the adapter cost figures in §6 and the
+  toggle-group mount numbers.
+
+## Proto-UI mainline pin 2026-11-19
+
+The build pin advances from `3a537056b14bc8fd143d67ff63a55b2334981690` to the
+Proto-UI mainline head `af43d613171fe18a8acf61fe3fbffec5610f67a1` (97 commits
+later). The public entries stay at `0.3.0-alpha.2` and the upstream lock
+digest is unchanged. Upstream changes in this range are mostly anatomy
+dispatch performance (stable subscriber cursors and a retained live
+subscriber list), adapter regressions, website density repairs and release
+documentation. The public closure was rebuilt at this commit and the bundle
+regenerated through `web/build.mjs`; `tsc` and the web tests pass, and the
+demo IM loads in Chromium with no page errors.
+
+## Compiled and adapter parts, 2026-11-19
+
+The build manifest's `realisation` field says how each part of the UI is realised:
+
+- **Compiled at build time.** Shenko's own Prototypes (`message-bubble`, `transport-badge`).
+- **Runtime adapter.** Each adopted upstream family, until the pinned compiler accepts it.
+
+At pin `af43d613` the compiler accepts none of the nine adopted families. It stops at three layers:
+
+1. the base package declares no `proto` source exports;
+2. the shadcn style-scope context and per-family constant tables are rejected as top-level runtime bindings (PUI1004);
+3. drawer needs Axis Input lowering, which the compiler does not implement.
+
+[shenko#335](https://github.com/cyjin-yl/shenko/issues/335) records the exact locations. Shenko does not force a compile with `sourceImports` overrides or edits to the upstream checkout, because that would hide the gap rather than close it. New Shenko-owned surfaces are authored as compiled Prototypes where the compiler accepts them.
+
+## Attachments, 2026-11-19
+
+Decision [0008 §2](../decisions/0008-files-encounters-attachments-2026-11-19.md). Upload and admission:
+
+- `POST /api/attachments?name=<file name>` takes the raw bytes as the body, with the browser's `Content-Type`.
+- It seals the bytes into the CAS (namespace `web.attachment`) and answers with `{digest, name, media_type, bytes}`. The upload limit is 64 MiB, and one submission may carry at most 16 attachments.
+- A `submit` carries these objects in `attachment_refs`.
+- Admission rejects the whole input if any reference does not name bytes of exactly that length in this store.
+- `content` may be empty when the input has attachments.
+- `hello.capabilities.attachments` is true whenever the input service is wired.
+
+Serving the bytes back:
+
+- `GET /api/attachments/{digest}?type=` serves the stored bytes.
+- Only PNG, JPEG, GIF, WebP and AVIF are served inline under their own type. Everything else is served as an `application/octet-stream` download with `nosniff` and a sandbox CSP.
+- The page CSP allows `blob:` images for local previews in the composer.
+
+What the subject sees:
+
+- the name, type, size and digest of every attachment;
+- a text attachment's leading 24 KiB;
+- for an image, the fact that this inference path carries no image input.

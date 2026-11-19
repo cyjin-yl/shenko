@@ -110,6 +110,9 @@ pub(crate) async fn start(
     // per-execution it reopens this installation's unit inventory so
     // installs made after startup are visible.
     let wasi_mounts = prepared_home.manifest.mounts.clone();
+    // record_local_provisioning has validated this installation's ready home.
+    // Capture the same closure once; Files never reparses host path authority.
+    let file_mounts = Arc::new(shenko_ui::files::FileMounts::from_validated_startup(&wasi_mounts)?);
     drop(prepared_home);
     let identity = adopt_identity(&store, agent_id, name.as_deref(), identity_service)?;
     info!(
@@ -259,8 +262,15 @@ pub(crate) async fn start(
             owner_grant,
         );
         println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
-        let runtime_result =
-            run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state).await;
+        let ui = shenko_ui::server::UiServer::new(port)
+            .with_native(native_child)
+            .with_store(store)
+            .with_file_mounts(file_mounts)
+            .with_file_peers(file_peers(&data_dir).ok())
+            .with_data_dir(data_dir)
+            .with_owner(owner_state)
+            .with_inference_status(model_profile.model, model_profile.configured);
+        let runtime_result = run_deterministic_ui(ui, cancel).await;
         consumers.stop(&authority_runtime).await?;
         return runtime_result;
     }
@@ -378,6 +388,8 @@ pub(crate) async fn start(
         .with_media_runtime(Arc::clone(&media.runtime))
         .with_context(Arc::clone(&context_registry), capabilities, reserved_output_tokens)
         .with_data_dir(data_dir.clone())
+        .with_file_mounts(file_mounts)
+        .with_file_peers(file_peers(&data_dir).ok())
         .with_owner(owner_state)
         .with_config(config_service)
         .with_artifact_services(Arc::clone(&installed.artifact_services))
@@ -452,20 +464,9 @@ pub(crate) async fn start(
 /// health endpoints available without constructing a broker or a fake thought
 /// loop. No inbox/outbox is wired, so browsers cannot mistake it for thinking.
 async fn run_deterministic_ui(
-    port: u16,
-    store: Arc<shenko_store::store::Store>,
-    data_dir: PathBuf,
-    model_profile: shenko_seed::ModelProfile,
+    ui: shenko_ui::server::UiServer,
     failure: tokio_util::sync::CancellationToken,
-    native: Arc<shenko_subject::NativeChildService>,
-    owner: shenko_ui::owner::OwnerState,
 ) -> Result<()> {
-    let ui = shenko_ui::server::UiServer::new(port)
-        .with_native(native)
-        .with_store(store)
-        .with_data_dir(data_dir)
-        .with_owner(owner)
-        .with_inference_status(model_profile.model, model_profile.configured);
     println!("Shenko UI: http://{}", ui.bind);
     println!("  Subject loop: not started (model_binding needed)");
     println!("  Inference: not_connected; capacity blocked");
@@ -481,4 +482,39 @@ async fn run_deterministic_ui(
     result?;
     info!("Shenko stopped");
     Ok(())
+}
+
+/// The nodes this node syncs with, read without taking the node's writer
+/// role, for the file view. An installation with no node database has none.
+fn file_peers(data_dir: &std::path::Path) -> Result<Vec<shenko_ui::files::FilePeer>> {
+    let Some(node) = shenko_node::Node::open_inspect(&data_dir.join("node"))? else {
+        return Ok(Vec::new());
+    };
+    Ok(node.sync_peers()?
+        .into_iter()
+        .map(|state| shenko_ui::files::FilePeer {
+            node_id: state.peer.node_id.to_string(),
+            ssh_target: state.peer.ssh_target,
+            workspaces: state.peer.workspaces,
+            remote_data_dir: state.peer.remote_data_dir,
+            confirmed_at: state.confirmation.map(|confirmation| confirmation.confirmed_at.to_rfc3339()),
+            failure: state.failure.map(|failure| failure.reason),
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod file_peer_tests {
+    #[test]
+    fn unknown_peer_inventory_is_distinct_from_no_installation() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-file-peers-{}", shenko_types::ids::EntityId::new()));
+        std::fs::create_dir_all(root.join("node"))?;
+        let absent = super::file_peers(&root);
+        std::fs::write(root.join("node/node.sqlite3"), b"invalid node database")?;
+        let unavailable = super::file_peers(&root);
+        std::fs::remove_dir_all(root)?;
+        assert!(absent?.is_empty());
+        assert!(unavailable.is_err());
+        Ok(())
+    }
 }

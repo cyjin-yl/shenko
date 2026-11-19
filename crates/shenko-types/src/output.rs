@@ -504,6 +504,44 @@ pub struct ModelChildSpec {
     /// discussion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner_answer: Option<String>,
+    /// The name the delegator gave this child.
+    /// Peers address it by this name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// The team this child works in. Children the same decision started
+    /// with the same team label are peers: they talk to each other directly
+    /// instead of relaying through the subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+}
+
+impl ModelChildSpec {
+    /// Bound for a child name or a team label.
+    pub const MAX_LABEL_CHARS: usize = 64;
+
+    /// The goal's first non-empty line, cut to 80 characters: how a roster
+    /// or a task list names this child's work in one line.
+    pub fn goal_summary(&self) -> String {
+        let line = self.goal.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+        let mut summary: String = line.chars().take(80).collect();
+        if line.chars().count() > 80 {
+            summary.push('…');
+        }
+        summary
+    }
+
+    /// A name or team label is short, single-line text that can stand inside
+    /// a `[tell:<name>]` control line: no brackets, no colon, no control
+    /// characters. This is structure, not a judgement about the words.
+    pub fn valid_label(label: &str) -> bool {
+        let trimmed = label.trim();
+        !trimmed.is_empty()
+            && trimmed == label
+            && label.chars().count() <= Self::MAX_LABEL_CHARS
+            && !label
+                .chars()
+                .any(|ch| ch.is_control() || matches!(ch, '[' | ']' | ':' | '：'))
+    }
 }
 
 /// Authored disposition of one durable input event. The sealed decision binds

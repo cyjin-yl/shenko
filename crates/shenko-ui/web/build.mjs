@@ -227,6 +227,14 @@ const manifest = {
   },
   packages: pin.packages,
   adopted_families: pin.adopted_families,
+  // Which way each piece of the UI is realised, so "compiled" is never a
+  // blanket claim: Shenko's own Prototypes are compiler output; every adopted
+  // upstream family still runs through the runtime adapter until the pinned
+  // compiler accepts it (shenko#335 records the blockers per family).
+  realisation: {
+    compiled: compilerRecord.prototypes.map((prototype) => prototype.name),
+    adapter: pin.adopted_families.map((family) => ({ family, mode: 'adapter', compiler_blocker: 'shenko#335' })),
+  },
   adoption: {
     runtime: 'createReactAdapter({ ...React, createPortal })',
     why: 'Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.',
