@@ -543,10 +543,12 @@ pub(crate) fn check_continuation_allocations(store: &Store, intents: &[Delegatio
         if definition.kind != MODEL_CHILD_KIND { continue; }
         let contract: FrozenModelChild = serde_json::from_value(definition.input.clone())?;
         let Some(previous) = contract.continued_from else { continue };
-        if let std::collections::btree_map::Entry::Vacant(entry) = remaining.entry(previous) {
-            entry.insert(store.model_child_continuation_remaining_budget(previous)?);
-        }
-        let balance = remaining.get_mut(&previous).expect("the continued source was inserted");
+        let balance = match remaining.entry(previous) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(store.model_child_continuation_remaining_budget(previous)?)
+            }
+        };
         ensure!(contract.budget.max_total_tokens <= balance.max_total_tokens
             && contract.budget.max_tool_calls <= balance.max_tool_calls,
             "continuation {} exceeds source {} durable remaining budget: requested {} tokens / {} tool calls; remaining {} tokens / {} tool calls",

@@ -1,0 +1,242 @@
+diff --git a/crates/shenko-broker/src/broker.rs b/crates/shenko-broker/src/broker.rs
+index 3a2409f..980d961 100644
+--- a/crates/shenko-broker/src/broker.rs
++++ b/crates/shenko-broker/src/broker.rs
+@@ -23,7 +23,7 @@ use tracing::{info, warn};
+ use crate::admission::{AdmissionController, AdmissionGuard, CapacityPool, CapacitySnapshot};
+ use crate::capability::BackendCapabilitySnapshot;
+ use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
+-use crate::execution::{execute_request, now_ms};
++use crate::execution::{ExecutionContext, execute_request, now_ms};
+ use crate::kv::{
+     AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState,
+     ResidencyIdentity,
+@@ -402,8 +402,11 @@ impl BrokerHandle {
+             return Ok(());
+         }
+         let Some(result) = result else {
++            // No original physical owner means no new charge or release. Keep
++            // the pinned reader and existing debt rather than unwinding here.
++            let resources = recovered_resources
++                .ok_or_else(|| anyhow!("unknown recovery did not resolve its original domain"))?;
+             accounting.entry(request_id).or_insert_with(|| {
+-                let resources = recovered_resources.expect("unknown recovery resolved its original domain");
+                 let charge = resources.domain.recover_unknown();
+                 resources.domain.quarantine(request_id, now_ms(), "recovered without terminal evidence");
+                 AccountedRequest { resources, charge: Some(charge) }
+@@ -1160,11 +1163,13 @@ impl Broker {
+                         receipt_sink.as_ref(),
+                         purpose,
+                         stream,
+-                        &registry,
+-                        &resources.domain,
+-                        &resources.kv,
+-                        &error_sink,
+-                        &stop,
++                        &ExecutionContext {
++                            registry: &registry,
++                            domain: &resources.domain,
++                            kv: &resources.kv,
++                            error_sink: &error_sink,
++                            stop: &stop,
++                        },
+                     )
+                     .await;
+                     let completed = CompletedRequest {
+diff --git a/crates/shenko-broker/src/execution.rs b/crates/shenko-broker/src/execution.rs
+index 7efe219..c174cd5 100644
+--- a/crates/shenko-broker/src/execution.rs
++++ b/crates/shenko-broker/src/execution.rs
+@@ -30,6 +30,18 @@ fn residency_context(request: &InferenceRequest) -> String {
+     request.conversation_id.to_string()
+ }
+ 
++/// The original worker-owned services for one admitted execution. This only
++/// borrows the installed runtime and physical accounting owners; it creates no
++/// provider, capacity pool, cancellation lifetime or replacement receipt.
++#[derive(Clone, Copy)]
++pub(crate) struct ExecutionContext<'a> {
++    pub(crate) registry: &'a Arc<ProviderRegistry>,
++    pub(crate) domain: &'a Arc<ResourceDomain>,
++    pub(crate) kv: &'a Arc<KvAllocator>,
++    pub(crate) error_sink: &'a crate::error_sink::ErrorSinkCell,
++    pub(crate) stop: &'a tokio_util::sync::CancellationToken,
++}
++
+ /// Execute one admitted request and produce its terminal result.
+ ///
+ /// The result carries whether execution attempted to report a specific cause
+@@ -42,12 +54,9 @@ pub(crate) async fn execute_request(
+     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
+     purpose: RequestPurpose,
+     stream: Option<StreamSubmission>,
+-    registry: &Arc<ProviderRegistry>,
+-    domain: &Arc<ResourceDomain>,
+-    kv: &Arc<KvAllocator>,
+-    error_sink: &crate::error_sink::ErrorSinkCell,
+-    stop: &tokio_util::sync::CancellationToken,
++    context: &ExecutionContext<'_>,
+ ) -> ExecutedRequest {
++    let ExecutionContext { domain, kv, .. } = *context;
+     // A running request is a real reader of its context's residency. While it
+     // runs the context is not an eviction candidate, and a release requested in
+     // the meantime stays pending until this read ends (step 6). A first
+@@ -62,11 +71,7 @@ pub(crate) async fn execute_request(
+         receipt_sink,
+         purpose,
+         stream,
+-        registry,
+-        domain,
+-        kv,
+-        error_sink,
+-        stop,
++        context,
+     )
+     .await;
+     if reading {
+@@ -99,12 +104,9 @@ async fn execute_admitted(
+     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
+     purpose: RequestPurpose,
+     stream: Option<StreamSubmission>,
+-    registry: &Arc<ProviderRegistry>,
+-    domain: &Arc<ResourceDomain>,
+-    kv: &Arc<KvAllocator>,
+-    error_sink: &crate::error_sink::ErrorSinkCell,
+-    stop: &tokio_util::sync::CancellationToken,
++    context: &ExecutionContext<'_>,
+ ) -> (InferenceResult, bool) {
++    let ExecutionContext { registry, error_sink, stop, .. } = *context;
+     if stop.is_cancelled() {
+         return (stopped_before_dispatch(request, purpose), false);
+     }
+@@ -147,8 +149,8 @@ async fn execute_admitted(
+                 );
+             }
+             match stream {
+-                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink, stop).await,
+-                None => execute_complete(request, purpose, runtime, domain, kv, error_sink, stop).await,
++                Some(stream) => execute_stream(request, purpose, runtime, stream, context).await,
++                None => execute_complete(request, purpose, runtime, context).await,
+             }
+         }
+         otherwise => {
+@@ -205,11 +207,9 @@ async fn execute_complete(
+     request: &InferenceRequest,
+     purpose: RequestPurpose,
+     runtime: Arc<dyn ProviderRuntime>,
+-    domain: &Arc<ResourceDomain>,
+-    kv: &Arc<KvAllocator>,
+-    error_sink: &crate::error_sink::ErrorSinkCell,
+-    stop: &tokio_util::sync::CancellationToken,
++    context: &ExecutionContext<'_>,
+ ) -> (InferenceResult, bool) {
++    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
+     match provider_outcome(async { runtime.complete_cancellable(request, stop).await }).await {
+         Ok(response) => {
+             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
+@@ -256,11 +256,9 @@ async fn execute_stream(
+     purpose: RequestPurpose,
+     runtime: Arc<dyn ProviderRuntime>,
+     stream: StreamSubmission,
+-    domain: &Arc<ResourceDomain>,
+-    kv: &Arc<KvAllocator>,
+-    error_sink: &crate::error_sink::ErrorSinkCell,
+-    stop: &tokio_util::sync::CancellationToken,
++    context: &ExecutionContext<'_>,
+ ) -> (InferenceResult, bool) {
++    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
+     let publisher = BoundedStreamPublisher::new(
+         request.request_id,
+         stream.identity,
+diff --git a/crates/shenko-subject/src/model_child.rs b/crates/shenko-subject/src/model_child.rs
+index e7d759f..44402d0 100644
+--- a/crates/shenko-subject/src/model_child.rs
++++ b/crates/shenko-subject/src/model_child.rs
+@@ -157,6 +157,14 @@ struct FrozenModelChild {
+     toolset_fingerprint: Digest,
+ }
+ 
++/// Inputs already selected by the delegating S0 or retained in the frozen
++/// contract. Grouping them does not consult live routes or alter wire fields.
++struct FrozenChildEnvironment<'a> {
++    transport: &'a ProviderBinding,
++    child_provider_bindings: Option<&'a [ProviderBinding]>,
++    generation: RuntimeGeneration,
++}
++
+ impl FrozenModelChild {
+     fn new(
+         task_id: EntityId,
+@@ -171,9 +179,7 @@ impl FrozenModelChild {
+             task_id,
+             step_id,
+             spec,
+-            transport,
+-            child_provider_bindings,
+-            generation,
++            FrozenChildEnvironment { transport, child_provider_bindings, generation },
+             continued_from,
+             if child_provider_bindings.is_some() { CONTRACT_SCHEMA } else { TRANSPORT_CONTRACT_SCHEMA },
+         )
+@@ -183,12 +189,11 @@ impl FrozenModelChild {
+         task_id: EntityId,
+         step_id: EntityId,
+         spec: ModelChildSpec,
+-        transport: &ProviderBinding,
+-        child_provider_bindings: Option<&[ProviderBinding]>,
+-        generation: RuntimeGeneration,
++        environment: FrozenChildEnvironment<'_>,
+         continued_from: Option<EntityId>,
+         schema: u32,
+     ) -> Result<Self> {
++        let FrozenChildEnvironment { transport, child_provider_bindings, generation } = environment;
+         ensure!(
+             !spec.goal.trim().is_empty() && spec.goal.len() <= 64 * 1024,
+             "invalid model child goal"
+@@ -315,9 +320,11 @@ impl FrozenModelChild {
+                 self.task_id,
+                 self.created_by_step_id,
+                 self.spec.clone(),
+-                &self.provider_binding,
+-                self.child_provider_bindings.as_deref(),
+-                self.software_generation.clone(),
++                FrozenChildEnvironment {
++                    transport: &self.provider_binding,
++                    child_provider_bindings: self.child_provider_bindings.as_deref(),
++                    generation: self.software_generation.clone(),
++                },
+                 self.continued_from,
+                 self.schema_version,
+             )?,
+@@ -497,10 +504,12 @@ pub(crate) fn check_continuation_allocations(store: &Store, intents: &[Delegatio
+         if definition.kind != MODEL_CHILD_KIND { continue; }
+         let contract: FrozenModelChild = serde_json::from_value(definition.input.clone())?;
+         let Some(previous) = contract.continued_from else { continue };
+-        if let std::collections::btree_map::Entry::Vacant(entry) = remaining.entry(previous) {
+-            entry.insert(store.model_child_continuation_remaining_budget(previous)?);
+-        }
+-        let balance = remaining.get_mut(&previous).expect("the continued source was inserted");
++        let balance = match remaining.entry(previous) {
++            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
++            std::collections::btree_map::Entry::Vacant(entry) => {
++                entry.insert(store.model_child_continuation_remaining_budget(previous)?)
++            }
++        };
+         ensure!(contract.budget.max_total_tokens <= balance.max_total_tokens
+             && contract.budget.max_tool_calls <= balance.max_tool_calls,
+             "continuation {} exceeds source {} durable remaining budget: requested {} tokens / {} tool calls; remaining {} tokens / {} tool calls",
+@@ -3072,9 +3081,11 @@ mod grant_account_tests {
+             EntityId::new(),
+             EntityId::new(),
+             spec,
+-            &binding(),
+-            (schema == CONTRACT_SCHEMA).then_some(&[]),
+-            RuntimeGeneration("grant-account-test".into()),
++            FrozenChildEnvironment {
++                transport: &binding(),
++                child_provider_bindings: (schema == CONTRACT_SCHEMA).then_some(&[]),
++                generation: RuntimeGeneration("grant-account-test".into()),
++            },
+             None,
+             schema,
+         )

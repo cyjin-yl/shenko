@@ -1,0 +1,23 @@
+{
+  "method": "Visible Desktop Commander result transcription, not reconstructed original process bytes",
+  "source_edit_session": {
+    "pid": 1977992,
+    "poll": "No session found",
+    "recovery": "Saved before/after bytes and exact edit records were re-read; inverse transformations and syntax were independently checked; no source edit was replayed."
+  },
+  "initial_publication_preparation": {
+    "pid": 2006947,
+    "exit": 1,
+    "error": "FileNotFoundError creating the evidence directory because docs/evidence was absent in this sparse checkout.",
+    "two_contract_appendices_written": true,
+    "source_replayed": false,
+    "staging_or_commit_attempted": false
+  },
+  "rust_compilation": false,
+  "rust_tests": false,
+  "whole_staged_diff_check": {
+    "exit": 2,
+    "reason": "Two preserved unified-diff context lines contain the literal single-space context prefix. Original source.diff bytes are not normalized or excluded from the repository gate.",
+    "product_and_contract_check": "Run separately and recorded, not substituted for the whole-stage exit."
+  }
+}

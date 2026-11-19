@@ -1,0 +1,82 @@
+{
+  "base": "c59feb9ee6fba4aa19525d2af38e60b82a1728c8",
+  "files": [
+    {
+      "path": "0.after.blob",
+      "bytes": 58661,
+      "sha256": "74e61d10c48b1699da6aee7b9e7b7ed71f36eebcd487c661844526108cfa8621"
+    },
+    {
+      "path": "0.before.blob",
+      "bytes": 58495,
+      "sha256": "0a38e2e3f8726634ca22e0194be856e99369f885adbacbd7cb6155bd28e1ca3c"
+    },
+    {
+      "path": "1.after.blob",
+      "bytes": 117592,
+      "sha256": "7859d3626d971477da2120fdd6e624f562d8bbf316cf141a6aa0dda0281fdf43"
+    },
+    {
+      "path": "1.before.blob",
+      "bytes": 117248,
+      "sha256": "b53ce9ce1d83a67f9703f95104622e138a9d736ef293cf06cdd14e3808901384"
+    },
+    {
+      "path": "2.after.blob",
+      "bytes": 145413,
+      "sha256": "afba094f690f96cea05b12a468218f2e0e3638fa06d524ac9279c2808b918998"
+    },
+    {
+      "path": "2.before.blob",
+      "bytes": 144806,
+      "sha256": "ea3ee12143e873b7649c75d08cf0004123f6332fb4b93c1db430b42e9b85c31b"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3409,
+      "sha256": "259351b361ea8482ce8dd43336b02e940204192e9787d4169f33bd084da4373f"
+    },
+    {
+      "path": "diff-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "diff-check.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "edits.json",
+      "bytes": 8817,
+      "sha256": "f48def898cb7f9dd6dc5200ca3fd456a4ff5ac12a7a55369647e88e5cececc55"
+    },
+    {
+      "path": "source.diff",
+      "bytes": 11111,
+      "sha256": "de50840e6abd0e41389cb9f15cf8cbf14604d2a8288baf631f71efbade629758"
+    },
+    {
+      "path": "static-structural-review.json",
+      "bytes": 1929,
+      "sha256": "e1e8f8a66e3fd6e2a6d9fcf04391bb83236986bffbe90652ad608378b0679593"
+    },
+    {
+      "path": "tool-observations.json",
+      "bytes": 1083,
+      "sha256": "9996fb1a90832bec7bc56377260bb5041012447b6ea19e97f561cf2c941f2f49"
+    },
+    {
+      "path": "whole-stage-diff-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "whole-stage-diff-check.stdout",
+      "bytes": 179,
+      "sha256": "605837ca28744475f86710d37b7e0f3891075a670533b974ee50e00122a84ef1"
+    }
+  ],
+  "source_freeze": false,
+  "rust_executed_locally": false
+}

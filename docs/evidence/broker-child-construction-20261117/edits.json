@@ -1,0 +1,102 @@
+{
+  "base": "c59feb9ee6fba4aa19525d2af38e60b82a1728c8",
+  "observed_at": "2026-11-17T14:54:12.885388+00:00",
+  "edits": [
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "/// Execute one admitted request and produce its terminal result.",
+      "new": "/// The original worker-owned services for one admitted execution. This only\n/// borrows the installed runtime and physical accounting owners; it creates no\n/// provider, capacity pool, cancellation lifetime or replacement receipt.\n#[derive(Clone, Copy)]\npub(crate) struct ExecutionContext<'a> {\n    pub(crate) registry: &'a Arc<ProviderRegistry>,\n    pub(crate) domain: &'a Arc<ResourceDomain>,\n    pub(crate) kv: &'a Arc<KvAllocator>,\n    pub(crate) error_sink: &'a crate::error_sink::ErrorSinkCell,\n    pub(crate) stop: &'a tokio_util::sync::CancellationToken,\n}\n\n/// Execute one admitted request and produce its terminal result.",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "    registry: &Arc<ProviderRegistry>,\n    domain: &Arc<ResourceDomain>,\n    kv: &Arc<KvAllocator>,\n    error_sink: &crate::error_sink::ErrorSinkCell,\n    stop: &tokio_util::sync::CancellationToken,\n) -> ExecutedRequest {",
+      "new": "    context: &ExecutionContext<'_>,\n) -> ExecutedRequest {\n    let ExecutionContext { domain, kv, .. } = *context;",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "        registry,\n        domain,\n        kv,\n        error_sink,\n        stop,\n    )\n    .await;",
+      "new": "        context,\n    )\n    .await;",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "    registry: &Arc<ProviderRegistry>,\n    domain: &Arc<ResourceDomain>,\n    kv: &Arc<KvAllocator>,\n    error_sink: &crate::error_sink::ErrorSinkCell,\n    stop: &tokio_util::sync::CancellationToken,\n) -> (InferenceResult, bool) {",
+      "new": "    context: &ExecutionContext<'_>,\n) -> (InferenceResult, bool) {\n    let ExecutionContext { registry, error_sink, stop, .. } = *context;",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "execute_stream(request, purpose, runtime, stream, domain, kv, error_sink, stop).await",
+      "new": "execute_stream(request, purpose, runtime, stream, context).await",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "execute_complete(request, purpose, runtime, domain, kv, error_sink, stop).await",
+      "new": "execute_complete(request, purpose, runtime, context).await",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "old": "    domain: &Arc<ResourceDomain>,\n    kv: &Arc<KvAllocator>,\n    error_sink: &crate::error_sink::ErrorSinkCell,\n    stop: &tokio_util::sync::CancellationToken,\n) -> (InferenceResult, bool) {",
+      "new": "    context: &ExecutionContext<'_>,\n) -> (InferenceResult, bool) {\n    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;",
+      "matches": 2
+    },
+    {
+      "path": "crates/shenko-broker/src/broker.rs",
+      "old": "use crate::execution::{execute_request, now_ms};",
+      "new": "use crate::execution::{ExecutionContext, execute_request, now_ms};",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/broker.rs",
+      "old": "                        &registry,\n                        &resources.domain,\n                        &resources.kv,\n                        &error_sink,\n                        &stop,\n                    )",
+      "new": "                        &ExecutionContext {\n                            registry: &registry,\n                            domain: &resources.domain,\n                            kv: &resources.kv,\n                            error_sink: &error_sink,\n                            stop: &stop,\n                        },\n                    )",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-broker/src/broker.rs",
+      "old": "        let Some(result) = result else {\n            accounting.entry(request_id).or_insert_with(|| {\n                let resources = recovered_resources.expect(\"unknown recovery resolved its original domain\");",
+      "new": "        let Some(result) = result else {\n            // No original physical owner means no new charge or release. Keep\n            // the pinned reader and existing debt rather than unwinding here.\n            let resources = recovered_resources\n                .ok_or_else(|| anyhow!(\"unknown recovery did not resolve its original domain\"))?;\n            accounting.entry(request_id).or_insert_with(|| {",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "impl FrozenModelChild {",
+      "new": "/// Inputs already selected by the delegating S0 or retained in the frozen\n/// contract. Grouping them does not consult live routes or alter wire fields.\nstruct FrozenChildEnvironment<'a> {\n    transport: &'a ProviderBinding,\n    child_provider_bindings: Option<&'a [ProviderBinding]>,\n    generation: RuntimeGeneration,\n}\n\nimpl FrozenModelChild {",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "            spec,\n            transport,\n            child_provider_bindings,\n            generation,\n            continued_from,\n            if child_provider_bindings.is_some() { CONTRACT_SCHEMA } else { TRANSPORT_CONTRACT_SCHEMA },",
+      "new": "            spec,\n            FrozenChildEnvironment { transport, child_provider_bindings, generation },\n            continued_from,\n            if child_provider_bindings.is_some() { CONTRACT_SCHEMA } else { TRANSPORT_CONTRACT_SCHEMA },",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "    fn build(\n        task_id: EntityId,\n        step_id: EntityId,\n        spec: ModelChildSpec,\n        transport: &ProviderBinding,\n        child_provider_bindings: Option<&[ProviderBinding]>,\n        generation: RuntimeGeneration,\n        continued_from: Option<EntityId>,\n        schema: u32,\n    ) -> Result<Self> {\n        ensure!(",
+      "new": "    fn build(\n        task_id: EntityId,\n        step_id: EntityId,\n        spec: ModelChildSpec,\n        environment: FrozenChildEnvironment<'_>,\n        continued_from: Option<EntityId>,\n        schema: u32,\n    ) -> Result<Self> {\n        let FrozenChildEnvironment { transport, child_provider_bindings, generation } = environment;\n        ensure!(",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "                self.spec.clone(),\n                &self.provider_binding,\n                self.child_provider_bindings.as_deref(),\n                self.software_generation.clone(),\n                self.continued_from,",
+      "new": "                self.spec.clone(),\n                FrozenChildEnvironment {\n                    transport: &self.provider_binding,\n                    child_provider_bindings: self.child_provider_bindings.as_deref(),\n                    generation: self.software_generation.clone(),\n                },\n                self.continued_from,",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "        if let std::collections::btree_map::Entry::Vacant(entry) = remaining.entry(previous) {\n            entry.insert(store.model_child_continuation_remaining_budget(previous)?);\n        }\n        let balance = remaining.get_mut(&previous).expect(\"the continued source was inserted\");",
+      "new": "        let balance = match remaining.entry(previous) {\n            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),\n            std::collections::btree_map::Entry::Vacant(entry) => {\n                entry.insert(store.model_child_continuation_remaining_budget(previous)?)\n            }\n        };",
+      "matches": 1
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "old": "            spec,\n            &binding(),\n            (schema == CONTRACT_SCHEMA).then_some(&[]),\n            RuntimeGeneration(\"grant-account-test\".into()),\n            None,\n            schema,",
+      "new": "            spec,\n            FrozenChildEnvironment {\n                transport: &binding(),\n                child_provider_bindings: (schema == CONTRACT_SCHEMA).then_some(&[]),\n                generation: RuntimeGeneration(\"grant-account-test\".into()),\n            },\n            None,\n            schema,",
+      "matches": 1
+    }
+  ]
+}
