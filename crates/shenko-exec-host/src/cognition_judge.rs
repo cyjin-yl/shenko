@@ -323,7 +323,7 @@ impl CognitionJudgeHandler {
         let contract_digest = Digest::blake3(JUDGE_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:cognition-unit-judge-v1".into(),
             },
             symbol: "cognition.unit.judge.execute".into(),
@@ -347,7 +347,7 @@ impl CognitionJudgeHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -562,13 +562,13 @@ fn verdict(
 
 #[async_trait]
 impl NativeTaskHandler for CognitionJudgeHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "cognition.unit.judge".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-judge/1".into(),
@@ -577,7 +577,7 @@ impl NativeTaskHandler for CognitionJudgeHandler {
                 "cognition.unit.judge/v1 为一个已经装在本机上的单元版本登记你的判断，不改写单元正文、不新增版本：[delegate:cognition.unit.judge:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"artifact_digest\":\"...\",\"decision\":\"adopt\",\"method\":\"sandbox_comparison\",\"evidence\":[{\"kind\":\"trial_attempt\",\"attempt_id\":\"...\"}],\"enable\":true}。写完候选之后先用 cognition.unit.trial:1 在沙箱里自测，再在这里引用那次 attempt_id；不要为了登记判断而重写同样的正文——那会以同一版本号装出另一份未被测量的工件。证据只能引用本机真实存在的记录：trial 跑出来的 attempt_id，或 cognition.unit.evidence 读到的本机观测 digest。本机按记录本身分类这次试验：measured（计划的每个样本都给出了评审结论）、partial（只测到一部分）、inconclusive（已关闭但没有一条测量）、unexecuted（开了但从未关闭）。开了从未关闭的 attempt 会被拒绝登记（error.code=evidence_unexecuted）；不属于本机或不属于这个版本的引用是 evidence_not_admissible。已关闭但没有测量的判断可以登记，但结果里 measurement=inconclusive、empirical=false，单元仍保持候选/tentative；只有核对通过、且确实来自本机测量的证据（measured 或 partial，包括失败/超时的真实运行）才让它成为 adopted。artifact_digest 可省略（此时该版本必须是唯一 current）；同一版本存有多份工件时必须点名。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

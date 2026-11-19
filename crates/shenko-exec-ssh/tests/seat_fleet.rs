@@ -83,7 +83,7 @@ async fn fleet_native_claim_is_bounded_read_only_and_replays_original_evidence()
         host: "local".into(), remote_session_id: "another-owned-task".into(),
     })?;
     let handler = SeatFleetHandler::new(Arc::clone(&store), Arc::new(SeatRuntime::new(Arc::clone(&store))));
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     let task_id = EntityId::new();
     let mut memos = serde_json::Map::new();
     memos.insert(NATIVE_INPUT.into(), serde_json::json!({}));

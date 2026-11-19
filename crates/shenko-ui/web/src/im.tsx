@@ -4,6 +4,8 @@ import { CompiledMessageBubble } from '../generated/prototypes/message-bubble/Co
 import { Icon } from './icons';
 import { Markdown } from './markdown';
 import type { Thread, ThreadMessage, Participant } from './threads';
+import type { WebAttachmentRef } from './projection';
+import { formatBytes } from './composer';
 import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } from './ui-kit';
 
 /**
@@ -30,9 +32,18 @@ export function ImView({
   demo: boolean;
 }) {
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
+  // On a phone the list and the open thread are two screens, as in Messages;
+  // wider layouts show both and ignore this.
+  const [pane, setPane] = React.useState<'list' | 'thread'>(
+    () => new URLSearchParams(location.search).has('thread') ? 'thread' : 'list',
+  );
   return (
-    <div className="im" data-thread-kind={thread?.kind}>
-      <nav className="im-list" aria-label={t('conversation.label')}>
+    <div className="im" data-thread-kind={thread?.kind} data-pane={pane}>
+      <nav
+        className="im-list"
+        aria-label={t('conversation.label')}
+        onClick={(event) => { if ((event.target as Element).closest('.im-row')) setPane('thread'); }}
+      >
         <ToggleGroupRoot
           className="im-list-group"
           a11yLabel={t('conversation.label')}
@@ -45,13 +56,14 @@ export function ImView({
         >
           {threads.map((item) => (
             <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
-              <Avatar participants={item.participants} audience={item.audience} />
+              <Avatar participants={item.participants} audience={item.audience} active={item.active} />
               <span className="im-row-text">
                 <span className="im-row-top">
                   <span className="im-row-title">{item.title}</span>
                   <time className="im-row-time">{shortWhen(item.updated_at)}</time>
                 </span>
                 <span className="im-row-preview">{item.preview}</span>
+              {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
               </span>
             </ToggleGroupItem>
           ))}
@@ -67,6 +79,7 @@ export function ImView({
           onOpenInspect={onOpenInspect}
           historyControl={historyControl}
           demo={demo}
+          onBack={() => setPane('list')}
         />
         : <div className="im-empty">{t('conversation.empty')}</div>}
     </div>
@@ -79,13 +92,19 @@ function initials(name: string): string {
 
 /// A monogram, as Messages draws a contact without a photo: a one-to-one
 /// thread shows the counterpart, a group up to two members overlapped.
-function Avatar({ participants, audience, size = 40 }: { participants: Participant[]; audience: Thread['audience']; size?: number }) {
-  const shown = audience === 'one_to_one' ? participants.slice(1, 2) : participants.slice(0, 2);
+/// A group shows its latest-joined member in front, so a delegation reads as
+/// the child and a team as its members rather than the subject repeated on
+/// every row. `active` marks someone in it still working.
+function Avatar({ participants, audience, size = 40, active }: {
+  participants: Participant[]; audience: Thread['audience']; size?: number; active?: boolean;
+}) {
+  const shown = audience === 'one_to_one' ? participants.slice(1, 2) : participants.slice(-2);
   return (
     <span className={`avatar avatar-${shown.length > 1 ? 'group' : 'single'}`} style={{ width: size, height: size }} aria-hidden="true">
       {shown.map((participant) => (
         <span key={participant.id} className={`monogram role-${participant.role}`}>{initials(participant.name)}</span>
       ))}
+      {active && <span className="avatar-live" />}
     </span>
   );
 }
@@ -99,7 +118,8 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo }: {
+function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo, onBack }: {
+  onBack: () => void;
   thread: Thread;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
@@ -116,13 +136,16 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
     thread.load().then((messages) => { if (live) { setLoaded(messages); setError(null); } })
       .catch((reason) => { if (live) setError(String(reason?.message ?? reason)); });
     return () => { live = false; };
-  }, [thread.id, thread.state, demo]);
+  }, [thread.id, thread.state, thread.loadRevision, demo]);
   const messages = loaded ?? thread.messages;
   const viewport = React.useRef<MessageViewport>(null);
   const group = thread.audience === 'group';
   return (
     <section className="im-thread" aria-label={thread.title}>
       <header className="im-head">
+        <button type="button" className="im-back" onClick={onBack} aria-label={t('conversation.back')}>
+          <Icon name="chevron" size={22} />
+        </button>
         <Avatar participants={thread.participants} audience={thread.audience} size={28} />
         <span className="im-head-text">
           <span className="im-head-title">{thread.title}</span>
@@ -295,7 +318,12 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
         data-entry-key={message.node?.node_id}
       >
         {!self && group && first && <span className="im-sender">{message.from.name}</span>}
-        <div className="im-line">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="im-attachments">
+            {message.attachments.map((file) => <AttachmentView key={file.digest} file={file} />)}
+          </div>
+        )}
+        {(message.text || attachment || message.tone === 'pending' || !message.attachments?.length) && <div className="im-line">
           {!self && group && <span className="im-avatar-slot">{tail && <span className={`monogram role-${message.from.role}`}>{initials(message.from.name)}</span>}</span>}
           {attachment ?? (
             <CompiledMessageBubble side={self ? 'self' : 'other'} tail={tail} tone={message.tone ?? 'plain'}>
@@ -307,12 +335,12 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
                   : <Markdown text={message.text} />}
             </CompiledMessageBubble>
           )}
-        </div>
-        {(message.meta || tail && actions.length > 0) && (
+        </div>}
+        {(message.meta || actions.length > 0) && (
           <div className="im-meta">
             {message.meta && <span>{message.meta}</span>}
-            {tail && actions.map((action) => (
-              <button key={action.id} type="button" className="im-link" onClick={() => message.node && emit(message.node.node_id, action.id)}>
+            {actions.map((action) => (
+              <button key={action.id} type="button" className="im-link" data-action-id={action.id} onClick={() => message.node && emit(message.node.node_id, action.id)}>
                 {action.label}
               </button>
             ))}
@@ -324,11 +352,31 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
   return <>{out}</>;
 }
 
+/// An attachment as Messages shows one: a photo stands alone with rounded
+/// corners; any other file is a card with its name and size that downloads
+/// the exact stored bytes.
+function AttachmentView({ file }: { file: WebAttachmentRef }) {
+  const href = `/api/attachments/${encodeURIComponent(file.digest)}?type=${encodeURIComponent(file.media_type)}`;
+  if (/^image\/(png|jpeg|gif|webp|avif)$/.test(file.media_type)) {
+    return <a className="im-photo" href={href} target="_blank" rel="noreferrer"><img src={href} alt={file.name} loading="lazy" /></a>;
+  }
+  return (
+    <a className="im-file" href={href} download={file.name}>
+      <span className="im-file-icon"><Icon name="file" size={22} /></span>
+      <span className="im-file-text">
+        <span className="im-file-name">{file.name}</span>
+        <span className="im-file-meta">{formatBytes(file.bytes)}</span>
+      </span>
+    </a>
+  );
+}
+
 function messageActions(message: ThreadMessage): Array<{ id: string; label: string }> {
   const node = message.node;
   if (!node || node.kind !== 'user_submission') return [];
   const actions: Array<{ id: string; label: string }> = [];
   if (typeof node.props.retry_action === 'string') actions.push({ id: node.props.retry_action, label: t('common.retry') });
+  if (typeof node.props.edit_action === 'string') actions.push({ id: node.props.edit_action, label: t('common.edit') });
   if (typeof node.props.withdraw_action === 'string' && !node.props.submission?.withdrawal) {
     actions.push({ id: node.props.withdraw_action, label: t('common.withdraw') });
   }

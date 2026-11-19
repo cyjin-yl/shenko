@@ -1594,6 +1594,22 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         "source": "original-inflight-observer", "event": "observed-before-cutover"
     }));
     let target = RuntimeGeneration::new("gen-b");
+    let initial_selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
+    let retained_route: RouteAuthority = serde_json::from_value(
+        read_build_json(&fixture.store, &initial_selector.route_authority_ref).unwrap(),
+    ).unwrap();
+    slots::write_slot_manifest(
+        &fixture.live_slot,
+        &slots::SlotManifest {
+            schema_version: slots::SlotManifest::SCHEMA_VERSION,
+            generation: fixture.generation.0.clone(),
+            cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
+            artifact_path: Some(retained_route.artifact_path),
+            artifact_digest: Some(retained_route.artifact_digest),
+            copied_through_seq: None,
+            created_at: "2026-11-19T00:00:00Z".to_string(),
+        },
+    ).unwrap();
     let live = AbSlot {
         generation: fixture.generation.clone(),
         slot_dir: fixture.live_slot.clone(),
@@ -1800,147 +1816,9 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     drop(alias);
     selected.request_subject_quiesce(fixture.agent_id, request)
         .expect("current selected slot still admits a fresh control mutation");
-    fixture.cleanup();
-}
-
-
-/// The donor recovery regression keeps the no-first-S1 successor identity,
-/// legacy witness repair, real rollback convergence and durable reopen checks.
-/// The sibling forward-cutover regression retains the S2 ingress and fencing proofs.
-#[tokio::test]
-#[cfg(unix)]
-async fn successor_identity_legacy_recovery_and_rollback_converge_after_reopen() {
-    let fixture = installation();
-    let target = RuntimeGeneration::new("gen-b");
-    let initial_selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
-    let retained_route: RouteAuthority = serde_json::from_value(
-        read_build_json(&fixture.store, &initial_selector.route_authority_ref).unwrap(),
-    ).unwrap();
-    slots::write_slot_manifest(
-        &fixture.live_slot,
-        &slots::SlotManifest {
-            schema_version: slots::SlotManifest::SCHEMA_VERSION,
-            generation: fixture.generation.0.clone(),
-            cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
-            artifact_path: Some(retained_route.artifact_path),
-            artifact_digest: Some(retained_route.artifact_digest),
-            copied_through_seq: None,
-            created_at: "2026-11-19T00:00:00Z".to_string(),
-        },
-    ).unwrap();
-    let live = AbSlot {
-        generation: fixture.generation.clone(),
-        slot_dir: fixture.live_slot.clone(),
-        db_path: fixture.live_slot.join(SLOT_DB_FILENAME),
-        cas_dir: fixture.data_dir.join("cas"),
-        artifact_path: None,
-        artifact_digest: None,
-        is_active: true,
-    };
-    // Exactly what `prepare` does: an independent slot whose copied state has
-    // its own ledger writer identity, then the candidate program.
-    let slot = slots::copy_slot(&live, &SlotLayout::new(fixture.data_dir.clone()), &target).unwrap();
-    let program = write_executable(&fixture.data_dir, "candidate-b", &smoke_script(&target.0));
-    let artifact_digest = Digest::blake3(&fs::read(&program).unwrap());
-    slots::write_slot_manifest(
-        &slot.slot_dir,
-        &slots::SlotManifest {
-            schema_version: slots::SlotManifest::SCHEMA_VERSION,
-            generation: target.0.clone(),
-            cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
-            artifact_path: Some(program.to_string_lossy().into_owned()),
-            artifact_digest: Some(artifact_digest.clone()),
-            copied_through_seq: None,
-            created_at: "2026-11-02T00:00:00Z".to_string(),
-        },
-    )
-    .unwrap();
-    let evidence = seal(
-        &fixture.store,
-        &serde_json::to_value(smoke_report(&target, true, 0, vec![])).unwrap(),
-    );
-    let record = activation_record(
-        &fixture,
-        &fixture.generation,
-        &target,
-        &fixture.live_slot,
-        &slot.slot_dir,
-        ActivationPhase::Smoke,
-        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), artifact_digest)) },
-    );
-    let record = fixture.store.create_activation_record(&record).unwrap();
-
-    let outcome = fixture
-        .service
-        .activate(record.activation_id, 0)
-        .await
-        .expect("the hand-over must commit");
-    assert_eq!(outcome.selector.selector_revision, 1);
-    assert_eq!(outcome.selector.generation, target);
-    assert_eq!(
-        outcome.selector.active_epoch,
-        2,
-        "the controller epoch advances exactly once per hand-over"
-    );
-    assert_eq!(outcome.fenced_head.mode, SubjectMode::Handoff);
-    assert_eq!(outcome.fenced_head.controller_epoch, ControllerEpoch(2));
-
-    let retired_selector = fixture
-        .store
-        .activation_selector(fixture.agent_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        retired_selector, outcome.selector,
-        "the retired copy mirrors the committed selection"
-    );
-    let (retired_head, _) = fixture.store.load_subject(fixture.agent_id).unwrap();
-    assert_eq!(retired_head.mode, SubjectMode::Handoff);
-    assert_eq!(retired_head.software_generation, fixture.generation);
-    assert_eq!(retired_head.controller_epoch, ControllerEpoch(2));
-
-    let selected = Store::open(
-        slot.slot_dir.join(SLOT_DB_FILENAME),
-        fixture.data_dir.join("cas"),
-    )
-    .unwrap();
-    // The final watermark is materialized by the successor's selector CAS.
-    // The retired ledger must mirror that exact durable activation identity:
-    // a local selector match alone does not prove the two records agree.
-    let retired_activation = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
-    let selected_activation = selected.activation_record(record.activation_id).unwrap().unwrap();
-    assert!(selected_activation.w1.is_some());
-    assert_eq!(selected_activation.imported_through, selected_activation.w1);
-    assert_eq!(retired_activation, selected_activation, "source/selected activation records drifted");
-    assert_eq!(outcome.record, selected_activation, "returned activation differs from durable ledgers");
-    let (new_head, new_step) = selected.load_subject(fixture.agent_id).unwrap();
-    assert_eq!(new_head.mode, SubjectMode::Active);
-    assert_eq!(new_head.software_generation, target);
-    assert_eq!(new_head.controller_epoch, ControllerEpoch(2));
-    assert_eq!(new_head.next_step_id, new_step.step_id);
-    assert_eq!(new_step.state, SubjectStepState::Planned);
-    assert!(
-        selected.open_subject_quiesce(fixture.agent_id).unwrap().is_none(),
-        "the successor starts from a closed boundary, not a paused one"
-    );
-    let pointer: serde_json::Value = serde_json::from_slice(
-        &fs::read(fixture.data_dir.join(slots::CURRENT_SLOT_FILENAME)).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(
-        pointer["slot_dir"],
-        serde_json::json!(slot.slot_dir),
-        "the launcher pointer follows the selection"
-    );
-    // The selected generation produced a launch-bound receipt of its own: the
-    // successor, not the helper, records readiness for this selector.
-    assert!(
-        selected
-            .activation_launch_for_selector(fixture.agent_id, 1)
-            .unwrap()
-            .is_none(),
-        "no launch receipt exists before a process actually starts the selection"
-    );
+    let cancelled = selected.resume_subject_quiesce(fixture.agent_id, request)
+        .expect("close the admission probe before exercising rollback's own boundary");
+    assert_eq!(cancelled.state, shenko_store::runtime_boundary::SubjectQuiesceState::Cancelled);
 
     // A real successor owns this same subject before producing its first S1;
     // the historical committed_at and genesis still belong to A.

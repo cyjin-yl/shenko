@@ -1155,8 +1155,7 @@ impl UpdateService {
         let next_selected = selected.record_revision.checked_add(1)
             .ok_or_else(|| anyhow!("selected activation revision exhausted"))?;
         match (source.phase, selected.phase) {
-            (ActivationPhase::Activated, ActivationPhase::Activated)
-            | (ActivationPhase::Observing, ActivationPhase::Observing) => {
+            (ActivationPhase::Activated, ActivationPhase::Activated) => {
                 ensure!(source.record_revision == selected.record_revision,
                     "OBSERVING_REVISION_CONFLICT: equal phases have different revisions");
             }
@@ -2053,7 +2052,9 @@ impl UpdateService {
         slots::publish_current_slot_under(&self.data_dir, &previous_slot, &permit)
             .map_err(anyhow::Error::from)?;
 
-        // 7. Converge the same committed activation in both copies.
+        // 7. Converge the same Activated -> Observing projection as a forward
+        // activation. Either interrupted phase write can be completed from
+        // the committed selector without changing the rollback's bindings.
         let rollback_record = self.converge_observing_activation(
             &old_store, &swapped, rollback_record.activation_id, &permit)?;
 

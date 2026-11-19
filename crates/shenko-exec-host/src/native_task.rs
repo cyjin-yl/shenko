@@ -130,7 +130,7 @@ impl HostPrintfHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:host-printf-v1".into(),
             },
             symbol: "host.printf.execute".into(),
@@ -154,7 +154,7 @@ impl HostPrintfHandler {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -303,19 +303,19 @@ impl HostPrintfHandler {
 
 #[async_trait]
 impl NativeTaskHandler for HostPrintfHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "host.printf".into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-child/1".into(),
             authority_refs: vec!["host.process.printf.no_effects/v1".into()],
             prompt_section: Some(PROMPT_SECTION.into()),
-        }
+        })
     }
 
     /// effect contract of `host.printf.v1`.
@@ -326,9 +326,9 @@ impl NativeTaskHandler for HostPrintfHandler {
     /// compensation (printed output cannot be un-printed). Only cancellation
     /// before the process starts is a real action, and a cancellation in
     /// flight does not prove the process stopped.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             "host.printf.v1",
@@ -362,7 +362,7 @@ impl NativeTaskHandler for HostPrintfHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     /// The capability this definition offers while it is installed.

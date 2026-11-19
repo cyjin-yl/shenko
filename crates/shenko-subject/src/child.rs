@@ -16,7 +16,7 @@
 //! before any handler code runs, a rejected/late completion only leaves a
 //! durable park, and restart recovery is unchanged because a `Running` task
 //! whose owner died is reconciled from its own memos, never from task handles.
-use anyhow::{Context as _, Result, ensure};
+use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
 use parking_lot::RwLock;
@@ -32,7 +32,6 @@ use shenko_types::{
     ids::{EntityId, RecordRevision, RuntimeGeneration},
     object::Digest,
     operation::{AuthorityRef, OperationOutcome, OperationRecord, OperationState},
-    subject::{DelegationIntent, StepDecision},
     task::*,
 };
 use std::{
@@ -236,7 +235,7 @@ impl NativeChildService {
         self: &Arc<Self>,
         handler: Arc<dyn NativeTaskHandler>,
     ) -> Result<((String, u32, Digest), u64)> {
-        let descriptor = handler.descriptor();
+        let descriptor = handler.descriptor()?;
         ensure!(
             descriptor.kind != "delegation"
                 && !descriptor.kind.is_empty()
@@ -250,7 +249,7 @@ impl NativeChildService {
                 .is_none_or(|section| { !section.trim().is_empty() && section.len() <= 8192 }),
             "invalid_native_prompt_section"
         );
-        let artifact = shenko_kernel::native_artifact::running_native_artifact();
+        let artifact = shenko_kernel::native_artifact::running_native_artifact()?;
         if descriptor.implementation_ref.artifact_digest == artifact.digest()
             && !self.registry.read().retained_artifacts.contains(&artifact.digest())
         {
@@ -1220,39 +1219,7 @@ impl NativeChildService {
     }
 
     fn native_input(&self, task: &TaskRecord) -> Result<serde_json::Value> {
-        let bytes = self.store.cas.read_object(&task.input_ref.digest)?;
-        ensure!(
-            bytes.len() as u64 == task.input_ref.bytes
-                && Digest::blake3(&bytes) == task.input_ref.digest,
-            "native_input_object_mismatch"
-        );
-        match task
-            .memos
-            .get(NATIVE_INPUT)
-            .and_then(|value| value.as_str())
-        {
-            Some("subject_decision") => {
-                let decision: StepDecision = serde_json::from_slice(&bytes)?;
-                // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6, model children schema 7,
-                // versioned publication targets schema 8 and reconciliation
-                // acknowledgements schema 9; all bind the same native
-                // delegation field without rewriting the historical CAS
-                // object.
-                ensure!(
-                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
-                    "unsupported_decision_schema"
-                );
-                let intent = decision
-                    .delegated_task_intents
-                    .iter()
-                    .find(|intent| intent.intent_id == task.task_id)
-                    .context("native_delegation_missing_from_frozen_decision")?;
-                definition_input(intent, task)
-            }
-            Some("object") => Ok(serde_json::from_slice(&bytes)?),
-            _ => anyhow::bail!("unknown_native_input_encoding"),
-        }
+        self.store.native_task_input(task)
     }
 }
 
@@ -1537,18 +1504,6 @@ impl Drop for NativeChildService {
     }
 }
 
-fn definition_input(intent: &DelegationIntent, task: &TaskRecord) -> Result<serde_json::Value> {
-    let definition = intent
-        .definition
-        .as_ref()
-        .context("missing_explicit_native_definition")?;
-    ensure!(
-        definition.kind == task.kind && definition.definition_version == task.definition_version,
-        "native_definition_identity_mismatch"
-    );
-    Ok(definition.input.clone())
-}
-
 pub struct NativeChildPlugin;
 impl Plugin for NativeChildPlugin {
     type Config = (Arc<Store>, RuntimeGeneration);
@@ -1642,25 +1597,26 @@ fn register_native_definition(
     ctx: &Context,
     handler: &dyn NativeTaskHandler,
 ) -> Result<(), std::io::Error> {
+    let descriptor = handler.descriptor().map_err(std::io::Error::other)?;
     let runtime = match ctx.try_service::<shenko_kernel::runtime::PluginRuntime>() {
         Ok(runtime) => runtime,
         Err(error) => {
             // The definition itself is installed; the live discovery view is
             // not. This is an assembly fact, not a silent success.
             tracing::warn!(
-                kind = %handler.descriptor().kind,
+                kind = %descriptor.kind,
                 %error,
                 "native definition installed without a live runtime registry"
             );
             return Ok(());
         }
     };
-    let descriptor = handler.descriptor();
     let implementation = descriptor.implementation();
     let provider_id = format!("native.{}", descriptor.kind);
     let declarations = handler.capabilities();
     let operations = handler
         .effect_contracts()
+        .map_err(std::io::Error::other)?
         .into_iter()
         .map(|contract| shenko_types::plugin_runtime::OperationEffectView {
             operation_name: contract.operation_name.clone(),

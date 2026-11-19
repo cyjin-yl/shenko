@@ -173,8 +173,8 @@ struct Handler(Arc<PoppyRuntime>);
 
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor()
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(descriptor())
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
@@ -188,9 +188,9 @@ impl NativeTaskHandler for Handler {
         }]
     }
 
-    fn effect_contracts(&self) -> Vec<EffectContract> {
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
         let descriptor = descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id,
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id,
             descriptor.implementation(), NAME, 1)
             .resource("public_company_metadata", "explicit_https_origin", ResourceAccess::Read)
             .action(EffectActionKind::Cancel)
@@ -216,7 +216,7 @@ impl NativeTaskHandler for Handler {
                 receipt_readable_after_removal: true,
             })
             .basis(GuaranteeBasis::ClaimOnly)
-            .build()]
+            .build()])
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

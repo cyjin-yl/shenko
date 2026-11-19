@@ -438,6 +438,7 @@ impl PlaygroundState {
         // artifact/binding and stale revisions) resolves a concurrent committed
         // identity before returning accepted:false, not only SQL errors below.
         let candidate = (|| -> Result<_, ActionError> {
+        let implementation = implementation()?;
         let native = self.native().ok_or_else(|| ActionError::Unavailable("native dispatcher not attached".into()))?;
         if !native.has_handler(PLAYGROUND_BACKEND_KIND, 1) {
             return Err(ActionError::Unavailable("WASI artifact handler is not installed".into()));
@@ -482,7 +483,7 @@ impl PlaygroundState {
             agent_id: self.agent_id, conversation_id: self.agent_id,
             owner: TaskOwner::Task { id: head.subject_root_task_id }, background: false,
             kind: PLAYGROUND_BACKEND_KIND.into(), definition_version: 1,
-            implementation_ref: implementation(), input_ref,
+            implementation_ref: implementation, input_ref,
             state: TaskState::Pending { checkpoint_ref: None }, abort_request: None,
             memos: serde_json::Map::from_iter([
                 ("intent_id".into(), json!(idempotency_id)), (NATIVE_INPUT.into(), json!("object")),
@@ -636,9 +637,9 @@ fn task_state_label(result: &Option<TaskResult>, operation: &Option<OperationRec
     }
 }
 
-fn implementation() -> ImplementationRef {
-    ImplementationRef { plugin_id: PLUGIN.parse().expect("fixed built-in plugin ID"),
-        artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 }
+fn implementation() -> Result<ImplementationRef> {
+    Ok(ImplementationRef { plugin_id: PLUGIN.parse().expect("fixed built-in plugin ID"),
+        artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?, registry_revision: 0 })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1181,13 +1182,14 @@ impl PlaygroundBackendHandler {
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let input: FrozenAction = serde_json::from_value(invocation.input)?;
         let module = self.validate_input(&invocation.task, &input)?;
+        let implementation = implementation()?;
         let dir = self.artifact_dir(input.artifact_id);
         let state_dir = dir.join("state");
         fs::create_dir_all(&state_dir)?;
         let before = snapshot(&self.store, &state_dir)?;
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
-            artifact: ArtifactRef { digest: shenko_kernel::native_artifact::native_artifact_digest(), locator: "builtin:playground-backend/1".into() },
+            artifact: ArtifactRef { digest: implementation.artifact_digest.clone(), locator: "builtin:playground-backend/1".into() },
             symbol: "artifact.action".into(),
             schema: SchemaRef { name: "artifact-action-observation".into(), major: 1, digest: shenko_kernel::native_artifact::native_schema_digest("artifact-action-observation", 1) },
         };
@@ -1211,7 +1213,7 @@ impl PlaygroundBackendHandler {
             task_id: invocation.task.task_id, logical_key: "artifact-action".into(), operation_name: "playground.backend.action/1".into(),
             input_schema_version: 1, output_schema_version: 1,
             final_input_ref: invocation.task.input_ref.clone(), input_digest: invocation.task.input_ref.digest.clone(),
-            contract_ref: OperationContractRef { plugin_id: implementation().plugin_id, artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+            contract_ref: OperationContractRef { plugin_id: implementation.plugin_id, artifact_digest: implementation.artifact_digest,
                 contract_digest, receipt_reader_ref: version.clone() },
             resource_bindings_ref: seal_json(&self.store, &bindings, "artifact-runtime-binding")?, authority_ref: invocation.authority,
             acceptance_predicate_ref: seal_json(&self.store, &"guest/service answered with bounded JSON, isolated state was synced and snapshotted", "artifact-acceptance")?,
@@ -1414,9 +1416,9 @@ impl BackendRun {
 impl NativeTaskHandler for PlaygroundBackendHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor { kind: PLAYGROUND_BACKEND_KIND.into(), definition_version: 1, implementation_ref: implementation(),
-            role_revision: "native-child/1".into(), authority_refs: vec!["backend.artifact.isolated-state/1".into()], prompt_section: None }
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor { kind: PLAYGROUND_BACKEND_KIND.into(), definition_version: 1, implementation_ref: implementation()?,
+            role_revision: "native-child/1".into(), authority_refs: vec!["backend.artifact.isolated-state/1".into()], prompt_section: None })
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> { self.run(invocation).await }
     async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> Result<OperationRecord> {

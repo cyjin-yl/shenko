@@ -1,9 +1,10 @@
 //! Identity of the executable that actually contains a built-in native plugin.
 //! Contracts and schemas have their own identities; neither descriptive text
 //! nor a repository source file is an executable artifact.
-use std::{fs::File, io::{Read, Seek, SeekFrom}, sync::OnceLock};
+use std::{fs::File, io::{Read, Seek, SeekFrom}};
 
 use anyhow::{Context as _, Result};
+use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 
@@ -59,13 +60,14 @@ impl NativeExecutableArtifact {
     }
 }
 
-pub fn running_native_artifact() -> &'static NativeExecutableArtifact {
-    static ARTIFACT: OnceLock<NativeExecutableArtifact> = OnceLock::new();
-    ARTIFACT.get_or_init(|| NativeExecutableArtifact::open()
-        .expect("native handlers require a verifiable executing artifact"))
+pub fn running_native_artifact() -> Result<&'static NativeExecutableArtifact> {
+    static ARTIFACT: OnceCell<NativeExecutableArtifact> = OnceCell::new();
+    ARTIFACT.get_or_try_init(NativeExecutableArtifact::open)
 }
 
-pub fn native_artifact_digest() -> Digest { running_native_artifact().digest() }
+pub fn native_artifact_digest() -> Result<Digest> {
+    Ok(running_native_artifact()?.digest())
+}
 
 /// Stable versioned schema identity. It identifies the published schema
 /// contract; it is not a digest of executable bytes or an operation's prose.

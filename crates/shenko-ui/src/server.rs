@@ -49,6 +49,8 @@ pub struct UiServer {
     config: Option<std::sync::Arc<ConfigService>>,
     /// Ownership state for the claim and authenticated-actor routes.
     owner: Option<OwnerState>,
+    file_mounts: Option<Arc<crate::files::FileMounts>>,
+    file_peers: Option<Vec<crate::files::FilePeer>>,
     /// Launcher/owner of long-lived artifact backend services. The runtime
     /// reconciles it before admitting work; the UI and handoff seam share
     /// that already-owned controller, never repeat boot recovery here.
@@ -74,6 +76,8 @@ impl UiServer {
             media_runtime: None,
             config: None,
             owner: None,
+            file_mounts: None,
+            file_peers: None,
             artifact_services: None,
         }
     }
@@ -200,6 +204,17 @@ impl UiServer {
         self
     }
 
+    /// Observed peer inventory for the file view, absent if it could not be read.
+    pub fn with_file_peers(mut self, peers: Option<Vec<crate::files::FilePeer>>) -> Self {
+        self.file_peers = peers;
+        self
+    }
+
+    pub fn with_file_mounts(mut self, mounts: Arc<crate::files::FileMounts>) -> Self {
+        self.file_mounts = Some(mounts);
+        self
+    }
+
     pub fn with_owner(mut self, owner: OwnerState) -> Self {
         self.owner = Some(owner);
         self
@@ -314,6 +329,12 @@ impl UiServer {
             // A store without an explicit service still exposes discover/
             // read of whatever namespaces were registered on this process.
             api_state = api_state.with_config(std::sync::Arc::new(ConfigService::new(store)));
+        }
+        if let Some(peers) = self.file_peers.clone() {
+            api_state = api_state.with_file_peers(peers);
+        }
+        if let Some(mounts) = self.file_mounts.clone() {
+            api_state = api_state.with_file_mounts(mounts);
         }
         if let Some(owner) = self.owner.clone() {
             api_state = api_state.with_owner(owner);

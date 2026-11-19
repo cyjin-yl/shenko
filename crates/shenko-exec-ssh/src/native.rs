@@ -120,13 +120,13 @@ enum ExecObservation {
 
 #[async_trait]
 impl NativeTaskHandler for SshExecHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "ssh.exec".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(EXEC_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-ssh-exec/1".into(),
@@ -135,7 +135,7 @@ impl NativeTaskHandler for SshExecHandler {
                 "ssh.exec/v1 是已安装的一次一命令远程执行 child。用 [delegate:ssh.exec:1] {\"binding\":{...已注册绑定...},\"command\":\"精确的远程命令\",\"stdin_b64\":可选,\"limits\":{可选}} 执行；binding 必须来自已注册的 CAS 信任，command 非空、不含 NUL。远程 exit255 在这里是真实退出状态，不是本地 ssh 进程失败；observation 的 exit 是远程自报状态，不等于应用后置条件通过。连接/认证/绑定的 typed 错误没有远端效果；execution 之后 unknown 只按原回执查询，绝不重发。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -452,13 +452,13 @@ struct PtyFrozen {
 
 #[async_trait]
 impl NativeTaskHandler for SshPtyHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "ssh.pty".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(PTY_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-ssh-pty/1".into(),
@@ -467,7 +467,7 @@ impl NativeTaskHandler for SshPtyHandler {
                 "ssh.pty/v1 是已安装的远程 PTY seat 开启 child。用 [delegate:ssh.pty:1] {\"binding\":{...},\"term\":\"xterm-256color\",\"cols\":120,\"rows\":32,\"program\":{\"mode\":\"exec\",\"command\":\"...\"}|{\"mode\":\"shell\"},\"seat_id\":\"预选的 seat 记录 UUID\",\"lease_id\":\"预选的租约 UUID\",\"lease_epoch\":1,\"fence_capability\":\"ssh.pty:user@host:port\"} 开启一个被本运行时管理的远程 seat。seat_id/lease_id 必须在尝试前选好并持久保存：崩溃后按同一身份恢复。成功只说明 PTY 打开且 seat 已挂接，不代表远程代理完成了任何工作；unknown 读取持久 seat 事实，绝不自动重开 PTY。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -636,13 +636,13 @@ struct ObserveFrozen {
 
 #[async_trait]
 impl NativeTaskHandler for SeatObserveHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "seat.observe".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(OBSERVE_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-seat-observe/1".into(),
@@ -651,7 +651,7 @@ impl NativeTaskHandler for SeatObserveHandler {
                 "seat.observe/v1 是已安装的 seat 观测 child。用 [delegate:seat.observe:1] {\"location_id\":\"ssh.pty://user@host:22\",\"seat_id\":\"seat 记录 UUID\"} 读取一个已挂接 seat 的画面与问题；每个问题在返回前已经持久。seat 未挂接时返回 durable_only：只有持久问题事实，没有画面。observation 的画面是证据，不是答案已被接受或远程代理仍在运行的证明。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -793,13 +793,13 @@ struct FleetInput {
 
 #[async_trait]
 impl NativeTaskHandler for SeatFleetHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "seat.fleet".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(FLEET_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-seat-fleet/1".into(),
@@ -807,7 +807,7 @@ impl NativeTaskHandler for SeatFleetHandler {
             prompt_section: Some(
                 "seat.fleet/v1 只读查看已登记的外部 Agent 工作位及其所属任务、传输状态、待决定问题数。用 [delegate:seat.fleet:1] {} 发现工作位；已知任务时可传 {\"task_id\":\"任务 UUID\"} 筛选。最多 32 条，truncated 明示剩余。transport_live 为 null 表示无法确认，false 表示本地没有活传输，不证明远端进程死亡；不新建、不挂接、不获取写租约。进程活着不代表协议已就绪或任务完成。".into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -915,13 +915,13 @@ struct RespondFrozen {
 
 #[async_trait]
 impl NativeTaskHandler for SeatRespondHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "seat.respond".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(RESPOND_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-seat-respond/1".into(),
@@ -930,7 +930,7 @@ impl NativeTaskHandler for SeatRespondHandler {
                 "seat.respond/v1 是已安装的 seat 回答 child。用 [delegate:seat.respond:1] {\"location_id\":\"...\",\"seat_id\":\"...\",\"question_id\":\"观测返回的语义问题 id\",\"answer\":{\"option_id\":\"可选\",\"text\":\"可选\",\"allow\":可选,\"reason\":\"理由\"},\"deciding_actor\":\"可选，默认 subject\"} 回答一个 open 的持久问题。先观测再回答；stale_question/stale_task/stale_authority 表示事实已变，必须重新观测，绝不凭旧画面重发。决定先落盘（compare-and-swap），再复核现场，最后才写入；写入前任何一步被拒都不会碰到远端。返回的 status 区分 answered（远端确认）、answer_unknown（已写但未确认，绝不重发）、not_sent（未写入，可重新决定）和 rejected（远端拒绝）。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1405,13 +1405,13 @@ impl ClaudeSeatHandler {
 
 #[async_trait]
 impl NativeTaskHandler for OmpSeatHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "omp.seat".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(OMP_SEAT_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-omp-seat/1".into(),
@@ -1420,7 +1420,7 @@ impl NativeTaskHandler for OmpSeatHandler {
                 "omp.seat/v1 是已安装的托管 OMP seat 开启 child。用 [delegate:omp.seat:1] {\"command\":[\"omp\",\"--mode\",\"rpc\"],\"seat_id\":\"预选的 seat 记录 UUID\",\"lease_id\":\"预选的租约 UUID\",\"lease_epoch\":1,\"fence_capability\":\"omp.rpc:<session-anchor>\"} 启动并挂接一个托管 OMP 会话；用 \"supersedes_seat_id\"（代替 seat_id）在同一锚点上重开以延续前身。seat_id/lease_id 必须在尝试前选好并持久保存：崩溃后按同一身份恢复。持久锚点是 spawn 命令行本身（OMP 暴露的会话标识），同一锚点只允许一个活跃 seat。成功只说明进程已启动且 seat 已挂接；unknown 读取持久 seat 事实，绝不自动重开。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1499,13 +1499,13 @@ impl NativeTaskHandler for OmpSeatHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ClaudeSeatHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "claude.seat".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(CLAUDE_SEAT_PLUGIN),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-claude-seat/1".into(),
@@ -1514,7 +1514,7 @@ impl NativeTaskHandler for ClaudeSeatHandler {
                 "claude.seat/v1 是已安装的托管 Claude Code seat 开启 child。用 [delegate:claude.seat:1] {\"command\":[\"claude\",\"-p\",\"...\"],\"seat_id\":\"预选的 seat 记录 UUID\",\"lease_id\":\"预选的租约 UUID\",\"lease_epoch\":1,\"fence_capability\":\"claude.control:<session-anchor>\",\"remote_session_id\":\"可选，要续接的会话 id\"} 启动并挂接一个托管 Claude Code 会话；给 remote_session_id 时命令会追加 --resume 续接该会话，持久锚点就是该会话 id；不给则锚定远端发布的 session_id（未发布则退回 spawn 命令行）。用 \"supersedes_seat_id\"（代替 seat_id）在同一锚点上重开以延续前身。seat_id/lease_id 必须在尝试前选好并持久保存。成功只说明进程已启动且 seat 已挂接；unknown 读取持久 seat 事实，绝不自动重开。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {

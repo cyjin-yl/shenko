@@ -517,7 +517,7 @@ impl PersonDirectoryHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:person-directory-v1".into(),
             },
             symbol: "person.directory.execute".into(),
@@ -541,7 +541,7 @@ impl PersonDirectoryHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1162,13 +1162,13 @@ impl PersonDirectoryHandler {
 
 #[async_trait]
 impl NativeTaskHandler for PersonDirectoryHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "person.directory".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-person-directory/1".into(),
@@ -1182,7 +1182,7 @@ impl NativeTaskHandler for PersonDirectoryHandler {
                  管理员状态用 op=admin_status 只读查询——管理员只能由 owner 显式设置，和亲密度、群身份、声纹无关，普通对话默认开放。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

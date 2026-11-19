@@ -1,7 +1,7 @@
 import { text as t } from './messages';
 import * as React from 'react';
 import type { TaskSummary } from './projection';
-import { isDelegation, trajectoryMessages, childParticipant, type Participant, type DemoThreadData, type ThreadMessage, type TrajectoryResponse } from './threads';
+import { isDelegation, taskStateLabel, trajectoryMessages, childParticipant, type Participant, type DemoThreadData, type ThreadMessage, type TrajectoryResponse } from './threads';
 import { Icon } from './icons';
 import { CollapsibleRoot, CollapsibleTrigger, CollapsibleContent } from './ui-kit';
 
@@ -49,7 +49,7 @@ function DelegationBranch({ task, subject, demo, onOpen }: {
         <CollapsibleTrigger className="branch-trigger">
           <Icon name="chevron" size={14} />
           <span className="branch-title">{t('delegation.heading', { name: child.name })}</span>
-          <span className="branch-state" data-state={String(task.state)}>{String(task.state)}</span>
+          <span className="branch-state" data-state={String(task.state)}>{taskStateLabel(task.state)}</span>
         </CollapsibleTrigger>
         <button type="button" className="text-action" onClick={onOpen}><Icon name="chat" size={14} />{t('delegation.openChat')}</button>
       </div>

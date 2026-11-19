@@ -511,16 +511,16 @@ pub fn handler(
 
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor()
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(descriptor())
     }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
         vec![NativeCapabilityDeclaration { capability_id: TASK_KIND.into(), version: "1".into(), description: "Research archived external harness history with original evidence and coverage".into(),
             usage: Some("[delegate:history.external.query:1] {\"op\":\"obelisk\",\"request\":{\"op\":\"search\",\"query\":\"search terms\",\"limit\":20}} queries configured external sources; top-level overview/search/read/original query already archived originals".into()) }]
     }
-    fn effect_contracts(&self) -> Vec<EffectContract> {
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
         let descriptor = descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), TASK_KIND, 1)
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), TASK_KIND, 1)
             .resource("external_history", "explicit configured origin or own subject's immutable archive", ResourceAccess::ReadWrite)
             .resource("host_process", "node-local configured Obelisk executable and JS", ResourceAccess::Execute)
             .action(EffectActionKind::Cancel).idempotency(IdempotencyGuarantee::None)
@@ -528,7 +528,7 @@ impl NativeTaskHandler for Handler {
             .cancel(CancelContract { can_cancel_before_start: true, can_cancel_in_flight: true, cancel_confirms_stopped: false, may_have_partial_effect: true })
             .checkpoint(CheckpointContract { capturable: vec!["original source versions, citations and observed receipts".into()], excluded: vec!["live SQLite/WAL, credentials, process state and unobserved effects".into()], coordinated: false, consistency: "existing immutable cognition/CAS closure".into() })
             .lifecycle(LifecycleContract { on_upgrade: "withdraw old definition; cancel and join old workers".into(), on_uninstall: "retire process workers; archived evidence remains readable after re-enabling on any replicated node".into(), on_crash: "reconcile original E1; never repeat an armed CLI request".into(), receipt_readable_after_removal: true })
-            .basis(GuaranteeBasis::RuntimeConstrained).build()]
+            .basis(GuaranteeBasis::RuntimeConstrained).build()])
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         joined(self.0.workers.spawn(self.0.clone().run(invocation))?).await

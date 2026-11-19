@@ -325,7 +325,7 @@ mod native_ssh_installation {
     // used by the installed registry. Only these negative tests detach fields.
     fn claimed_invocation(f: &Fixture) -> shenko_kernel::task::NativeTaskInvocation {
         submit(f);
-        let descriptor = f.handler.descriptor();
+        let descriptor = f.handler.descriptor().unwrap();
         let claim = f.store.claim_native_task(f.task_id, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
         // Prove the real Store claim bound the installed implementation before
         // either negative case detaches only its intended identity/context.

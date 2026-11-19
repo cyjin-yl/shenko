@@ -29,6 +29,59 @@
     "separator",
     "toggle"
   ],
+  "realisation": {
+    "compiled": [
+      "transport-badge",
+      "message-bubble"
+    ],
+    "adapter": [
+      {
+        "family": "button",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "textarea",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "scroll-area",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "collapsible",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "drawer",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "toggle-group",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "input",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "separator",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "toggle",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      }
+    ]
+  },
   "adoption": {
     "runtime": "createReactAdapter({ ...React, createPortal })",
     "why": "Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.",
@@ -136,28 +189,28 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/var/idw-target/receipts/shenko-proto-bump-r4/consumer/crates/shenko-ui/web",
-  "built_at": "2026-11-19T04:33:40.907Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/pr332-files-review-20261119/crates/shenko-ui/web",
+  "built_at": "2026-11-19T11:47:13.697Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1118826,
-      "sha256": "5000a89edc9a8dcf17b41b383df0ac250bad1dae1b747657aab35817d4349e83"
+      "bytes": 1140355,
+      "sha256": "67354fddcf6e73028d2fdddf04c300ed59ad12e6c90622cc541f403cefc9755c"
     },
-    "chunks/chunk-TJPYHGM5.js": {
-      "bytes": 58903,
-      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    "chunks/chunk-TDQUIBDS.js": {
+      "bytes": 65149,
+      "sha256": "59d590fd6a27164ac293b42e4486dfc3a440747c3641552f3ccb2ce41fef7302"
     },
-    "chunks/demo-controller-3CZCHCX4.js": {
-      "bytes": 11495,
-      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
+    "chunks/demo-controller-S5T5JGW5.js": {
+      "bytes": 15700,
+      "sha256": "e09622bf0ab8f34ca6528fba20c7bd1b2d7069f9b5fd7fee53def6654cbc586a"
     },
     "app.css": {
-      "bytes": 48531,
-      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f"
+      "bytes": 61640,
+      "sha256": "41c22c09626fd192f453b009d8beb25615402db814f9961ac475e09e86b3f50e"
     },
     "proto-ui-style.css": {
       "bytes": 294,

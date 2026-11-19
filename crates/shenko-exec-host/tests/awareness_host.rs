@@ -488,13 +488,13 @@ async fn a_native_read_reports_the_capability_and_grants_nothing() -> Result<()>
 
     let handler: Arc<dyn NativeTaskHandler> =
         Arc::new(AwarenessNoticeHandler::new(Arc::clone(&sandbox.store), Arc::clone(&host)));
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     ensure!(
         descriptor.kind == "awareness.notice" && descriptor.definition_version == 1,
         "the child is the notice reader: {descriptor:?}"
     );
     ensure!(
-        handler.effect_contracts().is_empty() && handler.capabilities().is_empty(),
+        handler.effect_contracts()?.is_empty() && handler.capabilities().is_empty(),
         "reading notices declares no effect and no capability"
     );
 

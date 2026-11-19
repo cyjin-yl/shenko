@@ -202,10 +202,10 @@ impl RowTransition {
         // Preserve an actual read/hash error, rather than treating it as a
         // matching predecessor or silently weakening the range condition.
         for table in &self.tables {
-            if let Some(range) = &table.read_range {
-                if range_digest(tx, &table.before.table)? != range.before {
-                    return Err(conflict(format!("read range differs for {}", table.before.table.name)));
-                }
+            if let Some(range) = &table.read_range
+                && range_digest(tx, &table.before.table)? != range.before
+            {
+                return Err(conflict(format!("read range differs for {}", table.before.table.name)));
             }
         }
         tx.execute_batch("PRAGMA defer_foreign_keys=ON")

@@ -99,12 +99,13 @@ pub fn operation_parts(
     acceptance: &str,
     retry: &str,
 ) -> Result<(OperationRecord, AttemptRecord)> {
+    let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
     let resource = seal(store, &bindings, "seat-ssh-record-binding")?;
     let acceptance = seal(store, &acceptance, "seat-ssh-record-acceptance")?;
     let retry = seal(store, &retry, "seat-ssh-record-retry")?;
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: shenko_kernel::native_artifact::native_artifact_digest(),
+            digest: artifact_digest.clone(),
             locator: format!("builtin:{operation_name}"),
         },
         symbol: format!("{operation_name}.execute"),
@@ -128,7 +129,7 @@ pub fn operation_parts(
         final_input_ref: input_ref,
         contract_ref: OperationContractRef {
             plugin_id,
-            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             contract_digest,
             receipt_reader_ref: version.clone(),
         },

@@ -1395,7 +1395,7 @@ impl CognitionTrialHandler {
         let contract_digest = Digest::blake3(TRIAL_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:cognition-unit-trial-v1".into(),
             },
             symbol: "cognition.unit.trial.execute".into(),
@@ -1419,7 +1419,7 @@ impl CognitionTrialHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1660,13 +1660,13 @@ impl CognitionTrialHandler {
 
 #[async_trait]
 impl NativeTaskHandler for CognitionTrialHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "cognition.unit.trial".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-trial/1".into(),
@@ -1675,7 +1675,7 @@ impl NativeTaskHandler for CognitionTrialHandler {
                 "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":4,\"deadline_ms\":480000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。每个样本都有实际执行的等额 deadline，重复与场景交替先运行的条件。失败、超时、未启动和评审出错保留为未知，按全部计划样本计算保守 Wilson 95% 区间；只有候选下界高于对照上界才 supported，反向分离才 not_supported，其余为 inconclusive。scored-only 比率仅作诊断，单次每组 1 个样本通常不足以得到支持。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
