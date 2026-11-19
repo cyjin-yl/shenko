@@ -15,6 +15,7 @@ pub mod config_service;
 pub mod config_namespaces;
 pub mod config_task;
 pub mod owner;
+pub mod files;
 
 pub use server::*;
 pub use routes::*;
