@@ -142,6 +142,7 @@ impl MediaReadHandler {
         agent_id: EntityId,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let bindings = ResourceBindings {
             provider: "store.media.v1".into(),
             account_identity: String::new(),
@@ -162,7 +163,7 @@ impl MediaReadHandler {
         let contract_digest = Digest::blake3(MEDIA_READ_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:media-read-v1".into(),
             },
             symbol: "media.read.execute".into(),
@@ -186,7 +187,7 @@ impl MediaReadHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -342,13 +343,13 @@ impl MediaReadHandler {
 
 #[async_trait]
 impl NativeTaskHandler for MediaReadHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "media.read".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-media-reader/1".into(),
@@ -360,7 +361,7 @@ impl NativeTaskHandler for MediaReadHandler {
                  结果只含元数据与文本，不含音频字节；原始音频是 CAS 对象，按摘要取用。说话人是提供方声纹 claim（未知保持未知，confidence 是模型信号）。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

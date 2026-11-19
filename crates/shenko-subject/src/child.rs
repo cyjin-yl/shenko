@@ -236,7 +236,7 @@ impl NativeChildService {
         self: &Arc<Self>,
         handler: Arc<dyn NativeTaskHandler>,
     ) -> Result<((String, u32, Digest), u64)> {
-        let descriptor = handler.descriptor();
+        let descriptor = handler.descriptor()?;
         ensure!(
             descriptor.kind != "delegation"
                 && !descriptor.kind.is_empty()
@@ -250,7 +250,7 @@ impl NativeChildService {
                 .is_none_or(|section| { !section.trim().is_empty() && section.len() <= 8192 }),
             "invalid_native_prompt_section"
         );
-        let artifact = shenko_kernel::native_artifact::running_native_artifact();
+        let artifact = shenko_kernel::native_artifact::running_native_artifact()?;
         if descriptor.implementation_ref.artifact_digest == artifact.digest()
             && !self.registry.read().retained_artifacts.contains(&artifact.digest())
         {
@@ -1642,25 +1642,26 @@ fn register_native_definition(
     ctx: &Context,
     handler: &dyn NativeTaskHandler,
 ) -> Result<(), std::io::Error> {
+    let descriptor = handler.descriptor().map_err(std::io::Error::other)?;
     let runtime = match ctx.try_service::<shenko_kernel::runtime::PluginRuntime>() {
         Ok(runtime) => runtime,
         Err(error) => {
             // The definition itself is installed; the live discovery view is
             // not. This is an assembly fact, not a silent success.
             tracing::warn!(
-                kind = %handler.descriptor().kind,
+                kind = %descriptor.kind,
                 %error,
                 "native definition installed without a live runtime registry"
             );
             return Ok(());
         }
     };
-    let descriptor = handler.descriptor();
     let implementation = descriptor.implementation();
     let provider_id = format!("native.{}", descriptor.kind);
     let declarations = handler.capabilities();
     let operations = handler
         .effect_contracts()
+        .map_err(std::io::Error::other)?
         .into_iter()
         .map(|contract| shenko_types::plugin_runtime::OperationEffectView {
             operation_name: contract.operation_name.clone(),

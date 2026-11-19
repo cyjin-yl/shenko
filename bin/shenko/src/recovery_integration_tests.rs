@@ -985,7 +985,7 @@ fn receipt_replay_and_source_key_conflict_survive_real_process_reopen() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(store.clone()),
-    );
+    ).unwrap();
     let claim = store
         .claim_native_task(task_id, descriptor.implementation_ref.clone(), false)
         .unwrap()
@@ -1558,7 +1558,7 @@ fn subject_boundary_keeps_admitted_operation_and_late_evidence() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(store.clone()),
-    );
+    ).unwrap();
     let claim = store.claim_native_task(admitted, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
     // This exercises the real T1/E1 ledger, not a completed handoff or a
     // claim that an external process ran.
@@ -1619,7 +1619,7 @@ async fn native_cancel_late_evidence_and_unknown_recovery_are_fenced() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(old_store.clone()),
-    );
+    ).unwrap();
     let cancelled_claim = old_store
         .claim_native_task(cancelled_task, descriptor.implementation_ref.clone(), false)
         .unwrap()
@@ -1992,9 +1992,10 @@ async fn drive_native_as(
     task_id: EntityId,
     input: serde_json::Value,
 ) -> shenko_types::operation::OperationRecord {
+    let descriptor = handler.descriptor().unwrap();
     let claim = fixture
         .store
-        .claim_native_task(task_id, handler.descriptor().implementation_ref, false)
+        .claim_native_task(task_id, descriptor.implementation_ref, false)
         .unwrap()
         .expect("pending task claimable");
     let invocation = shenko_kernel::task::NativeTaskInvocation {
@@ -2002,13 +2003,13 @@ async fn drive_native_as(
         child_tools: None,
         context: shenko_types::agent::CallContext {
             caller_instance_id,
-            role_revision: handler.descriptor().role_revision,
+            role_revision: descriptor.role_revision,
             task_id: Some(task_id),
             expected_task_revision: Some(claim.invocation.task_revision.0),
             invocation_id: Some(claim.invocation.invocation_id),
             controller_epoch: claim.invocation.epoch,
             software_generation: claim.software_generation.clone(),
-            authority_refs: handler.descriptor().authority_refs,
+            authority_refs: descriptor.authority_refs,
             trace_id: EntityId::new(),
         },
         task_invocation: claim.invocation.clone(),
@@ -2390,7 +2391,7 @@ async fn computer_use_armed_reconcile_and_dead_display_fencing() {
     // reconcile reports Unknown with honest progress, arms no retry.
     let input_desc = shenko_kernel::task::NativeTaskHandler::descriptor(
         &fixture.handlers.input,
-    );
+    ).unwrap();
     let claim = fixture
         .store
         .claim_native_task(ids[3], input_desc.implementation_ref.clone(), false)

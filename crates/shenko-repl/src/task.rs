@@ -757,7 +757,7 @@ impl HandlerCore {
         resource: ObjectRef,
         acceptance: ObjectRef,
         retry: ObjectRef,
-    ) -> (OperationRecord, AttemptRecord) {
+    ) -> Result<(OperationRecord, AttemptRecord)> {
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let contract_digest = Digest::blake3(self.contract);
         let operation = OperationRecord {
@@ -773,9 +773,9 @@ impl HandlerCore {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
-                receipt_reader_ref: self.version_ref(),
+                receipt_reader_ref: self.version_ref()?,
             },
             resource_bindings_ref: resource,
             authority_ref: invocation.authority.clone(),
@@ -801,7 +801,7 @@ impl HandlerCore {
             worker_id: invocation.task_invocation.worker_id,
             node_id: invocation.task_invocation.node_id,
             epoch: invocation.task_invocation.epoch,
-            implementation_ref: self.version_ref(),
+            implementation_ref: self.version_ref()?,
             dispatch_stage: AttemptDispatchStage::Armed,
             armed_commit: zero,
             provider_handle: None,
@@ -811,13 +811,13 @@ impl HandlerCore {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        (operation, attempt)
+        Ok((operation, attempt))
     }
 
-    fn version_ref(&self) -> VersionRef {
-        VersionRef {
+    fn version_ref(&self) -> Result<VersionRef> {
+        Ok(VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: format!("builtin:{}", self.kind),
             },
             symbol: format!("{}.execute", self.kind),
@@ -826,7 +826,7 @@ impl HandlerCore {
                 major: 1,
                 digest: shenko_kernel::native_artifact::native_schema_digest(&format!("{}-observation-v1", self.kind.replace('.', "-")), 1),
             },
-        }
+        })
     }
 
     fn evidence(
@@ -911,19 +911,19 @@ impl HandlerCore {
         Ok(operation)
     }
 
-    fn descriptor(&self, prompt_section: String) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self, prompt_section: String) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: self.kind.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: self.role_revision.into(),
             authority_refs: vec![self.authority_ref.into()],
             prompt_section: Some(prompt_section),
-        }
+        })
     }
 }
 
@@ -1068,7 +1068,7 @@ impl ReplSessionHandler {
                 &"an armed session op without a conclusive observation remains unknown; no automatic replay",
                 "repl-session-retry",
             )?;
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1132,7 +1132,7 @@ impl ReplSessionHandler {
             let resource = self.core.seal(&bindings, "repl-session-binding")?;
             let acceptance = self.core.seal(&"explicit resolution refusal", "repl-session-acceptance")?;
             let retry = self.core.seal(&"no execution attempted", "repl-session-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1561,7 +1561,7 @@ fn resolve_entry(sessions: &SessionStore, entry: &str)
 impl NativeTaskHandler for ReplSessionHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
         self.core.descriptor(
             "repl.session/v1 管理真实长生命周期 REPL 会话（WASI 或原生解释器进程，变量在进程存活期间保留）：\
              先看已安装的 kernel 绑定与具名目标 {\"op\":\"list_kernels\"}（targets = 本构建能绑定/不能绑定的运行时，\
@@ -1680,7 +1680,7 @@ impl ReplCellHandler {
             &"an armed cell without a conclusive observation remains unknown; no automatic replay",
             "repl-cell-retry",
         )?;
-        Ok(self.core.new_operation(invocation, input_ref, resource, acceptance, retry))
+        self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
     }
 
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1813,7 +1813,7 @@ impl ReplCellHandler {
             let resource = self.core.seal(&bindings, "repl-cell-binding")?;
             let acceptance = self.core.seal(&"explicit resolution refusal", "repl-cell-acceptance")?;
             let retry = self.core.seal(&"no cell executed", "repl-cell-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1851,7 +1851,7 @@ impl ReplCellHandler {
 impl NativeTaskHandler for ReplCellHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
         self.core.descriptor(
             "repl.cell/v1 在一个已创建的 REPL 会话上执行一个 cell（真实解释器进程内，变量跨 cell 保留；WASI 会话经帧协议，原生会话同名协议）：\
              [delegate:repl.cell:1] {\"op\":\"execute\",\"session_id\":\"...\",\"source_b64\":\"...\",\"cell_kind\":\"pure|declared_effect|unknown\"}。\
@@ -1984,7 +1984,7 @@ mod tests {
             background: false,
             kind: kind.into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref,
             state: TaskState::Running {
                 checkpoint_ref: None,

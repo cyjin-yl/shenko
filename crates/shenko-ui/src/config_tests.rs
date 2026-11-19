@@ -404,7 +404,7 @@ async fn config_manage_applies_through_the_native_ledger() {
         Arc::clone(&store),
         Arc::clone(&service),
     ));
-    let implementation = handler.descriptor().implementation_ref.clone();
+    let implementation = handler.descriptor().unwrap().implementation_ref.clone();
     let _handler: FiberHandle = supervisor
         .spawn(NativeTaskHandlerPlugin, handler)
         .await
@@ -656,7 +656,7 @@ async fn config_manage_rejects_invalid_input_without_a_change() {
         Arc::clone(&store),
         Arc::clone(&service),
     ));
-    let implementation = handler.descriptor().implementation_ref.clone();
+    let implementation = handler.descriptor().unwrap().implementation_ref.clone();
     let _handler: FiberHandle = supervisor
         .spawn(NativeTaskHandlerPlugin, handler)
         .await

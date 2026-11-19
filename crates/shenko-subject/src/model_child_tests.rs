@@ -427,7 +427,7 @@ async fn failed_generation_reopens_after_e1_without_a_second_send() -> anyhow::R
     commit_output(&store, &mut subject, 1, &[], &delegation("failed-child", "Keep the original evidence.", "Report the provider outcome.", 64)).await;
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
     let handler = Arc::new(ModelChildHandler::new(store.clone(), handle.clone(), cordis_core::Context::new()).unwrap());
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     let native = Arc::new(NativeChildService::new(store.clone(), subject.head.software_generation.clone()));
     native.install(handler.clone()).unwrap();
     let claim = store.claim_native_task(task.task_id, descriptor.implementation_ref, false).unwrap().unwrap();
@@ -585,7 +585,7 @@ async fn drive_until(
 }
 
 #[tokio::test]
-async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results() {
+async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results() -> anyhow::Result<()> {
     use shenko_broker::{
         admission::CapacityProvenance,
         provider::AnthropicProvider,
@@ -631,7 +631,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     profile.resource_domain_id = "fixture.other".into();
     let other_binding = profile.binding();
     registry.install(Arc::new(AnthropicProvider::with_profile(profile, "fixture-key".into()).unwrap()));
-    let (broker, handle) = Broker::with_registry(registry, Arc::clone(&local_domain));
+    let (broker, handle) = Broker::with_registry(registry, Arc::clone(&local_domain))?;
     handle.domains().register(Arc::clone(&other_domain)).unwrap();
     let other_handle = handle.for_binding(&other_binding).unwrap();
     assert_eq!(other_handle.domain().identity().domain_id, "fixture.other");
@@ -704,7 +704,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         let artifact: shenko_types::object::ObjectRef = serde_json::from_value(
             task.memos[shenko_store::child::NATIVE_IMPLEMENTATION_ARTIFACT].clone()).unwrap();
         assert_eq!(artifact.digest, task.implementation_ref.artifact_digest);
-        assert_eq!(artifact.digest, shenko_kernel::native_artifact::native_artifact_digest());
+        assert_eq!(artifact.digest, shenko_kernel::native_artifact::native_artifact_digest()?);
         store.cas.verified_object_path(&artifact).unwrap();
         // The sealed delegation contract binds the authored choice.
         let operation = store.external_operation(result.operation_id).unwrap();
@@ -749,6 +749,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         // The reopened child did not send a second generation.
         assert_eq!(reopened.external_operation_attempts(child_step(&reopened, result.task_id).operation_id).unwrap().len(), 1);
     }
+    Ok(())
 }
 
 #[tokio::test]
@@ -1593,7 +1594,7 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         subject.head.software_generation.clone(),
     ));
     native.install(handler.clone()).unwrap();
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     let claim = store
         .claim_native_task(task.task_id, descriptor.implementation_ref, false)
         .unwrap()

@@ -107,7 +107,7 @@ impl McpRuntime {
         input.unit.installed(&self.node.lock(), UNIT_ID)?;
         // Reject malformed protocol input before arming, without connecting.
         let _: rmcp::model::ClientRequest = serde_json::from_value(input.request.clone())?;
-        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor(), &input, serde_json::to_value(&input.unit)?,
+        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor()?, &input, serde_json::to_value(&input.unit)?,
             "observed MCP response or explicit unknown; isError remains failure; no claim of remote business success",
             "an armed MCP request is never automatically repeated, including after controller replacement")?;
         if let Some(existing) = call.arm(&self.store, &invocation)? { return Ok(existing); }
@@ -179,13 +179,15 @@ impl McpRuntime {
     }
 }
 
-fn descriptor() -> NativeTaskDescriptor {
-    NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
+const PROMPT: &str = "Optional MCP adapter, not a bundled external service. Input {unit:{unit_id,revision,artifact_digest},request:{method,params},timeout_secs?}. One request on the exact installed connection; pagination and follow-ups are explicit. Results retain server metadata and unknown completion. A receipt's learning_source can support a separate, correctable cognition unit; it does not authorize adoption or global rules.";
+
+fn descriptor() -> anyhow::Result<NativeTaskDescriptor> {
+    Ok(NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "485e5654-274e-490b-939a-ab1255864246".parse().expect("fixed MCP plugin identity"),
-            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?, registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.mcp/v1".into()],
-        prompt_section: Some("Optional MCP adapter, not a bundled external service. Input {unit:{unit_id,revision,artifact_digest},request:{method,params},timeout_secs?}. One request on the exact installed connection; pagination and follow-ups are explicit. Results retain server metadata and unknown completion. A receipt's learning_source can support a separate, correctable cognition unit; it does not authorize adoption or global rules.".into()) }
+        prompt_section: Some(PROMPT.into()) })
 }
 
 struct Handler(Arc<McpRuntime>);
@@ -193,21 +195,21 @@ struct Handler(Arc<McpRuntime>);
 impl NativeTaskHandler for Handler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor { descriptor() }
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> { descriptor() }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
-        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: descriptor().prompt_section.unwrap(),
+        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: PROMPT.into(),
             usage: Some("delegate:compat.mcp.request:1 {\"unit\":{\"unit_id\":\"...\",\"revision\":\"...\",\"artifact_digest\":\"blake3:...\"},\"request\":{\"method\":\"tools/list\",\"params\":{}}}".into()) }]
     }
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = descriptor()?;
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
             .resource("external_mcp_service", "exact_installed_profile", ResourceAccess::Execute)
             .action(EffectActionKind::Cancel).idempotency(IdempotencyGuarantee::None)
             .external_effect(ExternalEffect { kind: "mcp_protocol_request".into(), description: "May start an explicitly configured stdio server and invoke external capabilities; tool annotations are not effect guarantees".into(), reversible: false, compensation_possible: false })
             .cancel(CancelContract { can_cancel_before_start: true, can_cancel_in_flight: true, cancel_confirms_stopped: false, may_have_partial_effect: true })
             .checkpoint(CheckpointContract { capturable: vec!["frozen profile identity and observed protocol receipts".into()], excluded: vec!["remote effects and live process/session state".into()], coordinated: false, consistency: "local ledger only".into() })
             .lifecycle(LifecycleContract { on_upgrade: "retire old connections; never replay armed requests".into(), on_uninstall: "withdraw native definition, cancel and join owned workers and sessions; remote effects may remain".into(), on_crash: "reconcile original receipts; unknown remains unknown".into(), receipt_readable_after_removal: true })
-            .basis(GuaranteeBasis::ClaimOnly).build()]
+            .basis(GuaranteeBasis::ClaimOnly).build()])
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         joined(self.0.workers.spawn(self.0.clone().run(invocation))?).await

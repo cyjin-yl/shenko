@@ -300,13 +300,13 @@ impl RetentionApplyHandler {
 
 #[async_trait]
 impl NativeTaskHandler for RetentionApplyHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "retention.apply".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-retention-apply/1".into(),
@@ -315,7 +315,7 @@ impl NativeTaskHandler for RetentionApplyHandler {
                 "retention.apply/v1 对密封的对象集执行一种保留机制。[delegate:retention.apply:1] {\"request_id\":\"…\",\"mechanism\":\"semantic_forget|archive_move|erase|status\",\"target_refs\":[{…}],\"reason\":\"…\"}。semantic_forget 与 erase 记录墓碑：事实不再进入投影，但内容存储无对象删除，字节仍按摘要可恢复。archive_move 额外要求 target{provider,namespace,locator} 与 manifest_ref，并报告 hash/readback 校验与本地副本去向。status 只读报告对象的墓碑与归档。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

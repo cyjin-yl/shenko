@@ -981,11 +981,11 @@ mod tests {
     /// unavailable outcome, the receipt records NeverDispatched, and the freed
     /// slot admits the next valid request.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() {
+    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         let epoch = registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1));
+        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1))?;
         let binding = handle.binding().clone();
 
         let (request_one, result_one_rx) = new_request(EntityId::new(), &binding);
@@ -1035,16 +1035,17 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// Issue #274: the durable stream journal fails before the provider is
     /// called, so the streamed request is never dispatched and its slot frees.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() {
+    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1096,17 +1097,18 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// The control case that must not regress: a request that actually left
     /// and then dropped its connection stays unknown, keeps its C=1 slot, and
     /// only original terminal evidence releases it.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() {
+    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1175,6 +1177,7 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// A real HTTP reader deadline closes only our observation. The recorded

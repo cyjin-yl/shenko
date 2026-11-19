@@ -703,8 +703,8 @@ impl InferenceRecoverySource for InterventionReceiptSink {
 
 #[async_trait]
 impl NativeTaskHandler for PmaEvaluateHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: PMA_EVALUATE_KIND.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
@@ -718,7 +718,7 @@ impl NativeTaskHandler for PmaEvaluateHandler {
                 "记忆干预 worker 已注册（kind={PMA_EVALUATE_KIND}, version=1）：用 [delegate:{PMA_EVALUATE_KIND}:1] 传入 JSON {{\"lineage_id\":\"...\",\"epoch_id\":\"...\"}} 启动一次有界判断；它只输出保持沉默或一条带出处的提醒，不接管主体计划，也不需要任何人批准。当前 provider 通路为 {}。",
                 self.broker.binding().profile_id(),
             )),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

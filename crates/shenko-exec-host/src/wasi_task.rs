@@ -511,7 +511,7 @@ impl WasiExecHandler {
         acceptance: ObjectRef,
         retry: ObjectRef,
         version: &VersionRef,
-    ) -> (OperationRecord, AttemptRecord) {
+    ) -> Result<(OperationRecord, AttemptRecord)> {
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let contract_digest = Digest::blake3(CONTRACT);
         let operation = OperationRecord {
@@ -527,7 +527,7 @@ impl WasiExecHandler {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -565,13 +565,13 @@ impl WasiExecHandler {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        (operation, attempt)
+        Ok((operation, attempt))
     }
 
-    fn version_ref() -> VersionRef {
-        VersionRef {
+    fn version_ref() -> Result<VersionRef> {
+        Ok(VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:wasi-exec-v2".into(),
             },
             symbol: "wasi.exec.execute".into(),
@@ -580,7 +580,7 @@ impl WasiExecHandler {
                 major: 2,
                 digest: shenko_kernel::native_artifact::native_schema_digest("wasi-exec-observation-v2", 2),
             },
-        }
+        })
     }
 
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -625,7 +625,7 @@ impl WasiExecHandler {
             &"an armed guest run without evidence remains unknown; no automatic replay",
             "wasi-exec-retry",
         )?;
-        let version = Self::version_ref();
+        let version = Self::version_ref()?;
         let (mut operation, mut attempt) = self.new_operation(
             &invocation,
             input_ref,
@@ -633,7 +633,7 @@ impl WasiExecHandler {
             acceptance,
             retry,
             &version,
-        );
+        )?;
         if let Some(existing) = self.store.arm_external_operation(
             &invocation.task_invocation,
             &mut operation,
@@ -848,7 +848,7 @@ impl WasiExecHandler {
         let resource = self.seal(&bindings, "wasi-exec-binding")?;
         let acceptance = self.seal(&"explicit resolution refusal", "wasi-exec-acceptance")?;
         let retry = self.seal(&"no execution attempted", "wasi-exec-retry")?;
-        let version = Self::version_ref();
+        let version = Self::version_ref()?;
         let (mut operation, mut attempt) = self.new_operation(
             &invocation,
             input_ref,
@@ -856,7 +856,7 @@ impl WasiExecHandler {
             acceptance,
             retry,
             &version,
-        );
+        )?;
         if let Some(existing) = self.store.arm_external_operation(
             &invocation.task_invocation,
             &mut operation,
@@ -926,13 +926,13 @@ impl WasiExecHandler {
 impl NativeTaskHandler for WasiExecHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "wasi.exec".into(),
             definition_version: 2,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-wasi-exec/2".into(),
@@ -956,7 +956,7 @@ impl NativeTaskHandler for WasiExecHandler {
                  checkpoint 生效；阻塞 host call 不承诺硬期限，worker 总会 join。"
                     .into(),
             ),
-        }
+        })
     }
 
     /// effect contract of `wasi.exec.v2`.
@@ -967,9 +967,9 @@ impl NativeTaskHandler for WasiExecHandler {
     /// with writable mounts may change files, and that change is not undone
     /// by a reset of the run. Cancellation takes effect at a guest epoch
     /// checkpoint; a blocked host call is not promised a hard deadline.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             "wasi.exec.v2",
@@ -1018,7 +1018,7 @@ impl NativeTaskHandler for WasiExecHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     /// The capability this definition offers while it is installed.
@@ -1100,9 +1100,9 @@ mod tests {
         std::env::temp_dir().join(format!("shenko-wasi-task-{tag}-{}", EntityId::new()))
     }
 
-    fn invocation(input: serde_json::Value) -> NativeTaskInvocation {
+    fn invocation(input: serde_json::Value) -> Result<NativeTaskInvocation> {
         let task_id = EntityId::new();
-        NativeTaskInvocation {
+        Ok(NativeTaskInvocation {
             child_tools: None,
             cancellation: Default::default(),
             context: CallContext {
@@ -1141,7 +1141,7 @@ mod tests {
                 definition_version: 2,
                 implementation_ref: ImplementationRef {
                     plugin_id: EntityId::new(),
-                    artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                    artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                     registry_revision: 1,
                 },
                 input_ref: ObjectRef {
@@ -1177,7 +1177,7 @@ mod tests {
                 decision_ref: EntityId::new(),
             },
             input,
-        }
+        })
     }
 
     /// Resolution failures are classified as explicit TOOL_* refusals (the
@@ -1194,7 +1194,7 @@ mod tests {
         )?);
         let handler = WasiExecHandler::new(store, vec![], dir.clone());
 
-        match handler.prepare(&invocation(serde_json::json!({"tool": "toybox"}))) {
+        match handler.prepare(&invocation(serde_json::json!({"tool": "toybox"}))?) {
             Err(PrepareError::Refusal(detail)) => {
                 assert!(detail.contains("TOOL_UNSUPPORTED:toybox"), "{detail}")
             }
@@ -1203,13 +1203,13 @@ mod tests {
         let oversized = "x".repeat(MAX_ARG_BYTES + 1);
         match handler.prepare(&invocation(serde_json::json!({
             "tool": "fixture", "args": [oversized]
-        }))) {
+        }))?) {
             Err(PrepareError::Fault(_)) => {}
             other => panic!("expected bounds fault, got {other:?}"),
         }
         match handler.prepare(&invocation(serde_json::json!({
             "tool": "fixture", "stdin_b64": "!!!"
-        }))) {
+        }))?) {
             Err(PrepareError::Fault(_)) => {}
             other => panic!("expected base64 fault, got {other:?}"),
         }

@@ -811,9 +811,9 @@ fn prepared_contribution_text(subject: &mut SubjectLoopState, text: &str) -> (
 }
 
 #[tokio::test]
-async fn contribution_final_budget_rejects_underreported_body_before_s0() {
+async fn contribution_final_budget_rejects_underreported_body_before_s0() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(4096), vision: None,
     };
@@ -830,12 +830,13 @@ async fn contribution_final_budget_rejects_underreported_body_before_s0() {
     assert!(step.input_plan_ref.is_none());
     assert!(store.subject_request_attempts_for_step(agent, step_id).unwrap().is_empty());
     assert_eq!(registry.collect(&scope, 2).contributions, vec![item]);
+    Ok(())
 }
 
 #[test]
-fn contribution_final_budget_calibrates_complete_payload_without_double_charge() {
+fn contribution_final_budget_calibrates_complete_payload_without_double_charge() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut subject = state(store, agent).unwrap().with_broker(handle);
     let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
@@ -849,14 +850,15 @@ fn contribution_final_budget_calibrates_complete_payload_without_double_charge()
     assert_eq!(prepared.context.estimated_input_tokens, Some(base + added));
     assert_eq!(prepared.context.budget_input_tokens, Some(base + 200));
     assert_eq!(prepared.contribution_tokens, 8);
+    Ok(())
 }
 
 #[test]
-fn contribution_final_budget_keeps_image_estimate() {
+fn contribution_final_budget_keeps_image_estimate() -> anyhow::Result<()> {
     use shenko_context_policy::{CostReport, Derivative, HistorySource, PolicyManifest,
         PreparedWindow, StoreHistory, WindowBase, WindowEntry, estimate_tokens};
     let (_dir, store, agent) = fixture();
-    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(16384),
         vision: Some(shenko_broker::request::ProviderVisionCaps { max_image_context: 4096, patch_px: 1 }),
@@ -889,6 +891,7 @@ fn contribution_final_budget_keeps_image_estimate() {
     let expected = baseline.context.estimated_input_tokens.unwrap() + added;
     assert_eq!(prepared.context.estimated_input_tokens, Some(expected));
     assert_eq!(prepared.context.budget_input_tokens, Some(expected));
+    Ok(())
 }
 
 #[test]
@@ -1036,9 +1039,9 @@ async fn contribution_recovery_keeps_retired_and_correction_request_usage() {
 // Window preparation runs on the blocking pool, so this case needs the same
 // Tokio context the subject always has in production.
 #[tokio::test]
-async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
+async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut capabilities = shenko_broker::request::ProviderCapabilities {
         binding: binding.clone(), max_context_tokens: None, vision: None,
@@ -1105,7 +1108,7 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let profile = prepared.context.profile_digest.clone();
     let window_id = source.window_id;
     drop((subject, offline));
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let mut reopened = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     reopened.max_tokens = 10;
@@ -1115,12 +1118,13 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     assert_eq!(resumed.context.source.model_generation, source.model_generation);
     assert_eq!(resumed.context.source.window_generation, source.window_generation);
     drop((reopened, offline));
+    Ok(())
 }
 
 #[test]
-fn retained_calibrated_budget_over_limit_blocks_dispatch() {
+fn retained_calibrated_budget_over_limit_blocks_dispatch() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(shenko_broker::request::ProviderCapabilities {
@@ -1136,12 +1140,13 @@ fn retained_calibrated_budget_over_limit_blocks_dispatch() {
     assert_eq!(subject.step.state, SubjectStepState::Planned);
     assert_eq!(subject.step.active_request_id, None);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
+async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(4000), vision: None,
     };
@@ -1237,6 +1242,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         let staged: serde_json::Value = serde_json::from_str(&record.data).unwrap();
         assert_eq!(staged["inbox_event"]["payload"], event.payload);
     }
+    Ok(())
 }
 
 #[test]
@@ -1279,9 +1285,9 @@ fn execution_commit_during_projection_is_rejected() {
 }
 
 #[tokio::test]
-async fn oversized_fresh_batch_stays_pending_across_reopen() {
+async fn oversized_fresh_batch_stays_pending_across_reopen() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(1000), vision: None,
     };
@@ -1308,7 +1314,7 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
     assert_eq!(original.len(), events.len());
     drop((subject, offline, store));
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     subject.max_tokens = 10;
@@ -1320,11 +1326,12 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
         assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
     }
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
-    let (mut subject, _gate, release) = gated_context_subject(16384, false);
+async fn compaction_wait_refuses_when_prepared_window_cannot_fit() -> anyhow::Result<()> {
+    let (mut subject, _gate, release) = gated_context_subject(16384, false)?;
     subject.context_registry.install(Arc::new(WindowOverheadPolicy {
         budget: shenko_compact_budget::BudgetCompact::new(
             shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
@@ -1339,6 +1346,7 @@ async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
     assert_eq!(pending.state, SubjectStepState::Planned);
     assert!(pending.input_plan_ref.is_none());
     assert!(subject.context_preparer.is_none());
+    Ok(())
 }
 
 #[test]
@@ -1347,7 +1355,7 @@ fn compaction_wait_late_arrivals_retry_without_stale_refusal() -> anyhow::Result
         .enable_all()
         .build()?
         .block_on(async {
-            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            let (mut subject, gate, release) = gated_context_subject(16384, false)?;
             assert!(crate::context_projection::prepare_context(&mut subject, &[])?.is_none());
             tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified())
                 .await?;
@@ -1487,10 +1495,10 @@ impl shenko_context_policy::ContextPolicy for GatedContextPolicy {
 }
 
 fn gated_context_subject(history_bytes: usize, fail: bool)
-    -> (SubjectLoopState, Arc<PreparationGate>, PreparationRelease)
+    -> anyhow::Result<(SubjectLoopState, Arc<PreparationGate>, PreparationRelease)>
 {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let caps = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(8192), vision: None,
     };
@@ -1508,12 +1516,12 @@ fn gated_context_subject(history_bytes: usize, fail: bool)
         budget: shenko_compact_budget::BudgetCompact::new(
             shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
     })).unwrap();
-    (subject, gate.clone(), PreparationRelease(gate))
+    Ok((subject, gate.clone(), PreparationRelease(gate)))
 }
 
 #[tokio::test]
-async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() {
-    let (mut subject, gate, release) = gated_context_subject(256, true);
+async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(256, true)?;
     for _ in 0..2 {
         let projected = crate::context_projection::prepare_context(&mut subject, &[])
             .unwrap().expect("fitting requests do not wait for compaction");
@@ -1529,11 +1537,12 @@ async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() {
         crate::context_projection::ContextSelection::NoUsablePolicy { attempts } if attempts.len() == 1));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(subject.context_preparer.is_none());
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion() {
-    let (mut subject, gate, release) = gated_context_subject(16384, false);
+async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, false)?;
     let store = subject.store.clone();
     let agent = subject.agent_id;
     let planned = subject.step.step_id;
@@ -1560,11 +1569,12 @@ async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion()
     assert!(matches!(sealed.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(store.load_subject(agent).unwrap().0.committed_step_no, 0);
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() {
-    let (mut subject, gate, release) = gated_context_subject(16384, true);
+async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, true)?;
     let event = message("still pending after policy failure");
     assert!(crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap().is_none());
     gate.entered.notified().await;
@@ -1579,11 +1589,12 @@ async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() {
     assert_eq!(pending.state, SubjectStepState::Planned);
     assert!(pending.input_plan_ref.is_none());
     assert!(subject.store.event_disposition_commit(subject.agent_id, event.event_id).unwrap().is_none());
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_replacement_does_not_inherit_old_failure() {
-    let (mut subject, gate, release) = gated_context_subject(16384, true);
+async fn context_preparer_replacement_does_not_inherit_old_failure() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, true)?;
     assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
     gate.entered.notified().await;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
@@ -1597,14 +1608,15 @@ async fn context_preparer_replacement_does_not_inherit_old_failure() {
     let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
     assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[test]
-fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() {
+fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() -> anyhow::Result<()> {
     for cancel_wait in [true, false] {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let (registry, window_id) = runtime.block_on(async {
-            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            let (mut subject, gate, release) = gated_context_subject(16384, false)?;
             assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
             gate.entered.notified().await;
             let registry = subject.context_registry.clone();
@@ -1617,14 +1629,15 @@ fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() {
             }
             drop(subject);
             release.release();
-            (registry, window_id)
-        });
+            Ok::<_, anyhow::Error>((registry, window_id))
+        })?;
         // Runtime drop joins actual blocking workers, not just their strategy
         // callback: a late publication would be visible after this barrier.
         drop(runtime);
         assert!(!registry.prepared_candidate_pending());
         assert_eq!(registry.ledger().current().unwrap().id, window_id);
     }
+    Ok(())
 }
 
 #[tokio::test]
@@ -1723,7 +1736,7 @@ fn correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail()
 -> anyhow::Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let (dir, store, agent) = fixture();
-        let (offline, handle) = shenko_broker::broker::Broker::offline();
+        let (offline, handle) = shenko_broker::broker::Broker::offline()?;
         let mut subject = state(Arc::clone(&store), agent)?.with_broker(handle.clone());
         subject.max_tokens = 64;
         for index in 0..4 {
@@ -1852,7 +1865,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
     };
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     drop(offline);
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let close = tokio_util::sync::CancellationToken::new();
@@ -1868,7 +1881,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     drop(store);
 
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let (closed_broker, handle) = shenko_broker::broker::Broker::offline();
+    let (closed_broker, handle) = shenko_broker::broker::Broker::offline()?;
     drop(closed_broker); // positively rejected admission; no provider ever dispatched
     let subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let retained_inbox = subject.inbox.clone();
@@ -2885,7 +2898,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
 
     // Recovery must not silently continue this wait with a different model
     // binding. It remains durable rather than pretending the wait ended.
-    let (offline, changed_binding) = shenko_broker::broker::Broker::offline();
+    let (offline, changed_binding) = shenko_broker::broker::Broker::offline()?;
     let mut changed_subject = state(store.clone(), agent).unwrap().with_broker(changed_binding);
     let error = crate::context_projection::prepare_context(&mut changed_subject, &[])
         .err().expect("a different model binding cannot continue this wait");
@@ -3139,8 +3152,8 @@ impl GatedHandler {
 impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
-        shenko_kernel::task::NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<shenko_kernel::task::NativeTaskDescriptor> {
+        Ok(shenko_kernel::task::NativeTaskDescriptor {
             kind: "fixture.gated".into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
@@ -3151,7 +3164,7 @@ impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
             role_revision: "native-child/1".into(),
             authority_refs: vec!["fixture.gated.no_effects/v1".into()],
             prompt_section: None,
-        }
+        })
     }
 
     async fn execute(&self, invocation: shenko_kernel::task::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {

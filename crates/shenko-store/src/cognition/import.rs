@@ -109,16 +109,16 @@ impl Store {
         check_archive_membership(&manifest)?;
         // Local control facts are installed only by a declared handover. The
         // claim comes from the importer, never from the archive.
-        if !options.local_control_handover {
-            if let Some(class) = LOCAL_CONTROL_CLASSES.iter().find(|class| {
+        if !options.local_control_handover
+            && let Some(class) = LOCAL_CONTROL_CLASSES.iter().find(|class| {
                 manifest.fact_classes.iter().any(|declared| declared == *class)
                     || manifest.rows.iter().any(|row| row.table == **class)
-            }) {
-                bail!(
-                    "cognition archive carries the local control fact class {class}; \
-                     only a declared same-installation handover may install it"
-                );
-            }
+            })
+        {
+            bail!(
+                "cognition archive carries the local control fact class {class}; \
+                 only a declared same-installation handover may install it"
+            );
         }
         // A legacy archive is migrated to the current column layout first:
         // the layout only grew, so the migration is by name and keeps every

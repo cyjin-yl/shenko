@@ -4684,6 +4684,7 @@ dependencies = [
  "crossbeam",
  "dashmap 5.5.3",
  "futures",
+ "once_cell",
  "parking_lot",
  "serde",
  "serde_json",

@@ -1412,7 +1412,7 @@ impl ModelChildHandler {
             // send again and must not invent a result: it waits for the
             // original evidence and is parked as reconciling meanwhile.
             tracing::warn!(task_id=%contract.task_id, operation_id=%pending.operation_id, "model child step outcome is unresolved");
-            return Ok(self.unresolved_claim(&invocation, contract.task_id));
+            return self.unresolved_claim(&invocation, contract.task_id);
         }
         // A worker may disappear after E1 but before the run result exists.
         // Recover the failed own step, not a fresh generation. Inherited
@@ -1648,9 +1648,9 @@ impl ModelChildHandler {
         &self,
         invocation: &NativeTaskInvocation,
         task_id: EntityId,
-    ) -> OperationRecord {
+    ) -> Result<OperationRecord> {
         let digest = contract_digest();
-        OperationRecord {
+        Ok(OperationRecord {
             record_schema_version: 1,
             operation_id: invocation.operation_id,
             record_revision: RecordRevision(0),
@@ -1663,11 +1663,11 @@ impl ModelChildHandler {
             input_digest: invocation.task.input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest: digest.clone(),
                 receipt_reader_ref: VersionRef {
                     artifact: ArtifactRef {
-                        digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                        digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                         locator: "builtin:model-child-v2".into(),
                     },
                     symbol: MODEL_CHILD_RESULT_OPERATION.into(),
@@ -1692,7 +1692,7 @@ impl ModelChildHandler {
             possible_duplicate_of: vec![],
             prepared_commit: CommitRef::new(EntityId::nil(), LedgerSeq::ZERO),
             evidence_through: None,
-        }
+        })
     }
 
     /// One durable model step: arm T1, send once, record E1.
@@ -1720,6 +1720,7 @@ impl ModelChildHandler {
                 operation: operation.clone(),
             });
         }
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let request_id = derived_id(
             "shenko.model-child.request",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
@@ -1820,7 +1821,7 @@ impl ModelChildHandler {
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:model-child-v2".into(),
             },
             symbol: MODEL_CHILD_STEP_OPERATION.into(),
@@ -1844,7 +1845,7 @@ impl ModelChildHandler {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest: digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -2153,7 +2154,7 @@ impl ModelChildHandler {
             input_ref,
             ImplementationRef {
                 plugin_id: plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
         );
@@ -2405,7 +2406,7 @@ impl ModelChildHandler {
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:model-child-v2".into(),
             },
             symbol: MODEL_CHILD_RESULT_OPERATION.into(),
@@ -2429,7 +2430,7 @@ impl ModelChildHandler {
             input_digest: contract_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest: digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -2773,13 +2774,13 @@ impl InferenceRecoverySource for ChildStepSink {
 impl NativeTaskHandler for ModelChildHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: MODEL_CHILD_KIND.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: ROLE.into(),
@@ -2788,7 +2789,7 @@ impl NativeTaskHandler for ModelChildHandler {
                 self.broker.binding().profile_id(),
                 &self.broker.installed_bindings(),
             )),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -3163,7 +3164,7 @@ mod grant_account_tests {
     /// with nothing installed the compiled contract stays in force, and two
     /// distinct providers are an ambiguity the harness does not resolve.
     #[test]
-    fn the_childs_role_frame_comes_from_the_installed_unit() {
+    fn the_childs_role_frame_comes_from_the_installed_unit() -> anyhow::Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-child-frame-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let packages = dir.join("frames");
@@ -3185,7 +3186,7 @@ mod grant_account_tests {
             Arc::new(
                 shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap(),
             ),
-            shenko_broker::broker::Broker::offline().1,
+            shenko_broker::broker::Broker::offline()?.1,
             ctx.clone(),
         )
         .unwrap();
@@ -3205,12 +3206,13 @@ mod grant_account_tests {
             Arc::new(
                 shenko_store::Store::open(dir.join("store2.db"), dir.join("cas2")).unwrap(),
             ),
-            shenko_broker::broker::Broker::offline().1,
+            shenko_broker::broker::Broker::offline()?.1,
             bare,
         )
         .unwrap();
         assert_eq!(handler.role_frame(), ROLE_CONTRACT);
         let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     /// Only the tools the runtime actually registered and the delegation
