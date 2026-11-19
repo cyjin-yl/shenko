@@ -9,6 +9,8 @@ import {
   type ServerCapabilities,
   type Submission,
   type SubmissionPayload,
+  type PendingAttachment,
+  type WebAttachmentRef,
   type UiIntent,
   type UiProjection,
   type ViewName,
@@ -151,6 +153,19 @@ class LiveController implements ProjectionController {
         }
         break;
       }
+      case 'composer.attach': {
+        const files = Array.isArray(intent.payload.files) ? intent.payload.files.filter((file): file is File => file instanceof File) : [];
+        for (const file of files) void this.uploadAttachment(file);
+        break;
+      }
+      case 'composer.detach': {
+        const id = intent.payload.local_id;
+        const removed = this.state.attachments.find((item) => item.local_id === id);
+        if (removed?.preview) URL.revokeObjectURL(removed.preview);
+        this.state.attachments = this.state.attachments.filter((item) => item.local_id !== id);
+        this.emit();
+        break;
+      }
       case 'part.copy':
         void this.copyText(String(action.payload?.content ?? ''));
         break;
@@ -230,6 +245,33 @@ class LiveController implements ProjectionController {
     }
   }
 
+  /// Seal one file on the server before any message names it. The composer
+  /// shows it as uploading, then ready with its sealed reference, or failed
+  /// with the server's reason; nothing is sent until every file is ready.
+  private async uploadAttachment(file: File): Promise<void> {
+    const local_id = uid();
+    const media_type = file.type || 'application/octet-stream';
+    this.state.attachments = [...this.state.attachments, {
+      local_id, name: file.name || 'file', media_type, bytes: file.size, status: 'uploading',
+      preview: media_type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+    }];
+    this.emit();
+    const settle = (patch: Partial<PendingAttachment>) => {
+      this.state.attachments = this.state.attachments.map((item) => item.local_id === local_id ? { ...item, ...patch } : item);
+      this.emit();
+    };
+    try {
+      const response = await fetch(`/api/attachments?name=${encodeURIComponent(file.name || 'file')}`, {
+        method: 'POST', headers: { 'content-type': media_type }, body: file,
+      });
+      const body = await response.json().catch(() => null) as { accepted?: boolean; attachment?: WebAttachmentRef; error?: string } | null;
+      if (response.ok && body?.accepted && body.attachment) settle({ status: 'ready', ref: body.attachment });
+      else settle({ status: 'failed', error: body?.error ?? `HTTP ${response.status}` });
+    } catch (error) {
+      settle({ status: 'failed', error: String((error as Error)?.message ?? error) });
+    }
+  }
+
   private async copyText(content: string): Promise<void> {
     let copied = false;
     try {
@@ -273,7 +315,10 @@ class LiveController implements ProjectionController {
   private sendWithMode(mode: 'append' | 'steer'): void {
     const content = this.state.draft.trim();
     const subjectId = this.state.subject_id;
-    if (!content || !subjectId || this.state.connection !== 'online') return;
+    const attachments = this.state.attachments;
+    if (attachments.some((item) => item.status !== 'ready')) return;
+    const refs = attachments.map((item) => item.ref).filter((ref): ref is WebAttachmentRef => Boolean(ref));
+    if ((!content && refs.length === 0) || !subjectId || this.state.connection !== 'online') return;
     if (mode === 'steer' && !this.state.capabilities.steer) {
       this.state.display.notice = m('error.steerUnavailable');
       this.emit();
@@ -288,7 +333,7 @@ class LiveController implements ProjectionController {
       subject_id: subjectId,
       mode,
       content,
-      attachment_refs: [],
+      attachment_refs: refs,
       ...(latestStep ? { observed_step_id: latestStep.step_id } : {}),
     };
     const submission: Submission = {
@@ -305,6 +350,9 @@ class LiveController implements ProjectionController {
       return;
     }
     this.localOutbox.add(payload.submission_id);
+    // The files now belong to this saved submission; a retry resends them.
+    for (const item of attachments) if (item.preview) URL.revokeObjectURL(item.preview);
+    this.state.attachments = [];
     this.state.submissions = [...this.state.submissions, submission];
     this.state.display.reading = 'following_latest';
     this.state.display.new_count = 0;

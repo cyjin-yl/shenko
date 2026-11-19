@@ -135,6 +135,7 @@ function demoState(): UiState {
       demoSubmission('demo-sub-2', 4, '冷缓存先别追了，先把记忆合并做完吧', 'committed', 'steer', 'demo-step-44'),
     ],
     draft: '',
+    attachments: [],
     config_error: false,
     self_error: false,
     tasks: {

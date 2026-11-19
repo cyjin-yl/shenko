@@ -1,5 +1,5 @@
 import { text as t } from './messages';
-import type { Submission, TaskSummary, TimelinePart, UiNode, UiProjection } from './projection';
+import type { Submission, TaskSummary, TimelinePart, UiNode, UiProjection, WebAttachmentRef } from './projection';
 
 /**
  * Conversations as one model.
@@ -39,6 +39,8 @@ export interface ThreadMessage {
   link?: { label: string; target: 'inspect' };
   /** Small tag shown above the text, e.g. 提问 / 引导. */
   tag?: string;
+  /** Files the sender attached, as the server sealed them. */
+  attachments?: WebAttachmentRef[];
 }
 
 export type ThreadKind = 'direct' | 'delegation' | 'channel';
@@ -168,6 +170,7 @@ registerThreadSource({
         messages.push({
           key: entry.node_id, from: OWNER, kind: 'message', at: submission.created_at,
           text: submission.payload.content,
+          attachments: submission.payload.attachment_refs,
           tone: submission.payload.mode === 'steer' ? 'steer' : 'plain',
           tag: submission.payload.mode === 'steer' ? t('composer.steer') : undefined,
           meta: submission.withdrawal

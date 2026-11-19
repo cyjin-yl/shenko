@@ -6,7 +6,8 @@ export type IconName =
   | 'timeline' | 'tasks' | 'memory' | 'config' | 'playground'
   | 'panel' | 'sun' | 'moon' | 'copy' | 'check' | 'send' | 'steer'
   | 'down' | 'close' | 'chevron' | 'more' | 'undo' | 'retry'
-  | 'file' | 'open' | 'spark' | 'wrap' | 'info' | 'warning' | 'empty' | 'chat';
+  | 'file' | 'open' | 'spark' | 'wrap' | 'info' | 'warning' | 'empty' | 'chat'
+  | 'plus' | 'image' | 'folder' | 'files' | 'sandbox' | 'drive' | 'network' | 'node' | 'share';
 
 export function Icon({ name, size = 18 }: { name: IconName | string; size?: number }) {
   const common = {
@@ -48,6 +49,15 @@ export function Icon({ name, size = 18 }: { name: IconName | string; size?: numb
     case 'warning': return <svg {...common}><path d="M10 3.5 17 16H3Z" /><path d="M10 8.5v3.5M10 14h.01" /></svg>;
     case 'chat': return <svg {...common}><path d="M10 3.5c3.9 0 7 2.6 7 5.8s-3.1 5.8-7 5.8c-.8 0-1.6-.1-2.3-.3L4.2 16.3l.9-2.9C3.8 12.3 3 10.9 3 9.3 3 6.1 6.1 3.5 10 3.5Z" /></svg>;
     case 'empty': return <svg {...common}><rect x="3.5" y="5" width="13" height="10" rx="3" strokeDasharray="2.5 2.5" /></svg>;
+    case 'plus': return <svg {...common}><path d="M10 4.5v11M4.5 10h11" /></svg>;
+    case 'image': return <svg {...common}><rect x="3.5" y="4.5" width="13" height="11" rx="2.5" /><circle cx="7.5" cy="8.5" r="1.3" /><path d="m4 14 4-3.5 3 2.5 2-1.5 3 2.5" /></svg>;
+    case 'folder': return <svg {...common}><path d="M3.5 6.5a2 2 0 0 1 2-2h3l1.5 1.8h4.5a2 2 0 0 1 2 2v5.7a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2Z" /></svg>;
+    case 'files': return <svg {...common}><path d="M3.5 7.5a2 2 0 0 1 2-2h2.5l1.5 1.5h5a2 2 0 0 1 2 2v5.5a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2Z" /><path d="M6 5.5V5a1.5 1.5 0 0 1 1.5-1.5H10l1.5 1.5H15" /></svg>;
+    case 'sandbox': return <svg {...common}><path d="M10 3 16 6.5v7L10 17l-6-3.5v-7Z" /><path d="M4 6.5 10 10l6-3.5M10 10v7" /></svg>;
+    case 'drive': return <svg {...common}><rect x="3" y="11" width="14" height="5" rx="1.5" /><path d="M4.5 11 6.5 4.5h7L15.5 11M13.5 13.5h.01" /></svg>;
+    case 'network': return <svg {...common}><rect x="6.5" y="3" width="7" height="5" rx="1.2" /><rect x="2.5" y="12.5" width="6" height="4.5" rx="1.2" /><rect x="11.5" y="12.5" width="6" height="4.5" rx="1.2" /><path d="M10 8v2.5M5.5 12.5v-2h9v2" /></svg>;
+    case 'node': return <svg {...common}><rect x="3.5" y="4" width="13" height="9" rx="2" /><path d="M7 16.5h6M10 13v3.5" /></svg>;
+    case 'share': return <svg {...common}><circle cx="6" cy="10" r="2" /><circle cx="14" cy="5.5" r="2" /><circle cx="14" cy="14.5" r="2" /><path d="m7.8 9 4.4-2.5M7.8 11l4.4 2.5" /></svg>;
     default: return <svg {...common}><circle cx="10" cy="10" r="6" /></svg>;
   }
 }

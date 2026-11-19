@@ -197,8 +197,29 @@ export interface SubmissionPayload {
   subject_id: string;
   mode: 'append' | 'steer';
   content: string;
-  attachment_refs: [];
+  attachment_refs: WebAttachmentRef[];
   observed_step_id?: string;
+}
+
+/** A file the server sealed for the owner; a submission may name it. */
+export interface WebAttachmentRef {
+  digest: string;
+  name: string;
+  media_type: string;
+  bytes: number;
+}
+
+/** A file in the composer: uploading, sealed and ready, or failed. */
+export interface PendingAttachment {
+  local_id: string;
+  name: string;
+  media_type: string;
+  bytes: number;
+  status: 'uploading' | 'ready' | 'failed';
+  ref?: WebAttachmentRef;
+  /** A local object URL for an image preview; never sent anywhere. */
+  preview?: string;
+  error?: string;
 }
 
 /** Where an admitted input is actually handled (placement). */
@@ -440,6 +461,8 @@ export interface UiState {
   submissions: Submission[];
   submission_history?: SubmissionHistoryState;
   draft: string;
+  /** Files in the composer, in the order the owner added them. */
+  attachments: PendingAttachment[];
   config?: ConfigView;
   config_error: boolean;
   /// Registered configuration keys with their saved/adopted/running facts.
@@ -867,14 +890,21 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     state.append_available &&
     state.durable_receipts &&
     Boolean(state.subject_id) &&
-    draft.trim().length > 0;
+    // Every file must be sealed before the message can name it; a failed
+    // upload stays until the owner removes or retries it.
+    state.attachments.every((item) => item.status === 'ready') &&
+    (draft.trim().length > 0 || state.attachments.length > 0);
+  const attachmentKey = state.attachments.map((item) => item.ref?.digest ?? item.local_id).join(',');
   const appendAction = addAction(
     actions,
     'composer.append',
     'composer.append',
-    `append:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}`,
+    `append:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}:${semanticHash(attachmentKey)}`,
     canAppend,
   );
+  const canAttach = state.source === 'live' && state.connection === 'online' && state.capabilities.attachments;
+  const attachAction = addAction(actions, 'composer.attach', 'composer.attach', 'display-v1', canAttach);
+  const detachAction = addAction(actions, 'composer.detach', 'composer.detach', 'display-v1', true);
   const canSteer = canAppend && state.capabilities.steer;
   const steerAction = addAction(
     actions,
@@ -898,12 +928,16 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       steer_action: steerAction,
       steer_enabled: canSteer,
       steer_available: state.source === 'live' && state.capabilities.steer,
+      attachments: state.attachments,
+      attach_action: attachAction,
+      attach_enabled: canAttach,
+      detach_action: detachAction,
       append_offered: state.append_available && state.durable_receipts,
       streaming: state.streaming,
     },
     [],
     {
-      action_refs: [draftAction, appendAction, steerAction],
+      action_refs: [draftAction, appendAction, steerAction, attachAction, detachAction],
       a11y: { label: m('composer.appendLabel') },
       layout: { hidden: false },
     },

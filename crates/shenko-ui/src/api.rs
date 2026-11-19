@@ -165,6 +165,13 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/owner/state", get(owner_state_handler))
         .route("/api/owner/claim", post(owner_claim_handler))
         .route("/api/playground", get(playground_surface_handler))
+        .route(
+            "/api/attachments",
+            post(upload_attachment_handler).layer(axum::extract::DefaultBodyLimit::max(
+                shenko_store::web_attachment::MAX_WEB_ATTACHMENT_BYTES as usize,
+            )),
+        )
+        .route("/api/attachments/{digest}", get(attachment_bytes_handler))
         .with_state(state)
 }
 
@@ -1218,4 +1225,85 @@ mod naming_tests {
         );
         std::fs::remove_dir_all(&root).ok();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Attachments: bytes the owner attaches to a browser submission.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    name: String,
+}
+
+/// `POST /api/attachments?name=<file name>` with the raw bytes as the body and
+/// the browser's `Content-Type`. The bytes are sealed into the CAS first; the
+/// answer is the reference a later submission may carry. Uploading alone
+/// tells the subject nothing: only an admitted submission does.
+async fn upload_attachment_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<UploadQuery>,
+    headers: axum::http::HeaderMap,
+    body: bytes::Bytes,
+) -> (axum::http::StatusCode, Json<Value>) {
+    use axum::http::StatusCode;
+    let Some(store) = state.store.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "accepted": false, "error": "ATTACHMENT_UNAVAILABLE: no store is attached" })));
+    };
+    let media_type = shenko_store::web_attachment::normalise_media_type(
+        headers.get(axum::http::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()),
+    );
+    let store = store.clone();
+    let sealed = tokio::task::spawn_blocking(move || store.seal_web_attachment(&body, &query.name, &media_type)).await;
+    match sealed {
+        Ok(Ok(attachment)) => (StatusCode::OK, Json(json!({ "accepted": true, "attachment": attachment }))),
+        Ok(Err(error)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "accepted": false, "error": error.to_string() }))),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "accepted": false, "error": error.to_string() }))),
+    }
+}
+
+#[derive(Deserialize)]
+struct AttachmentQuery {
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+}
+
+/// `GET /api/attachments/{digest}?type=<media type>`: the stored bytes. Only
+/// raster images are served inline under their own type, for thumbnails;
+/// everything else is a download, so stored bytes are never rendered as a
+/// same-origin page.
+async fn attachment_bytes_handler(
+    State(state): State<ApiState>,
+    AxumPath(digest): AxumPath<String>,
+    Query(query): Query<AttachmentQuery>,
+) -> axum::response::Response {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    let Some(store) = state.store.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "no store").into_response();
+    };
+    let digest = shenko_types::object::Digest(digest);
+    let store = store.clone();
+    let read = tokio::task::spawn_blocking({
+        let digest = digest.clone();
+        move || store.web_attachment_bytes(&digest)
+    })
+    .await;
+    let Ok(Ok(bytes)) = read else {
+        return (StatusCode::NOT_FOUND, "attachment not found").into_response();
+    };
+    let declared = shenko_store::web_attachment::normalise_media_type(query.media_type.as_deref());
+    let inline = matches!(declared.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif");
+    let content_type = if inline { declared } else { "application/octet-stream".to_owned() };
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (header::CONTENT_SECURITY_POLICY, "sandbox; default-src 'none'".to_owned()),
+            (header::CACHE_CONTROL, "private, max-age=31536000, immutable".to_owned()),
+            (header::CONTENT_DISPOSITION, if inline { "inline".to_owned() } else { "attachment".to_owned() }),
+        ],
+        bytes,
+    )
+        .into_response()
 }

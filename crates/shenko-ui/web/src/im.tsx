@@ -4,6 +4,8 @@ import { CompiledMessageBubble } from '../generated/prototypes/message-bubble/Co
 import { Icon } from './icons';
 import { Markdown } from './markdown';
 import type { Thread, ThreadMessage, Participant } from './threads';
+import type { WebAttachmentRef } from './projection';
+import { formatBytes } from './composer';
 import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } from './ui-kit';
 
 /**
@@ -316,7 +318,12 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
         data-entry-key={message.node?.node_id}
       >
         {!self && group && first && <span className="im-sender">{message.from.name}</span>}
-        <div className="im-line">
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="im-attachments">
+            {message.attachments.map((file) => <AttachmentView key={file.digest} file={file} />)}
+          </div>
+        )}
+        {(message.text || attachment || message.tone === 'pending' || !message.attachments?.length) && <div className="im-line">
           {!self && group && <span className="im-avatar-slot">{tail && <span className={`monogram role-${message.from.role}`}>{initials(message.from.name)}</span>}</span>}
           {attachment ?? (
             <CompiledMessageBubble side={self ? 'self' : 'other'} tail={tail} tone={message.tone ?? 'plain'}>
@@ -328,7 +335,7 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
                   : <Markdown text={message.text} />}
             </CompiledMessageBubble>
           )}
-        </div>
+        </div>}
         {(message.meta || tail && actions.length > 0) && (
           <div className="im-meta">
             {message.meta && <span>{message.meta}</span>}
@@ -343,6 +350,25 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
     );
   });
   return <>{out}</>;
+}
+
+/// An attachment as Messages shows one: a photo stands alone with rounded
+/// corners; any other file is a card with its name and size that downloads
+/// the exact stored bytes.
+function AttachmentView({ file }: { file: WebAttachmentRef }) {
+  const href = `/api/attachments/${encodeURIComponent(file.digest)}?type=${encodeURIComponent(file.media_type)}`;
+  if (/^image\/(png|jpeg|gif|webp|avif)$/.test(file.media_type)) {
+    return <a className="im-photo" href={href} target="_blank" rel="noreferrer"><img src={href} alt={file.name} loading="lazy" /></a>;
+  }
+  return (
+    <a className="im-file" href={href} download={file.name}>
+      <span className="im-file-icon"><Icon name="file" size={22} /></span>
+      <span className="im-file-text">
+        <span className="im-file-name">{file.name}</span>
+        <span className="im-file-meta">{formatBytes(file.bytes)}</span>
+      </span>
+    </a>
+  );
 }
 
 function messageActions(message: ThreadMessage): Array<{ id: string; label: string }> {

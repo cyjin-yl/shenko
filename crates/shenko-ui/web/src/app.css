@@ -898,6 +898,47 @@ code.row-sub, code.row-title { font-size: 12px; }
 .composer-im .send[data-disabled] { background: var(--hover); color: var(--faint); }
 .im-empty { display: grid; place-content: center; color: var(--muted); }
 
+/* Attaching: a round + beside the pill, files as a strip inside it. */
+.composer-im { display: flex; align-items: flex-end; gap: 8px; }
+.composer-im .composer-card { flex: 1; min-width: 0; flex-wrap: wrap; }
+.composer-attach {
+  flex: none; width: 34px; height: 34px; margin-bottom: 1px; border-radius: 50%; border: 0;
+  display: grid; place-items: center; background: var(--im-gray); color: var(--muted);
+}
+.composer-attach:hover:not(:disabled) { color: var(--ink); }
+.composer-attach:disabled { opacity: 0.45; }
+.composer-files { flex: 1 0 100%; display: flex; gap: 6px; list-style: none; margin: 0; padding: 6px 4px 2px; overflow-x: auto; }
+.composer-file {
+  position: relative; flex: none; display: flex; align-items: center; gap: 8px; max-width: 220px;
+  padding: 6px 26px 6px 6px; border-radius: 12px; background: var(--sunken);
+}
+.composer-file.is-uploading { opacity: 0.65; }
+.composer-file.is-failed { box-shadow: inset 0 0 0 1px var(--danger); }
+.composer-file-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
+.composer-file-icon { width: 40px; height: 40px; border-radius: 8px; display: grid; place-items: center; background: var(--surface); color: var(--muted); }
+.composer-file-text { display: grid; min-width: 0; }
+.composer-file-name { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-file-meta { font-size: 11px; color: var(--muted); }
+.composer-file.is-failed .composer-file-meta { color: var(--danger); }
+.composer-file-remove {
+  position: absolute; top: 4px; right: 4px; width: 18px; height: 18px; border-radius: 50%; border: 0;
+  display: grid; place-items: center; background: color-mix(in oklch, var(--ink) 55%, transparent); color: var(--canvas);
+}
+
+/* Sent attachments: photos stand alone, files are cards. */
+.im-attachments { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; max-width: min(72%, 320px); }
+.im-msg.is-self .im-attachments { align-items: flex-end; }
+.im-photo img { display: block; max-width: 100%; max-height: 320px; border-radius: 18px; object-fit: cover; box-shadow: 0 0 0 0.5px var(--line); }
+.im-file {
+  display: flex; align-items: center; gap: 10px; min-width: 200px; padding: 10px 14px 10px 10px; border-radius: 18px;
+  background: var(--im-gray); color: var(--im-gray-ink); text-decoration: none;
+}
+.im-msg.is-self .im-file { background: var(--im-blue); color: var(--im-blue-ink); }
+.im-file-icon { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: color-mix(in oklch, currentColor 12%, transparent); }
+.im-file-text { display: grid; min-width: 0; }
+.im-file-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.im-file-meta { font-size: 12px; opacity: 0.7; }
+
 /* ── Inspect: delegations branch off the round that started them ───────── */
 
 .branches { display: grid; gap: 6px; margin: 8px 0 2px; }

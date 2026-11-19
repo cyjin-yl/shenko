@@ -1102,3 +1102,26 @@ At pin `af43d613` the compiler accepts none of the nine adopted families. It sto
 3. drawer needs Axis Input lowering, which the compiler does not implement.
 
 [shenko#335](https://github.com/cyjin-yl/shenko/issues/335) records the exact locations. Shenko does not force a compile with `sourceImports` overrides or edits to the upstream checkout, because that would hide the gap rather than close it. New Shenko-owned surfaces are authored as compiled Prototypes where the compiler accepts them.
+
+## Attachments, 2026-11-19
+
+Decision [0008 §2](../decisions/0008-files-encounters-attachments-2026-11-19.md). Upload and admission:
+
+- `POST /api/attachments?name=<file name>` takes the raw bytes as the body, with the browser's `Content-Type`.
+- It seals the bytes into the CAS (namespace `web.attachment`) and answers with `{digest, name, media_type, bytes}`. The upload limit is 64 MiB, and one submission may carry at most 16 attachments.
+- A `submit` carries these objects in `attachment_refs`.
+- Admission rejects the whole input if any reference does not name bytes of exactly that length in this store.
+- `content` may be empty when the input has attachments.
+- `hello.capabilities.attachments` is true whenever the input service is wired.
+
+Serving the bytes back:
+
+- `GET /api/attachments/{digest}?type=` serves the stored bytes.
+- Only PNG, JPEG, GIF, WebP and AVIF are served inline under their own type. Everything else is served as an `application/octet-stream` download with `nosniff` and a sandbox CSP.
+- The page CSP allows `blob:` images for local previews in the composer.
+
+What the subject sees:
+
+- the name, type, size and digest of every attachment;
+- a text attachment's leading 24 KiB;
+- for an image, the fact that this inference path carries no image input.

@@ -1,5 +1,5 @@
 import { message as m } from './messages';
-import type { ActionReceiptView, Submission } from './projection';
+import type { ActionReceiptView, Submission, WebAttachmentRef } from './projection';
 import { isObject, validRevision } from './live-validation';
 
 const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
@@ -38,6 +38,12 @@ export function retireSubmission(submission: Submission): void {
   }
 }
 
+function isAttachmentRef(value: unknown): value is WebAttachmentRef {
+  return isObject(value) && typeof value.digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(value.digest)
+    && typeof value.name === 'string' && typeof value.media_type === 'string'
+    && typeof value.bytes === 'number' && Number.isSafeInteger(value.bytes) && value.bytes >= 0;
+}
+
 export function storedSubmissions(): Submission[] {
   const restored: Submission[] = [];
   try {
@@ -53,15 +59,17 @@ export function storedSubmissions(): Submission[] {
         payload.submission_id !== key.slice(SUBMISSION_KEY_PREFIX.length) ||
         typeof payload.message_id !== 'string' || !payload.message_id ||
         typeof payload.subject_id !== 'string' || !payload.subject_id ||
-        typeof payload.content !== 'string' || !payload.content.trim() ||
-        !Array.isArray(payload.attachment_refs) || payload.attachment_refs.length !== 0 ||
+        typeof payload.content !== 'string' ||
+        !Array.isArray(payload.attachment_refs) || !payload.attachment_refs.every(isAttachmentRef) ||
+        (!payload.content.trim() && payload.attachment_refs.length === 0) ||
         typeof saved.created_at !== 'string' || !Number.isFinite(Date.parse(saved.created_at))
       ) continue;
       restored.push({
         payload: {
           schema_version: 2, type: 'submit', mode: 'append',
           submission_id: payload.submission_id, message_id: payload.message_id,
-          subject_id: payload.subject_id, content: payload.content, attachment_refs: [],
+          subject_id: payload.subject_id, content: payload.content,
+          attachment_refs: (payload.attachment_refs as WebAttachmentRef[]).map(({ digest, name, media_type, bytes }) => ({ digest, name, media_type, bytes })),
           ...(typeof payload.observed_step_id === 'string'
             ? { observed_step_id: payload.observed_step_id } : {}),
         },

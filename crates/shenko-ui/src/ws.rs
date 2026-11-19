@@ -402,7 +402,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
             "withdraw": state.input.is_some(),
             "actions": state.input.is_some() && state.presentation.is_some(),
             "documents": state.presentation.is_some(),
-            "attachments": false,
+            "attachments": state.input.is_some(),
             "durable_input_receipts": state.input.is_some(),
             "committed_replay": state.store.is_some() && state.subject_id.is_some(),
             "streaming": state.stream.is_some(),

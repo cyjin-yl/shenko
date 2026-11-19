@@ -161,6 +161,28 @@ impl ContentStore {
         })
     }
 
+    /// The stored length of an object, or `None` when this CAS holds none.
+    pub fn object_len(&self, digest: &Digest) -> Result<Option<u64>, ShenkoError> {
+        let path = self.object_path(digest)?;
+        match fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => Ok(Some(meta.len())),
+            Ok(_) => Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(ShenkoError::storage(format!("cas stat {digest}: {error}"))),
+        }
+    }
+
+    /// The first `limit` bytes of an object, without reading the rest.
+    pub fn read_prefix(&self, digest: &Digest, limit: usize) -> Result<Vec<u8>, ShenkoError> {
+        let path = self.object_path(digest)?;
+        let file = fs::File::open(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))?;
+        let mut prefix = Vec::with_capacity(limit.min(1 << 20));
+        file.take(limit as u64)
+            .read_to_end(&mut prefix)
+            .map_err(|e| ShenkoError::storage(format!("cas read {digest}: {e}")))?;
+        Ok(prefix)
+    }
+
     pub fn read_object(&self, digest: &Digest) -> Result<Vec<u8>, ShenkoError> {
         let path = self.object_path(digest)?;
         fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
