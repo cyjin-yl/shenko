@@ -378,6 +378,7 @@ pub(crate) async fn start(
         .with_media_runtime(Arc::clone(&media.runtime))
         .with_context(Arc::clone(&context_registry), capabilities, reserved_output_tokens)
         .with_data_dir(data_dir.clone())
+        .with_file_peers(file_peers(&data_dir))
         .with_owner(owner_state)
         .with_config(config_service)
         .with_artifact_services(Arc::clone(&installed.artifact_services))
@@ -463,6 +464,7 @@ async fn run_deterministic_ui(
     let ui = shenko_ui::server::UiServer::new(port)
         .with_native(native)
         .with_store(store)
+        .with_file_peers(file_peers(&data_dir))
         .with_data_dir(data_dir)
         .with_owner(owner)
         .with_inference_status(model_profile.model, model_profile.configured);
@@ -481,4 +483,24 @@ async fn run_deterministic_ui(
     result?;
     info!("Shenko stopped");
     Ok(())
+}
+
+/// The nodes this node syncs with, read without taking the node's writer
+/// role, for the file view. An installation with no node database has none.
+fn file_peers(data_dir: &std::path::Path) -> Vec<shenko_ui::files::FilePeer> {
+    let Ok(Some(node)) = shenko_node::Node::open_inspect(&data_dir.join("node")) else {
+        return Vec::new();
+    };
+    node.sync_peers()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|state| shenko_ui::files::FilePeer {
+            node_id: state.peer.node_id.to_string(),
+            ssh_target: state.peer.ssh_target,
+            workspaces: state.peer.workspaces,
+            remote_data_dir: state.peer.remote_data_dir,
+            confirmed_at: state.confirmation.map(|confirmation| confirmation.confirmed_at.to_rfc3339()),
+            failure: state.failure.map(|failure| failure.reason),
+        })
+        .collect()
 }

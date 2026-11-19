@@ -91,6 +91,9 @@ pub struct ApiState {
     /// Ownership state (claim + authenticated actor). None means the routes
     /// report that ownership is not installed rather than fabricating one.
     pub owner: Option<OwnerState>,
+    /// Other nodes this node syncs with, as the runtime knows them, for the
+    /// file view. None means the runtime supplied no node facts.
+    pub file_peers: Option<Vec<crate::files::FilePeer>>,
 }
 
 impl ApiState {
@@ -141,6 +144,11 @@ impl ApiState {
         self.owner = Some(owner);
         self
     }
+
+    pub fn with_file_peers(mut self, peers: Vec<crate::files::FilePeer>) -> Self {
+        self.file_peers = Some(peers);
+        self
+    }
 }
 
 /// Mount the JSON API. Registered from [`crate::server::UiServer::run`] so
@@ -172,6 +180,8 @@ pub fn router(state: ApiState) -> Router {
             )),
         )
         .route("/api/attachments/{digest}", get(attachment_bytes_handler))
+        .route("/api/files/roots", get(file_roots_handler))
+        .route("/api/files/list", get(file_list_handler))
         .with_state(state)
 }
 
@@ -1306,4 +1316,38 @@ async fn attachment_bytes_handler(
         bytes,
     )
         .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Files: the Finder-like view of every file system the subject reaches.
+// ---------------------------------------------------------------------------
+
+/// `GET /api/files/roots`: the home, other declared mounts and other nodes.
+async fn file_roots_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(data_dir) = state.data_dir.clone() else {
+        return Json(json!({ "available": false, "roots": [], "note": "no data directory is attached" }));
+    };
+    let peers = state.file_peers.clone().unwrap_or_default();
+    let roots = tokio::task::spawn_blocking(move || crate::files::roots(&data_dir, &peers)).await.unwrap_or_default();
+    Json(json!({ "available": true, "roots": roots, "nodes_known": state.file_peers.is_some() }))
+}
+
+#[derive(Deserialize)]
+struct FileListQuery {
+    root: String,
+    #[serde(default)]
+    path: String,
+}
+
+/// `GET /api/files/list?root=<id>&path=<relative path>`: one directory.
+async fn file_list_handler(State(state): State<ApiState>, Query(query): Query<FileListQuery>) -> Json<Value> {
+    let Some(data_dir) = state.data_dir.clone() else {
+        return Json(json!({ "available": false, "entries": [], "error": "no data directory is attached" }));
+    };
+    let listed = tokio::task::spawn_blocking(move || crate::files::list(&data_dir, &query.root, &query.path)).await;
+    match listed {
+        Ok(Ok(entries)) => Json(json!({ "available": true, "entries": entries })),
+        Ok(Err(error)) => Json(json!({ "available": true, "entries": [], "error": error })),
+        Err(error) => Json(json!({ "available": false, "entries": [], "error": error.to_string() })),
+    }
 }

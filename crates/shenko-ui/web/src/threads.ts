@@ -86,6 +86,8 @@ export interface Thread {
 export interface DemoThreadData {
   conversations: ConversationRow[];
   trajectory(taskId: string): TrajectoryResponse;
+  /** The demo's file systems, so the Files view needs no server. */
+  files?: import('./files-view').FileSource;
 }
 
 export interface ThreadInputs {

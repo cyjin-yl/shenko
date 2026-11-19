@@ -1,3 +1,4 @@
+import type { FileEntry, FileRoot, FileSource } from './files-view';
 import type { ConversationRow, DemoThreadData, TrajectoryResponse } from './threads';
 
 const demoConversations: ConversationRow[] = (() => {
@@ -64,4 +65,34 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
   };
 }
 
-export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory };
+const secondsAgo = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString();
+const DEMO_ROOTS: FileRoot[] = [
+  { id: 'mount:/home', label: 'home', kind: 'home', protocol: 'wasm_home', guest_path: '/home', mode: 'read_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/memory', label: 'memory', kind: 'mount', protocol: 'local', guest_path: '/memory', mode: 'read_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/nas', label: 'nas', kind: 'mount', protocol: 'smb', guest_path: '/nas', mode: 'read_only', writable: false, browsable: true, note: null },
+  { id: 'mount:/lab', label: 'lab', kind: 'mount', protocol: 'sshfs', guest_path: '/lab', mode: 'copy_on_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/mac', label: 'mac', kind: 'mount', protocol: 'shared_folder', guest_path: '/mac', mode: 'read_only', writable: false, browsable: true, note: null },
+  { id: 'node:1cat', label: '1cat · home', kind: 'node', protocol: 'ssh', guest_path: '/srv/shenko/home', mode: null, writable: false, browsable: false, note: '示例节点：浏览其他节点的文件尚未接通' },
+];
+const DEMO_TREE: Record<string, FileEntry[]> = {
+  'mount:/home:': [
+    { name: 'notes', kind: 'dir', bytes: 0, modified: secondsAgo(3600) },
+    { name: 'projects', kind: 'dir', bytes: 0, modified: secondsAgo(7200) },
+    { name: 'startup-order.md', kind: 'file', bytes: 2148, modified: secondsAgo(600) },
+    { name: 'merge-plan.json', kind: 'file', bytes: 734, modified: secondsAgo(320) },
+  ],
+  'mount:/home:notes': [
+    { name: '2026-11-12-deploy.md', kind: 'file', bytes: 5120, modified: secondsAgo(86400 * 7) },
+    { name: 'cold-cache.md', kind: 'file', bytes: 911, modified: secondsAgo(1800) },
+  ],
+  'mount:/memory:': [{ name: 'observations', kind: 'dir', bytes: 0, modified: secondsAgo(400) }],
+  'mount:/nas:': [{ name: 'papers', kind: 'dir', bytes: 0, modified: secondsAgo(86400 * 30) }, { name: 'qwen3.8-27b.gguf', kind: 'file', bytes: 17_400_000_000, modified: secondsAgo(86400 * 20) }],
+  'mount:/lab:': [{ name: 'runs', kind: 'dir', bytes: 0, modified: secondsAgo(5000) }],
+  'mount:/mac:': [{ name: 'Desktop', kind: 'dir', bytes: 0, modified: secondsAgo(9000) }],
+};
+const demoFiles: FileSource = {
+  async roots() { return { roots: DEMO_ROOTS, nodes_known: true }; },
+  async list(root, path) { return { entries: DEMO_TREE[`${root}:${path}`] ?? [] }; },
+};
+
+export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory, files: demoFiles };

@@ -5,12 +5,12 @@
     "commit": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
     "previous_reviewed_commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
     "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream",
+    "source_checkout": "/home/user/Proto-UI",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream-build.json",
-      "receipt_sha256": "8ebb413099f9c15b7ee6ab5237607b5fff6fd563821e4ebb9f5938bcfa5334aa"
+      "receipt_path": "/tmp/claude-0/sk/receipt.json",
+      "receipt_sha256": "5a9991934d9f7d8b215ac77481bdf23cb8dab307f73b70c942b43164acd637e4"
     }
   },
   "packages": [
@@ -189,28 +189,28 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/worktrees/pr332-landing-20261119/crates/shenko-ui/web",
-  "built_at": "2026-11-19T08:23:43.788Z",
+  "web_root": "/home/user/shenko/crates/shenko-ui/web",
+  "built_at": "2026-11-19T10:21:07.964Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1127800,
-      "sha256": "a55fef98898ae73375ff69becc8970f543a055cad2f65806e99e07e36cf04ebd"
+      "bytes": 1133450,
+      "sha256": "443af7ea4f0dc01c02fa9e442ea57f91c0d25123f76210f0760f9fcae56ad379"
     },
-    "chunks/chunk-A2GXJVLZ.js": {
-      "bytes": 61507,
-      "sha256": "91cff448e41b52b69491015da27a81b10ef6fd2cd1a80e0b348cfe73da16c229"
+    "chunks/chunk-2DVNOUX5.js": {
+      "bytes": 63500,
+      "sha256": "a181081b2b609888f5a58fa2cc1623b1ba871955f72b5b673b7691896fe0669c"
     },
-    "chunks/demo-controller-GYQHP2WE.js": {
-      "bytes": 13698,
-      "sha256": "4434b94122570897d87fe54a9ddd9a95cad179fbbc8700cfc42aac4dea617022"
+    "chunks/demo-controller-6WCBZ2MM.js": {
+      "bytes": 15546,
+      "sha256": "489b1353002b690c96736bf3251375b8c2e68b605a022eac30cd4281c67f00d4"
     },
     "app.css": {
-      "bytes": 57403,
-      "sha256": "a76faa2348dcd6d539da12a0eea42584c03eec0bc17f7721a11cb1b0b075675a"
+      "bytes": 61640,
+      "sha256": "41c22c09626fd192f453b009d8beb25615402db814f9961ac475e09e86b3f50e"
     },
     "proto-ui-style.css": {
       "bytes": 294,
