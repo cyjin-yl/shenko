@@ -462,6 +462,13 @@ def validate_manifest(manifest, allow_legacy=False):
             not isinstance(name, str) or not name or not finite_number(value)
             or value <= 0 for name, value in windows.items()):
         raise ValueError("manifest windows must have names and positive durations")
+    # The standard S5 labels must name real physical durations. Shorter
+    # diagnostic runs remain supported under other names (such as "demo").
+    # Validate both at init and again when reading a retained manifest.
+    for name, seconds in (("7d", 604800), ("30d", 2592000)):
+        if name in windows and windows[name] != seconds:
+            raise ValueError(
+                f"reserved S5 window {name} must declare {seconds} seconds")
     if not finite_number(manifest["interval_seconds"]) or manifest["interval_seconds"] <= 0:
         raise ValueError("manifest interval must be positive and finite")
     for key in ("candidate", "environment", "created_by", "main_pid_source"):
@@ -603,6 +610,7 @@ def scan_log(log):
                     "checkpoints": [], "run_end": None, "run_end_count": 0,
                     "records_after_end": 0, "checkpoint_mismatches": [],
                     "duplicate_checkpoint_ids": [],
+                    "checkpoint_time_mismatches": [],
                 }
             kind = record["record"]
             if kind != "run_header" and state["run_end_count"]:
@@ -612,6 +620,11 @@ def scan_log(log):
             elif kind == "segment":
                 state["segments"].append(record)
             elif kind == "checkpoint":
+                # A review point cannot precede the sample it claims to review.
+                if state["samples"] and record["epoch"] < state["samples"][-1]["epoch"]:
+                    state["checkpoint_time_mismatches"].append(
+                        [record["checkpoint_id"], record["epoch"],
+                         state["samples"][-1]["epoch"]])
                 if record["sample_seq"] != state["last_seq"]:
                     state["checkpoint_mismatches"].append(
                         [record["checkpoint_id"], record["sample_seq"],
@@ -664,6 +677,7 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
     # names a later sample, or a different sample count, is not a terminal
     # completion of these bytes even though its stop reason reads completed.
     run_end_mismatches = []
+    run_end_time_mismatches = []
     if state and state["run_end"] is not None:
         end = state["run_end"]
         if (end["sample_seq"] != state["last_seq"]
@@ -673,6 +687,11 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
                 "last_sample_seq": state["last_seq"],
                 "recorded_samples": end["samples"],
                 "sample_records": len(state["samples"]),
+            })
+        if samples and end["epoch"] < samples[-1]["epoch"]:
+            run_end_time_mismatches.append({
+                "stop_epoch": end["epoch"],
+                "last_sample_epoch": samples[-1]["epoch"],
             })
     integrity = {
         "header_valid": header_valid,
@@ -689,7 +708,9 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
         "duplicate_run_ends": bool(state and state["run_end_count"] > 1),
         "records_after_run_end": state["records_after_end"] if state else 0,
         "run_end_mismatches": run_end_mismatches,
+        "run_end_time_mismatches": run_end_time_mismatches,
         "checkpoint_mismatches": state["checkpoint_mismatches"] if state else [],
+        "checkpoint_time_mismatches": (state["checkpoint_time_mismatches"] if state else []),
         "duplicate_checkpoint_ids": (
             state["duplicate_checkpoint_ids"] if state else []),
     }
@@ -698,7 +719,8 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
             "unexpected_run_ids", "unreadable_lines", "unterminated_tail_bytes",
             "invalid_records", "sequence_gaps", "identity_unverified_sample_seqs",
             "duplicate_run_ends", "records_after_run_end", "run_end_mismatches",
-            "checkpoint_mismatches", "duplicate_checkpoint_ids"))
+            "run_end_time_mismatches", "checkpoint_mismatches",
+            "checkpoint_time_mismatches", "duplicate_checkpoint_ids"))
     return integrity
 
 
@@ -946,6 +968,27 @@ def _take_sample_locked(run_dir, manifest, fixed_pid, pid_file, epoch=None):
         if main["alive"]:
             main["boot_id"] = clock["boot_id"]
         main["binary"] = subject_binary_state(resolved, manifest["candidate"])
+        if main["alive"]:
+            # /proc/<pid>/exe is measured after the first status snapshot.
+            # A recycled PID between these reads must not lend the new
+            # process's executable digest to the old subject observation.
+            # Re-read kernel starttime after hashing; comm can change without
+            # a restart. This is a conservative check, not an atomic pidfd.
+            after = read_process_or_absent(resolved)
+            stable = (after.get("alive") is True
+                      and after.get("pid") == main.get("pid")
+                      and after.get("proc_start_jiffies") is not None
+                      and after.get("proc_start_jiffies") == main.get("proc_start_jiffies"))
+            main["binary"]["process_identity_stable"] = stable
+            if not stable:
+                # Unknown, not a proven candidate mismatch: preserve the
+                # measured executable and both process identities in the log.
+                main["binary"]["matches_declared_candidate"] = None
+                main["binary"]["identity_after_measurement"] = {
+                    "pid": after.get("pid"), "alive": after.get("alive"),
+                    "proc_start_jiffies": after.get("proc_start_jiffies"),
+                    "comm": after.get("comm"),
+                }
 
     # A boundary belongs to the next sample sequence. A failed sample write
     # may leave its complete boundary durable; retry that transition, not a
@@ -1209,7 +1252,12 @@ def cmd_report(args):
     for sample in samples:
         binary = sample["main"].get("binary") or {}
         observed_digest = (binary.get("exe") or {}).get("sha256")
-        if (binary.get("matches_declared_candidate") is False or
+        if binary.get("process_identity_stable") is False:
+            # A different executable may belong to the recycled PID, not to
+            # the original subject. Keep it Unknown, never candidate drift.
+            if sample["main"]["alive"]:
+                binary_unverified.append(sample["seq"])
+        elif (binary.get("matches_declared_candidate") is False or
                 (digest_string(candidate_digest) and digest_string(observed_digest)
                  and candidate_digest != observed_digest)):
             binary_drift.append(sample["seq"])
@@ -1239,7 +1287,12 @@ def cmd_report(args):
         missing_restarts, binary_drift, binary_unverified))
     # Deliberately reject the whole declared run when any known gap exists;
     # do not splice disconnected spans into a 7/30-day observation claim.
-    qualifying_span = qualifying_elapsed if integrity["intact"] and not gaps else 0.0
+    # A known subject outage is not service-availability time. Do not add
+    # pre- and post-outage segments into one continuous 7/30-day window.
+    # Preserve the intact raw ledger and outage records for recovery review.
+    qualifying_span = (
+        qualifying_elapsed if integrity["intact"] and not gaps and not absent else 0.0
+    )
     declared = []
     for name, required in manifest["declared_windows_seconds"].items():
         covered = bool(samples) and qualifying_span >= required

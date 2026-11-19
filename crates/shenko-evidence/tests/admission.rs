@@ -428,13 +428,20 @@ fn long_run_duration_requires_a_completed_sealed_run_of_the_declared_window() {
     let reason = rejection(root.path(), "unknown-verdict.json", &unknown, Some(CANDIDATE));
     assert!(reason.contains("unknown report verdict"), "{reason}");
 
-    // A seal names a sample the report actually recorded; claiming a later
-    // one is not terminal completion of these bytes.
+    // The seal must name the *last* recorded sample; both directions are
+    // invalid, even if the forged report claims integrity intact.
+    let mut premature = report.clone();
+    premature["lifecycle"]["stop_sample_seq"] = json!(1);
+    let reason = rejection(root.path(), "premature-seal.json", &premature, Some(CANDIDATE));
+    assert!(
+        reason.contains("stopped at sample 1, but has 2 recorded samples"),
+        "{reason}"
+    );
     let mut past = report.clone();
     past["lifecycle"]["stop_sample_seq"] = json!(9);
     let reason = rejection(root.path(), "past-recorded.json", &past, Some(CANDIDATE));
     assert!(
-        reason.contains("past its 2 recorded samples"),
+        reason.contains("stopped at sample 9, but has 2 recorded samples"),
         "{reason}"
     );
 
