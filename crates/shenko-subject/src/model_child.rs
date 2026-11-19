@@ -894,19 +894,6 @@ impl TeamView {
 }
 
 /// The first line of a goal, bounded: enough for a roster entry.
-fn goal_summary(goal: &str) -> String {
-    let line = goal
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("")
-        .trim();
-    let mut summary: String = line.chars().take(80).collect();
-    if line.chars().count() > 80 {
-        summary.push('…');
-    }
-    summary
-}
-
 /// The stable identity of the `index`-th peer message of one step.
 fn peer_message_id(task_id: EntityId, step_index: u32, index: usize) -> EntityId {
     derived_id(
@@ -1110,7 +1097,7 @@ impl ModelChildHandler {
         let mut roster = vec![TeamMember {
             name: me.clone(),
             task_id: contract.task_id,
-            summary: goal_summary(&contract.spec.goal),
+            summary: contract.spec.goal_summary(),
         }];
         for sibling in self.store.sibling_tasks(contract.task_id)? {
             let frozen = match self
@@ -1128,11 +1115,12 @@ impl ModelChildHandler {
             if frozen.spec.team.as_deref() != Some(team.as_str()) {
                 continue;
             }
+            let summary = frozen.spec.goal_summary();
             if let Some(name) = frozen.spec.name {
                 roster.push(TeamMember {
                     name,
                     task_id: sibling.task_id,
-                    summary: goal_summary(&frozen.spec.goal),
+                    summary,
                 });
             }
         }

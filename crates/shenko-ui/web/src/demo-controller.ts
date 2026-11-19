@@ -140,13 +140,13 @@ function demoState(): UiState {
     tasks: {
       available: true,
       items: [
-        { task_id: 'demo-task-7f3a', kind: '记忆合并', role: 'delegation', state: 'running', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
-        { task_id: '3f2a91c0-demo-child', kind: 'model.child', role: 'delegation', state: 'running', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
+        { task_id: 'demo-task-7f3a', kind: 'model.child', role: 'delegation', state: 'running', goal: '合并两条启动时序观察，保留来源。', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
+        { task_id: '3f2a91c0-demo-child', kind: 'model.child', role: 'delegation', state: 'running', name: '整理员', goal: '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
         ...DEMO_TEAM.members.map((member) => ({
-          task_id: member.task_id, kind: 'model.child', role: 'delegation' as const, state: 'succeeded', created_by_step_id: DEMO_TEAM.step,
+          task_id: member.task_id, kind: 'model.child', role: 'delegation' as const, state: 'terminal', created_by_step_id: DEMO_TEAM.step, goal: member.goal,
           created_at: new Date(Date.now() - 5.5 * 60_000).toISOString(), name: member.name, team: DEMO_TEAM.team,
         })),
-        { task_id: 'demo-task-6c12', kind: '配置时序验证', role: 'delegation', state: 'succeeded', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+        { task_id: 'demo-task-6c12', kind: 'model.child', role: 'delegation', state: 'terminal', goal: '验证配置读取发生在目录解析之后。', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
       ],
     },
     tasks_error: false,

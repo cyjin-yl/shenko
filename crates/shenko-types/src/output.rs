@@ -519,6 +519,17 @@ impl ModelChildSpec {
     /// Bound for a child name or a team label.
     pub const MAX_LABEL_CHARS: usize = 64;
 
+    /// The goal's first non-empty line, cut to 80 characters: how a roster
+    /// or a task list names this child's work in one line.
+    pub fn goal_summary(&self) -> String {
+        let line = self.goal.lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim();
+        let mut summary: String = line.chars().take(80).collect();
+        if line.chars().count() > 80 {
+            summary.push('…');
+        }
+        summary
+    }
+
     /// A name or team label is short, single-line text that can stand inside
     /// a `[tell:<name>]` control line: no brackets, no colon, no control
     /// characters. This is structure, not a judgement about the words.

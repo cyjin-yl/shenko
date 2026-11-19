@@ -1736,6 +1736,21 @@ async fn team_members_talk_directly_and_share_one_prompt_prefix() {
         .map(|(_, task)| task)
         .collect();
     assert_eq!(tasks.len(), 2, "one decision started two team members");
+    let mut labels: Vec<_> = store
+        .list_task_summaries(agent, 10)
+        .unwrap()
+        .into_iter()
+        .filter_map(|summary| Some((summary.name?, summary.team?, summary.goal?)))
+        .collect();
+    labels.sort();
+    assert_eq!(
+        labels,
+        [
+            ("乙".into(), "核对组".into(), "复核甲的检查结果。".into()),
+            ("甲".into(), "核对组".into(), "检查 alpha 数据集的缺失值。".into()),
+        ],
+        "the task list names each member from its frozen input"
+    );
     let native = service(
         &store,
         handle.clone(),

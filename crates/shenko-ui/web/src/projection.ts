@@ -97,6 +97,8 @@ export type TaskSummary = {
   name?: string | null;
   /** Its team: tasks one decision started with the same team are peers. */
   team?: string | null;
+  /** The first line of a delegated task's goal, from its frozen input. */
+  goal?: string | null;
 };
 
 // Durable admission stages: accepted/selected/committed are

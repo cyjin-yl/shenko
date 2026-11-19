@@ -37,7 +37,7 @@ function demoTeamTrajectory(member: (typeof DEMO_TEAM.members)[number]): Traject
       step(1, 200, { text: '我抽样复算了第 3 列。', tells: [{ to: '甲', message: '复核一致：第 3 列 12%，建议按中位数补齐。' }] }),
     ];
   return {
-    task: { task_id: member.task_id, kind: 'model.child', role: 'delegation', state: 'succeeded', created_at: ago(330),
+    task: { task_id: member.task_id, kind: 'model.child', role: 'delegation', state: 'terminal', created_at: ago(330),
       created_by_step_id: DEMO_TEAM.step, name: member.name, team: DEMO_TEAM.team },
     input: null, brief: member.goal, children: [], operations,
   };
@@ -54,7 +54,7 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
     record: { schema_version: 1, step_index: index, ...record },
   });
   return {
-    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at },
+    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at, name: taskId.startsWith('3f2a') ? '整理员' : null },
     input: { goal }, brief: goal,
     children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', role: 'tool', state: 'succeeded', created_at: at }],
     operations: [

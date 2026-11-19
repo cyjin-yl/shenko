@@ -73,7 +73,10 @@ export interface Thread {
   composer: boolean;
   /** Why the viewer only reads this thread, when it is so. */
   note?: string;
+  /** The owning task's state, in the owner's words. */
   state?: string;
+  /** Someone in the thread is still working (a running child or team). */
+  active?: boolean;
 }
 
 export interface DemoThreadData {
@@ -228,6 +231,17 @@ export function isDelegation(task: { role?: unknown }): boolean {
 export function isAttentionTask(task: { role?: unknown; state?: unknown }): boolean {
   return task.role !== 'subject_root'
     && ['running', 'pending', 'waiting', 'queued'].includes(String(task.state));
+}
+
+const TASK_STATES = ['pending', 'running', 'waiting', 'sleeping', 'completing', 'terminal', 'succeeded', 'failed', 'cancelled'] as const;
+
+/// A task state in the owner's language; an unrecognized state stays as the
+/// store wrote it rather than being mapped to a near word.
+export function taskStateLabel(state: unknown): string {
+  const word = String(state ?? '');
+  return (TASK_STATES as readonly string[]).includes(word)
+    ? t(`taskState.${word as typeof TASK_STATES[number]}`)
+    : word || t('common.unknown');
 }
 
 export function shortId(id: string): string {
@@ -386,11 +400,11 @@ registerThreadSource({
     }
     const team = [...teams.entries()].map(([key, members]) => {
       const people = members.map((task) => childParticipant(task.task_id, task.name));
-      const running = members.filter((task) => !['succeeded', 'failed', 'cancelled'].includes(task.state)).length;
+      const running = members.filter(isAttentionTask).length;
       return {
         id: `team:${key}`, kind: 'delegation', audience: 'group', title: members[0].team ?? '',
         subtitle: t('delegation.teamSubtitle', { count: people.length, running: running ? t('delegation.teamRunning', { count: running }) : '' }),
-        participants: [subject, ...people], viewer: subject.id,
+        participants: [subject, ...people], viewer: subject.id, active: running > 0,
         preview: people.map((person) => person.name).join('、'),
         updated_at: members.map((task) => task.created_at).sort().pop(),
         messages: demo ? teamMessages(members.map((task) => demo.trajectory(task.task_id)), subject) : [],
@@ -404,11 +418,15 @@ registerThreadSource({
       const id = String(task.task_id);
       const child = childParticipant(id, task.name);
       return {
-        id: `delegation:${id}`, kind: 'delegation', audience: 'group', title: t('delegation.groupTitle', { subject: subject.name, child: child.name }),
+        id: `delegation:${id}`, kind: 'delegation', audience: 'group',
+        // Named by what the delegator called it, else by its goal; the
+        // short id only when the frozen input gave neither.
+        title: task.name || task.goal || child.name,
         subtitle: t('delegation.label'), participants: [subject, child], viewer: subject.id,
-        preview: t('delegation.preview', { state: String(task.state) }), updated_at: String(task.created_at ?? ''),
+        preview: task.name && task.goal ? task.goal : t('delegation.preview', { state: taskStateLabel(task.state) }),
+        updated_at: String(task.created_at ?? ''),
         messages: demo ? trajectoryMessages(demo.trajectory(id), subject) : [],
-        composer: false, state: String(task.state),
+        composer: false, state: taskStateLabel(task.state), active: isAttentionTask(task),
         note: t('delegation.readonly'),
         load: projection.source === 'demo' ? undefined : async () => {
           const response = await fetch(`/api/tasks/${encodeURIComponent(id)}/trajectory`, { cache: 'no-store' });

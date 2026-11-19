@@ -40,6 +40,8 @@ pub struct TaskSummary {
     /// The team the delegator placed it in, from its frozen input. Tasks
     /// one decision started with the same team are peers.
     pub team: Option<String>,
+    /// The first line of a delegated task's goal, from its frozen input.
+    pub goal: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -193,11 +195,12 @@ fn summary(
         terminal_at: value.get("terminal_at").and_then(Value::as_str).map(utc_timestamp).transpose()?,
         name: None,
         team: None,
+        goal: None,
     })
 }
 
 impl Store {
-    /// The name and team a delegation's frozen input gives it, read the way
+    /// The name, team and goal line a delegation's frozen input gives it, read the way
     /// its runtime reads that input. Anything else has neither.
     fn delegate_labels(&self, summary: &mut TaskSummary, data: &str) {
         if summary.role != TaskRole::Delegation {
@@ -209,11 +212,16 @@ impl Store {
         let Ok(input) = self.native_task_input(&task) else {
             return;
         };
-        let label = |key: &str| {
-            input.pointer(&format!("/spec/{key}")).and_then(Value::as_str).map(str::to_owned)
+        let Some(spec) = input
+            .get("spec")
+            .cloned()
+            .and_then(|spec| serde_json::from_value::<shenko_types::output::ModelChildSpec>(spec).ok())
+        else {
+            return;
         };
-        summary.name = label("name");
-        summary.team = label("team");
+        summary.goal = Some(spec.goal_summary());
+        summary.name = spec.name;
+        summary.team = spec.team;
     }
 
     /// Recent tasks with their parent and creating step, newest first.
@@ -616,7 +624,7 @@ mod tests {
             task_id: task_id.to_string(), kind: "future.plugin.observe".into(), role: TaskRole::Delegation,
             state: "running".into(), parent_task_id: None, created_by_step_id: Some(step_id.to_string()),
             created_at: "2026-11-13T00:00:00Z".into(), terminal_at: None,
-            name: None, team: None,
+            name: None, team: None, goal: None,
         }
     }
 

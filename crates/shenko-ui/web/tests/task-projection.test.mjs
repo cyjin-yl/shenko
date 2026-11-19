@@ -103,3 +103,30 @@ test('missing or unknown historical display schemas expose unavailability withou
     assert.ok(!messages.some((message) => message.key === 'step-one-text'));
   }
 });
+
+test('delegation threads are named by their frozen labels and a finished team is not active', () => {
+  const live = { source: 'live', nodes: [], identity: { display_name: subject.name } };
+  const member = (id, name, state) => ({
+    task_id: id, kind: 'model.child', role: 'delegation', state, created_at: at,
+    created_by_step_id: 'step-1', name, team: 'checkers', goal: `${name} goal`,
+  });
+  const threads = collectThreads({
+    projection: live, conversations: [],
+    tasks: [
+      member('a', 'A', 'terminal'), member('b', 'B', 'terminal'),
+      { ...task, task_id: 'named', name: 'Sorter', goal: 'Merge two observations.' },
+      { ...task, task_id: 'goal-only', goal: 'Verify the config order.', state: 'waiting' },
+      { ...task, task_id: 'bare', state: 'terminal' },
+    ],
+  });
+  const byId = Object.fromEntries(threads.map((thread) => [thread.id, thread]));
+  const team = threads.find((thread) => thread.id.startsWith('team:'));
+  assert.equal(team.active, false);
+  assert.equal(byId['delegation:named'].title, 'Sorter');
+  assert.equal(byId['delegation:named'].preview, 'Merge two observations.');
+  assert.equal(byId['delegation:named'].active, true);
+  assert.equal(byId['delegation:goal-only'].title, 'Verify the config order.');
+  assert.equal(byId['delegation:goal-only'].state, text('taskState.waiting'));
+  assert.equal(byId['delegation:bare'].title, text('delegation.child', { id: 'bare' }));
+  assert.equal(byId['delegation:bare'].active, false);
+});

@@ -45,13 +45,14 @@ export function ImView({
         >
           {threads.map((item) => (
             <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
-              <Avatar participants={item.participants} audience={item.audience} />
+              <Avatar participants={item.participants} audience={item.audience} active={item.active} />
               <span className="im-row-text">
                 <span className="im-row-top">
                   <span className="im-row-title">{item.title}</span>
                   <time className="im-row-time">{shortWhen(item.updated_at)}</time>
                 </span>
                 <span className="im-row-preview">{item.preview}</span>
+              {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
               </span>
             </ToggleGroupItem>
           ))}
@@ -79,13 +80,19 @@ function initials(name: string): string {
 
 /// A monogram, as Messages draws a contact without a photo: a one-to-one
 /// thread shows the counterpart, a group up to two members overlapped.
-function Avatar({ participants, audience, size = 40 }: { participants: Participant[]; audience: Thread['audience']; size?: number }) {
-  const shown = audience === 'one_to_one' ? participants.slice(1, 2) : participants.slice(0, 2);
+/// A group shows its latest-joined member in front, so a delegation reads as
+/// the child and a team as its members rather than the subject repeated on
+/// every row. `active` marks someone in it still working.
+function Avatar({ participants, audience, size = 40, active }: {
+  participants: Participant[]; audience: Thread['audience']; size?: number; active?: boolean;
+}) {
+  const shown = audience === 'one_to_one' ? participants.slice(1, 2) : participants.slice(-2);
   return (
     <span className={`avatar avatar-${shown.length > 1 ? 'group' : 'single'}`} style={{ width: size, height: size }} aria-hidden="true">
       {shown.map((participant) => (
         <span key={participant.id} className={`monogram role-${participant.role}`}>{initials(participant.name)}</span>
       ))}
+      {active && <span className="avatar-live" />}
     </span>
   );
 }

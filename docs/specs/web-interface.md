@@ -184,7 +184,7 @@ selected、committed 四个独立事实，不是进度条）。Inspect 保留 5.
 | 会话 | 参与者 | 查看者一侧 | 每条消息的事实来源 |
 | --- | --- | --- | --- |
 | 直接对话 | 你、主体 | 你 | 你的提交与回执；主体的消息是**选入了你那条消息的已提交步骤**（回执的 `selected_step_id`），不猜测；主体自己思考的轮次合并为一行“独自思考了 N 轮”，可跳到 Inspect；只有真实持久流式内容显示为“正在输出” |
-| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | `GET /api/tasks/{id}/trajectory`：任务的冻结输入（委派内容，按运行时的同一读法从决定中取出）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），每步带证据的观察时间，以及它拥有的子任务（工具 child） |
+| 委派（群聊） | 主体、子代理、工具 | 主体（旁观） | 会话以委派给的名字命名，没有名字时用目标首行（`/api/tasks` 行的 `name`、`goal`，按运行时的同一读法从冻结输入取出），两者都缺才用短 id；仍在运行的会话在头像上标出。`GET /api/tasks/{id}/trajectory`：任务的冻结输入（委派内容，按运行时的同一读法从决定中取出）、按账本顺序的操作及其最终证据封存的规范化记录（每步正文、工具调用、提问、所有者消息、token 用量），每步带证据的观察时间，以及它拥有的子任务（工具 child） |
 | 团队（群聊） | 主体、同一团队的子代理 | 主体（旁观） | 同一个决定里 `team` 相同的委派（`/api/tasks` 行的 `name`、`team`）合成一个会话：先列出各成员的委派内容，再按观察时间交织每一步。成员之间的消息只在发送方显示一次，标为“→ 名字”；等待显示为一行事实（[model-children §5.1](model-children.md#team)） |
 | 渠道群聊/私聊 | 主体、对方或群成员 | 主体（旁观） | `GET /api/conversations`，见下文“主体全部对外沟通” |
 
@@ -1075,3 +1075,15 @@ Checked on this pin:
 - The demo IM and its team thread load in Chromium with no page errors.
 - Not yet measured at this pin: the adapter cost figures in §6 and the
   toggle-group mount numbers.
+
+## Proto-UI mainline pin 2026-11-19
+
+The build pin advances from `3a537056b14bc8fd143d67ff63a55b2334981690` to the
+Proto-UI mainline head `af43d613171fe18a8acf61fe3fbffec5610f67a1` (97 commits
+later). The public entries stay at `0.3.0-alpha.2` and the upstream lock
+digest is unchanged. Upstream changes in this range are mostly anatomy
+dispatch performance (stable subscriber cursors and a retained live
+subscriber list), adapter regressions, website density repairs and release
+documentation. The public closure was rebuilt at this commit and the bundle
+regenerated through `web/build.mjs`; `tsc` and the web tests pass, and the
+demo IM loads in Chromium with no page errors.

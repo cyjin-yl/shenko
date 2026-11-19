@@ -743,7 +743,7 @@ code.row-sub, code.row-title { font-size: 12px; }
 .im-row[data-active] { background: var(--im-blue); color: #fff; }
 .im-row[data-active] .im-row-preview, .im-row[data-active] .im-row-time { color: rgb(255 255 255 / 0.82); }
 .im-row-text { display: grid; gap: 2px; min-width: 0; flex: 1; }
-.im-row-top { display: flex; align-items: baseline; gap: 8px; }
+.im-row-top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .im-row-title { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .im-row-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
 .im-row-preview {
@@ -759,9 +759,29 @@ code.row-sub, code.row-title { font-size: 12px; }
 }
 .monogram.role-subject { background: linear-gradient(180deg, #6f7685, #4e5462); }
 .monogram.role-child { background: linear-gradient(180deg, #8f9bb0, #6c7891); }
-.avatar-group .monogram { position: absolute; width: 70%; height: 70%; font-size: 12px; box-shadow: 0 0 0 2px var(--canvas); }
-.avatar-group .monogram:first-child { left: 0; top: 0; }
-.avatar-group .monogram:last-child { right: 0; bottom: 0; }
+/* Two members as Messages stacks them: the back one small and up-left, the
+   front one larger with a ring cut from the row's own background, so both
+   initials stay readable and neither is clipped. */
+.avatar-group .monogram { position: absolute; font-size: 11px; }
+.avatar-group .monogram:first-child { left: 0; top: 0; width: 56%; height: 56%; font-size: 10px; }
+.avatar-group .monogram + .monogram { right: 0; bottom: 0; width: 62%; height: 62%; box-shadow: 0 0 0 2px var(--avatar-ring, var(--canvas)); }
+.im-row { --avatar-ring: var(--canvas); }
+.im-row:hover { --avatar-ring: var(--hover); }
+.im-row[data-active] { --avatar-ring: var(--im-blue); }
+.im-head { --avatar-ring: var(--im-bg); }
+/* Someone in the thread is still working. */
+.avatar-live {
+  position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--ok); box-shadow: 0 0 0 2px var(--avatar-ring, var(--canvas));
+}
+.avatar-live::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit;
+  animation: avatar-live 1.8s ease-out infinite;
+}
+@keyframes avatar-live { from { transform: scale(1); opacity: 0.6; } to { transform: scale(2.2); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .avatar-live::after { animation: none; } }
+/* In a chat a UI block is just a message; its kind and mode stay in Inspect. */
+.im .doc-head { display: none; }
 
 .im-thread { display: grid; grid-template-rows: 52px minmax(0, 1fr) auto; min-height: 0; background: var(--im-bg); }
 .im-head { display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--line); }
@@ -879,6 +899,14 @@ code.row-sub, code.row-title { font-size: 12px; }
   /* Avatar in im.tsx supplies inline desktop dimensions. Override only the
      conversation-list avatar at this breakpoint, keeping header sizes intact. */
   .im-row .avatar { width: 36px !important; height: 36px !important; }
+  /* A strip of look-alike monograms cannot be told apart: each keeps a
+     short name under it, as a contact strip does. */
+  .im-row { flex-direction: column; gap: 3px; width: 60px; }
+  .im-row-text {
+    position: static; width: 100%; height: auto; margin: 0; overflow: hidden; clip: auto;
+  }
+  .im-row-time, .im-row-preview { display: none; }
+  .im-row-title { font-size: 10.5px; font-weight: 500; text-align: center; }
   .im-thread { grid-template-rows: 44px minmax(0, 1fr) auto; }
   .im-messages { padding: 10px 12px 14px; }
   .im-line { max-width: 82%; }
