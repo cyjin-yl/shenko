@@ -285,7 +285,7 @@ async fn obligation_late_sealed_request_rejects_without_discarding_other_actions
 
 
 #[tokio::test]
-async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_budget() {
+async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_budget() -> anyhow::Result<()> {
     let (_dir,store,agent)=fixture();let mut subject=state(store.clone(),agent).unwrap();
     let description="x".repeat(65536);let resume="long resume condition;".repeat(6000);
     let raw=format!("[obligation] {}",serde_json::json!({"description":description,"resume_condition":resume}));
@@ -300,7 +300,7 @@ async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_
     assert!(frontier.contains("body_digest") && frontier.contains("read_obligation"));
     assert!(frontier.contains(&prepared.obligations[0].obligation_id.to_string()));
     let projected_tokens=prepared.context.estimated_input_tokens.unwrap();
-    let (offline,handle)=shenko_broker::broker::Broker::offline();
+    let (offline,handle)=shenko_broker::broker::Broker::offline()?;
     let caps=shenko_broker::request::ProviderCapabilities {
         binding:handle.binding().clone(),max_context_tokens:Some(projected_tokens/2),vision:None,
     };
@@ -309,11 +309,12 @@ async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_
     assert_eq!(subject.step.state,SubjectStepState::Planned);
     assert_eq!(store.open_subject_obligations(agent).unwrap()[0].description,description);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn obligation_projection_survives_real_history_compaction() {
-    let (_dir,store,agent)=fixture();let (offline,handle)=shenko_broker::broker::Broker::offline();
+async fn obligation_projection_survives_real_history_compaction() -> anyhow::Result<()> {
+    let (_dir,store,agent)=fixture();let (offline,handle)=shenko_broker::broker::Broker::offline()?;
     let capabilities=shenko_broker::request::ProviderCapabilities {
         binding:handle.binding().clone(),max_context_tokens:Some(8000),vision:None,
     };
@@ -342,6 +343,7 @@ async fn obligation_projection_survives_real_history_compaction() {
     assert!(compacted.payload.system_prompt.contains("body_digest"));
     assert_eq!(compacted.context.profile_digest,before.context.profile_digest);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]

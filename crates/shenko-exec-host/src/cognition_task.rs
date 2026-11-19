@@ -356,7 +356,7 @@ impl CognitionReadHandler {
         let contract_digest = Digest::blake3(READ_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:cognition-unit-read-v1".into(),
             },
             symbol: "cognition.unit.read.execute".into(),
@@ -380,7 +380,7 @@ impl CognitionReadHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -543,13 +543,13 @@ impl CognitionReadHandler {
 
 #[async_trait]
 impl NativeTaskHandler for CognitionReadHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "cognition.unit.read".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-reader/1".into(),
@@ -558,7 +558,7 @@ impl NativeTaskHandler for CognitionReadHandler {
                 "cognition.unit.read/v1 读取某个已安装认知单元在某个确切版本的正文：[delegate:cognition.unit.read:1] {\"unit_id\":\"...\",\"revision\":\"...\"}。目录里只给短能力卡，正文要按需读；读到的是该版本原文，附来源与判断记录。读不到就说读不到，不要凭印象补写单元内容。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -766,7 +766,7 @@ impl CognitionWriteHandler {
         let contract_digest = Digest::blake3(WRITE_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:cognition-unit-write-v1".into(),
             },
             symbol: "cognition.unit.write.execute".into(),
@@ -790,7 +790,7 @@ impl CognitionWriteHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1047,13 +1047,13 @@ impl CognitionWriteHandler {
 
 #[async_trait]
 impl NativeTaskHandler for CognitionWriteHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "cognition.unit.write".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-writer/1".into(),
@@ -1062,7 +1062,7 @@ impl NativeTaskHandler for CognitionWriteHandler {
                 "cognition.unit.write/v1 把一条你确实学到的东西写成一个可独立安装的单元。未采纳候选的写法：[delegate:cognition.unit.write:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"kind\":\"awareness\",\"title\":\"...\",\"capability_card\":\"...\",\"body\":\"...\",\"derived_from\":{\"kind\":\"cas_object\",\"reference\":\"operation:...\",\"digest\":\"blake3:...\"},\"enabled\":false}。回执提供 learning_source 时，derived_from 使用它的完整对象：kind、reference、digest 的值各自原样保留；reference 是来源标识，digest 是内容摘要。仅保存未采纳候选时省略 judgement 或设为 null；candidate 是学习状态，不是 judgement.decision。只有作出采纳、拒绝或退役判断时才提供 judgement，decision 只接受 adopt、reject、retire；例如有真实沙箱比较证据时可附加 \"judgement\":{\"decision\":\"adopt\",\"method\":\"sandbox_comparison\",\"evidence\":[{\"kind\":\"trial_attempt\",\"attempt_id\":\"...\"}]}。正文写原则与理由，不写具体动作脚本；来源要指向真实发生过的观察（derived_from.kind 写 cas_object 时给 digest，写 observation 时给本机登记的观测 digest；无法核实的来源会保持“声称”，单元也就只是候选）。判断与证据由你给出：evidence 只能引用本机真实存在的记录——cognition.unit.trial 跑出来的 attempt_id，或 cognition.unit.evidence 读到的观测 digest；内核只记录并核对，不会替你编造证据。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

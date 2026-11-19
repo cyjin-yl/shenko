@@ -45,6 +45,7 @@ pub use retained_objects::{RetainedObjectSnapshot, RetentionLimits};
 pub mod semantic_wait;
 pub mod seat;
 pub mod runtime_boundary;
+pub mod web_attachment;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;

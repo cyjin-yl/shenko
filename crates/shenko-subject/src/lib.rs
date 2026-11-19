@@ -27,7 +27,7 @@ pub use stream_journal::SubjectStreamJournal;
 
 pub mod output;
 
-pub use context_projection::{IDLE_CONTINUATION_PROMPT, input_model_caps, staged_message_text};
+pub use context_projection::{IDLE_CONTINUATION_PROMPT, input_model_caps, staged_message_text, web_attachments_text};
 
 /// The stable system-prompt prefix every subject step ships: the subject
 /// contract followed by the output protocol, in the order

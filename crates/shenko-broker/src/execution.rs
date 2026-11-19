@@ -30,6 +30,18 @@ fn residency_context(request: &InferenceRequest) -> String {
     request.conversation_id.to_string()
 }
 
+/// The original worker-owned services for one admitted execution. This only
+/// borrows the installed runtime and physical accounting owners; it creates no
+/// provider, capacity pool, cancellation lifetime or replacement receipt.
+#[derive(Clone, Copy)]
+pub(crate) struct ExecutionContext<'a> {
+    pub(crate) registry: &'a Arc<ProviderRegistry>,
+    pub(crate) domain: &'a Arc<ResourceDomain>,
+    pub(crate) kv: &'a Arc<KvAllocator>,
+    pub(crate) error_sink: &'a crate::error_sink::ErrorSinkCell,
+    pub(crate) stop: &'a tokio_util::sync::CancellationToken,
+}
+
 /// Execute one admitted request and produce its terminal result.
 ///
 /// The result carries whether execution attempted to report a specific cause
@@ -42,12 +54,9 @@ pub(crate) async fn execute_request(
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
-    registry: &Arc<ProviderRegistry>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
-    stop: &tokio_util::sync::CancellationToken,
+    context: &ExecutionContext<'_>,
 ) -> ExecutedRequest {
+    let ExecutionContext { domain, kv, .. } = *context;
     // A running request is a real reader of its context's residency. While it
     // runs the context is not an eviction candidate, and a release requested in
     // the meantime stays pending until this read ends (step 6). A first
@@ -62,11 +71,7 @@ pub(crate) async fn execute_request(
         receipt_sink,
         purpose,
         stream,
-        registry,
-        domain,
-        kv,
-        error_sink,
-        stop,
+        context,
     )
     .await;
     if reading {
@@ -99,12 +104,9 @@ async fn execute_admitted(
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
-    registry: &Arc<ProviderRegistry>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
-    stop: &tokio_util::sync::CancellationToken,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
+    let ExecutionContext { registry, error_sink, stop, .. } = *context;
     if stop.is_cancelled() {
         return (stopped_before_dispatch(request, purpose), false);
     }
@@ -147,8 +149,8 @@ async fn execute_admitted(
                 );
             }
             match stream {
-                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink, stop).await,
-                None => execute_complete(request, purpose, runtime, domain, kv, error_sink, stop).await,
+                Some(stream) => execute_stream(request, purpose, runtime, stream, context).await,
+                None => execute_complete(request, purpose, runtime, context).await,
             }
         }
         otherwise => {
@@ -205,11 +207,9 @@ async fn execute_complete(
     request: &InferenceRequest,
     purpose: RequestPurpose,
     runtime: Arc<dyn ProviderRuntime>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
-    stop: &tokio_util::sync::CancellationToken,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
     match provider_outcome(async { runtime.complete_cancellable(request, stop).await }).await {
         Ok(response) => {
             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
@@ -256,11 +256,9 @@ async fn execute_stream(
     purpose: RequestPurpose,
     runtime: Arc<dyn ProviderRuntime>,
     stream: StreamSubmission,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
-    stop: &tokio_util::sync::CancellationToken,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
     let publisher = BoundedStreamPublisher::new(
         request.request_id,
         stream.identity,
@@ -981,11 +979,11 @@ mod tests {
     /// unavailable outcome, the receipt records NeverDispatched, and the freed
     /// slot admits the next valid request.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() {
+    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         let epoch = registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1));
+        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1))?;
         let binding = handle.binding().clone();
 
         let (request_one, result_one_rx) = new_request(EntityId::new(), &binding);
@@ -1035,16 +1033,17 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// Issue #274: the durable stream journal fails before the provider is
     /// called, so the streamed request is never dispatched and its slot frees.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() {
+    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1096,17 +1095,18 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// The control case that must not regress: a request that actually left
     /// and then dropped its connection stays unknown, keeps its C=1 slot, and
     /// only original terminal evidence releases it.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() {
+    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1175,6 +1175,7 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// A real HTTP reader deadline closes only our observation. The recorded

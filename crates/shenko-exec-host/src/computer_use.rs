@@ -828,7 +828,7 @@ impl ComputerUseBackend {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: format!("builtin:{operation_name}"),
             },
             symbol: format!("{operation_name}.execute"),
@@ -852,7 +852,7 @@ impl ComputerUseBackend {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: computer_use_plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -3115,19 +3115,19 @@ impl ComputerUseBackend {
 // Handlers: one Cordis-registered kind each, sharing the live backend state.
 // ---------------------------------------------------------------------------
 
-fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescriptor {
-    NativeTaskDescriptor {
+fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> Result<NativeTaskDescriptor> {
+    Ok(NativeTaskDescriptor {
         kind: kind.into(),
         definition_version: 1,
         implementation_ref: ImplementationRef {
             plugin_id: computer_use_plugin_id(),
-            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             registry_revision: 0,
         },
         role_revision: "native-computer-use/1".into(),
         authority_refs: vec![authority.into()],
         prompt_section: Some(prompt.into()),
-    }
+    })
 }
 
 const SESSION_PROMPT: &str = "computer.use.session opens/closes a real desktop session on a compiled-in provider {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\",\"display\":\":N\"|desktop-or-display-name|null,\"screen\":int|null,\"op\":\"open\"|\"close\",\"session_id\":uuid?}. Returns session_id, the provider's own mechanism facts (X11: XTEST/XInput2 versions; Windows: input desktop, DPI; macOS: display, Screen Recording/Accessibility grants), display domain identity and DPI. A backend absent from this build, an unreachable display or an ungranted OS permission fails typed-unavailable naming it; a human desktop is never guessed.";
@@ -3372,7 +3372,7 @@ impl ComputerUseObserveHandler {
 impl NativeTaskHandler for ComputerUseCapabilitiesHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for(
             "computer.use.capabilities",
             "computer_use.capabilities/v1",
@@ -3397,7 +3397,7 @@ impl NativeTaskHandler for ComputerUseCapabilitiesHandler {
 impl NativeTaskHandler for ComputerUseVmHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for(
             "computer.use.vm",
             "computer_use.layerfs.vm/v1",
@@ -3490,7 +3490,7 @@ impl ComputerUseLeaseHandler {
 impl NativeTaskHandler for ComputerUseSessionHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for(
             "computer.use.session",
             "computer_use.x11.session/v1",
@@ -3515,7 +3515,7 @@ impl NativeTaskHandler for ComputerUseSessionHandler {
 impl NativeTaskHandler for ComputerUseObserveHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         // Historical authority spelling kept so operations armed before the
         // provider-neutral cutover keep their recorded authority identity; it
         // is an id, not a platform claim (see SESSION_PROMPT).
@@ -3543,7 +3543,7 @@ impl NativeTaskHandler for ComputerUseObserveHandler {
 impl NativeTaskHandler for ComputerUseInputHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for(
             "computer.use.input",
             "computer_use.x11.input/v1",
@@ -3568,7 +3568,7 @@ impl NativeTaskHandler for ComputerUseInputHandler {
 impl NativeTaskHandler for ComputerUseLeaseHandler {
     fn joins_execution_on_cancel(&self) -> bool { true }
 
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for(
             "computer.use.lease",
             "computer_use.x11.lease/v1",

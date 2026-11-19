@@ -197,7 +197,7 @@ async fn real_ssh_exec_reports_remote_exit_and_stdout() -> Result<()> {
 
     let (_root, store, agent, step_id) = open_subject_fixture()?;
     let handler = SshExecHandler::new(Arc::clone(&store));
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     let task_id = commit_exec_task(
         &store,
         descriptor.implementation_ref.clone(),

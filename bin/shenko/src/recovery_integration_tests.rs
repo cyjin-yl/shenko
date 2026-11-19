@@ -772,8 +772,11 @@ async fn native_printf_result_survives_real_process_reopen() {
     }
     let delivery_error = failed.unwrap().unwrap().expect_err(
         "unexpected inbox closure must propagate, not return success");
-    assert!(delivery_error.is::<tokio::sync::mpsc::error::SendError<shenko_types::inbox::InboxEvent>>(),
-        "the propagated cause must be receiver loss, not an unrelated store failure");
+    assert!(matches!(
+        delivery_error.downcast_ref::<tokio::sync::mpsc::error::TrySendError<shenko_types::inbox::InboxEvent>>(),
+        Some(tokio::sync::mpsc::error::TrySendError::Closed(event))
+            if event.event_id == result.result_id
+    ), "the propagated cause must be receiver loss for the original result, not an unrelated failure: {delivery_error:#}");
     let (head, _) = store.load_subject(agent).unwrap();
     let error_filter = shenko_store::SessionEventFilter {
         from_seq: 0,
@@ -796,9 +799,8 @@ async fn native_printf_result_survives_real_process_reopen() {
         "delivery failure must not replace the original native E1",
     );
 
-    // Stopping subject delivery must not stop durable consumers before
-    // the final S1 work can settle. Execute another real printf while
-    // the same inbox is closed, with only the subject token cancelled.
+    // A committed task that has not been admitted remains pending when the
+    // subject retires. The next dispatcher owns its first execution.
     let subject_stopping = tokio_util::sync::CancellationToken::new();
     subject_stopping.cancel();
     let settling_task = EntityId::new();
@@ -811,27 +813,26 @@ async fn native_printf_result_survives_real_process_reopen() {
         &[settling_task], vec![],
     );
     let settling_cancel = tokio_util::sync::CancellationToken::new();
-    let settling_dispatcher = tokio::spawn(
+    let mut settling_dispatcher = tokio::spawn(
         shenko_subject::dispatch::run_committed_dispatcher(
             store.clone(), native.clone(), agent, Some(closed_inbox.sender()),
             subject_stopping, settling_cancel.clone(),
         ),
     );
-    let settled = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if let Some(result) = store.native_task_result(settling_task)? {
-                break anyhow::Ok(result);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    }).await;
+    let stopped = tokio::time::timeout(
+        std::time::Duration::from_secs(5), &mut settling_dispatcher,
+    ).await;
     settling_cancel.cancel();
-    settling_dispatcher.await.unwrap().unwrap();
-    let settled = settled.unwrap().unwrap();
-    assert!(matches!(&settled.outcome, TaskOutcome::Succeeded));
-    assert_eq!(settled.result.as_ref().unwrap()["stdout_utf8"], settling_text);
-    assert_eq!(store.external_operation_attempts(settled.operation_id).unwrap().len(), 1);
-    assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 2);
+    match stopped {
+        Ok(joined) => joined.unwrap().unwrap(),
+        Err(_) => {
+            settling_dispatcher.await.unwrap().unwrap();
+            panic!("dispatcher did not retire when subject admission closed");
+        }
+    }
+    assert!(matches!(store.external_task(settling_task).unwrap().state, TaskState::Pending { .. }));
+    assert!(store.native_task_result(settling_task).unwrap().is_none());
+    assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 1);
     assert_eq!(store.list_session_events(EntityId(head.branch_id.0), &error_filter).unwrap().len(), 1,
         "expected shutdown must not add a runtime error");
 
@@ -849,6 +850,11 @@ async fn native_printf_result_survives_real_process_reopen() {
     cancel.cancel();
     dispatcher.await.unwrap().unwrap();
     assert_eq!(events.len(), 2);
+    let settled = store.native_task_result(settling_task).unwrap().unwrap();
+    assert!(matches!(&settled.outcome, TaskOutcome::Succeeded));
+    assert_eq!(settled.result.as_ref().unwrap()["stdout_utf8"], settling_text);
+    assert_eq!(store.external_operation_attempts(settled.operation_id).unwrap().len(), 1);
+    assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 2);
     let original_event = events.iter().find(|event| event.event_id == result.result_id).unwrap();
     let settled_event = events.iter().find(|event| event.event_id == settled.result_id).unwrap();
     assert_eq!(settled_event.payload["result"]["stdout_utf8"], settling_text);
@@ -985,7 +991,7 @@ fn receipt_replay_and_source_key_conflict_survive_real_process_reopen() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(store.clone()),
-    );
+    ).unwrap();
     let claim = store
         .claim_native_task(task_id, descriptor.implementation_ref.clone(), false)
         .unwrap()
@@ -1558,7 +1564,7 @@ fn subject_boundary_keeps_admitted_operation_and_late_evidence() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(store.clone()),
-    );
+    ).unwrap();
     let claim = store.claim_native_task(admitted, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
     // This exercises the real T1/E1 ledger, not a completed handoff or a
     // claim that an external process ran.
@@ -1619,7 +1625,7 @@ async fn native_cancel_late_evidence_and_unknown_recovery_are_fenced() {
     );
     let descriptor = shenko_kernel::task::NativeTaskHandler::descriptor(
         &shenko_exec_host::HostPrintfHandler::new(old_store.clone()),
-    );
+    ).unwrap();
     let cancelled_claim = old_store
         .claim_native_task(cancelled_task, descriptor.implementation_ref.clone(), false)
         .unwrap()
@@ -1992,9 +1998,10 @@ async fn drive_native_as(
     task_id: EntityId,
     input: serde_json::Value,
 ) -> shenko_types::operation::OperationRecord {
+    let descriptor = handler.descriptor().unwrap();
     let claim = fixture
         .store
-        .claim_native_task(task_id, handler.descriptor().implementation_ref, false)
+        .claim_native_task(task_id, descriptor.implementation_ref, false)
         .unwrap()
         .expect("pending task claimable");
     let invocation = shenko_kernel::task::NativeTaskInvocation {
@@ -2002,13 +2009,13 @@ async fn drive_native_as(
         child_tools: None,
         context: shenko_types::agent::CallContext {
             caller_instance_id,
-            role_revision: handler.descriptor().role_revision,
+            role_revision: descriptor.role_revision,
             task_id: Some(task_id),
             expected_task_revision: Some(claim.invocation.task_revision.0),
             invocation_id: Some(claim.invocation.invocation_id),
             controller_epoch: claim.invocation.epoch,
             software_generation: claim.software_generation.clone(),
-            authority_refs: handler.descriptor().authority_refs,
+            authority_refs: descriptor.authority_refs,
             trace_id: EntityId::new(),
         },
         task_invocation: claim.invocation.clone(),
@@ -2390,7 +2397,7 @@ async fn computer_use_armed_reconcile_and_dead_display_fencing() {
     // reconcile reports Unknown with honest progress, arms no retry.
     let input_desc = shenko_kernel::task::NativeTaskHandler::descriptor(
         &fixture.handlers.input,
-    );
+    ).unwrap();
     let claim = fixture
         .store
         .claim_native_task(ids[3], input_desc.implementation_ref.clone(), false)

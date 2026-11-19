@@ -202,10 +202,10 @@ impl RowTransition {
         // Preserve an actual read/hash error, rather than treating it as a
         // matching predecessor or silently weakening the range condition.
         for table in &self.tables {
-            if let Some(range) = &table.read_range {
-                if range_digest(tx, &table.before.table)? != range.before {
-                    return Err(conflict(format!("read range differs for {}", table.before.table.name)));
-                }
+            if let Some(range) = &table.read_range
+                && range_digest(tx, &table.before.table)? != range.before
+            {
+                return Err(conflict(format!("read range differs for {}", table.before.table.name)));
             }
         }
         tx.execute_batch("PRAGMA defer_foreign_keys=ON")
@@ -410,6 +410,36 @@ fn execution_projection_trigger(accessor: Option<&str>) -> bool {
         .is_some_and(|(table, operation)| matches!(table,
             "subject_intents" | "tasks" | "memory_intents" | "task_results" | "operations")
             && matches!(operation, "insert" | "update" | "delete"))
+}
+
+fn verified_projection_triggers(conn: &Connection) -> Result<BTreeMap<String, String>, ShenkoError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT name, tbl_name, sql FROM main.sqlite_master \
+             WHERE type='trigger' AND name LIKE 'context_revision_%' AND sql IS NOT NULL",
+        )
+        .map_err(storage_error)?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(storage_error)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(storage_error)?;
+    let mut verified = BTreeMap::new();
+    for (name, tbl_name, sql) in rows {
+        if execution_projection_trigger(Some(&name)) {
+            if !crate::subject_state::canonical_projection_trigger(&name, &tbl_name, &sql) {
+                return Err(conflict("non-canonical execution projection trigger"));
+            }
+            verified.insert(name, tbl_name);
+        }
+    }
+    Ok(verified)
 }
 
 fn layouts(conn: &Connection) -> Result<BTreeMap<String, Table>, ShenkoError> {
@@ -687,6 +717,7 @@ fn observe(
     conn: &Connection,
     accesses: Arc<Mutex<Accesses>>,
     main_objects: BTreeSet<String>,
+    verified_projection_triggers: BTreeMap<String, String>,
 ) -> Authorizer<'_> {
     conn.flush_prepared_statement_cache();
     conn.authorizer(Some(move |context: AuthContext<'_>| {
@@ -705,11 +736,24 @@ fn observe(
                     accesses.refusal = Some("transition accessed a non-main database");
                     return Authorization::Deny;
                 }
-                if execution_projection(table_name) && !execution_projection_trigger(context.accessor) {
+                if execution_projection(table_name)
+                    && !context
+                        .accessor
+                        .is_some_and(|accessor| verified_projection_triggers.contains_key(accessor))
+                {
                     accesses.refusal = Some("transition directly accessed a local execution projection");
                     return Authorization::Deny;
                 }
-                accesses.reads.insert(table_name.to_owned());
+                // NEW/OLD column references belong to this exact changed row,
+                // not a semantic read of every unrelated row in its table.
+                let verified_trigger_own_table = context.accessor.is_some_and(|accessor| {
+                    verified_projection_triggers
+                        .get(accessor)
+                        .is_some_and(|target| target == table_name)
+                });
+                if !verified_trigger_own_table {
+                    accesses.reads.insert(table_name.to_owned());
+                }
             }
             AuthAction::Insert { table_name }
             | AuthAction::Delete { table_name }
@@ -718,7 +762,11 @@ fn observe(
                     accesses.refusal = Some("transition accessed a non-main database");
                     return Authorization::Deny;
                 }
-                if execution_projection(table_name) && !execution_projection_trigger(context.accessor) {
+                if execution_projection(table_name)
+                    && !context
+                        .accessor
+                        .is_some_and(|accessor| verified_projection_triggers.contains_key(accessor))
+                {
                     accesses.refusal = Some("transition directly accessed a local execution projection");
                     return Authorization::Deny;
                 }
@@ -962,6 +1010,7 @@ impl Store {
         // Authorizer installation cannot observe an already active cursor.
         if tx.is_busy() { return Err(conflict("capture began with an active SQLite statement")); }
         require_main_factual_schema(tx)?;
+        let verified_projection_triggers = verified_projection_triggers(tx)?;
         let tables = layouts(tx)?;
         let projections = projection_tables(tx)?;
         let main_objects = tables.keys().chain(projections.iter()).cloned().collect();
@@ -971,7 +1020,12 @@ impl Store {
         tx.execute_batch("SAVEPOINT canonical_row_evaluation").map_err(storage_error)?;
         let accesses = Arc::new(Mutex::new(Accesses::default()));
         let physical = physical::Observer::start(tx, tables.clone(), projections.clone(), true);
-        let observation = observe(tx, Arc::clone(&accesses), main_objects);
+        let observation = observe(
+            tx,
+            Arc::clone(&accesses),
+            main_objects,
+            verified_projection_triggers,
+        );
         let evaluated = evaluate(result_commit, created_at);
         drop(observation);
         let mut physical = physical.finish();
@@ -1832,6 +1886,129 @@ mod tests {
             assert_eq!(tx.query_row("SELECT count(*) FROM commit_log", [], |row| row.get::<_, i64>(0))?, 0);
             assert_eq!(tx.query_row("SELECT count(*) FROM control_prepared_transitions", [], |row| row.get::<_, i64>(0))?, 0);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn insert_only_tasks_with_verified_projection_trigger_omits_complete_read_and_refuses_tampering() -> anyhow::Result<()> {
+        use shenko_types::{
+            ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration},
+            subject::{GenesisRef, SubjectMode},
+        };
+        let src_dir = tempfile::tempdir()?;
+        let dst_dir = tempfile::tempdir()?;
+        let source = Store::open(src_dir.path().join("source.db"), src_dir.path().join("cas"))?;
+        let replica = Store::open(dst_dir.path().join("replica.db"), dst_dir.path().join("cas"))?;
+        let agent_id = EntityId::new();
+        let branch_id = BranchId::new();
+        let head = SubjectBranchHead {
+            branch_origin: None,
+            agent_id,
+            branch_id,
+            subject_root_task_id: EntityId::new(),
+            controller_epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id: source.ledger.ledger_id(), genesis_id: EntityId::new() },
+            committed_step_no: 0,
+            committed_step_id: None,
+            committed_at: CommitRef::new(source.ledger.ledger_id(), LedgerSeq(0)),
+            next_step_id: EntityId::new(),
+            mode: SubjectMode::Active,
+            mode_reason_ref: None,
+            record_revision: RecordRevision(0),
+        };
+        let seed_src = source.cas.seal_object(b"insert-only task", "text/plain", "test", "raw", 1)?.object;
+        let seed_dst = replica.cas.seal_object(b"parked task", "text/plain", "test", "raw", 1)?.object;
+        let mut parked_task = TaskRecord::subject_root(head.subject_root_task_id, agent_id, seed_dst, head.committed_at);
+        parked_task.dispatch_eligibility = shenko_types::task::DispatchEligibility::Parked {
+            reason_ref: EntityId::new(),
+            until_utc: None,
+        };
+        parked_task.record_revision = RecordRevision(1);
+        {
+            let dst_conn = replica.ledger.conn.lock();
+            dst_conn.execute(
+                "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,0)",
+                params![
+                    parked_task.task_id.to_string(),
+                    parked_task.record_revision.0 as i64,
+                    serde_json::to_string(&parked_task)?
+                ],
+            )?;
+        }
+        let inserted_task = TaskRecord::subject_root(EntityId::new(), agent_id, seed_src, head.committed_at);
+        let transition = {
+            let mut src_conn = source.ledger.conn.lock();
+            let tx = src_conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let (transition, ()) = source.capture_row_transition_with_ranges(
+                &tx,
+                RowTransitionInput {
+                    action_id: head.next_step_id,
+                    input_digest: Digest::blake3(b"insert-only task"),
+                    head: &head,
+                },
+                |_, _| {
+                    tx.execute(
+                        "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,0)",
+                        params![
+                            inserted_task.task_id.to_string(),
+                            serde_json::to_string(&inserted_task).map_err(|error| invalid(error.to_string()))?
+                        ],
+                    )
+                    .map_err(storage_error)?;
+                    Ok((Vec::new(), ()))
+                },
+            )?;
+            transition
+        };
+        let tasks = transition
+            .tables
+            .iter()
+            .find(|table| table.before.table.name == "tasks")
+            .context("tasks transition missing")?;
+        assert!(!tasks.complete_read, "verified context_revision_tasks_insert must not mark tasks as complete_read");
+        assert!(tasks.read_range.is_none(), "insert-only write to tasks must omit read_range");
+        assert_eq!(tasks.changes.len(), 1);
+        {
+            let mut dst_conn = replica.ledger.conn.lock();
+            let tx = dst_conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            transition.apply_rows(&tx, LedgerSeq(1))?;
+            tx.commit()?;
+        }
+        assert!(replica.get_task(inserted_task.task_id)?.is_some());
+        assert!(replica.get_task(parked_task.task_id)?.is_some());
+        let mut src_conn = source.ledger.conn.lock();
+        src_conn.execute_batch(
+            "DROP TRIGGER context_revision_tasks_insert;\
+             CREATE TRIGGER context_revision_tasks_insert AFTER INSERT ON tasks BEGIN \
+               UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1 AND EXISTS (SELECT 1 FROM tasks);\
+             END;",
+        )?;
+        let tx = src_conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tampered = source.capture_row_transition_with_ranges(
+            &tx,
+            RowTransitionInput {
+                action_id: EntityId::new(),
+                input_digest: Digest::blake3(b"tampered trigger"),
+                head: &head,
+            },
+            |_, _| {
+                let another = TaskRecord::subject_root(EntityId::new(), agent_id, inserted_task.input_ref.clone(), head.committed_at);
+                tx.execute(
+                    "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,0,?2,0)",
+                    params![
+                        another.task_id.to_string(),
+                        serde_json::to_string(&another).map_err(|error| invalid(error.to_string()))?
+                    ],
+                )
+                .map_err(storage_error)?;
+                Ok((Vec::new(), ()))
+            },
+        );
+        assert!(
+            matches!(&tampered, Err(ShenkoError::Conflict(message)) if message.contains("non-canonical execution projection trigger")),
+            "tampered context_revision trigger must be refused"
+        );
         Ok(())
     }
 }
