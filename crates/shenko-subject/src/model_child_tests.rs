@@ -1371,6 +1371,13 @@ async fn a_child_question_is_answered_by_the_same_discussion_after_reopen_body()
 /// generation for a run that already answered.
 #[tokio::test]
 async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<()> {
+    for needs_decision in [false, true] {
+        decided_run_reopens_with_its_sealed_tell(needs_decision).await?;
+    }
+    Ok(())
+}
+
+async fn decided_run_reopens_with_its_sealed_tell(needs_decision: bool) -> anyhow::Result<()> {
     use shenko_kernel::task::{NativeTaskHandler, NativeTaskInvocation};
     let (dir, store, agent) = fixture();
     store.start_subject_dispatcher().unwrap();
@@ -1382,9 +1389,16 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         let (mut socket, wire) = read_wire(&listener).await;
         sent.send(wire)?;
         release_rx.await?;
-        reply(&mut socket, "decided-child").await;
-        // A second request would surface here: the listener stays open.
-        let (_socket, _) = listener.accept().await?;
+        let question = if needs_decision { "[ask] Which source?\n" } else { "" };
+        let raw = serde_json::json!({
+            "choices":[{"message":{"role":"assistant",
+                "content":format!("scripted answer for decided-child\n[tell:乙] sealed final observation\n{question}")},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":12,"completion_tokens":7},
+        }).to_string();
+        socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await?;
+        socket.shutdown().await?;
+        // Metadata probes stay separate; only another generation is a resend.
+        let (_socket, _) = read_wire(&listener).await;
         sent.send(serde_json::json!({"unexpected":"second send"}))?;
         Ok::<(), anyhow::Error>(())
     });
@@ -1392,15 +1406,26 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1)
             .unwrap();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let member = |model: &str, name: &str, goal: &str| format!("[delegate] {}",
+        serde_json::json!({"goal":goal,"system_prompt":"只报告观察事实。","model":model,
+            "max_tokens":64,"name":name,"team":"recovered observations"}));
     commit_output(
         &store,
         &mut subject,
         1,
         &[],
-        &delegation("decided-child", "只报告观察事实。", "观察一次实验并交回结论。", 64),
+        &format!("{}\n{}", member("decided-child", "甲", "观察一次实验并交回结论。"),
+            member("receiving-peer", "乙", "接收甲的观察事实。")),
     )
     .await;
-    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let tasks: Vec<_> = store.native_task_candidates_after(None, 8)?
+        .into_iter().map(|(_, task)| task).collect();
+    assert_eq!(tasks.len(), 2);
+    let task = tasks.iter().find(|task|
+        store.native_task_input(task).unwrap()["spec"]["name"] == "甲")
+        .context("the decision admitted the sending child")?.clone();
+    let peer = tasks.iter().find(|peer| peer.task_id != task.task_id)
+        .context("the same decision admitted its peer")?.clone();
     let handler = Arc::new(
         ModelChildHandler::new(store.clone(), handle.clone(), cordis_core::Context::new()).unwrap(),
     );
@@ -1410,6 +1435,7 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
     ));
     native.install(handler.clone()).unwrap();
     let descriptor = handler.descriptor();
+    let implementation = descriptor.implementation_ref.clone();
     let claim = store
         .claim_native_task(task.task_id, descriptor.implementation_ref, false)
         .unwrap()
@@ -1476,6 +1502,11 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         store.native_task_result(task.task_id).unwrap().is_none(),
         "the run result must not exist yet"
     );
+    let original_step = child_step(&store, task.task_id);
+    let original_receipt = store.external_operation_attempt(original_step.operation_id)?
+        .final_receipt_id.context("the broker durably retained the sealed final step")?;
+    assert!(store.peer_outbox(task.task_id)?.is_empty());
+    assert!(store.pending_child_dialogue(peer.task_id)?.is_empty());
     drop(execution);
     native.close_and_join(0).await;
     drop(native);
@@ -1492,6 +1523,10 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
         Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
     let (head, _) = reopened.load_subject(agent).unwrap();
     let restored = service(&reopened, next.clone(), head.software_generation);
+    // Hold a real endpoint invocation while the sender recovers. The peer's
+    // worker is not polled, so its inbox can be inspected before consumption.
+    let receiving = reopened.claim_native_task(peer.task_id, implementation, false)?
+        .context("the peer owns a live invocation at recovery delivery")?;
     let broker_run = tokio::spawn(broker.run());
     drive_until(
         &restored,
@@ -1509,11 +1544,39 @@ async fn a_decided_run_reopens_without_a_second_generation() -> anyhow::Result<(
     .await;
     let result = reopened.native_task_result(task.task_id).unwrap().unwrap();
     assert!(matches!(result.outcome, TaskOutcome::Succeeded));
-    assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    assert_eq!(result.result.as_ref().unwrap()["termination"],
+        if needs_decision { "needs_decision" } else { "completed" });
     assert_eq!(
         result.result.as_ref().unwrap()["answer"],
-        "scripted answer for decided-child"
+        "scripted answer for decided-child\n"
     );
+    if needs_decision {
+        assert_eq!(result.result.as_ref().unwrap()["question"], "Which source?");
+    }
+    let outbox = reopened.peer_outbox(task.task_id)?;
+    assert_eq!(outbox.len(), 1, "the final step's tell is settled before returning");
+    assert_eq!(outbox[0].state, "delivered");
+    assert_eq!(outbox[0].recipient_task_id, Some(peer.task_id));
+    let inbox = reopened.pending_child_dialogue(peer.task_id)?;
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].intent_id, outbox[0].message_id);
+    assert_eq!(inbox[0].message, "sealed final observation");
+    assert_eq!(inbox[0].sender_step_id, original_step.operation_id);
+    assert_eq!(inbox[0].sender_task_id, Some(task.task_id));
+    assert_eq!(inbox[0].target_invocation_id, Some(receiving.invocation.invocation_id));
+    assert_eq!(reopened.consume_child_dialogue(peer.task_id, &[outbox[0].message_id])?, 1);
+    let replay = shenko_store::child::PeerMessage {
+        message_id: outbox[0].message_id, sender_task_id: task.task_id, sender_name: "甲".into(),
+        sender_operation_id: original_step.operation_id, step_index: 0, to: "乙".into(),
+        recipient_task_id: Some(peer.task_id), unresolved_reason: None,
+        message: "sealed final observation".into(),
+    };
+    let before_replay = reopened.current_commit_seq()?;
+    assert_eq!(reopened.deliver_peer_dialogue(&claim.invocation, &replay)?, outbox[0]);
+    assert_eq!(reopened.current_commit_seq()?, before_replay);
+    assert!(reopened.pending_child_dialogue(peer.task_id)?.is_empty());
+    assert_eq!(reopened.external_operation_attempt(original_step.operation_id)?.final_receipt_id,
+        Some(original_receipt));
     assert_eq!(
         reopened
             .external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION)

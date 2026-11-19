@@ -254,9 +254,9 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json`：`35195a6e6f1ba6a7d800da0029f2683013abd18b`
-（2026-11-12 主线，migrated_from `b25229a…`）。上游 `pnpm-lock.yaml` sha256 不变
-（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。界面采用的 shadcn
+`web/upstream-pin.json` 记录本次从 `7521cd5` 升级到 `f29738eb6a80`。
+三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
+使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
 family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
 separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
@@ -366,8 +366,9 @@ shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、
 - 一次结构变化时，域里每个监听实例都各自重排一遍。
 
 修复让一轮通知内每个域只排一次序，并且只返回 meta。150 项从 6.0 s 降到 0.42 s，
-300 项是 1.34 s。修复已在本地提交为 Proto-UI 会话分支上的 `5db86b49`，但这次会话没有向上游推送的
-权限，所以还没有上游 PR。合入主线后随 pin 升级采用；在那之前 Shenko 仍按本节的 pin 构建。
+300 项是 1.34 s。这是会话分支 `5db86b49` 的历史数据。新 pin 包含上游主线的
+通知内比较与逻辑域查询复用（`dd69435b`、`805766c2`）以及按 family 枚举 claim
+（Proto-UI #1523）。这些提交的耗时需要独立测量。
 
 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
@@ -829,7 +830,7 @@ Rendered subject parts and their copy actions use the original `(message_id, par
 
 ## Pending-mount compiler pin
 
-The current build pin advances from the section 6 build record's `35195a6e6f1ba6a7d800da0029f2683013abd18b` to the published commit `41282cb0ddc39283826e52e9932be123fc83eb47` ([Proto-UI PR #1459](https://github.com/Proto-UI/Proto-UI/pull/1459)). The upstream lock digest and package versions remain unchanged; the three public entry points have a freshly built 42-package dependency closure at this commit.
+The November 13 build advanced from `35195a6e6f1ba6a7d800da0029f2683013abd18b` to `41282cb0ddc39283826e52e9932be123fc83eb47`. The lock digest and package versions stayed fixed for that build, and the three public entry points built a 42-package dependency closure. [Proto-UI PR #1459](https://github.com/Proto-UI/Proto-UI/pull/1459)
 
 The compiler preserves an explicit `run.update()` issued after the first mount frame is rendered and before that frame is acknowledged. Mount acknowledgement credits the pending dirty intent so the next frame can present the current value. Shenko retains its authored Props watcher and regenerates both Prototypes through the pinned compiler. This update does not settle the wider Adapter defaults, update-ownership and diagnostic questions in [Proto-UI issue #1453](https://github.com/Proto-UI/Proto-UI/issues/1453).
 

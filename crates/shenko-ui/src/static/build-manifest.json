@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "af43d613171fe18a8acf61fe3fbffec5610f67a1",
-    "previous_reviewed_commit": "3a537056b14bc8fd143d67ff63a55b2334981690",
+    "commit": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
+    "previous_reviewed_commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
     "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/home/user/Proto-UI",
+    "source_checkout": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tmp/claude-0/sk/receipt.json",
-      "receipt_sha256": "639d63ecafbb763b22e6a7d42112bea8a124a8a6d37fc8f34a8f3c7d430e94a8"
+      "receipt_path": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream-build.json",
+      "receipt_sha256": "8ebb413099f9c15b7ee6ab5237607b5fff6fd563821e4ebb9f5938bcfa5334aa"
     }
   },
   "packages": [
@@ -189,16 +189,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-19T06:44:05.067Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/pr332-landing-20261119/crates/shenko-ui/web",
+  "built_at": "2026-11-19T08:23:43.788Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1127694,
-      "sha256": "f8ced4df337e21102c597a97a733a10e3da0538664b3146705bddf78f7d0e89b"
+      "bytes": 1127800,
+      "sha256": "a55fef98898ae73375ff69becc8970f543a055cad2f65806e99e07e36cf04ebd"
     },
     "chunks/chunk-A2GXJVLZ.js": {
       "bytes": 61507,

@@ -44,6 +44,8 @@ pub const COGNITION_IMPORTED: &str = "cognition_imported";
 pub const CHILD_DIALOGUE_CONTRACT: &str = "shenko.child/dialogue/1";
 /// The task memo that holds the messages delivered to this endpoint.
 pub const DIALOGUE_INBOX: &str = "child_dialogue_inbox";
+/// The largest dialogue body a finite child can read without truncation.
+pub const MAX_CHILD_DIALOGUE_BYTES: usize = 64 * 1024;
 
 /// One delivered message, bound to the endpoint it was delivered to.
 ///
@@ -95,8 +97,8 @@ pub struct PeerSend {
     pub recipient_task_id: Option<EntityId>,
     /// `delivered`, or `undelivered` with a reason code: `unknown_name`,
     /// `ambiguous_name` (from the runtime's resolution), `missing`,
-    /// `foreign`, `cancelled` or `finished`. Codes, not prose: the reader
-    /// renders them in its own words.
+    /// `foreign`, `cancelled`, `finished` or `message_too_large`. Codes, not
+    /// prose: the reader renders them in its own words.
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
@@ -315,13 +317,24 @@ impl Store {
     /// removed it. A recipient that is missing, belongs to another subject,
     /// was cancelled or already finished is an honest `undelivered` fact; the
     /// message is never handed to a newer authority. Delivering wakes a
-    /// recipient parked on its discussion.
-    pub fn deliver_peer_dialogue(&self, message: &PeerMessage) -> Result<PeerSend> {
+    /// recipient parked on its discussion. Recorded outcomes remain readable
+    /// after cancellation, dispatcher replacement or writer closure; only a
+    /// fresh send requires the sender's current invocation and authority.
+    pub fn deliver_peer_dialogue(
+        &self,
+        ctx: &TaskInvocation,
+        message: &PeerMessage,
+    ) -> Result<PeerSend> {
+        if let Some(done) = self.peer_outbox(message.sender_task_id)?
+            .into_iter().find(|sent| sent.message_id == message.message_id)
+        {
+            return Ok(done);
+        }
+        ensure!(ctx.task_id == message.sender_task_id, "peer message invocation task mismatch");
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                self.check_dispatch_owner(&tx)?;
                 let Some(mut sender) = read_task(&tx, message.sender_task_id)? else {
                     anyhow::bail!(
                         "peer message sender {} does not exist",
@@ -331,7 +344,8 @@ impl Store {
                 let mut outbox: Vec<PeerSend> = sender
                     .memos
                     .get(PEER_OUTBOX)
-                    .and_then(|value| serde_json::from_value(value.clone()).ok())
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?
                     .unwrap_or_default();
                 if let Some(done) = outbox
                     .iter()
@@ -339,6 +353,11 @@ impl Store {
                 {
                     return Ok(done.clone());
                 }
+                ensure!(self.native_invocation_current_tx(&tx, &sender, ctx)?,
+                    "stale peer message invocation");
+                ensure!(!memo_flag(&sender, NATIVE_SETTLEMENT_ONLY),
+                    "settlement invocation cannot send a peer message");
+                ensure!(!message.message.trim().is_empty(), "empty peer message");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let undelivered = |reason: &str| PeerSend {
@@ -349,7 +368,11 @@ impl Store {
                     state: "undelivered".into(),
                     reason: Some(reason.into()),
                 };
+                // Refuse oversized bodies before publishing a peer inbox entry.
                 let outcome = match message.recipient_task_id {
+                    _ if message.message.len() > MAX_CHILD_DIALOGUE_BYTES => {
+                        undelivered("message_too_large")
+                    }
                     None => undelivered(
                         message
                             .unresolved_reason
@@ -369,7 +392,8 @@ impl Store {
                             let mut inbox: Vec<DialogueDelivery> = recipient
                                 .memos
                                 .get(DIALOGUE_INBOX)
-                                .and_then(|value| serde_json::from_value(value.clone()).ok())
+                                .map(|value| serde_json::from_value(value.clone()))
+                                .transpose()?
                                 .unwrap_or_default();
                             inbox.push(DialogueDelivery {
                                 intent_id: message.message_id,

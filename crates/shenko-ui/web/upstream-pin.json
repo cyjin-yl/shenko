@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "af43d613171fe18a8acf61fe3fbffec5610f67a1",
-  "migrated_from": "3a537056b14bc8fd143d67ff63a55b2334981690",
+  "commit": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
+  "migrated_from": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
   "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",

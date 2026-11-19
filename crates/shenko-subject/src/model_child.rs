@@ -37,7 +37,7 @@ use shenko_broker::{
 };
 use shenko_store::{
     Store,
-    child::{DialogueDelivery, PeerMessage, PeerSend},
+    child::{DialogueDelivery, MAX_CHILD_DIALOGUE_BYTES, PeerMessage, PeerSend},
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
@@ -794,11 +794,6 @@ struct ChildHistory {
     pending: Option<OperationRecord>,
 }
 
-/// The largest owner message a child reads. The subject's own authored
-/// dialogue control is bounded to the same number, so a delivered turn is
-/// never a truncated surprise.
-const MAX_DIALOGUE_BYTES: usize = 64 * 1024;
-
 /// How one delivered owner message reads inside the child's discussion. The
 /// intent identity and the message it answers stay visible: the child can
 /// tell two owner messages apart and answer the right one.
@@ -928,6 +923,7 @@ fn receipts_text(record: &ModelChildStepRecord, sends: &[PeerSend]) -> Option<St
                         Some("finished") => "对方已经结束了这次运行",
                         Some("cancelled") => "对方已被取消",
                         Some("missing") | Some("foreign") => "对方不存在",
+                        Some("message_too_large") => "消息超过对话大小上限",
                         _ => "原因未记录",
                     }
                 ),
@@ -1137,6 +1133,7 @@ impl ModelChildHandler {
     /// idempotent per message, so a resumed run calls this again safely.
     fn deliver_tells(
         &self,
+        invocation: &NativeTaskInvocation,
         contract: &FrozenModelChild,
         team: &TeamView,
         record: &ModelChildStepRecord,
@@ -1144,7 +1141,7 @@ impl ModelChildHandler {
     ) -> Result<()> {
         for (index, tell) in record.tells.iter().enumerate() {
             let resolved = team.resolve(&tell.to);
-            let sent = self.store.deliver_peer_dialogue(&PeerMessage {
+            let sent = self.store.deliver_peer_dialogue(&invocation.task_invocation, &PeerMessage {
                 message_id: peer_message_id(contract.task_id, record.step_index, index),
                 sender_task_id: contract.task_id,
                 sender_name: team.me.clone(),
@@ -1525,7 +1522,7 @@ impl ModelChildHandler {
                 "child dialogue delivery is bound to another endpoint"
             );
             ensure!(
-                !delivery.message.trim().is_empty() && delivery.message.len() <= MAX_DIALOGUE_BYTES,
+                !delivery.message.trim().is_empty() && delivery.message.len() <= MAX_CHILD_DIALOGUE_BYTES,
                 "child dialogue delivery is not a bounded owner message"
             );
             if read.contains(&delivery.intent_id) {
@@ -1660,6 +1657,19 @@ impl ModelChildHandler {
             .filter(|record| record.complete)
             .flat_map(|record| record.dialogue.iter().map(|turn| turn.intent_id))
             .collect();
+        // Settle the sealed tells before any terminal decision can return.
+        // A final answer or question can carry messages too; after a crash
+        // their original identities must reach the outbox exactly once.
+        if let Some(team) = team.as_ref() {
+            for record in history.records[history.inherited_count..]
+                .iter()
+                .filter(|record| record.complete && !record.tells.is_empty())
+            {
+                if let Some(operation) = history.operations.get(&record.step_index) {
+                    self.deliver_tells(&invocation, &contract, team, record, operation.operation_id)?;
+                }
+            }
+        }
         // The last finished step of THIS run already decided how the run
         // ends. A restart between that step's E1 and the run result settles
         // the same decision instead of sending a second generation: a child
@@ -1695,19 +1705,7 @@ impl ModelChildHandler {
                 &dialogue,
             );
         }
-        // Resume what the finished steps of this run already decided: the
-        // messages they wrote reach their peers (delivery is idempotent), and
-        // a wait the last step began goes on for the time that is left.
-        if let Some(team) = team.as_ref() {
-            for record in history.records[history.inherited_count..]
-                .iter()
-                .filter(|record| record.complete && !record.tells.is_empty())
-            {
-                if let Some(operation) = history.operations.get(&record.step_index) {
-                    self.deliver_tells(&contract, team, record, operation.operation_id)?;
-                }
-            }
-        }
+        // A wait the last finished step began goes on for the time left.
         if let Some(last) = history.records[history.inherited_count..].last()
             && last.complete
             && last.wait.is_some()
@@ -1809,7 +1807,7 @@ impl ModelChildHandler {
                 read_dialogue.extend(dialogue.iter().map(|turn| turn.intent_id));
                 if let Some(team) = team.as_ref() {
                     let operation_id = history.operations[&step_index].operation_id;
-                    self.deliver_tells(&contract, team, &record, operation_id)?;
+                    self.deliver_tells(&invocation, &contract, team, &record, operation_id)?;
                 }
             }
             let waits = record.wait.as_ref().map(|_| record.wait_from);
