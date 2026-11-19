@@ -4876,6 +4876,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "bytes",
+ "cap-fs-ext",
  "cap-std",
  "chrono",
  "getrandom 0.2.17",

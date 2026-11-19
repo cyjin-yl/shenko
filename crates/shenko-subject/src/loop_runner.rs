@@ -945,6 +945,12 @@ pub async fn run_subject_loop(
         let filtered = events
             .into_iter()
             .map(|event| {
+                // A wake may have been delivered before cancellation committed.
+                // This removes known withdrawals before attention holds them;
+                // Store staging rechecks atomically for a later cancellation.
+                if state.store.event_withdrawn_before_presentation(state.agent_id, event.event_id)? {
+                    return Ok(None);
+                }
                 state
                     .store
                     .event_disposition_commit(state.agent_id, event.event_id)

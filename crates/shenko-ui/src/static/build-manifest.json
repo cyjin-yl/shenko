@@ -5,12 +5,12 @@
     "commit": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
     "previous_reviewed_commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
     "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/home/user/Proto-UI",
+    "source_checkout": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tmp/claude-0/sk/receipt.json",
-      "receipt_sha256": "5a9991934d9f7d8b215ac77481bdf23cb8dab307f73b70c942b43164acd637e4"
+      "receipt_path": "/var/idw-target/receipts/shenko-proto-bump-r4/upstream-build.json",
+      "receipt_sha256": "8ebb413099f9c15b7ee6ab5237607b5fff6fd563821e4ebb9f5938bcfa5334aa"
     }
   },
   "packages": [
@@ -189,24 +189,24 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-19T10:29:26.131Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/pr332-files-review-20261119/crates/shenko-ui/web",
+  "built_at": "2026-11-19T11:47:13.697Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1133184,
-      "sha256": "243a1fd8e56ab2d249bfa1d28cf45ddbe8ee3ba7b545538f5d56178d1018e1b5"
+      "bytes": 1140355,
+      "sha256": "67354fddcf6e73028d2fdddf04c300ed59ad12e6c90622cc541f403cefc9755c"
     },
-    "chunks/chunk-KC4LQEEF.js": {
-      "bytes": 64053,
-      "sha256": "f8caef40dbe296e4e26004113a997e950be411604f8648de43abaaa65ae2f1b8"
+    "chunks/chunk-TDQUIBDS.js": {
+      "bytes": 65149,
+      "sha256": "59d590fd6a27164ac293b42e4486dfc3a440747c3641552f3ccb2ce41fef7302"
     },
-    "chunks/demo-controller-FFZJWWME.js": {
-      "bytes": 15546,
-      "sha256": "66fbdcd0381ffbfdb92350724a79ea0bddc55d729c5b8d36cc3ef1aac1ab13b3"
+    "chunks/demo-controller-S5T5JGW5.js": {
+      "bytes": 15700,
+      "sha256": "e09622bf0ab8f34ca6528fba20c7bd1b2d7069f9b5fd7fee53def6654cbc586a"
     },
     "app.css": {
       "bytes": 61640,

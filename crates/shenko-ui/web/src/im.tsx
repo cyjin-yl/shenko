@@ -336,11 +336,11 @@ function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspe
             </CompiledMessageBubble>
           )}
         </div>}
-        {(message.meta || tail && actions.length > 0) && (
+        {(message.meta || actions.length > 0) && (
           <div className="im-meta">
             {message.meta && <span>{message.meta}</span>}
-            {tail && actions.map((action) => (
-              <button key={action.id} type="button" className="im-link" onClick={() => message.node && emit(message.node.node_id, action.id)}>
+            {actions.map((action) => (
+              <button key={action.id} type="button" className="im-link" data-action-id={action.id} onClick={() => message.node && emit(message.node.node_id, action.id)}>
                 {action.label}
               </button>
             ))}

@@ -10,7 +10,13 @@ const MAX_ACTION_RECEIPTS = 16;
 export class InputReducer {
   constructor(private readonly state: UiState, private readonly localOutbox: Set<string>,
     private readonly pendingActions: Map<string, PendingAction>, private readonly emit: () => void,
-    private readonly scheduleRefresh: () => void) {}
+    private readonly scheduleRefresh: () => void,
+    private readonly editReady: (submission: Submission) => void) {}
+
+  private editSource(submission: Submission): Submission | undefined {
+    return this.state.submissions.find(
+      (source) => source.edit?.submission_id === submission.payload.submission_id);
+  }
 
   pushActionReceipt(receipt: ActionReceiptView): void {
     const rest = this.state.action_receipts.filter(
@@ -87,14 +93,14 @@ export class InputReducer {
     } else if (data.stage === 'conflict') {
       submission.receipt = 'conflict';
       submission.detail = detail ?? m('error.submissionConflict');
-      if (!this.state.draft.trim()) {
+      if (!submission.edit && !this.editSource(submission) && !this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
     } else if (data.stage === 'rejected') {
       submission.receipt = 'rejected';
       submission.detail = detail ?? m('error.submissionRejected');
-      if (!this.state.draft.trim()) {
+      if (!submission.edit && !this.editSource(submission) && !this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
@@ -102,7 +108,7 @@ export class InputReducer {
     // Non-committed outcomes stay persisted: they are the only copy of this
     // input's identity and payload until the user retries or the Store holds
     // a committed disposition for the original event.
-    saveSubmission(submission);
+    if (this.localOutbox.has(submission.payload.submission_id)) saveSubmission(submission);
     this.scheduleRefresh();
     this.emit();
   }
@@ -182,17 +188,40 @@ export class InputReducer {
 
 
   applySubmissionView(submission: Submission, data: Record<string, unknown>, persist: boolean): void {
+    if (data.schema_version !== 2 || data.submission_id !== submission.payload.submission_id) return;
     if (data.result === 'found' && typeof data.event_id === 'string'
-      && typeof data.accepted_commit === 'string') {
-      if (isObject(data.withdrawal)) {
-        const withdrawal = data.withdrawal;
+      && data.event_id.length > 0 && typeof data.accepted_commit === 'string' && data.accepted_commit.length > 0) {
+      const withdrawal = data.withdrawal;
+      if (isObject(withdrawal)
+        && typeof withdrawal.cancel_id === 'string' && withdrawal.cancel_id.length > 0
+        && typeof withdrawal.commit_ref === 'string' && withdrawal.commit_ref.length > 0
+        && (withdrawal.result === 'withdrawal_queued'
+          || withdrawal.result === 'withdrawn_before_presentation')) {
         submission.withdrawal = {
-          cancel_id: String(withdrawal.cancel_id ?? ''),
-          commit_ref: String(withdrawal.commit_ref ?? ''),
-          result: withdrawal.result === 'withdrawal_queued'
-            ? 'withdrawal_queued'
-            : 'withdrawn_before_presentation',
+          cancel_id: withdrawal.cancel_id,
+          commit_ref: withdrawal.commit_ref,
+          result: withdrawal.result,
         };
+        if (submission.payload.subject_id === this.state.subject_id
+          && submission.edit?.state === 'pending' && withdrawal.cancel_id === submission.edit.cancel_id
+          && withdrawal.result === 'withdrawn_before_presentation') {
+          submission.edit.state = 'ready';
+          if (saveSubmission(submission)) this.editReady(submission);
+          else {
+            submission.edit.state = 'pending';
+            this.state.display.notice = m('error.saveOriginal');
+          }
+        }
+        if (submission.edit?.state === 'pending' && withdrawal.cancel_id === submission.edit.cancel_id
+          && withdrawal.result === 'withdrawal_queued') {
+          submission.edit.state = 'closed';
+          if (!saveSubmission(submission)) {
+            submission.edit.state = 'pending';
+            this.state.display.notice = m('error.saveOriginal');
+          } else {
+            this.state.display.notice = 'Withdrawal was queued after selection. The original message and attachments remain saved; no edit was put in the composer.';
+          }
+        }
       }
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
@@ -204,7 +233,12 @@ export class InputReducer {
         submission.committed_at =
           typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
         submission.detail = undefined;
-        retireSubmission(submission);
+        const source = this.editSource(submission);
+        retireSubmission(submission, source);
+        if (!submission.edit || ['closed', 'retired'].includes(submission.edit.state)) {
+          this.localOutbox.delete(submission.payload.submission_id);
+        }
+        if (source?.edit?.state === 'retired') this.localOutbox.delete(source.payload.submission_id);
         return;
       } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
         if (submission.receipt !== 'committed') submission.receipt = 'selected';
@@ -223,7 +257,7 @@ export class InputReducer {
       // it is the only copy of this attempt until the user acts.
       submission.receipt = 'rejected';
       submission.detail = m('error.submissionAbsent');
-      if (persist && !this.state.draft.trim()) {
+      if (persist && !submission.edit && !this.editSource(submission) && !this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
@@ -232,7 +266,7 @@ export class InputReducer {
       submission.detail = m('error.queryUnavailable');
     }
     // Query failure is not not_admitted and never restores an accepted draft.
-    if (persist) saveSubmission(submission);
+    if (persist && this.localOutbox.has(submission.payload.submission_id)) saveSubmission(submission);
   }
 
 

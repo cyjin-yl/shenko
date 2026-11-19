@@ -63,10 +63,11 @@ class LiveController implements ProjectionController {
   /// ID the Store knows. Restored before the socket connects so a reopen
   /// reconciles the original decision instead of admitting a second one.
   private pendingActions = storedActions();
+  private editing: Submission | undefined;
 
   constructor() {
     this.inputs = new InputReducer(this.state, this.localOutbox, this.pendingActions,
-      () => this.emit(), () => this.scheduleReceiptRefresh());
+      () => this.emit(), () => this.scheduleReceiptRefresh(), (submission) => this.restoreEdit(submission));
     this.readModels = new LiveReadModels(this.state, this.api, () => this.emit(), {
       applySubmissionView: (submission, data, persist) => this.inputs.applySubmissionView(submission, data, persist),
       refreshSubmissions: () => this.refreshSubmissions(),
@@ -131,6 +132,11 @@ class LiveController implements ProjectionController {
       return;
     }
     if (!action.enabled) return;
+    if (action.kind === 'composer.draft' && this.editing && typeof intent.payload.value === 'string') {
+      if (this.saveEditDraft(intent.payload.value)) this.state.draft = intent.payload.value;
+      this.emit();
+      return;
+    }
     if (applyDisplayIntent(this.state, action.kind, intent.payload, () => this.emit())) return;
 
     switch (action.kind) {
@@ -161,8 +167,11 @@ class LiveController implements ProjectionController {
       case 'composer.detach': {
         const id = intent.payload.local_id;
         const removed = this.state.attachments.find((item) => item.local_id === id);
-        if (removed?.preview) URL.revokeObjectURL(removed.preview);
-        this.state.attachments = this.state.attachments.filter((item) => item.local_id !== id);
+        const attachments = this.state.attachments.filter((item) => item.local_id !== id);
+        if (this.saveEditDraft(this.state.draft, attachments)) {
+          this.state.attachments = attachments;
+          if (removed?.preview) URL.revokeObjectURL(removed.preview);
+        }
         this.emit();
         break;
       }
@@ -216,13 +225,7 @@ class LiveController implements ProjectionController {
       case 'submission.edit': {
         const id = action.payload?.submission_id;
         const submission = this.state.submissions.find((item) => item.payload.submission_id === id);
-        if (submission && !submission.withdrawal) {
-          this.sendWithdraw(submission);
-          const draft = this.state.draft.trim();
-          this.state.draft = draft ? `${submission.payload.content}\n${draft}` : submission.payload.content;
-          storageSet(DRAFT_KEY, this.state.draft);
-          this.emit();
-        }
+        if (submission) this.editSubmission(submission);
         break;
       }
       case 'composer.steer':
@@ -272,7 +275,21 @@ class LiveController implements ProjectionController {
     }];
     this.emit();
     const settle = (patch: Partial<PendingAttachment>) => {
-      this.state.attachments = this.state.attachments.map((item) => item.local_id === local_id ? { ...item, ...patch } : item);
+      const pending = this.state.attachments.find((item) => item.local_id === local_id);
+      if (!pending || this.disposed) return;
+      const attachments = this.state.attachments.map((item) => item.local_id === local_id ? { ...item, ...patch } : item);
+      if (this.saveEditDraft(this.state.draft, attachments)) {
+        this.state.attachments = attachments;
+      } else {
+        // The sealed object exists, but it was never attached to the durable
+        // edit. Keep an explicit failure locally rather than a false Ready.
+        const error = patch.status === 'ready'
+          ? 'Upload completed, but the edit could not be saved. Remove this file and attach it again.'
+          : patch.error ?? 'The attachment could not be saved. Remove it and attach it again.';
+        this.state.attachments = this.state.attachments.map((item) => item.local_id === local_id
+          ? { ...pending, status: 'failed', error } : item);
+        this.state.display.notice = error;
+      }
       this.emit();
     };
     try {
@@ -327,13 +344,111 @@ class LiveController implements ProjectionController {
     this.sendWithMode('steer');
   }
 
+  private saveEditDraft(content = this.state.draft, attachments = this.state.attachments): boolean {
+    if (!this.editing?.edit) return true;
+    const source = this.editing;
+    const edit = source.edit!;
+    const previous = edit.draft;
+    const previousState = edit.state;
+    edit.draft = {
+      content,
+      attachment_refs: attachments.flatMap((item) => item.ref ? [{ ...item.ref }] : []),
+    };
+    const cleared = !content.trim() && attachments.length === 0;
+    if (cleared) edit.state = 'closed';
+    if (saveSubmission(source)) {
+      if (cleared) {
+        this.editing = undefined;
+        storageSet(DRAFT_KEY, '');
+      }
+      return true;
+    }
+    edit.draft = previous;
+    edit.state = previousState;
+    this.state.display.notice = m('error.saveOriginal');
+    return false;
+  }
+
+  private editSubmission(submission: Submission): void {
+    if (submission.edit && this.state.submissions.some(
+      (row) => row.payload.submission_id === submission.edit?.submission_id)) return;
+    if (submission.edit?.state === 'ready') {
+      this.restoreEdit(submission);
+      this.emit();
+      return;
+    }
+    if (!this.transport.isOpen || !this.state.capabilities.withdraw) return;
+    if (!submission.edit) {
+      if (submission.withdrawal) return;
+      submission.edit = {
+        cancel_id: uid(), state: 'pending', submission_id: uid(), message_id: uid(),
+        draft: { content: submission.payload.content,
+          attachment_refs: submission.payload.attachment_refs.map((ref) => ({ ...ref })) },
+      };
+      if (!saveSubmission(submission)) {
+        delete submission.edit;
+        this.state.display.notice = m('error.saveOriginal');
+        this.emit();
+        return;
+      }
+      this.localOutbox.add(submission.payload.submission_id);
+    }
+    if (submission.edit.state !== 'pending') return;
+    this.state.display.notice = 'Edit is awaiting a durable withdrawal result; the original message is retained.';
+    // Retrying Edit reuses this exact cancel identity, including after reopen.
+    this.sendWithdraw(submission, submission.edit.cancel_id);
+    this.scheduleReceiptRefresh();
+    this.emit();
+  }
+
+  private restoreEdit(submission: Submission): void {
+    const edit = submission.edit;
+    if (!edit || edit.state !== 'ready') return;
+    if (!edit.draft.content.trim() && edit.draft.attachment_refs.length === 0) {
+      edit.state = 'closed';
+      if (!saveSubmission(submission)) {
+        edit.state = 'ready';
+        this.state.display.notice = m('error.saveOriginal');
+      }
+      return;
+    }
+    if (this.state.submissions.some((row) => row.payload.submission_id === edit.submission_id)) {
+      this.state.display.notice = 'The replacement is already saved with its attachments. Use Retry on that message; the original edit cannot create another copy.';
+      return;
+    }
+    if (this.editing || this.state.draft.length > 0 || this.state.attachments.length > 0) {
+      this.state.display.notice = 'The withdrawn edit is saved with its attachments. Finish or clear the current draft, then choose Edit on the original message.';
+      return;
+    }
+    edit.state = 'editing';
+    if (!saveSubmission(submission)) {
+      edit.state = 'ready';
+      this.state.display.notice = m('error.saveOriginal');
+      return;
+    }
+    this.editing = submission;
+    this.state.draft = edit.draft.content;
+    this.state.attachments = edit.draft.attachment_refs.map((ref, index) => ({
+      local_id: `edit-${edit.cancel_id}-${index}`, name: ref.name, media_type: ref.media_type,
+      bytes: ref.bytes, status: 'ready', ref: { ...ref },
+    }));
+    // The complete edit draft lives atomically beside its original identity,
+    // including files. The text-only preference must not strand its files.
+    this.state.display.notice = 'Withdrawal confirmed. The saved edit and attachments are in the composer; Send submits it once.';
+  }
+
   private sendWithMode(mode: 'append' | 'steer'): void {
+    if (this.editing && !this.transport.isOpen) return;
     const content = this.state.draft.trim();
     const subjectId = this.state.subject_id;
     const attachments = this.state.attachments;
     if (attachments.some((item) => item.status !== 'ready')) return;
     const refs = attachments.map((item) => item.ref).filter((ref): ref is WebAttachmentRef => Boolean(ref));
     if ((!content && refs.length === 0) || !subjectId || this.state.connection !== 'online') return;
+    if (!this.saveEditDraft()) {
+      this.emit();
+      return;
+    }
     if (mode === 'steer' && !this.state.capabilities.steer) {
       this.state.display.notice = m('error.steerUnavailable');
       this.emit();
@@ -343,8 +458,8 @@ class LiveController implements ProjectionController {
     const payload: SubmissionPayload = {
       schema_version: 2,
       type: 'submit',
-      submission_id: uid(),
-      message_id: uid(),
+      submission_id: this.editing?.edit?.submission_id ?? uid(),
+      message_id: this.editing?.edit?.message_id ?? uid(),
       subject_id: subjectId,
       mode,
       content,
@@ -365,6 +480,14 @@ class LiveController implements ProjectionController {
       return;
     }
     this.localOutbox.add(payload.submission_id);
+    if (this.editing?.edit) {
+      // This exact payload now belongs to its retry row, even if finishing
+      // the original recovery record fails. Never keep a mutable composer
+      // capable of overwriting this already-persisted replacement identity.
+      this.editing = undefined;
+      this.state.draft = '';
+      storageSet(DRAFT_KEY, '');
+    }
     // The files now belong to this saved submission; a retry resends them.
     for (const item of attachments) if (item.preview) URL.revokeObjectURL(item.preview);
     this.state.attachments = [];
@@ -378,6 +501,23 @@ class LiveController implements ProjectionController {
   private sendSubmission(submission: Submission, retry: boolean): void {
     const socket = this.transport;
     if (!socket.isOpen) return;
+    const editSource = this.state.submissions.find(
+      (source) => source.edit?.submission_id === submission.payload.submission_id);
+    if (editSource?.edit) {
+      const previous = editSource.edit.state;
+      editSource.edit.state = 'finished';
+      // Every send/retry must durably finish the original recovery first.
+      // A reopened in-memory phase alone never authorizes this transition.
+      if (!saveSubmission(editSource)) {
+        editSource.edit.state = previous;
+        submission.receipt = 'unknown';
+        submission.detail = m('error.saveOriginal');
+        saveSubmission(submission);
+        this.scheduleReceiptRefresh();
+        this.emit();
+        return;
+      }
+    }
     submission.send_epoch += 1;
     submission.receipt = 'sending';
     submission.detail = undefined;
@@ -392,7 +532,7 @@ class LiveController implements ProjectionController {
     try {
       socket.send(JSON.stringify(submission.payload));
       submission.receipt = 'sent';
-      if (this.state.draft.trim() === submission.payload.content) {
+      if (!editSource && this.state.draft.trim() === submission.payload.content) {
         this.state.draft = '';
         storageSet(DRAFT_KEY, '');
       }
@@ -401,7 +541,7 @@ class LiveController implements ProjectionController {
     } catch {
       submission.receipt = 'unknown';
       submission.detail = retry ? m('error.retryTransport') : m('error.submissionTransport');
-      if (!this.state.draft.trim()) {
+      if (!editSource && !this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
@@ -414,7 +554,7 @@ class LiveController implements ProjectionController {
   // Withdrawal is a durable control record, not a delete: the admitted input
   // stays in the ledger and the server reports withdrawal_queued vs
   // withdrawn_before_presentation through the next submission_view.
-  private sendWithdraw(submission: Submission): void {
+  private sendWithdraw(submission: Submission, cancelId = uid()): void {
     const socket = this.transport;
     if (!socket.isOpen) return;
     if (!this.state.capabilities.withdraw) {
@@ -429,7 +569,7 @@ class LiveController implements ProjectionController {
           type: 'withdraw',
           submission_id: submission.payload.submission_id,
           subject_id: submission.payload.subject_id,
-          cancel_id: uid(),
+          cancel_id: cancelId,
         }),
       );
     } catch {
@@ -678,12 +818,19 @@ class LiveController implements ProjectionController {
 
   // Poll only while unresolved receipts exist and the real socket advertises
   // durable queries. Timeline traffic is not evidence of this input's S0/S1.
+  private needsReceiptRefresh(submission: Submission): boolean {
+    if (submission.payload.subject_id !== this.state.subject_id || submission.edit?.state === 'retired') return false;
+    if (submission.edit?.state === 'pending') return true;
+    // Withdrawal is its own durable outcome. The original can remain accepted
+    // forever; it must never be painted as committed to stop local polling.
+    if (submission.withdrawal?.result === 'withdrawn_before_presentation') return false;
+    return ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt);
+  }
+
   private scheduleReceiptRefresh(): void {
     if (this.receiptTimer !== null || this.disposed || this.state.connection !== 'online'
       || !this.state.durable_receipts || !this.state.subject_id
-      || !this.state.submissions.some((submission) =>
-        submission.payload.subject_id === this.state.subject_id
-        && ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt))
+      || !this.state.submissions.some((submission) => this.needsReceiptRefresh(submission))
       && this.pendingActions.size === 0) return;
     this.receiptTimer = window.setTimeout(() => {
       this.receiptTimer = null;
@@ -699,8 +846,7 @@ class LiveController implements ProjectionController {
     const subjectId = this.state.subject_id;
     if (!subjectId) return;
     for (const submission of this.state.submissions) {
-      if (submission.payload.subject_id !== subjectId
-        || !['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)) {
+      if (!this.needsReceiptRefresh(submission)) {
         continue;
       }
       try {

@@ -10,16 +10,13 @@
 //! * [`open_component_with`] opens one component with explicit create /
 //!   truncate / append flags, again relative to the handle.
 //!
-//! cap-std resolves every path beneath the handle it was given, so a symlink
-//! planted by the guest can never redirect a resolution outside the admitted
-//! mount. cap-std's own `OpenOptions` cannot express "do not follow the final
-//! symlink", so the decision is made here: the entry is inspected with
-//! `symlink_metadata` first, and the opened descriptor's `(dev, ino)` is
-//! compared against that inspection. A symbolic link is reported as `ELOOP`
-//! (the preview1 contract for opening a link without `SYMLINK_FOLLOW`), and
-//! an entry that was replaced between the inspection and the open is refused
-//! instead of being silently followed.
+//! cap-std confines path resolution beneath the admitted handle. Directory
+//! opens disable final symlink resolution and require a directory at open time
+//! on Unix. Metadata inspection classifies existing links as `ELOOP`, and the
+//! opened descriptor's `(dev, ino)` detects a replacement between inspection
+//! and open.
 
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, Metadata, OpenOptions};
 use std::fs::File;
 use std::io;
@@ -103,7 +100,12 @@ pub fn open_component(dir: &Dir, name: &Path) -> io::Result<Option<File>> {
         return Err(io::Error::other(ELOOP));
     }
     let mut options = OpenOptions::new();
-    options.read(true);
+    options.read(true).follow(FollowSymlinks::No);
+    #[cfg(unix)]
+    {
+        use cap_std::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_DIRECTORY);
+    }
     let file = match dir.open_with(name, &options) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -115,7 +117,7 @@ pub fn open_component(dir: &Dir, name: &Path) -> io::Result<Option<File>> {
         return Err(io::Error::other("ENOTDIR"));
     }
     let expected = FileIdentity::from_metadata(&inspected);
-    let actual = FileIdentity::of_file(&opened)?;
+    let actual = meta_identity(&after);
     if let Some(expected) = expected {
         if expected != actual {
             return Err(io::Error::other(EAGAIN));

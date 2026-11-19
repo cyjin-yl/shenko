@@ -110,6 +110,9 @@ pub(crate) async fn start(
     // per-execution it reopens this installation's unit inventory so
     // installs made after startup are visible.
     let wasi_mounts = prepared_home.manifest.mounts.clone();
+    // record_local_provisioning has validated this installation's ready home.
+    // Capture the same closure once; Files never reparses host path authority.
+    let file_mounts = Arc::new(shenko_ui::files::FileMounts::from_validated_startup(&wasi_mounts)?);
     drop(prepared_home);
     let identity = adopt_identity(&store, agent_id, name.as_deref(), identity_service)?;
     info!(
@@ -260,7 +263,7 @@ pub(crate) async fn start(
         );
         println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
         let runtime_result =
-            run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state).await;
+            run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state, file_mounts).await;
         consumers.stop(&authority_runtime).await?;
         return runtime_result;
     }
@@ -378,7 +381,8 @@ pub(crate) async fn start(
         .with_media_runtime(Arc::clone(&media.runtime))
         .with_context(Arc::clone(&context_registry), capabilities, reserved_output_tokens)
         .with_data_dir(data_dir.clone())
-        .with_file_peers(file_peers(&data_dir))
+        .with_file_mounts(file_mounts)
+        .with_file_peers(file_peers(&data_dir).ok())
         .with_owner(owner_state)
         .with_config(config_service)
         .with_artifact_services(Arc::clone(&installed.artifact_services))
@@ -460,11 +464,13 @@ async fn run_deterministic_ui(
     failure: tokio_util::sync::CancellationToken,
     native: Arc<shenko_subject::NativeChildService>,
     owner: shenko_ui::owner::OwnerState,
+    file_mounts: Arc<shenko_ui::files::FileMounts>,
 ) -> Result<()> {
     let ui = shenko_ui::server::UiServer::new(port)
         .with_native(native)
         .with_store(store)
-        .with_file_peers(file_peers(&data_dir))
+        .with_file_mounts(file_mounts)
+        .with_file_peers(file_peers(&data_dir).ok())
         .with_data_dir(data_dir)
         .with_owner(owner)
         .with_inference_status(model_profile.model, model_profile.configured);
@@ -487,12 +493,11 @@ async fn run_deterministic_ui(
 
 /// The nodes this node syncs with, read without taking the node's writer
 /// role, for the file view. An installation with no node database has none.
-fn file_peers(data_dir: &std::path::Path) -> Vec<shenko_ui::files::FilePeer> {
-    let Ok(Some(node)) = shenko_node::Node::open_inspect(&data_dir.join("node")) else {
-        return Vec::new();
+fn file_peers(data_dir: &std::path::Path) -> Result<Vec<shenko_ui::files::FilePeer>> {
+    let Some(node) = shenko_node::Node::open_inspect(&data_dir.join("node"))? else {
+        return Ok(Vec::new());
     };
-    node.sync_peers()
-        .unwrap_or_default()
+    Ok(node.sync_peers()?
         .into_iter()
         .map(|state| shenko_ui::files::FilePeer {
             node_id: state.peer.node_id.to_string(),
@@ -502,5 +507,21 @@ fn file_peers(data_dir: &std::path::Path) -> Vec<shenko_ui::files::FilePeer> {
             confirmed_at: state.confirmation.map(|confirmation| confirmation.confirmed_at.to_rfc3339()),
             failure: state.failure.map(|failure| failure.reason),
         })
-        .collect()
+        .collect())
+}
+
+#[cfg(test)]
+mod file_peer_tests {
+    #[test]
+    fn unknown_peer_inventory_is_distinct_from_no_installation() -> anyhow::Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-file-peers-{}", shenko_types::ids::EntityId::new()));
+        std::fs::create_dir_all(root.join("node"))?;
+        let absent = super::file_peers(&root);
+        std::fs::write(root.join("node/node.sqlite3"), b"invalid node database")?;
+        let unavailable = super::file_peers(&root);
+        std::fs::remove_dir_all(root)?;
+        assert!(absent?.is_empty());
+        assert!(unavailable.is_err());
+        Ok(())
+    }
 }

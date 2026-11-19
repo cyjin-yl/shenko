@@ -91,6 +91,8 @@ pub struct ApiState {
     /// Ownership state (claim + authenticated actor). None means the routes
     /// report that ownership is not installed rather than fabricating one.
     pub owner: Option<OwnerState>,
+    /// Pinned roots from the validated runtime startup, never data-dir guesses.
+    pub file_mounts: Option<Arc<crate::files::FileMounts>>,
     /// Other nodes this node syncs with, as the runtime knows them, for the
     /// file view. None means the runtime supplied no node facts.
     pub file_peers: Option<Vec<crate::files::FilePeer>>,
@@ -147,6 +149,11 @@ impl ApiState {
 
     pub fn with_file_peers(mut self, peers: Vec<crate::files::FilePeer>) -> Self {
         self.file_peers = Some(peers);
+        self
+    }
+
+    pub fn with_file_mounts(mut self, mounts: Arc<crate::files::FileMounts>) -> Self {
+        self.file_mounts = Some(mounts);
         self
     }
 }
@@ -1324,12 +1331,15 @@ async fn attachment_bytes_handler(
 
 /// `GET /api/files/roots`: the home, other declared mounts and other nodes.
 async fn file_roots_handler(State(state): State<ApiState>) -> Json<Value> {
-    let Some(data_dir) = state.data_dir.clone() else {
-        return Json(json!({ "available": false, "roots": [], "note": "no data directory is attached" }));
+    let Some(mounts) = state.file_mounts.clone() else {
+        return Json(json!({ "available": false, "roots": [], "nodes_known": state.file_peers.is_some(),
+            "error": "运行时未提供已准入的文件系统" }));
     };
     let peers = state.file_peers.clone().unwrap_or_default();
-    let roots = tokio::task::spawn_blocking(move || crate::files::roots(&data_dir, &peers)).await.unwrap_or_default();
-    Json(json!({ "available": true, "roots": roots, "nodes_known": state.file_peers.is_some() }))
+    match tokio::task::spawn_blocking(move || crate::files::roots(&mounts, &peers)).await {
+        Ok(roots) => Json(json!({ "available": true, "roots": roots, "nodes_known": state.file_peers.is_some() })),
+        Err(error) => Json(json!({ "available": false, "roots": [], "nodes_known": state.file_peers.is_some(), "error": error.to_string() })),
+    }
 }
 
 #[derive(Deserialize)]
@@ -1339,15 +1349,37 @@ struct FileListQuery {
     path: String,
 }
 
-/// `GET /api/files/list?root=<id>&path=<relative path>`: one directory.
+/// `GET /api/files/list?root=<id>&path=<native tokens>`: bounded metadata.
+/// Like configuration discover/read, metadata uses the existing read-only API
+/// convention; it does not grant administrative effects or file-content reads.
 async fn file_list_handler(State(state): State<ApiState>, Query(query): Query<FileListQuery>) -> Json<Value> {
-    let Some(data_dir) = state.data_dir.clone() else {
-        return Json(json!({ "available": false, "entries": [], "error": "no data directory is attached" }));
+    let Some(mounts) = state.file_mounts.clone() else {
+        return Json(json!({ "available": false, "entries": [], "truncated": false,
+            "error": "运行时未提供已准入的文件系统" }));
     };
-    let listed = tokio::task::spawn_blocking(move || crate::files::list(&data_dir, &query.root, &query.path)).await;
+    let listed = tokio::task::spawn_blocking(move || crate::files::list(&mounts, &query.root, &query.path)).await;
     match listed {
-        Ok(Ok(entries)) => Json(json!({ "available": true, "entries": entries })),
-        Ok(Err(error)) => Json(json!({ "available": true, "entries": [], "error": error })),
-        Err(error) => Json(json!({ "available": false, "entries": [], "error": error.to_string() })),
+        Ok(Ok(listing)) => Json(json!({ "available": true, "entries": listing.entries, "truncated": listing.truncated })),
+        Ok(Err(error)) => Json(json!({ "available": true, "entries": [], "truncated": false, "error": error })),
+        Err(error) => Json(json!({ "available": false, "entries": [], "truncated": false, "error": error.to_string() })),
+    }
+}
+
+#[cfg(test)]
+mod file_boundary_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn files_without_runtime_authority_are_unavailable_even_with_a_data_directory() {
+        let state = ApiState::new().with_data_dir("an-unvalidated-installation");
+        let Json(roots) = file_roots_handler(State(state.clone())).await;
+        assert_eq!(roots["available"], false);
+        assert!(roots["error"].is_string());
+        let Json(listing) = file_list_handler(State(state), Query(FileListQuery {
+            root: "mount:/home".to_owned(), path: String::new(),
+        })).await;
+        assert_eq!(listing["available"], false);
+        assert!(listing["error"].is_string());
+        assert_eq!(listing["truncated"], false);
     }
 }

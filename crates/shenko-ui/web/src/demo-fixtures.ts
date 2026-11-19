@@ -74,14 +74,14 @@ const DEMO_ROOTS: FileRoot[] = [
   { id: 'mount:/mac', label: 'mac', kind: 'mount', protocol: 'shared_folder', guest_path: '/mac', mode: 'read_only', writable: false, browsable: true, note: null },
   { id: 'node:1cat', label: '1cat · home', kind: 'node', protocol: 'ssh', guest_path: '/srv/shenko/home', mode: null, writable: false, browsable: false, note: '示例节点：浏览其他节点的文件尚未接通' },
 ];
-const DEMO_TREE: Record<string, FileEntry[]> = {
+const DEMO_TREE: Record<string, Array<Omit<FileEntry, 'id'>>> = {
   'mount:/home:': [
     { name: 'notes', kind: 'dir', bytes: 0, modified: secondsAgo(3600) },
     { name: 'projects', kind: 'dir', bytes: 0, modified: secondsAgo(7200) },
     { name: 'startup-order.md', kind: 'file', bytes: 2148, modified: secondsAgo(600) },
     { name: 'merge-plan.json', kind: 'file', bytes: 734, modified: secondsAgo(320) },
   ],
-  'mount:/home:notes': [
+  'mount:/home:6e6f746573': [
     { name: '2026-11-12-deploy.md', kind: 'file', bytes: 5120, modified: secondsAgo(86400 * 7) },
     { name: 'cold-cache.md', kind: 'file', bytes: 911, modified: secondsAgo(1800) },
   ],
@@ -91,8 +91,13 @@ const DEMO_TREE: Record<string, FileEntry[]> = {
   'mount:/mac:': [{ name: 'Desktop', kind: 'dir', bytes: 0, modified: secondsAgo(9000) }],
 };
 const demoFiles: FileSource = {
-  async roots() { return { roots: DEMO_ROOTS, nodes_known: true }; },
-  async list(root, path) { return { entries: DEMO_TREE[`${root}:${path}`] ?? [] }; },
+  async roots() { return { available: true, roots: DEMO_ROOTS, nodes_known: true }; },
+  async list(root, path) {
+    const entries = (DEMO_TREE[`${root}:${path}`] ?? []).map((entry) => ({
+      ...entry, id: Array.from(new TextEncoder().encode(entry.name), (byte) => byte.toString(16).padStart(2, '0')).join(''),
+    }));
+    return { available: true, entries, truncated: false };
+  },
 };
 
 export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory, files: demoFiles };

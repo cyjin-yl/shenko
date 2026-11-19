@@ -248,6 +248,15 @@ export interface Submission {
   committed_at?: string;
   placement?: SubmissionPlacement;
   withdrawal?: WithdrawalView;
+  /** Browser recovery only; never included in the submit/withdraw wire. */
+  edit?: {
+    cancel_id: string;
+    /** closed: queued cancellation or cleared draft; retired: replacement disposed. */
+    state: 'pending' | 'ready' | 'editing' | 'finished' | 'closed' | 'retired';
+    submission_id: string;
+    message_id: string;
+    draft: { content: string; attachment_refs: WebAttachmentRef[] };
+  };
   // Correlation between this client's send attempts and the query_replies:
   // a view for an older attempt must not undo a newer send's restored ACK.
   send_epoch: number;
@@ -649,7 +658,10 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
     const refs: string[] = [];
     let retryAction: string | undefined;
     let withdrawAction: string | undefined;
-    if (submission.receipt === 'rejected' || submission.receipt === 'unknown') {
+    const hasReplacement = submission.edit && state.submissions.some(
+      (row) => row.payload.submission_id === submission.edit?.submission_id);
+    if ((!submission.edit || !hasReplacement && submission.edit.state === 'pending' && !submission.withdrawal)
+      && (submission.receipt === 'rejected' || submission.receipt === 'unknown')) {
       retryAction = addAction(
         actions,
         `submission.retry.${submission.payload.submission_id}`,
@@ -661,7 +673,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       refs.push(retryAction);
     }
     const withdrawable = ['sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)
-      && !submission.withdrawal;
+      && !submission.withdrawal && !submission.edit;
     if (withdrawable && state.capabilities.withdraw) {
       withdrawAction = addAction(
         actions,
@@ -673,17 +685,20 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       );
       refs.push(withdrawAction);
     }
-    // A message the subject has not taken yet can be edited, as a queued
-    // message can in Claude Code: it is withdrawn and its text goes back to
-    // the composer. Once selected it is the subject's input and stays.
+    // Pending edits retry the same cancel, never the original submit. Ready
+    // edits remain recoverable when another draft occupies the composer.
     let editAction: string | undefined;
-    if (['sent', 'accepted'].includes(submission.receipt) && !submission.withdrawal && state.capabilities.withdraw) {
+    const recoverableEdit = submission.edit && !hasReplacement && ['pending', 'ready'].includes(submission.edit.state)
+      && (!submission.withdrawal || submission.withdrawal.cancel_id === submission.edit.cancel_id
+        && submission.withdrawal.result === 'withdrawn_before_presentation');
+    if (recoverableEdit || !submission.edit && ['sent', 'accepted'].includes(submission.receipt)
+      && !submission.withdrawal && state.capabilities.withdraw) {
       editAction = addAction(
         actions,
         `submission.edit.${submission.payload.submission_id}`,
         'submission.edit',
-        `edit:${submission.payload.submission_id}:${semanticHash(submission.payload.content)}`,
-        state.connection === 'online',
+        `edit:${submission.payload.submission_id}:${submission.edit?.state ?? 'new'}:${semanticHash(submission.payload.content)}`,
+        submission.edit?.state === 'ready' || state.connection === 'online' && state.capabilities.withdraw,
         { submission_id: submission.payload.submission_id },
       );
       refs.push(editAction);

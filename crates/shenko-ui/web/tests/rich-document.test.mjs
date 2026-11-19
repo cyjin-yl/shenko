@@ -25,7 +25,7 @@ mkdirSync(cacheRoot, { recursive: true });
 const bundlePath = join(mkdtempSync(join(cacheRoot, 'shenko-document-')), 'consumer.mjs');
 await build({
   stdin: {
-    contents: "export { RichDocument } from '../src/document-view.tsx';",
+    contents: "export { RichDocument } from '../src/document-view.tsx'; export { ImView } from '../src/im.tsx'; export { buildProjection } from '../src/projection.ts'; export { initialState } from '../src/live-state.ts'; export { collectThreads } from '../src/threads.ts';",
     resolveDir: join(webRoot, 'tests'),
     sourcefile: 'document-view-consumer.mjs',
   },
@@ -36,9 +36,48 @@ await build({
   jsx: 'automatic',
   external: ['react', 'react-dom', 'react/jsx-runtime'],
 });
-const { RichDocument } = await import(pathToFileURL(bundlePath).href);
+const { RichDocument, ImView, buildProjection, initialState, collectThreads } = await import(pathToFileURL(bundlePath).href);
 
 const markdown = (text) => createElement('div', { className: 'markdown-body' }, text);
+
+test('grouped IM owner rows each retain their saved edit recovery action', (context) => {
+  const previousLocation = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  Object.defineProperty(globalThis, 'location', { value: { search: '' }, configurable: true });
+  context.after(() => {
+    if (previousLocation) Object.defineProperty(globalThis, 'location', previousLocation);
+    else delete globalThis.location;
+  });
+  const state = initialState();
+  state.source = 'live';
+  state.connection = 'online';
+  state.subject_id = 'fixture-subject';
+  state.submissions = [1, 2, 3].map((id) => ({
+    payload: { schema_version: 2, type: 'submit', mode: 'append', subject_id: 'fixture-subject',
+      submission_id: `saved-${id}`, message_id: `message-${id}`, content: `Original ${id}`, attachment_refs: [] },
+    created_at: `2026-11-19T00:00:0${id}Z`, receipt: 'accepted', send_epoch: 1,
+    withdrawal: { cancel_id: `cancel-${id}`, commit_ref: `ledger/${id}`, result: 'withdrawn_before_presentation' },
+    edit: { cancel_id: `cancel-${id}`, state: id === 3 ? 'closed' : 'ready',
+      submission_id: `replacement-${id}`, message_id: `replacement-message-${id}`,
+      draft: { content: `Saved edit ${id}`, attachment_refs: [] } },
+  }));
+  const projection = buildProjection(state, 1);
+  const threads = collectThreads({ projection, tasks: [], conversations: [] });
+  const direct = threads[0];
+  const markup = renderToStaticMarkup(createElement(ImView, {
+    threads, selected: direct.id, onSelect: () => {}, composer: null,
+    renderAttachment: () => null, emit: () => {}, onOpenInspect: () => {}, demo: false,
+  }));
+  for (const id of [1, 2]) {
+    const start = markup.indexOf(`data-entry-key="submission.saved-${id}"`);
+    const end = markup.indexOf(`data-entry-key="submission.saved-${id + 1}"`, start + 1);
+    assert.ok(start >= 0 && end > start, 'the earlier grouped owner row exists');
+    assert.ok(markup.slice(start, end).includes(`data-action-id="submission.edit.saved-${id}"`),
+      'each non-tail row exposes its own legitimate recovery action');
+    assert.equal(projection.actions[`submission.edit.saved-${id}`].enabled, true);
+  }
+  assert.equal(markup.includes('data-action-id="submission.edit.saved-3"'), false,
+    'a closed edit does not acquire a recovery action from grouping');
+});
 
 function render(nodes, options = [], actionRefs = []) {
   return renderToStaticMarkup(createElement(RichDocument, {

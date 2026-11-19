@@ -521,6 +521,7 @@ pub(crate) fn ensure_raw_session(
 fn stage_input(
     tx: &Transaction<'_>,
     session_id: EntityId,
+    agent_id: EntityId,
     step: &SubjectStep,
     input: &SubjectHistoryInput,
     commit_seq: u64,
@@ -552,6 +553,13 @@ fn stage_input(
                 input.event_id
             )));
         }
+        return Ok(false);
+    }
+    // This Immediate transaction is ordered against submit_web_withdrawal.
+    // A successful pre-staging withdrawal must exclude even a live copy read
+    // before cancellation. A prior staging wins instead and cancellation is
+    // queued; its original binding above remains immutable and recoverable.
+    if crate::web_input::event_withdrawn_before_presentation(tx, agent_id, input.event_id)? {
         return Ok(false);
     }
     let seq = next_session_seq(tx, session_id)?;
@@ -903,7 +911,10 @@ impl Store {
              LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
-             WHERE i.agent_id=?1 AND (
+             WHERE i.agent_id=?1 AND NOT EXISTS (
+               SELECT 1 FROM web_input_withdrawals w
+               WHERE w.agent_id=i.agent_id AND w.event_id=i.event_id
+                 AND w.result='\"withdrawn_before_presentation\"') AND (
                (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR i.source LIKE 'media/%'))
                OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
                     OR json_extract(d.disposition,'$.disposition')='deferred')))
@@ -940,6 +951,10 @@ impl Store {
     /// seal, not an S1 acknowledgement: the head must be the live one and the
     /// step must still be the registered planned step, so no input can be
     /// inserted into a step whose seal is already fixed.
+    /// A pre-staging browser withdrawal is checked in that same Immediate
+    /// transaction. Excluded inputs create no raw input or disposition; their
+    /// admission and withdrawal remain the only facts. The returned records,
+    /// rather than the caller's volatile batch, own the input plan membership.
     pub fn stage_subject_inputs(
         &self,
         expected_head: &SubjectBranchHead,
@@ -988,7 +1003,7 @@ impl Store {
         let commit_seq = self.ledger.allocate_seq(&tx)?;
         let mut written = 0i64;
         for input in inputs {
-            if stage_input(&tx, session_id, &registered, input, commit_seq.0)? {
+            if stage_input(&tx, session_id, head.agent_id, &registered, input, commit_seq.0)? {
                 written += 1;
             }
         }

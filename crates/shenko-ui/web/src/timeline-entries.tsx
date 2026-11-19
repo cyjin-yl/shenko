@@ -182,6 +182,7 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
   const withdrawal = submission.withdrawal;
   const withdrawAction = node.props.withdraw_action as string | undefined;
   const retryAction = node.props.retry_action as string | undefined;
+  const editAction = node.props.edit_action as string | undefined;
   const placement = placementText(submission);
   const steer = Boolean(submission.placement?.target_request_id);
   const detail = [receipt.long, resolveMessage(submission.detail), placement].filter(Boolean).join(' · ');
@@ -216,6 +217,11 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
           {!withdrawal && typeof withdrawAction === 'string' && (
             <button type="button" className="text-action" onClick={() => emit(node.node_id, withdrawAction)}>
               <Icon name="undo" size={14} />撤回
+            </button>
+          )}
+          {typeof editAction === 'string' && (
+            <button type="button" className="text-action" onClick={() => emit(node.node_id, editAction)}>
+              {t('common.edit')}
             </button>
           )}
         </footer>
