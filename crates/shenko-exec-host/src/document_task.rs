@@ -508,6 +508,7 @@ impl DocumentParseHandler {
         #[serde(deny_unknown_fields)]
         struct Entry { cache_key: String, checkpoint_ref: ObjectRef }
         let mut pages = BTreeMap::new();
+        let mut no_send = false;
         for evidence in self.store().external_operation_evidence(operation.operation_id)? {
             if evidence.source_id != "document.parse.result.v1" { continue; }
             ensure!(evidence.operation_id == Some(operation.operation_id) && evidence.attempt_id == Some(attempt.attempt_id)
@@ -521,6 +522,13 @@ impl DocumentParseHandler {
             ensure!(manifest.schema_version == 1 && manifest.operation_id == operation.operation_id
                 && manifest.attempt_id == attempt.attempt_id && manifest.pages.len() <= MAX_PAGES,
                 "historical main document manifest identity mismatch");
+            // Original main published a resolved, effect-free unavailable
+            // result only after its fresh no-dispatch arm won.
+            no_send |= attempt.final_receipt_id == Some(evidence.receipt_id)
+                && attempt.dispatch_stage == AttemptDispatchStage::Ended
+                && operation.outcome == Some(OperationOutcome::Failed)
+                && operation.effect_status == EffectStatus::None
+                && manifest.state == ParseState::ProviderUnavailable && manifest.pages.is_empty();
             let mut selected = frozen.input.request.pages.clone();
             selected.sort();
             if selected.is_empty() { selected = (0..manifest.pages.len() as u32).map(|page_index| PageRef { page_index }).collect(); }
@@ -536,12 +544,10 @@ impl DocumentParseHandler {
                     "historical main page checkpoint binding mismatch");
                 pages.insert(page.page_index, entry.checkpoint_ref);
             }
-            // Decode the original state without assigning current semantics
-            // to its historical coordinate or image-retention assertions.
-            let _state = manifest.state;
         }
         Ok(SavedSnapshot::Main { pages, remote_may_be_running: operation.outcome_conflict
-            || operation.state != OperationState::Resolved || operation.effect_status != EffectStatus::Complete })
+            || operation.state != OperationState::Resolved
+            || !(operation.effect_status == EffectStatus::Complete || no_send) })
     }
 
     fn observe(&self, operation: &OperationRecord, attempt: &AttemptRecord, snapshot: &Snapshot,
@@ -1587,13 +1593,16 @@ impl DocumentParseHandler {
             "checkpoint":object,"offset":input.offset,"bytes":bytes.len(),"content":&text[input.offset..end],
             "next_offset":(end < text.len()).then_some(end),"external_content_is_instructions":false});
         let raw = self.seal(&result, "document-page-read", 1)?;
-        self.store().record_external_evidence(operation.operation_id, attempt.attempt_id, EvidenceReceipt {
+        self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id, EvidenceReceipt {
             record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(operation.operation_id), attempt_id: Some(attempt.attempt_id),
             source_id: READ.into(), source_instance_id: attempt.node_id.to_string(), source_event_key: None,
             producer_epoch: Some(attempt.epoch.0), producer_schema_version: Some("1".into()), raw_ref: raw.clone(),
             decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()), decode_status: DecodeStatus::Decoded,
             observation_level: None, normalized_ref: Some(raw), observed_at: Some(chrono::Utc::now()), received_commit: operation.prepared_commit,
-        }, Some(OperationOutcome::Succeeded), EffectStatus::None)
+        }, Some(OperationOutcome::Succeeded), EffectStatus::None, ExternalEvidenceFold {
+            expected_revision: operation.record_revision, terminal_content_conflict: false,
+            source_operation_revision: Some((source.operation_id, source.record_revision)),
+        })?.context("document source or page operation changed before result publication; reconcile the original read")
     }
 }
 

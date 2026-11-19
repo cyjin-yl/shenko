@@ -718,24 +718,34 @@ mod document_recovery {
 
     #[tokio::test]
     async fn original_main_handle_dispatches_and_settles_through_installed_reader() {
-        historical_main_recovery_case(true, true).await;
+        historical_main_recovery_case(HistoricalMainCut::Accepted).await;
     }
 
     #[tokio::test]
     async fn mismatched_main_installation_never_queries_and_keeps_debt() {
-        historical_main_recovery_case(true, false).await;
+        historical_main_recovery_case(HistoricalMainCut::MismatchedAccount).await;
     }
 
     #[tokio::test]
     async fn main_t1_without_receipt_retains_debt_without_any_wire_request() {
-        historical_main_recovery_case(false, true).await;
+        historical_main_recovery_case(HistoricalMainCut::NoReceipt).await;
     }
 
-    async fn historical_main_recovery_case(accepted: bool, matched: bool) {
+    #[tokio::test]
+    async fn historical_unavailable_without_dispatch_does_not_charge_capacity() {
+        historical_main_recovery_case(HistoricalMainCut::UnavailableWithoutDispatch).await;
+    }
+
+    enum HistoricalMainCut { Accepted, MismatchedAccount, NoReceipt, UnavailableWithoutDispatch }
+
+    async fn historical_main_recovery_case(cut: HistoricalMainCut) {
         use shenko_document::legacy_main::{AttemptBinding, OxrTaskHandle};
         use shenko_types::operation::*;
         use shenko_types::task::ImplementationRef;
         const ORIGINAL_CONTRACT: &[u8] = b"shenko.document.parse/v1: one original armed OXR upload; immutable accepted-task and page receipts; unknown reconciles without upload replay";
+        let no_send = matches!(cut, HistoricalMainCut::UnavailableWithoutDispatch);
+        let accepted = matches!(cut, HistoricalMainCut::Accepted | HistoricalMainCut::MismatchedAccount);
+        let matched = !matches!(cut, HistoricalMainCut::MismatchedAccount);
         let peer = Peer::new(9).await;
         let provider = |account: &str| serde_json::json!({"endpoint":peer.endpoint,
             "model":"owned-http-fixture/no-real-OXR","account":account,"scope":"original-main-scope",
@@ -801,7 +811,12 @@ mod document_recovery {
                     node_id:invocation.task_invocation.node_id,epoch:invocation.task_invocation.epoch,implementation_ref:descriptor.implementation(),
                     dispatch_stage:AttemptDispatchStage::Armed,armed_commit:zero,provider_handle:None,provider_idempotency:None,
                     transport_ref:None,started_at:None,last_observed_at:None,final_receipt_id:None };
-                assert!(fixture.store.arm_native_operation_for_dispatch(&invocation.task_invocation,&mut operation,&mut attempt).unwrap().is_none());
+                let existing = if no_send {
+                    fixture.store.arm_external_operation(&invocation.task_invocation,&mut operation,&mut attempt)
+                } else {
+                    fixture.store.arm_native_operation_for_dispatch(&invocation.task_invocation,&mut operation,&mut attempt)
+                };
+                assert!(existing.unwrap().is_none());
             }
             assert_eq!(operation.effect_status, EffectStatus::None);
             assert_eq!(attempt.dispatch_stage, AttemptDispatchStage::Armed);
@@ -826,6 +841,27 @@ mod document_recovery {
                     decode_status:shenko_types::evidence::DecodeStatus::Decoded,observation_level:None,normalized_ref:Some(normalized),observed_at:Some(accepted_at),
                     received_commit:operation.prepared_commit },None,EffectStatus::Unknown).unwrap();
                 Some(handle)
+            } else if no_send {
+                let seal = |value: &serde_json::Value, schema: &str| fixture.store.cas.seal_object(
+                    &serde_json::to_vec(value).unwrap(), "application/json", "document-parse", schema, 1).unwrap().object;
+                let run = serde_json::json!({"checkpoints":[],"state":"provider_unavailable",
+                    "document_failure":"original fixture refused before admission"});
+                let manifest = seal(&serde_json::json!({"schema_version":1,"operation_id":operation.operation_id,
+                    "attempt_id":attempt_id,"state":"provider_unavailable","pages":[]}), "document-checkpoint-manifest");
+                let raw = seal(&run, "document-parse-run");
+                let normalized = seal(&serde_json::json!({"schema_version":1,"status":"unavailable",
+                    "run":run,"checkpoint_manifest_ref":manifest}), "document-parse-result");
+                operation = fixture.store.record_external_evidence(operation.operation_id, attempt_id,
+                    shenko_types::evidence::EvidenceReceipt {
+                        record_schema_version:1,receipt_id:EntityId::new(),operation_id:Some(operation.operation_id),
+                        attempt_id:Some(attempt_id),source_id:"document.parse.result.v1".into(),
+                        source_instance_id:attempt.node_id.to_string(),source_event_key:None,
+                        producer_epoch:Some(attempt.epoch.0),producer_schema_version:Some("1".into()),raw_ref:raw,
+                        decoder_ref:Some(descriptor.implementation()),decode_status:shenko_types::evidence::DecodeStatus::Decoded,
+                        observation_level:None,normalized_ref:Some(normalized),observed_at:Some(chrono::Utc::now()),
+                        received_commit:operation.prepared_commit,
+                    }, Some(OperationOutcome::Failed), EffectStatus::None).unwrap();
+                None
             } else { None };
             let original_input = operation.final_input_ref.clone();
             let original_implementation = fixture.store.external_task(task_id).unwrap().implementation_ref;
@@ -863,7 +899,21 @@ mod document_recovery {
             let before_checks = peer.state.checks.load(Ordering::SeqCst);
             let before_uploads = peer.state.uploads.load(Ordering::SeqCst);
             fixture.service.recover().unwrap();
-            if accepted && matched {
+            if no_send {
+                assert_eq!(operation.state, OperationState::Resolved);
+                assert_eq!(operation.effect_status, EffectStatus::None);
+                assert_eq!(before_checks, 0);
+                assert_eq!(before_uploads, 0);
+                peer.state.mode.store(1, Ordering::SeqCst);
+                let fresh = EntityId::new();
+                let input = fixture.input(&fixture.source, &[]);
+                commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[fresh], vec![]);
+                drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(fresh)?.is_some())).await.unwrap();
+                let fresh = fixture.store.external_operations_after("document.parse", None, 256).unwrap()
+                    .into_iter().find(|entry| entry.task_id == fresh).unwrap();
+                assert_eq!(fresh.outcome, Some(OperationOutcome::Succeeded));
+                assert_eq!(fixture.store.external_operation_evidence(operation.operation_id).unwrap(), original_evidence);
+            } else if accepted && matched {
                 drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(task_id)?.is_some())).await.unwrap();
                 let recovered = fixture.store.external_operation(operation.operation_id).unwrap();
                 assert_eq!(recovered.outcome,Some(OperationOutcome::Succeeded));
@@ -908,7 +958,8 @@ mod document_recovery {
                 assert!(fixture.store.native_task_result(waiting).unwrap().is_none(),"unattested original debt remains charged");
                 assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks,"original operation lacks a permitted query");
             }
-            assert_eq!(peer.state.uploads.load(Ordering::SeqCst),before_uploads,"legacy reconciliation never uploads");
+            assert_eq!(peer.state.uploads.load(Ordering::SeqCst), before_uploads + usize::from(no_send),
+                "only the new operation in the proven no-dispatch case may upload");
             assert_eq!(fixture.store.external_operation(operation.operation_id).unwrap().final_input_ref,original_input);
             assert_eq!(fixture.store.external_task(task_id).unwrap().implementation_ref,original_implementation);
             assert_eq!(fixture.store.external_operation_attempt(operation.operation_id).unwrap().attempt_id,attempt_id);
