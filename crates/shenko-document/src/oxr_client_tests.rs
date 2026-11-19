@@ -713,6 +713,352 @@ fn credential_echo_is_withheld_from_original_response_archive() -> anyhow::Resul
         })
 }
 
+#[tokio::test]
+async fn invalid_explicit_page_identity_never_becomes_array_position() {
+    for invalid in [
+        json!(-1),
+        json!(4_294_967_296u64),
+        json!(1),
+        json!(0.5),
+        serde_json::Value::Null,
+    ] {
+        let raw = json!({"code":0,"data":{"metadata":{"page_num":1},
+            "result":{"outputs":{"json":{"pages":[{"page_num":invalid}]}}}}})
+            .to_string();
+        let (base, state, server) = spawn_mock(HashMap::from([(
+            "/parse/sync",
+            VecDeque::from([(200, raw.clone())]),
+        )]));
+        let mut config = OxrClientConfig::new(&base, CredentialHandle::new("fixture-key"));
+        config.transport = OxrTransport::Sync;
+        let client = OxrClient::new(config).unwrap();
+        let observed = client.submit_document_observed("doc.pdf", b"fixture").await;
+        let error = observed.outcome.unwrap_err();
+        assert!(matches!(error, OxrError::MalformedResponse(_)));
+        assert!(error.outcome_is_unknown());
+        let response = observed.response.unwrap();
+        assert_eq!(response.path, "/parse/sync");
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body_state, OxrBodyState::Complete);
+        assert_eq!(response.body(), raw.as_bytes());
+
+        // This is an independent operation, using the provider boundary to
+        // prove that malformed inventory publishes neither pages nor failure.
+        let provider = provider_with(&base, OxrTransport::Sync);
+        let run = run_parse(
+            &request(&[0]),
+            &provider,
+            b"fixture",
+            ParseOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(run.state, ParseState::Running);
+        assert_eq!(run.checkpoints.len(), 1);
+        assert!(run.checkpoints[0].result.is_none());
+        assert!(run.checkpoints[0].failure.is_none());
+        assert!(run.checkpoints[0].unknown_outcome.is_some());
+        let whole = run_parse(
+            &request(&[]),
+            &provider,
+            b"fixture",
+            ParseOptions::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(whole.state, ParseState::Running);
+        assert!(whole.checkpoints.is_empty());
+        assert!(whole.document_failure.is_none());
+        assert!(whole.document_unknown_outcome.is_some());
+        assert_eq!(
+            state
+                .lock()
+                .unwrap()
+                .requests
+                .iter()
+                .filter(|(path, _)| path.ends_with("/parse/sync"))
+                .count(),
+            2,
+            "one direct observation and one provider upload; cached uncertainty never reuploads"
+        );
+        server.abort();
+    }
+
+    let positional = json!({"code":0,"data":{"metadata":{"page_num":2},
+        "result":{"outputs":{"json":{"pages":[
+            {"blocks":[{"content":"zero"}]},{"blocks":[{"content":"one"}]}
+        ]}}}}})
+    .to_string();
+    let (base, _state, server) = spawn_mock(HashMap::from([(
+        "/parse/sync",
+        VecDeque::from([(200, positional.clone())]),
+    )]));
+    let mut config = OxrClientConfig::new(base, CredentialHandle::new("fixture-key"));
+    config.transport = OxrTransport::Sync;
+    let observed = OxrClient::new(config)
+        .unwrap()
+        .submit_document_observed("doc.pdf", b"fixture")
+        .await;
+    let OxrSubmission::Completed(document) = observed.outcome.unwrap() else {
+        panic!("omitted indices must still map by position")
+    };
+    assert_eq!(
+        document.pages.iter().map(|page| page.page_num).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(document.pages[1].blocks[0].text, "one");
+    assert_eq!(observed.response.unwrap().body(), positional.as_bytes());
+    server.abort();
+}
+
+#[tokio::test]
+async fn conclusive_remote_failure_retains_body_without_becoming_unknown() {
+    let raw = json!({"code":0,"data":{"task_id":"original-failed","status":"failed",
+        "error":"upstream failed","result":{"outputs":{"json":{"pages":[
+            {"page_num":null},{"page_num":-1}
+        ]}}}}})
+    .to_string();
+    let refusal = json!({"code":1133,"message":"upstream refused"}).to_string();
+    let mut missing_success: serde_json::Value =
+        serde_json::from_str(&upstream_check_success_json()).unwrap();
+    missing_success["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("task_id");
+    let mut unrelated_success = missing_success.clone();
+    unrelated_success["data"]["task_id"] = json!("unrelated-task");
+    let unknowns = vec![
+        (401, "{}".to_owned()),
+        (403, "{}".to_owned()),
+        (404, "{}".to_owned()),
+        (200, refusal.clone()),
+        (
+            200,
+            json!({"code":0,"data":{"status":"failed"}}).to_string(),
+        ),
+        (
+            200,
+            json!({"code":0,"data":{"task_id":"unrelated-task","status":"failed"}})
+                .to_string(),
+        ),
+        (200, missing_success.to_string()),
+        (200, unrelated_success.to_string()),
+    ];
+    let mut checks = VecDeque::from(unknowns.clone());
+    checks.push_back((200, raw.clone()));
+    let (base, state, server) = spawn_mock(HashMap::from([
+        (
+            "/parse/async",
+            VecDeque::from([
+                (401, "{}".into()),
+                (200, refusal),
+                (
+                    200,
+                    json!({"code":0,"data":{"task_id":"original-failed"}}).to_string(),
+                ),
+            ]),
+        ),
+        ("/async_check", checks),
+    ]));
+    let client = OxrClient::new(OxrClientConfig::new(
+        base,
+        CredentialHandle::new("fixture-key"),
+    ))
+    .unwrap();
+    for _ in 0..2 {
+        let observed = client.submit_document_observed("fresh.pdf", b"fixture").await;
+        assert!(!observed.outcome.unwrap_err().outcome_is_unknown());
+        assert_eq!(observed.response.unwrap().body_state, OxrBodyState::Complete);
+    }
+    let OxrSubmission::Accepted(task) = client
+        .submit_document("accepted.pdf", b"fixture")
+        .await
+        .unwrap()
+    else {
+        panic!("original task must be accepted before reconciliation")
+    };
+    assert_eq!(task.task_id, "original-failed");
+    for (status, body) in &unknowns {
+        let observed = client.check_document_observed(&task).await;
+        let error = observed.outcome.unwrap_err();
+        assert!(
+            error.outcome_is_unknown(),
+            "unbound observations cannot settle the original task"
+        );
+        assert!(!matches!(error, OxrError::TaskFailed(_)));
+        let response = observed.response.unwrap();
+        assert_eq!(response.path, "/parse/async_check");
+        assert_eq!(response.status, *status);
+        assert_eq!(response.body_state, OxrBodyState::Complete);
+        assert_eq!(response.body(), body.as_bytes());
+    }
+    let observed = client.check_document_observed(&task).await;
+    let error = observed.outcome.unwrap_err();
+    assert!(matches!(error, OxrError::TaskFailed(_)));
+    assert!(
+        !error.outcome_is_unknown(),
+        "the original task's authenticated failure is conclusive"
+    );
+    assert_eq!(observed.response.unwrap().body(), raw.as_bytes());
+    let requests = state.lock().unwrap().requests.clone();
+    assert_eq!(
+        requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(),
+        3
+    );
+    let checks: Vec<_> = requests
+        .iter()
+        .filter(|(path, _)| path.ends_with("/async_check"))
+        .collect();
+    assert_eq!(checks.len(), unknowns.len() + 1);
+    assert!(
+        checks.iter().all(|(_, body)| String::from_utf8_lossy(body).contains("original-failed"))
+    );
+    server.abort();
+}
+
+/// Main's receipt/cache path must keep uncertainty separate from settlement.
+/// This process-local adapter proves provider reconstruction, not Store reopen.
+#[tokio::test]
+async fn unbound_terminal_observations_do_not_quarantine_original_settlement() {
+    let mut missing_success: serde_json::Value =
+        serde_json::from_str(&upstream_check_success_json()).unwrap();
+    missing_success["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("task_id");
+    let mut unrelated_success = missing_success.clone();
+    unrelated_success["data"]["task_id"] = json!("unrelated-task");
+    let (base, state, server) = spawn_mock(HashMap::from([
+        (
+            "/parse/async",
+            VecDeque::from([(
+                200,
+                json!({"code":0,"data":{"task_id":"t1"}}).to_string(),
+            )]),
+        ),
+        (
+            "/async_check",
+            VecDeque::from([
+                (
+                    200,
+                    json!({"code":0,"data":{"status":"failed"}}).to_string(),
+                ),
+                (
+                    200,
+                    json!({"code":0,"data":{"task_id":"unrelated-task","status":"failed"}})
+                        .to_string(),
+                ),
+                (200, missing_success.to_string()),
+                (200, unrelated_success.to_string()),
+                (200, upstream_check_success_json()),
+            ]),
+        ),
+    ]));
+    let receipts = std::sync::Arc::new(MemoryReceipts::default());
+    let attempt = OxrAttemptContext {
+        operation_id: shenko_types::ids::EntityId::new(),
+        attempt_id: shenko_types::ids::EntityId::new(),
+        account_identity: "mock-account".into(),
+        store: receipts.clone(),
+    };
+    let make_provider = || OxrProvider::new(OxrProviderConfig {
+        endpoint: Some(base.clone()),
+        model_identity: Some("OXR-1.0".into()),
+        scope: Some("scope-a".into()),
+        credential: Some(CredentialHandle::new("fixture-key")),
+        attempt: Some(attempt.clone()),
+        ..OxrProviderConfig::default()
+    });
+    let requested = request(&[0]);
+    let binding = make_provider()
+        .attempt_binding(b"fixture", &requested)
+        .unwrap();
+    let mut original_task = None;
+    for _ in 0..4 {
+        let provider = make_provider();
+        assert_eq!(
+            provider.attempt_binding(b"fixture", &requested).unwrap(),
+            binding
+        );
+        assert!(matches!(
+            provider
+                .parse_page(b"fixture", PageRef { page_index: 0 }, &requested)
+                .await
+                .unwrap(),
+            PageOutcome::Unknown(_)
+        ));
+        let receipt = receipts.receipt(&binding).unwrap().unwrap();
+        assert!(receipt.outcome.unwrap().unwrap_err().outcome_is_unknown());
+        let task = receipt.task.unwrap();
+        assert_eq!(task.task_id, "t1");
+        if let Some(original) = &original_task {
+            assert_eq!(
+                &task, original,
+                "the original acceptance clock and handle stay fixed"
+            );
+        } else {
+            original_task = Some(task);
+        }
+        let before = state.lock().unwrap().requests.len();
+        assert!(matches!(
+            provider.page_count(b"fixture", &requested).await.unwrap(),
+            PageCountOutcome::Unknown(_)
+        ));
+        assert_eq!(
+            state.lock().unwrap().requests.len(),
+            before,
+            "local cached uncertainty does not poll again"
+        );
+    }
+    let provider = make_provider();
+    assert!(matches!(
+        provider
+            .parse_page(b"fixture", PageRef { page_index: 0 }, &requested)
+            .await
+            .unwrap(),
+        PageOutcome::Parsed(_)
+    ));
+    let receipt = receipts.receipt(&binding).unwrap().unwrap();
+    assert_eq!(receipt.task, original_task);
+    assert!(receipt.outcome.unwrap().is_ok());
+    let before = state.lock().unwrap().requests.len();
+    server.abort();
+    let recovered = make_provider();
+    assert_eq!(
+        recovered.availability_for(b"fixture", &requested).await,
+        ProviderAvailability::Ready
+    );
+    assert!(matches!(
+        recovered
+            .parse_page(b"fixture", PageRef { page_index: 1 }, &request(&[1]))
+            .await
+            .unwrap(),
+        PageOutcome::Parsed(_)
+    ));
+    assert_eq!(
+        recovered.page_count(b"fixture", &requested).await.unwrap(),
+        PageCountOutcome::Known(2)
+    );
+    let requests = state.lock().unwrap().requests.clone();
+    assert_eq!(
+        requests.len(), before,
+        "committed settlement needs neither probe nor poll"
+    );
+    assert_eq!(
+        requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(),
+        1
+    );
+    assert_eq!(
+        requests.iter().filter(|(path, _)| path.ends_with("/async_check")).count(),
+        5
+    );
+    assert_eq!(
+        receipts.0.lock().unwrap().len(),
+        1,
+        "no replacement attempt was created"
+    );
+}
+
 // ----- bounded concurrency ------------------------------------------------
 
 struct CountingProvider {

@@ -699,7 +699,7 @@ impl OxrClient {
                 .data
                 .as_ref()
                 .ok_or_else(|| OxrError::MalformedResponse("`data` from the async check".into()))?;
-            if data.task_id.as_deref().is_some_and(|id| id != task.task_id) {
+            if data.task_id.as_deref() != Some(task.task_id.as_str()) {
                 return Err(OxrError::MalformedResponse(
                     "the original `data.task_id`".into(),
                 ));
@@ -785,12 +785,31 @@ struct OxrJsonOutput {
 
 #[derive(Debug, Deserialize)]
 struct OxrPageDto {
-    #[serde(default)]
-    page_num: Option<i64>,
+    #[serde(default, deserialize_with = "explicit_page_index")]
+    page_num: OxrPageIndex,
     #[serde(default)]
     blocks: Vec<OxrBlockDto>,
     #[serde(default)]
     page_size: Option<OxrPageSizeDto>,
+}
+
+#[derive(Debug, Default)]
+enum OxrPageIndex {
+    #[default]
+    Omitted,
+    Explicit(u32),
+    Malformed,
+}
+
+/// Keep malformed page data separate from the task status. Only a successful
+/// document result consumes the page identity.
+fn explicit_page_index<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<OxrPageIndex, D::Error> {
+    Ok(serde_json::Value::deserialize(deserializer)?
+        .as_u64()
+        .and_then(|number| u32::try_from(number).ok())
+        .map_or(OxrPageIndex::Malformed, OxrPageIndex::Explicit))
 }
 
 #[derive(Debug, Deserialize)]
@@ -839,11 +858,11 @@ fn map_document(envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
             "a complete pages array matching metadata.page_num".into(),
         ));
     }
-    let pages: Vec<_> = raw_pages
+    let pages = raw_pages
         .iter()
         .enumerate()
         .map(|(position, page)| map_page(page, position))
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
     let mut indices: Vec<_> = pages.iter().map(|page| page.page_num).collect();
     indices.sort_unstable();
     if indices
@@ -863,7 +882,14 @@ fn map_document(envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
     })
 }
 
-fn map_page(page: &OxrPageDto, position: usize) -> OxrParsedPage {
+fn map_page(page: &OxrPageDto, position: usize) -> Result<OxrParsedPage, OxrError> {
+    let page_num = match page.page_num {
+        OxrPageIndex::Omitted => position as u32,
+        OxrPageIndex::Explicit(number) => number,
+        OxrPageIndex::Malformed => {
+            return Err(OxrError::MalformedResponse("an unsigned integer `pages[].page_num`".into()));
+        }
+    };
     let page_size = page
         .page_size
         .as_ref()
@@ -883,14 +909,11 @@ fn map_page(page: &OxrPageDto, position: usize) -> OxrParsedPage {
         .enumerate()
         .map(|(index, block)| map_block(block, index as u32))
         .collect();
-    OxrParsedPage {
-        page_num: page
-            .page_num
-            .and_then(|number| u32::try_from(number).ok())
-            .unwrap_or(position as u32),
+    Ok(OxrParsedPage {
+        page_num,
         blocks,
         page_size,
-    }
+    })
 }
 
 fn map_block(block: &OxrBlockDto, position: u32) -> PageBlock {
