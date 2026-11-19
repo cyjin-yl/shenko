@@ -1297,6 +1297,15 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         fixture.data_dir.join("cas"),
     )
     .unwrap();
+    // The final watermark is materialized by the successor's selector CAS.
+    // The retired ledger must mirror that exact durable activation identity:
+    // a local selector match alone does not prove the two records agree.
+    let retired_activation = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    let selected_activation = selected.activation_record(record.activation_id).unwrap().unwrap();
+    assert!(selected_activation.w1.is_some());
+    assert_eq!(selected_activation.imported_through, selected_activation.w1);
+    assert_eq!(retired_activation, selected_activation, "source/selected activation records drifted");
+    assert_eq!(outcome.record, selected_activation, "returned activation differs from durable ledgers");
     let (new_head, new_step) = selected.load_subject(fixture.agent_id).unwrap();
     assert_eq!(new_head.mode, SubjectMode::Active);
     assert_eq!(new_head.software_generation, target);
