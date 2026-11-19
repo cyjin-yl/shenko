@@ -2724,7 +2724,7 @@ fn canonical_follower(store: &Store, chosen: Arc<parking_lot::Mutex<Option<shenk
 #[test]
 fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch() -> Result<()> {
     use shenko_store::{ControlRecoveryOutcome, cognition::CognitionImportOptions};
-    use shenko_types::{ids::EntityId,store::RawInboxEvent};
+    use shenko_types::{ids::EntityId, inbox::{InboxEvent, InboxEventKind}, store::RawInboxEvent};
     let (dir, source, agent) = initialized_subject();
     let chosen = canonical_source(&source,agent,true)?;
     let (head, first) = source.load_subject(agent)?;
@@ -2754,6 +2754,21 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     let source_conn = rusqlite::Connection::open(dir.join("head.db"))?;
     let applied_id = EntityId::derived("commit-authority-admission-v1",grant.admission.conflict_key.as_bytes());
     let applied: String = source_conn.query_row("SELECT data FROM inbox_events WHERE event_id=?1",[applied_id.to_string()],|row| row.get(0))?;
+    let observation = InboxEvent {
+        event_id: EntityId::new(),
+        kind: InboxEventKind::SystemEvent,
+        source: "fixture-runtime-observation".into(),
+        payload: serde_json::json!({"kind": "runtime.observation"}),
+        created_at: chrono::Utc::now(),
+    };
+    source.retain_inbox_event(agent, &observation)?;
+    let pending = source.pending_inbox_events(agent, 1)?;
+    let [(event_id, event)] = pending.as_slice() else {
+        anyhow::bail!("expected one pending runtime observation");
+    };
+    assert_eq!(*event_id, observation.event_id);
+    assert_eq!(serde_json::from_str::<InboxEvent>(event)?, observation);
+    assert!(source.control_admission_applied_here(&grant.admission)?);
     let mut batch = WriteBatch::new();
     batch.inbox_event_upserts.push(RawInboxEvent { event_id:applied_id,agent_id:agent,source:"commit-authority".into(),kind:"system_event".into(),payload_json:applied,received_at_ms:0 });
     follower.commit(batch)?;

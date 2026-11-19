@@ -329,6 +329,11 @@ S0 context, decision and model result. A restart reuses this frozen value.
 preparation and learning the consensus result, before a new runtime epoch is
 activated.
 
+Authority binding and admission events stay in the ledger for control replay.
+The subject's pending input query excludes them before applying the batch limit,
+so a reserved control record cannot displace an observation or enter a new
+model turn.
+
 The paired native T2 boundaries, `native.complete` and `native.finish`, also
 carry frozen transitions. They retain the original operation, attempt, E1 and
 result invocation, including when a current settlement invocation differs
