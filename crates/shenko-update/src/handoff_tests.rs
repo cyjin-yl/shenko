@@ -2038,7 +2038,15 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         let fixture = installation();
         evidence.watch_installation(&fixture.data_dir);
         let generation = RuntimeGeneration::new("receipt-qualified");
-        let original_head = fixture.store.load_subject(fixture.agent_id)?.0;
+        let request = EntityId::new();
+        let (active_head, _) = fixture.store.load_subject(fixture.agent_id)?;
+        fixture.store.request_subject_quiesce(fixture.agent_id, request)?;
+        fixture.store.pause_subject_at_boundary(&active_head)?.context("durable prepare pause")?;
+        let pause = fixture.store.subject_quiesce(request)?.context("durable prepare pause receipt")?;
+        let (original_head, original_step) = fixture.store.load_subject(fixture.agent_id)?;
+        anyhow::ensure!(original_head.mode == shenko_types::subject::SubjectMode::Paused);
+        anyhow::ensure!(fixture.store.append_subject_raw_fact(&original_head, EntityId::new(), "user",
+            &serde_json::json!({"text": "subject mutation during a pause"})).is_err());
         let candidate = write_executable(&fixture.data_dir, "candidate-with-receipt", &smoke_script(&generation.0));
         evidence.file("original-prebuilt-candidate", &candidate);
         let prepared = fixture.service.prepare(PrepareRequest {
@@ -2061,6 +2069,10 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         let outcome = read_build_json(&fixture.store, &outcome_ref)?;
         anyhow::ensure!(outcome["artifact"]["path"] == serde_json::to_value(&candidate)?);
         anyhow::ensure!(outcome["invocation"].is_null() && outcome["source_snapshot_frozen"] == false);
+        let build_id: EntityId = serde_json::from_value(outcome["build_id"].clone())?;
+        anyhow::ensure!(fixture.store.append_update_build_observation(&active_head, build_id, &receipt_ref).is_err());
+        fixture.store.append_update_build_observation(&original_head, build_id, &receipt_ref)?;
+        anyhow::ensure!(fixture.store.append_update_build_observation(&original_head, build_id, &outcome_ref).is_err());
         let db = fixture.live_slot.join(SLOT_DB_FILENAME);
         let dir = fixture.data_dir.clone();
         let agent = fixture.agent_id;
@@ -2068,6 +2080,10 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         let reopened = Store::open(db, dir.join("cas"))?;
         let restored = reopened.activation_record(record.activation_id)?.context("activation was lost")?;
         anyhow::ensure!(restored.recovery_closure_ref == record.recovery_closure_ref);
+        let (restored_head, restored_step) = reopened.load_subject(agent)?;
+        anyhow::ensure!(serde_json::to_value(restored_head)? == serde_json::to_value(&original_head)?);
+        anyhow::ensure!(serde_json::to_value(restored_step)? == serde_json::to_value(original_step)?);
+        anyhow::ensure!(serde_json::to_value(reopened.subject_quiesce(request)?)? == serde_json::to_value(Some(pause))?);
         let events = reopened.session_events_range(EntityId(original_head.branch_id.0), 0, i64::MAX)?;
         evidence.record("original-reopened-session-events", &events);
         let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
