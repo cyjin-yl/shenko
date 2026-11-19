@@ -14,6 +14,8 @@ C19/#24 与 [COMPLETION](../governance/COMPLETION.md) [§2](../specs/architectur
 
 每条记录是 `records.jsonl` 的一行，追加后先 `fsync` 文件再 `fsync` 所在目录（包括第一次创建日志和重试）；manifest 与目录也 `fsync`。manifest 在 `init` 时冻结（包含声明窗口与候选身份）。一目录只绑定一个 run：必须有且只有一个位于记录开头、schema/manifest hash/recorder 身份均匹配的 `run_header`。缺 header、别的 run_id、未知/损坏记录、缺失/重复序号、未核验的存活主体指纹都不能准入；采样前发现这些问题会拒绝继续。manifest 改动产生 `manifest_drift`，全部窗口降为 `unobserved`，不会补写 header 将旧样本重新绑定。
 
+Linux CLI 在目录 inode 上使用 `flock` 串行化 `init`、每个 `sample`（包括 `run` 模式的每次采样）、`checkpoint`、`stop` 的整个读取→校验→追加事务。纯 `report` 使用共享锁，`report --write` 使用独占锁；长时间 `run` 在两次样本之间释放锁。锁定目录 inode 而非可删除的旁路锁文件，检测获取锁时的目录替换，文件系统不支持锁时拒绝操作。它只约束使用该 CLI/锁协议的写入者，不保护绕开工具直接修改 JSONL 的外部进程，不改变 schema/证据准入或代替物理断电测试。
+
 初始化在写 manifest 前从实际 run 目录向上逐层 fsync 到根，持久化每一层新建目录在父目录中的入口；已有目录也同步，以覆盖先前失败初始化留下但未确认持久的入口。此协议检查仍不等于物理断电证明。
 
 记录格式是 **schema 3**：同 kernel boot 的 uptime 佐证、段边界的 `sample_seq`、实测环境、逐样本二进制漂移与 outage 记录。schema 1/2 的记录缺少这些证据，明确拒绝，不进行推断式升级；原字节保留。不同候选/闭包、recorder 变更或已损坏证据均使用新目录和新 `run_id`。
@@ -76,7 +78,7 @@ systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时�
 - **时间需要佐证**：`observed_span_seconds` 只展示墙钟端点差，不是合格覆盖。`qualifying_span_seconds` 在完整、无已知 gap 的 run 中累计相邻墙钟差与同 boot uptime 差的较小值；前跳不能凭空增加时间，回跳/非递增时间、无法读取时钟或跨 boot 一律不合格。本工具保守拒绝跨宿主重启的窗口，不能用 epoch 猜测重启期间的连续性。
 - **调度器不保证采样器存活**：`run` 模式随进程退出而停止；`sample` 依赖外部调度。采样器停机期间不生成记录，缺口如实报告。
 - **声明≠结果**：manifest 的窗口是声明的观察义务；只有合格覆盖 ≥ 窗口才标 `observed`。已知 gap 或任何上述完整性/绑定缺口使整次 run 的合格覆盖为零；更长的端点跨度不能抵消。`--require-observed` 在任一窗口未合格时退出 3；非法输入/被拒绝的追加退出 2。
-- **证据并非认证**：每个目录只运行一个写入者；没有并发写入锁，交错写入/重复序号将使证据不合格。本地 JSONL 不带抗篡改签名，manifest 的候选元数据由调用者提供，不证明 PID 实际执行了该二进制。fsync 调用路径不是物理断电耐久性证据。
+- **证据并非认证**：同一 run 的多个受控 CLI 写入者会被目录锁串行化，乱序/重复序号仍是损坏证据；绕过该 CLI 的直接写入不受保护。本地 JSONL 不带抗篡改签名，manifest 的候选元数据由调用者提供，不证明 PID 实际执行了该二进制。fsync 调用路径不是物理断电耐久性证据。
 - **未见清单**：真实断电 RPO、音频端到端时延、工具/FTS p95、路由器/Android profile、多节点长跑、断电/满盘/分区故障注入都未由本工具观察；它们需要各自的故障注入与设备测量，见 [§23](../specs/verification.md#spec-23) 尾部与本页「仍未观察」。
 
 ## 仍未观察到的义务
@@ -90,4 +92,4 @@ systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时�
 
 ## 自检
 
-`python3 -I scripts/observe_longrun_test.py` 包含 **15 个独立永久场景**：完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变、封存生命周期、checkpoint 绑定、封存样本绑定、等长同时间但字节不同的产物、reported pathname 与实际打开执行文件的区别、以及身份未知的真实观测形状不能合格。合成时钟与进程形状只核验工具合同，不是产品长跑。历史 source `17ccbd92` 的九场景与 procfs 短时 smoke 仍只证明原版本，回执为 `build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json`；当前 schema 5 的核验以父级新回执为准，不能沿用旧报告升级结论。真实 7/30 天和物理断电均未获证明。
+`python3 -I scripts/observe_longrun_test.py` 包含 **17 个独立永久场景**：完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变、封存生命周期、checkpoint 绑定、封存样本绑定、等长同时间但字节不同的产物、reported pathname 与实际打开执行文件的区别、身份未知的真实观测形状不能合格，以及多个真实 CLI 进程同时采样的序号/唯一 header、并发 `stop` 与采样的封存后不可追加。合成时钟与进程形状只核验工具合同，不是产品长跑。历史 source `17ccbd92` 的九场景与 procfs 短时 smoke 仍只证明原版本，回执为 `build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json`；当前 schema 5 的核验以父级新回执为准，不能沿用旧报告升级结论。真实 7/30 天和物理断电均未获证明。
