@@ -967,6 +967,8 @@ impl Store {
     /// the normal Planned loop when a volatile wake was lost or backpressured.
     /// Every typed ingress shares this queue; native results retain their
     /// original T2 identity and independent settlement protocol.
+    /// Commit-authority system records belong to control replay. Preserve them
+    /// in the ledger without presenting them or spending a subject input slot.
     ///
     /// Each row carries its stable event identity next to the original bytes:
     /// a caller that cannot decode one admitted input must be able to name the
@@ -999,6 +1001,7 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1
+               AND (i.kind<>'system_event' OR i.source<>'commit-authority')
                AND NOT EXISTS (
                    SELECT 1 FROM web_input_withdrawals w
                    WHERE w.agent_id=i.agent_id AND w.event_id=i.event_id
