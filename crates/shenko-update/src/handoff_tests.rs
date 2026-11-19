@@ -321,6 +321,86 @@ fn activation_record(
     }
 }
 
+/// Commit only the successor's real selector transaction. The source keeps
+/// its old selection and paused boundary until the caller runs recovery.
+fn commit_fixture_successor(
+    source: &Installation,
+    generation: &RuntimeGeneration,
+) -> (Installation, ActivationRecord, EntityId) {
+    let selected = source.store.activation_selector(source.agent_id).unwrap().unwrap();
+    let request_id = EntityId::new();
+    source.store.request_subject_quiesce(source.agent_id, request_id).unwrap();
+    let (head, _) = source.store.load_subject(source.agent_id).unwrap();
+    source.store.pause_subject_at_boundary(&head).unwrap().expect("the source must pause");
+    let target = candidate_slot(source, generation);
+    let mut record = activation_record(
+        source, &selected.generation, generation, &source.live_slot, &target,
+        ActivationPhase::Handoff, FixturePreparation { smoke: None, program: None },
+    );
+    record.expected_selector_revision = selected.selector_revision;
+    record.target_epoch = selected.active_epoch + 1;
+    let record = source.store.create_activation_record(&record).unwrap();
+
+    // Keep the actual retained executable and source manifest available to
+    // the same rollback driver used by a real offline helper.
+    let route: RouteAuthority = serde_json::from_slice(
+        &source.store.cas.read_object(&selected.route_authority_ref.digest).unwrap(),
+    ).unwrap();
+    slots::write_slot_manifest(&source.live_slot, &slots::SlotManifest {
+        schema_version: slots::SlotManifest::SCHEMA_VERSION,
+        generation: selected.generation.0.clone(),
+        cas_dir: source.data_dir.join("cas").to_string_lossy().into_owned(),
+        artifact_path: Some(route.artifact_path), artifact_digest: Some(route.artifact_digest),
+        copied_through_seq: None, created_at: "2026-11-02T00:00:00Z".into(),
+    }).unwrap();
+    let live = AbSlot {
+        generation: selected.generation.clone(), slot_dir: source.live_slot.clone(),
+        db_path: source.live_slot.join(SLOT_DB_FILENAME), cas_dir: source.data_dir.join("cas"),
+        artifact_path: None, artifact_digest: None, is_active: true,
+    };
+    let slot = slots::copy_slot(&live, &SlotLayout::new(source.data_dir.clone()), generation).unwrap();
+    let program = write_executable(&slot.slot_dir, "candidate-program", &smoke_script(&generation.0));
+    let digest = Digest::blake3(&fs::read(&program).unwrap());
+    let mut manifest = slots::read_slot_manifest(&slot.slot_dir).unwrap();
+    manifest.artifact_path = Some(program.to_string_lossy().into_owned());
+    manifest.artifact_digest = Some(digest.clone());
+    slots::write_slot_manifest(&slot.slot_dir, &manifest).unwrap();
+    let store = Arc::new(Store::open(slot.db_path, source.data_dir.join("cas")).unwrap());
+    let route = seal(&store, &serde_json::to_value(RouteAuthority {
+        schema_version: RouteAuthority::SCHEMA_VERSION,
+        agent_id: source.agent_id, generation: generation.clone(),
+        active_epoch: record.target_epoch, selector_revision: selected.selector_revision + 1,
+        data_dir: source.data_dir.to_string_lossy().into_owned(),
+        slot_dir: slot.slot_dir.to_string_lossy().into_owned(),
+        artifact_path: program.to_string_lossy().into_owned(), artifact_digest: digest,
+        launch_command: vec![program.to_string_lossy().into_owned(), "--data-dir".into(),
+            source.data_dir.to_string_lossy().into_owned(), "start".into()],
+        primary_claim: None, activation_id: Some(record.activation_id),
+    }).unwrap());
+    let next = ActivationSelector {
+        agent_id: source.agent_id, selector_revision: selected.selector_revision + 1,
+        active_epoch: record.target_epoch, generation: generation.clone(),
+        state_ref: record.to_state_ref.clone(),
+        origin: ActivationOrigin::Activation { activation_id: record.activation_id },
+        route_authority_ref: route,
+    };
+    let mut copied = store.activation_record(record.activation_id).unwrap().unwrap();
+    let watermark = CommitRef::new(source.store.ledger.ledger_id(),
+        LedgerSeq(source.store.current_commit_seq().unwrap()));
+    copied.w1 = Some(watermark);
+    copied.imported_through = Some(watermark);
+    let (_, committed, _) = store.activate_successor(selected.selector_revision, &next, &copied).unwrap();
+    let service = UpdateService::new(
+        source.data_dir.clone(), slot.slot_dir.clone(), Arc::clone(&store),
+        Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+        Arc::new(crate::build::CargoBuildProvider::default()),
+    ).with_claim_source(Arc::new(FixtureAuthority));
+    (Installation {
+        data_dir: source.data_dir.clone(), live_slot: slot.slot_dir, store, service,
+        agent_id: source.agent_id, generation: generation.clone(),
+    }, committed, request_id)
+}
+
 fn smoke_report(
     generation: &RuntimeGeneration,
     passed: bool,
@@ -996,9 +1076,149 @@ async fn selected_successor_restart_finishes_retired_ledger_before_admission() {
         revision, "cold-start reconciliation must not fabricate an extra phase revision"
     );
     assert_eq!(slots::resolve_live_slot(&fixture.data_dir).unwrap(), Some(slot));
+
+    // Keep #328's rejection: successful recursion alone cannot certify a
+    // predecessor whose durable activation facts do not match the selection.
+    let mut divergent = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    divergent.expected_selector_revision += 1;
+    fixture.store.update_activation_record(
+        &divergent, RecordRevision(divergent.record_revision),
+    ).unwrap();
+    let error = restarted.finish_committed_handoff(fixture.agent_id).unwrap_err();
+    assert!(error.to_string().contains("SELECTED_RECOVERY_RECORD_CONFLICT"),
+        "unreconciled retired ledger was admitted: {error:#}");
+
     drop(restarted);
     drop(selected_store);
     fixture.cleanup();
+}
+
+/// B still selects its completed A->B activation when C alone commits B->C.
+/// Recovery must find C before touching A and must never resume B's boundary.
+#[tokio::test]
+async fn committed_successor_precedes_historical_selected_recovery() {
+    let a = installation();
+    let (b, ab, _) = commit_fixture_successor(&a, &RuntimeGeneration::new("gen-b"));
+    a.service.finish_committed_handoff(a.agent_id).unwrap();
+    let selected_b = b.store.activation_selector(b.agent_id).unwrap().unwrap();
+    let (c, bc, request_id) = commit_fixture_successor(&b, &RuntimeGeneration::new("gen-c"));
+    let selected_c = c.store.activation_selector(c.agent_id).unwrap().unwrap();
+    assert_eq!(b.store.activation_selector(b.agent_id).unwrap(), Some(selected_b));
+    assert_eq!(selected_c.selector_revision, 2);
+    assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(b.live_slot.clone()));
+
+    // A cannot certify the historical pair. That must not hide the newer
+    // committed selection or cause recovery to open A before finishing C.
+    let mut historical = a.store.activation_record(ab.activation_id).unwrap().unwrap();
+    historical.expected_selector_revision += 1;
+    let historical = a.store.update_activation_record(
+        &historical, RecordRevision(historical.record_revision),
+    ).unwrap();
+    let answer = b.service.reconcile_interrupted_handoff(b.agent_id).unwrap();
+    assert_eq!(answer.state, HandoffReconciliationState::SelectionCommitted);
+    assert!(!answer.resumed);
+    assert_eq!(answer.selector, Some(selected_c.clone()));
+    assert_eq!(b.store.activation_selector(b.agent_id).unwrap(), Some(selected_c.clone()));
+    assert_eq!(c.store.activation_selector(c.agent_id).unwrap(), Some(selected_c));
+    assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(c.live_slot.clone()));
+    let (retired, _) = b.store.load_subject(b.agent_id).unwrap();
+    assert_eq!(retired.mode, SubjectMode::Handoff);
+    assert_eq!(retired.software_generation, b.generation);
+    assert_eq!(b.store.subject_quiesce(request_id).unwrap().unwrap().state, SubjectQuiesceState::Paused);
+    let (head, step) = c.store.load_subject(c.agent_id).unwrap();
+    assert_eq!(head.mode, SubjectMode::Active);
+    assert_eq!(head.software_generation, c.generation);
+    assert_eq!(head.controller_epoch, ControllerEpoch(3));
+    assert_eq!(step.software_generation, c.generation);
+    let retired_record = b.store.activation_record(bc.activation_id).unwrap().unwrap();
+    assert_eq!(retired_record.phase, ActivationPhase::Observing);
+    assert_eq!(c.store.activation_record(bc.activation_id).unwrap(), Some(retired_record.clone()));
+    c.service.finish_committed_handoff(c.agent_id).unwrap();
+    b.service.finish_committed_handoff(b.agent_id).unwrap();
+    assert_eq!(b.store.activation_record(bc.activation_id).unwrap(), Some(retired_record));
+    assert_eq!(a.store.activation_record(ab.activation_id).unwrap(), Some(historical));
+    assert!(b.service.reconcile_interrupted_handoff(b.agent_id).unwrap_err()
+        .to_string().contains("HANDOFF_NOT_RESUMABLE"));
+    drop(c);
+    drop(b);
+    a.cleanup();
+}
+
+/// The live transport freezes rollback in the completed A->B record, then
+/// the real quiesce method writes current receipts before the helper's first
+/// finish call. That history must remain intact while rollback proceeds.
+#[tokio::test]
+#[cfg(unix)]
+async fn live_rollback_request_preserves_completed_predecessor_recovery() {
+    let a = installation();
+    let (b, ab, _) = commit_fixture_successor(&a, &RuntimeGeneration::new("gen-b"));
+    a.service.finish_committed_handoff(a.agent_id).unwrap();
+    let original = a.store.activation_record(ab.activation_id).unwrap().unwrap();
+    assert_eq!(original.phase, ActivationPhase::Observing);
+    let selected = b.store.activation_selector(b.agent_id).unwrap().unwrap();
+    let request_id = EntityId::new();
+    let command = crate::cli::UpdateCommand::Rollback {
+        activation: ab.activation_id, expected_selector_revision: selected.selector_revision,
+    };
+    let frozen = seal(&b.store, &serde_json::json!({
+        "schema_version": 1, "request_id": request_id, "agent_id": b.agent_id,
+        "installation_id": b.store.installation_id_for_subject(b.agent_id).unwrap(),
+        "command": command.clone(), "source_selector": selected,
+        "source_slot": b.live_slot,
+        "helper_digest": Digest::blake3(&fs::read(std::env::current_exe().unwrap()).unwrap()),
+    }));
+    let mut record = b.store.activation_record(ab.activation_id).unwrap().unwrap();
+    let mut closure: serde_json::Value = serde_json::from_slice(
+        &b.store.cas.read_object(&record.recovery_closure_ref.digest).unwrap(),
+    ).unwrap();
+    closure["process_handoff_request_ref"] = serde_json::to_value(&frozen).unwrap();
+    record.recovery_closure_ref = seal(&b.store, &closure);
+    b.store.update_activation_record(&record, RecordRevision(record.record_revision)).unwrap();
+    b.service.quiesce_for_process_handoff(ab.activation_id, request_id, selected.selector_revision)
+        .await.unwrap();
+    let prepared = b.store.activation_record(ab.activation_id).unwrap().unwrap();
+    assert_eq!(prepared.phase, ActivationPhase::Observing);
+    assert!(prepared.record_revision > original.record_revision);
+    assert_ne!(prepared.recovery_closure_ref, original.recovery_closure_ref);
+    assert_ne!(prepared.pending_operations_ref, original.pending_operations_ref);
+    assert_eq!(prepared.pending_operations_ref, prepared.inference_allocations_ref);
+    assert_eq!(b.store.load_subject(b.agent_id).unwrap().0.mode, SubjectMode::Paused);
+
+    // The initial helper step must neither converge these later facts back
+    // into A nor overwrite the frozen request or resource receipts on B.
+    b.service.finish_committed_handoff(b.agent_id).unwrap();
+    b.service.finish_committed_handoff(b.agent_id).unwrap();
+    assert_eq!(a.store.activation_record(ab.activation_id).unwrap(), Some(original));
+    assert_eq!(b.store.activation_record(ab.activation_id).unwrap(), Some(prepared.clone()));
+    assert_eq!(b.store.activation_selector(b.agent_id).unwrap(), Some(selected));
+    assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(b.live_slot.clone()));
+    assert_eq!(b.store.subject_quiesce(request_id).unwrap().unwrap().state, SubjectQuiesceState::Paused);
+    let saved: serde_json::Value = serde_json::from_slice(
+        &b.store.cas.read_object(&prepared.recovery_closure_ref.digest).unwrap(),
+    ).unwrap();
+    assert_eq!(saved["process_handoff_request_ref"], serde_json::to_value(&frozen).unwrap());
+
+    let outcome = crate::cli::execute(command, &b.service, b.agent_id).await.unwrap();
+    let next: ActivationSelector = serde_json::from_value(outcome["selector"].clone()).unwrap();
+    assert_eq!(next.selector_revision, 2);
+    assert_eq!(next.active_epoch, 3);
+    assert_eq!(next.generation, a.generation);
+    assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(a.live_slot.clone()));
+    assert_eq!(b.store.load_subject(b.agent_id).unwrap().0.mode, SubjectMode::Handoff);
+    let ActivationOrigin::Activation { activation_id } = next.origin else {
+        panic!("rollback must commit a new activation");
+    };
+    assert_ne!(activation_id, ab.activation_id);
+    let rollback = b.store.activation_record(activation_id).unwrap().unwrap();
+    assert_eq!(rollback.pending_operations_ref, prepared.pending_operations_ref);
+    assert_eq!(rollback.inference_allocations_ref, prepared.inference_allocations_ref);
+    let recovery: serde_json::Value = serde_json::from_slice(
+        &b.store.cas.read_object(&rollback.recovery_closure_ref.digest).unwrap(),
+    ).unwrap();
+    assert_eq!(recovery["process_handoff_request_ref"], serde_json::to_value(&frozen).unwrap());
+    assert_eq!(recovery["rollback_of"], serde_json::to_value(ab.activation_id).unwrap());
+    drop(b);
+    a.cleanup();
 }
 
 /// A selection that committed before its mirror/fence/publication completed is
