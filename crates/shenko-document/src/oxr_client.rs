@@ -699,7 +699,7 @@ impl OxrClient {
                 .data
                 .as_ref()
                 .ok_or_else(|| OxrError::MalformedResponse("`data` from the async check".into()))?;
-            if data.task_id.as_deref().is_some_and(|id| id != task.task_id) {
+            if data.task_id.as_deref() != Some(task.task_id.as_str()) {
                 return Err(OxrError::MalformedResponse(
                     "the original `data.task_id`".into(),
                 ));
@@ -785,12 +785,20 @@ struct OxrJsonOutput {
 
 #[derive(Debug, Deserialize)]
 struct OxrPageDto {
-    #[serde(default)]
-    page_num: Option<i64>,
+    #[serde(default, deserialize_with = "explicit_page_index")]
+    page_num: Option<u32>,
     #[serde(default)]
     blocks: Vec<OxrBlockDto>,
     #[serde(default)]
     page_size: Option<OxrPageSizeDto>,
+}
+
+/// Only omission permits the array position. A present value must be a u32;
+/// null, negative, fractional and overflow values are malformed observations.
+fn explicit_page_index<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    u32::deserialize(deserializer).map(Some)
 }
 
 #[derive(Debug, Deserialize)]
@@ -884,10 +892,7 @@ fn map_page(page: &OxrPageDto, position: usize) -> OxrParsedPage {
         .map(|(index, block)| map_block(block, index as u32))
         .collect();
     OxrParsedPage {
-        page_num: page
-            .page_num
-            .and_then(|number| u32::try_from(number).ok())
-            .unwrap_or(position as u32),
+        page_num: page.page_num.unwrap_or(position as u32),
         blocks,
         page_size,
     }
