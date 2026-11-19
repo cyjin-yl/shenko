@@ -1239,7 +1239,12 @@ def cmd_report(args):
         missing_restarts, binary_drift, binary_unverified))
     # Deliberately reject the whole declared run when any known gap exists;
     # do not splice disconnected spans into a 7/30-day observation claim.
-    qualifying_span = qualifying_elapsed if integrity["intact"] and not gaps else 0.0
+    # A known subject outage is not service-availability time. Do not add
+    # pre- and post-outage segments into one continuous 7/30-day window.
+    # Preserve the intact raw ledger and outage records for recovery review.
+    qualifying_span = (
+        qualifying_elapsed if integrity["intact"] and not gaps and not absent else 0.0
+    )
     declared = []
     for name, required in manifest["declared_windows_seconds"].items():
         covered = bool(samples) and qualifying_span >= required
