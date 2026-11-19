@@ -546,8 +546,8 @@ struct Handler {
 }
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        self.kind.descriptor()
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(self.kind.descriptor())
     }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
         vec![NativeCapabilityDeclaration {
@@ -557,9 +557,9 @@ impl NativeTaskHandler for Handler {
             usage: Some(format!("delegate:{}:1", self.kind.name())),
         }]
     }
-    fn effect_contracts(&self) -> Vec<EffectContract> {
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
         let descriptor = self.kind.descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), self.kind.name(), 1)
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), self.kind.name(), 1)
             .resource("company_protocol_and_node_credentials", "frozen_connection_company_user_grant", ResourceAccess::ReadWrite)
             .action(EffectActionKind::Cancel).idempotency(IdempotencyGuarantee::None)
             .external_effect(ExternalEffect { kind:"company_protocol_request".into(),
@@ -570,7 +570,7 @@ impl NativeTaskHandler for Handler {
                 excluded:vec!["node-local secrets, browser run state and unobserved remote effects".into()],coordinated:false,consistency:"local ledger and original merchant observations".into()})
             .lifecycle(LifecycleContract {on_upgrade:"retire and join owned requests; retain original uncertainty".into(),
                 on_uninstall:"withdraw native capabilities and join workers".into(),on_crash:"read original receipts; separate identity-bound queries reconcile mutations without replay".into(),
-                receipt_readable_after_removal:true}).basis(GuaranteeBasis::ClaimOnly).build()]
+                receipt_readable_after_removal:true}).basis(GuaranteeBasis::ClaimOnly).build()])
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         joined(

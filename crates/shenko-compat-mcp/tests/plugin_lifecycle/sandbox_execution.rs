@@ -186,7 +186,24 @@ async fn continuation(unknown: bool, defer_first: bool, provider_rejected: bool)
                 request["messages"].as_array().is_some_and(|messages| messages.iter()
                     .any(|message| message["content"].as_str().is_some_and(|text| text.contains(identity)))));
             let deferred_output;
+            let consumed_output;
             let delegated_output;
+            let ack_lines = |events: &[Value]| -> String {
+                events
+                    .iter()
+                    .filter_map(|event| event["event_id"].as_str())
+                    .map(|event_id| {
+                        format!(
+                            "[dispose] {}",
+                            json!({
+                                "event_id": event_id,
+                                "disposition": "acknowledged",
+                            })
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
             let content: &str = if consumed && defer_first && !deferred {
                 let effect = observed.first().context("original effect missing")?;
                 let operation_id: EntityId = serde_json::from_value(effect["operation_id"].clone())?;
@@ -203,8 +220,19 @@ async fn continuation(unknown: bool, defer_first: bool, provider_rejected: bool)
                     "disposition":"deferred","reason":"Observe this input on the next step",
                 }));
                 &deferred_output
-            } else if consumed { "original protocol observation reached this continuation" }
-                else if !delegated {
+            } else if consumed {
+                let acks = input
+                    .as_ref()
+                    .and_then(|input| input["events"].as_array())
+                    .map(|events| ack_lines(events))
+                    .unwrap_or_default();
+                consumed_output = if acks.is_empty() {
+                    "original protocol observation reached this continuation".to_owned()
+                } else {
+                    format!("{acks}\noriginal protocol observation reached this continuation")
+                };
+                &consumed_output
+            } else if !delegated {
                     let selector = request["messages"].as_array().context("provider messages missing")?
                         .iter().filter(|message| message["role"] == "system")
                         .filter_map(|message| message["content"].as_str())
@@ -212,7 +240,16 @@ async fn continuation(unknown: bool, defer_first: bool, provider_rejected: bool)
                         .filter_map(|line| line.strip_prefix("[delegate:")?.split_once(']').map(|(selector, _)| selector))
                         .find(|selector| selector.rsplit_once(':').is_some_and(|(kind, _)| kind == "compat.mcp.request"))
                         .context("the actual provider request omitted the registered MCP invocation selector")?;
-                    delegated_output = format!("[delegate:{selector}] {delegate_input}");
+                    let acks = input
+                        .as_ref()
+                        .and_then(|input| input["events"].as_array())
+                        .map(|events| ack_lines(events))
+                        .unwrap_or_default();
+                    delegated_output = if acks.is_empty() {
+                        format!("[delegate:{selector}] {delegate_input}")
+                    } else {
+                        format!("[delegate:{selector}] {delegate_input}\n{acks}")
+                    };
                     std::fs::write(observed_root.join("advertised-native-call.json"), serde_json::to_vec_pretty(&json!({
                         "selector":selector,"provider_request":request,"output":delegated_output,
                     }))?)?;

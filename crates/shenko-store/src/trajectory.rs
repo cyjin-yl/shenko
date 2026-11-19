@@ -35,6 +35,13 @@ pub struct TaskSummary {
     pub created_by_step_id: Option<String>,
     pub created_at: String,
     pub terminal_at: Option<String>,
+    /// The name the delegator gave a delegated task, from its frozen input.
+    pub name: Option<String>,
+    /// The team the delegator placed it in, from its frozen input. Tasks
+    /// one decision started with the same team are peers.
+    pub team: Option<String>,
+    /// The first line of a delegated task's goal, from its frozen input.
+    pub goal: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -51,6 +58,8 @@ pub struct TrajectoryOperation {
     /// Why `record` is absent: `unsettled`, `no_receipt`, `no_normalized`,
     /// `too_large:<bytes>`, `not_json` or `unreadable:<reason>`.
     pub record_status: String,
+    /// When the final evidence was observed: the step's own time.
+    pub observed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -184,10 +193,37 @@ fn summary(
         created_by_step_id: text(value.get("created_by_step_id")),
         created_at: utc_timestamp(&created_at)?,
         terminal_at: value.get("terminal_at").and_then(Value::as_str).map(utc_timestamp).transpose()?,
+        name: None,
+        team: None,
+        goal: None,
     })
 }
 
 impl Store {
+    /// The name, team and goal line a delegation's frozen input gives it, read the way
+    /// its runtime reads that input. Anything else has neither.
+    fn delegate_labels(&self, summary: &mut TaskSummary, data: &str) {
+        if summary.role != TaskRole::Delegation {
+            return;
+        }
+        let Ok(task) = serde_json::from_str::<shenko_types::task::TaskRecord>(data) else {
+            return;
+        };
+        let Ok(input) = self.native_task_input(&task) else {
+            return;
+        };
+        let Some(spec) = input
+            .get("spec")
+            .cloned()
+            .and_then(|spec| serde_json::from_value::<shenko_types::output::ModelChildSpec>(spec).ok())
+        else {
+            return;
+        };
+        summary.goal = Some(spec.goal_summary());
+        summary.name = spec.name;
+        summary.team = spec.team;
+    }
+
     /// Recent tasks with their parent and creating step, newest first.
     pub fn list_task_summaries(&self, agent_id: EntityId, limit: usize) -> Result<Vec<TaskSummary>> {
         let conn = self.ledger.conn.lock();
@@ -206,7 +242,9 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (id, data, created_at, root, intent) = row?;
-            out.push(summary(id, &data, created_at, root, intent)?);
+            let mut row = summary(id, &data, created_at, root, intent)?;
+            self.delegate_labels(&mut row, &data);
+            out.push(row);
         }
         Ok(out)
     }
@@ -236,7 +274,8 @@ impl Store {
             let record: Value = serde_json::from_str(&task.1)?;
             let input_ref = record.get("input_ref")
                 .and_then(|reference| ObjectRef::deserialize(reference).ok());
-            let task_summary = summary(task.0, &task.1, task.2, task.3, task.4)?;
+            let mut task_summary = summary(task.0, &task.1, task.2, task.3, task.4)?;
+            self.delegate_labels(&mut task_summary, &task.1);
             let source = input_source(&task_summary, &record, input_ref.as_ref(), task.5.as_deref(), task.6.as_deref());
             let task = (task_summary, input_ref, source);
             let mut stmt = conn.prepare(
@@ -285,7 +324,7 @@ impl Store {
 
     fn trajectory_operation(&self, operation: OperationRecord) -> TrajectoryOperation {
         let attempts = self.external_operation_attempts(operation.operation_id).unwrap_or_default();
-        let (record, record_status) = self.sealed_record(&operation, attempts.last());
+        let (record, record_status, observed_at) = self.sealed_record(&operation, attempts.last());
         TrajectoryOperation {
             operation_id: operation.operation_id.to_string(),
             operation_name: operation.operation_name.clone(),
@@ -295,6 +334,7 @@ impl Store {
             attempts: attempts.len(),
             record,
             record_status,
+            observed_at,
         }
     }
 
@@ -302,30 +342,31 @@ impl Store {
         &self,
         operation: &OperationRecord,
         attempt: Option<&shenko_types::operation::AttemptRecord>,
-    ) -> (Option<Value>, String) {
+    ) -> (Option<Value>, String, Option<String>) {
         use shenko_types::operation::OperationState;
         if operation.state != OperationState::Resolved {
-            return (None, "unsettled".into());
+            return (None, "unsettled".into(), None);
         }
         let Some(receipt_id) = attempt.and_then(|a| a.final_receipt_id) else {
-            return (None, "no_receipt".into());
+            return (None, "no_receipt".into(), None);
         };
         let evidence = match self.external_evidence(receipt_id) {
             Ok(evidence) => evidence,
-            Err(error) => return (None, format!("unreadable:{error}")),
+            Err(error) => return (None, format!("unreadable:{error}"), None),
         };
+        let observed_at = evidence.observed_at.map(|at| at.to_rfc3339());
         let Some(normalized) = evidence.normalized_ref else {
-            return (None, "no_normalized".into());
+            return (None, "no_normalized".into(), observed_at);
         };
         if normalized.bytes > TRAJECTORY_RECORD_LIMIT {
-            return (None, format!("too_large:{}", normalized.bytes));
+            return (None, format!("too_large:{}", normalized.bytes), observed_at);
         }
         match self.cas.read_object(&normalized.digest) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
-                Ok(value) => (Some(value), "sealed".into()),
-                Err(_) => (None, "not_json".into()),
+                Ok(value) => (Some(value), "sealed".into(), observed_at),
+                Err(_) => (None, "not_json".into(), observed_at),
             },
-            Err(error) => (None, format!("unreadable:{error}")),
+            Err(error) => (None, format!("unreadable:{error}"), observed_at),
         }
     }
 }
@@ -583,6 +624,7 @@ mod tests {
             task_id: task_id.to_string(), kind: "future.plugin.observe".into(), role: TaskRole::Delegation,
             state: "running".into(), parent_task_id: None, created_by_step_id: Some(step_id.to_string()),
             created_at: "2026-11-13T00:00:00Z".into(), terminal_at: None,
+            name: None, team: None, goal: None,
         }
     }
 

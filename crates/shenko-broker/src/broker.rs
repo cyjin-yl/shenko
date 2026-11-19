@@ -402,10 +402,8 @@ impl BrokerHandle {
             return Ok(());
         }
         let Some(result) = result else {
-            // No original physical owner means no new charge or release. Keep
-            // the pinned reader and existing debt rather than unwinding here.
             let resources = recovered_resources
-                .ok_or_else(|| anyhow!("unknown recovery did not resolve its original domain"))?;
+                .ok_or_else(|| anyhow!("unknown recovery has no resolved original domain"))?;
             accounting.entry(request_id).or_insert_with(|| {
                 let charge = resources.domain.recover_unknown();
                 resources.domain.quarantine(request_id, now_ms(), "recovered without terminal evidence");
@@ -822,16 +820,17 @@ impl Broker {
         runtime.binding().validate_endpoint()?;
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::with_registry(registry, domain))
+        Self::with_registry(registry, domain)
     }
 
     /// Bind the registry's primary runtime to the supplied physical domain.
     /// Additional runtime profiles use explicitly registered domains/aliases;
     /// they share this broker's queue, not an invented second budget.
+    /// Invalid primary profile aliases fail construction before a queue is published.
     pub fn with_registry(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
-    ) -> (Self, BrokerHandle) {
+    ) -> Result<(Self, BrokerHandle)> {
         Self::assemble(registry, domain)
     }
 
@@ -840,16 +839,15 @@ impl Broker {
         let domain = default_domain(admission);
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::assemble(registry, domain))
+        Self::assemble(registry, domain)
     }
 
     fn assemble(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
-    ) -> (Self, BrokerHandle) {
+    ) -> Result<(Self, BrokerHandle)> {
         let domains = Arc::new(ResourceDomainRegistry::new());
-        domains.register(Arc::clone(&domain))
-            .expect("invariant: a fresh domain registry has no conflicting identity or incarnation");
+        domains.register(Arc::clone(&domain))?;
         let (tx, rx) = mpsc::unbounded_channel();
         // The binding comes from the installed runtime, not from a profile
         // table: the runtime is what actually executes the request.
@@ -859,8 +857,7 @@ impl Broker {
         if let Some(runtime) = registry.runtime_for(&binding) {
             let domain_id = domain.identity().domain_id;
             for alias in [&runtime.profile().endpoint_origin, &runtime.profile().profile_id] {
-                domains.bind_alias(alias, &domain_id)
-                    .expect("the composition root's primary domain is registered");
+                domains.bind_alias(alias, &domain_id)?;
             }
         }
         // The compute budget belongs to the physical domain; the handle and
@@ -879,7 +876,7 @@ impl Broker {
         let error_sink = new_error_sink_cell();
         let health_observer: crate::health::HealthObserverCell = Arc::new(parking_lot::RwLock::new(None));
         let stop = tokio_util::sync::CancellationToken::new();
-        (
+        Ok((
             Self {
                 rx,
                 domain: Arc::clone(&domain),
@@ -909,12 +906,12 @@ impl Broker {
                 handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 stop,
             },
-        )
+        ))
     }
 
     /// Explicit offline construction; does not inspect ambient credentials and
     /// returns typed Unavailable rather than a fabricated successful completion.
-    pub fn offline() -> (Self, BrokerHandle) {
+    pub fn offline() -> Result<(Self, BrokerHandle)> {
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::new(OfflineRuntime));
         let domain = default_domain(AdmissionController::nominal());

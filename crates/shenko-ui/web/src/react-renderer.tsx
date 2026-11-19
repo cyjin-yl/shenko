@@ -6,6 +6,7 @@ import { Icon } from './icons';
 import { Button, ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
 import { ImView } from './im';
+import { FilesView, liveFiles } from './files-view';
 import { collectThreads, isAttentionTask, subjectParticipant, type DemoThreadData, type ThreadMessage } from './threads';
 import { lensSnapshot, subscribeLenses, syncWorkLenses, type LensContribution } from './slots';
 import { WorkFrame } from './work-frame';
@@ -120,12 +121,15 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
   // Two views of the same subject: 对话 is where the owner talks with it and
   // watches the groups it is in; Inspect is its raw stream of thought. The
   // choice is this browser's reading preference.
-  const [tab, setTabState] = React.useState<'im' | 'inspect'>(() => {
+  const [tab, setTabState] = React.useState<'im' | 'inspect' | 'files'>(() => {
     const query = new URLSearchParams(location.search).get('tab');
-    if (query === 'inspect' || query === 'im') return query;
-    try { return localStorage.getItem('shenko.tab.v1') === 'inspect' ? 'inspect' : 'im'; } catch { return 'im'; }
+    if (query === 'inspect' || query === 'im' || query === 'files') return query;
+    try {
+      const saved = localStorage.getItem('shenko.tab.v1');
+      return saved === 'inspect' || saved === 'files' ? saved : 'im';
+    } catch { return 'im'; }
   });
-  const setTab = (next: 'im' | 'inspect') => {
+  const setTab = (next: 'im' | 'inspect' | 'files') => {
     setTabState(next);
     try { localStorage.setItem('shenko.tab.v1', next); } catch { /* page-only preference */ }
   };
@@ -172,11 +176,12 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             value={[tab]}
             onValueChange={(detail: { value: readonly string[] }) => {
               const next = detail.value.find((value) => value !== tab);
-              if (next === 'im' || next === 'inspect') setTab(next);
+              if (next === 'im' || next === 'inspect' || next === 'files') setTab(next);
             }}
           >
             <ToggleGroupItem value="im" className="tab-item"><Icon name="chat" size={16} />{t('shell.chat')}</ToggleGroupItem>
             <ToggleGroupItem value="inspect" className="tab-item"><Icon name="timeline" size={16} />Inspect</ToggleGroupItem>
+            <ToggleGroupItem value="files" className="tab-item"><Icon name="files" size={16} />{t('files.title')}</ToggleGroupItem>
           </ToggleGroupRoot>
         </nav>
         <nav className="lensbar" aria-label={t('shell.lenses')}>
@@ -219,7 +224,9 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
 
       <div className="body">
         <main className="stream" id="main" data-tab={tab}>
-          {tab === 'im'
+          {tab === 'files'
+            ? <FilesView source={demoData?.files ?? liveFiles} />
+            : tab === 'im'
             ? <ImView
               threads={threads}
               selected={threadId}

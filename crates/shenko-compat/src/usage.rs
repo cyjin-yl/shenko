@@ -219,7 +219,7 @@ impl Runtime {
     async fn run(self: Arc<Self>, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         ensure!(invocation.task.kind == NAME && invocation.task.definition_version == 1, "usage digest task identity mismatch");
         let input: UsageDigestInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
-        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor(), &input, serde_json::to_value(&input)?,
+        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor()?, &input, serde_json::to_value(&input)?,
             "a deterministic digest of durable compat observations; every exemplar digest verifies against this installation's CAS",
             "re-run the bounded scan; never replay an adapter effect or assert an unverifiable digest")?;
         if let Some(existing) = call.arm(&self.store, &invocation)? { return Ok(existing); }
@@ -235,33 +235,35 @@ impl Runtime {
     }
 }
 
-fn descriptor() -> NativeTaskDescriptor {
-    NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
+const PROMPT: &str = "Summarize durable compat adapter observations. Input {\"unit\"?:{\"unit_id\"?,\"revision\"?,\"artifact_digest\"?},\"window\"?:{\"max_records\"?:<=200,\"since_rfc3339\"?},\"grouping\":\"method\"|\"method+status\",\"cursor\"?:<previous next_cursor>}. Scans at most 3072 candidates newest first. Continue with next_cursor until null, including empty pages; counts describe this scan. Groups the latest observations by request method and outcome status; each group reports count, first/latest UTC and up to 3 CAS-verified exemplar digests readable via compat.artifact.read. Read-only observations; adoption stays cognition.unit.write.";
+
+fn descriptor() -> anyhow::Result<NativeTaskDescriptor> {
+    Ok(NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "6f1a2b3c-9d4e-4a5b-8c7d-1e2f3a4b5c6d".parse().expect("fixed usage digest identity"),
-            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?, registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.usage/v1".into()],
-        prompt_section: Some("Summarize durable compat adapter observations. Input {\"unit\"?:{\"unit_id\"?,\"revision\"?,\"artifact_digest\"?},\"window\"?:{\"max_records\"?:<=200,\"since_rfc3339\"?},\"grouping\":\"method\"|\"method+status\",\"cursor\"?:<previous next_cursor>}. Scans at most 3072 candidates newest first. Continue with next_cursor until null, including empty pages; counts describe this scan. Groups the latest observations by request method and outcome status; each group reports count, first/latest UTC and up to 3 CAS-verified exemplar digests readable via compat.artifact.read. Read-only observations; adoption stays cognition.unit.write.".into()) }
+        prompt_section: Some(PROMPT.into()) })
 }
 
 struct Handler(Arc<Runtime>);
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor { descriptor() }
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> { descriptor() }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
-        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: descriptor().prompt_section.unwrap(),
+        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: PROMPT.into(),
             usage: Some("delegate:compat.usage.digest:1 {\"grouping\":\"method+status\",\"window\":{\"max_records\":50}}".into()) }]
     }
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = descriptor()?;
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
             .resource("installation_ledger", "compat_observations", ResourceAccess::Read)
             .action(EffectActionKind::Cancel)
             .idempotency(IdempotencyGuarantee::Strict { key_namespace: "compat.usage.digest".into(), max_age_secs: u64::MAX })
             .cancel(CancelContract { can_cancel_before_start: true, can_cancel_in_flight: false, cancel_confirms_stopped: false, may_have_partial_effect: false })
             .checkpoint(CheckpointContract { capturable: vec!["frozen input and computed groups".into()], excluded: vec![], coordinated: false, consistency: "local ledger and CAS reads only".into() })
             .lifecycle(LifecycleContract { on_upgrade: "recompute the digest from the same durable observations".into(), on_uninstall: "withdraw native definition".into(), on_crash: "reconcile original receipt".into(), receipt_readable_after_removal: true })
-            .basis(GuaranteeBasis::ClaimOnly).build()]
+            .basis(GuaranteeBasis::ClaimOnly).build()])
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         joined(self.0.workers.spawn(self.0.clone().run(invocation))?).await

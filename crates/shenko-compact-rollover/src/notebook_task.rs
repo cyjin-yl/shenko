@@ -319,6 +319,7 @@ impl ContextNotebookHandler {
         frozen: &FrozenInput,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let writes = matches!(frozen.op, FrozenOp::Replace { .. } | FrozenOp::Clear { .. });
         let scope_id = frozen.scope_id;
         let bindings = ResourceBindings {
@@ -345,7 +346,7 @@ impl ContextNotebookHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: format!("builtin:{DEFINITION_KIND}-v1"),
             },
             symbol: "context.notebook.execute".into(),
@@ -369,7 +370,7 @@ impl ContextNotebookHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -538,13 +539,13 @@ fn json_number(revision: u64) -> serde_json::Value {
 
 #[async_trait]
 impl NativeTaskHandler for ContextNotebookHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: DEFINITION_KIND.into(),
             definition_version: DEFINITION_VERSION,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-context-notebook/1".into(),
@@ -553,12 +554,12 @@ impl NativeTaskHandler for ContextNotebookHandler {
                 "context.notebook/v1 是本分支的工作笔记与安全边界切窗工具（不调用摘要模型，不改写原始历史）。读：[delegate:context.notebook:1] {\"op\":\"read\"}。写：[delegate:context.notebook:1] {\"op\":\"replace\",\"expected_revision\":<刚读到的 revision，0 表示还没有>,\"text\":\"...\"}；写入后会在下一个安全边界请求新窗口，笔记最新版本进入新窗口。结束可见笔记（reset）：{\"op\":\"clear\",\"expected_revision\":<revision>}。只要在合适边界切窗而不改笔记：{\"op\":\"rollover\"}。笔记上限 16384 UTF-8 字节，超限或 revision 过期会被拒绝且旧笔记不变。原始事件始终可经 history.query 按 seq/event_id 读取，窗口化不删除经历。"
                     .into(),
             ),
-        }
+        })
     }
 
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             OPERATION_NAME,
@@ -585,7 +586,7 @@ impl NativeTaskHandler for ContextNotebookHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {

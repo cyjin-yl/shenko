@@ -171,7 +171,7 @@ impl Fixture {
         revision: &str,
         kind: &str,
         body: &str,
-    ) -> String {
+    ) -> Result<String> {
         let observed = self
             .store
             .cas
@@ -197,25 +197,25 @@ impl Fixture {
         });
         // The write child freezes its own input; the task record only names
         // the bytes this attempt was admitted for.
-        let result = self.write_request(input).await;
+        let result = self.write_request(input).await?;
         assert_eq!(result["status"], "ok", "write failed: {result}");
-        result["artifact_digest"]
+        Ok(result["artifact_digest"]
             .as_str()
             .expect("artifact digest")
-            .to_string()
+            .to_string())
     }
 
     /// Run one authored write through the write child and return its result.
-    async fn write_request(&self, input: serde_json::Value) -> serde_json::Value {
+    async fn write_request(&self, input: serde_json::Value) -> Result<serde_json::Value> {
         let input_ref = self.input_ref(&input);
-        let descriptor = self.write.descriptor();
+        let descriptor = self.write.descriptor()?;
         let (task, invocation) = self.task(&descriptor, &input_ref);
         let operation = self
             .write
             .execute(self.native(task, invocation, input))
             .await
             .expect("write operation");
-        self.result_of(operation.operation_id)
+        Ok(self.result_of(operation.operation_id))
     }
 
     /// The plan a sandbox comparison opens its attempt with.
@@ -301,7 +301,7 @@ impl Fixture {
         method: &str,
         evidence: Vec<serde_json::Value>,
         enable: Option<bool>,
-    ) -> (serde_json::Value, TaskRecord, EntityId) {
+    ) -> Result<(serde_json::Value, TaskRecord, EntityId)> {
         let mut input = serde_json::json!({
             "unit_id": unit_id,
             "revision": revision,
@@ -318,7 +318,7 @@ impl Fixture {
             .judge
             .seal(&frozen, "cognition-judge-frozen-input")
             .expect("judge seal");
-        let descriptor = self.judge.descriptor();
+        let descriptor = self.judge.descriptor()?;
         let (task, invocation) = self.task(&descriptor, &input_ref);
         let operation = self
             .judge
@@ -326,7 +326,7 @@ impl Fixture {
             .await
             .expect("judge operation");
         let result = self.result_of(operation.operation_id);
-        (result, task, operation.operation_id)
+        Ok((result, task, operation.operation_id))
     }
 
     /// Arm a judgement without running it: the durable state a crash leaves.
@@ -337,7 +337,7 @@ impl Fixture {
         artifact: &str,
         decision: &str,
         evidence: Vec<serde_json::Value>,
-    ) -> (TaskRecord, EntityId) {
+    ) -> Result<(TaskRecord, EntityId)> {
         let input = serde_json::json!({
             "unit_id": unit_id,
             "revision": revision,
@@ -351,7 +351,7 @@ impl Fixture {
             .judge
             .seal(&frozen, "cognition-judge-frozen-input")
             .expect("judge seal");
-        let descriptor = self.judge.descriptor();
+        let descriptor = self.judge.descriptor()?;
         let (task, invocation) = self.task(&descriptor, &input_ref);
         let native = self.native(task.clone(), invocation, input);
         let (mut operation, mut attempt) = self
@@ -365,18 +365,18 @@ impl Fixture {
                 .is_none(),
             "the fixture armed an operation twice"
         );
-        (task, operation.operation_id)
+        Ok((task, operation.operation_id))
     }
 }
 
 /// A subject-written candidate becomes an adoption only through a comparison
 /// this installation ran, and never by rewriting the authored bytes.
 #[tokio::test]
-async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting_it() {
+async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting_it() -> Result<()> {
     let fixture = Fixture::new();
     let unit = "awareness.self-test-loop";
     let body = "先把能核实的事实摆出来，再决定要不要相信自己记得的那一套；没核实过就保持不确定。";
-    let artifact = fixture.write_unit(unit, "1", "awareness", body).await;
+    let artifact = fixture.write_unit(unit, "1", "awareness", body).await?;
 
     let candidate = fixture.version(unit, "1", &artifact);
     assert_eq!(candidate.state.as_str(), "candidate");
@@ -393,14 +393,14 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": EntityId::new().to_string()})],
             Some(true),
         )
-        .await;
+        .await?;
     assert_eq!(unknown["status"], "failed", "an invented attempt was accepted: {unknown}");
     assert_eq!(unknown["error"]["code"], "evidence_not_admissible");
     assert_eq!(fixture.version(unit, "1", &artifact).state.as_str(), "candidate");
 
     // (b) A real attempt of another unit version is refused.
     let other = "perception.self-test-other";
-    let other_artifact = fixture.write_unit(other, "1", "perception", "另一条观察。").await;
+    let other_artifact = fixture.write_unit(other, "1", "perception", "另一条观察。").await?;
     assert_eq!(
         fixture.version(other, "1", &other_artifact).kind.as_str(),
         "perception",
@@ -413,7 +413,7 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": other_attempt})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(foreign["status"], "failed", "a trial of another version certified this one: {foreign}");
     assert_eq!(foreign["error"]["code"], "evidence_not_admissible");
     assert_eq!(fixture.version(unit, "1", &artifact).state.as_str(), "candidate");
@@ -434,7 +434,7 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": open_attempt})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(unfinished["status"], "failed", "an unfinished attempt certified a unit: {unfinished}");
     assert_eq!(
         unfinished["error"]["code"], "evidence_unexecuted",
@@ -451,7 +451,7 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": attempt})],
             Some(true),
         )
-        .await;
+        .await?;
     assert_eq!(adopted["status"], "ok", "the bound judgement failed: {adopted}");
     assert_eq!(adopted["state"], "adopted");
     assert_eq!(adopted["empirical"], true);
@@ -510,7 +510,7 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "observation", "digest": observation})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(observed["status"], "ok", "an observation-backed judgement was refused: {observed}");
     assert_eq!(observed["empirical"], false, "an observation claimed a measurement");
     assert_eq!(observed["evidence_verified"], true);
@@ -524,7 +524,7 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
             vec![serde_json::json!({"kind": "observation", "digest": observation})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(rejected["status"], "ok", "the rejection failed: {rejected}");
     assert_eq!(rejected["state"], "rejected");
     let offered: Vec<String> = fixture
@@ -538,17 +538,18 @@ async fn subject_authored_candidate_is_self_tested_and_adopted_without_rewriting
         !offered.contains(&other.to_string()),
         "a rejected unit stayed in the disclosure index: {offered:?}"
     );
+    Ok(())
 }
 
 /// A trial closed without measuring anything records the subject's judgement
 /// and never turns the written candidate into an adoption.
 #[tokio::test]
-async fn a_closed_trial_without_a_measured_sample_never_adopts_the_unit() {
+async fn a_closed_trial_without_a_measured_sample_never_adopts_the_unit() -> Result<()> {
     let fixture = Fixture::new();
     let unit = "awareness.unmeasured-close";
     let artifact = fixture
         .write_unit(unit, "1", "awareness", "没测过就先别当作已经验证。")
-        .await;
+        .await?;
     assert_eq!(fixture.version(unit, "1", &artifact).state.as_str(), "candidate");
 
     // The trial child takes this path when the run failed before any sample
@@ -564,7 +565,7 @@ async fn a_closed_trial_without_a_measured_sample_never_adopts_the_unit() {
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": closed})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(
         recorded["status"], "ok",
         "a closed trial is a real fact and stays citable: {recorded}"
@@ -627,20 +628,21 @@ async fn a_closed_trial_without_a_measured_sample_never_adopts_the_unit() {
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": measured})],
             Some(true),
         )
-        .await;
+        .await?;
     assert_eq!(adopted["status"], "ok", "the measured judgement failed: {adopted}");
     assert_eq!(adopted["measurement"], "measured");
     assert_eq!(adopted["empirical"], true);
     assert_eq!(adopted["state"], "adopted");
+    Ok(())
 }
 
 /// Reconciling reads the judgement this installation holds and never replaces
 /// a different decision the subject recorded later.
 #[tokio::test]
-async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() {
+async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() -> Result<()> {
     let fixture = Fixture::new();
     let unit = "awareness.judged-after-crash";
-    let artifact = fixture.write_unit(unit, "1", "awareness", "先核实，再决定。").await;
+    let artifact = fixture.write_unit(unit, "1", "awareness", "先核实，再决定。").await?;
     let attempt = fixture.sandbox_comparison(unit, "1", &artifact, TrialOutcome::Succeeded);
 
     // A judgement armed before the node call and then interrupted: nothing is
@@ -648,7 +650,7 @@ async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() {
     let (task, operation) = fixture.arm_judge(
         unit, "1", &artifact, "adopt",
         vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": attempt.clone()})],
-    );
+    )?;
     let settled = fixture.judge.reconcile(&task, operation).await.expect("reconcile");
     assert_eq!(settled.state, OperationState::Resolved);
     assert_eq!(settled.outcome, Some(OperationOutcome::Succeeded));
@@ -663,7 +665,7 @@ async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() {
             vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": attempt})],
             None,
         )
-        .await;
+        .await?;
     assert_eq!(retired["status"], "ok", "the later judgement failed: {retired}");
     assert_eq!(retired["state"], "retired");
 
@@ -672,7 +674,7 @@ async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() {
     let (stale_task, stale_operation) = fixture.arm_judge(
         unit, "1", &artifact, "adopt",
         vec![serde_json::json!({"kind": "trial_attempt", "attempt_id": attempt})],
-    );
+    )?;
     let replayed = fixture.judge.reconcile(&stale_task, stale_operation).await.expect("reconcile");
     assert_eq!(replayed.state, OperationState::Resolved);
     assert_eq!(replayed.outcome, Some(OperationOutcome::Failed));
@@ -680,13 +682,14 @@ async fn reconcile_reads_the_judgement_and_never_replaces_a_different_one() {
     assert_eq!(held.decision, "retired", "the replay replaced the subject's later decision");
     let result = fixture.result_of(stale_operation);
     assert_eq!(result["recorded_now"], false);
+    Ok(())
 }
 
 /// A refused judgement on a first write does not pretend the version was
 /// never installed: the installation and the missing judgement are reported
 /// as the two separate facts they are.
 #[tokio::test]
-async fn a_refused_judgement_leaves_the_installed_version_visible() {
+async fn a_refused_judgement_leaves_the_installed_version_visible() -> Result<()> {
     let fixture = Fixture::new();
     let unit = "awareness.refused-judgement";
     let observed = fixture
@@ -715,7 +718,7 @@ async fn a_refused_judgement_leaves_the_installed_version_visible() {
                 "enable": true,
             },
         }))
-        .await;
+        .await?;
     assert_eq!(result["status"], "failed", "a refused judgement was reported as a success: {result}");
     assert_eq!(result["error"]["code"], "evidence_not_admissible");
     assert!(
@@ -732,4 +735,5 @@ async fn a_refused_judgement_leaves_the_installed_version_visible() {
     // the judgement child once it has a measurement.
     let read = fixture.catalog.read(unit, "1").expect("read");
     assert_eq!(read.body, "没有测量就不算采用。");
+    Ok(())
 }

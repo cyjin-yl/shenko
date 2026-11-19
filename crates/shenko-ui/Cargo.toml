@@ -29,6 +29,7 @@ tower-http = { workspace = true }
 tokio-tungstenite = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+cap-std = "3.4.6"
 futures = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }

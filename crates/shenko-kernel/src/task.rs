@@ -124,7 +124,7 @@ pub trait ChildToolRuntime: Send + Sync + 'static {
 
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
-    fn descriptor(&self) -> NativeTaskDescriptor;
+    fn descriptor(&self) -> Result<NativeTaskDescriptor>;
 
     /// An executor owning work outside its async future (blocking guests,
     /// threads, resident sessions), or nested executors, must opt in. It
@@ -141,8 +141,8 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// to run. A definition with no external effect may leave this empty; the
     /// runtime then publishes the definition without an effect contract
     /// instead of pretending one exists.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        Vec::new()
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        Ok(Vec::new())
     }
 
     /// The capabilities this definition offers while it is installed.

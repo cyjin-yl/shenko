@@ -178,6 +178,7 @@ impl ConfigHandler {
         invocation: &NativeTaskInvocation,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let bindings = ResourceBindings {
             provider: "store.config_entries.write/delegated_subject/v1".into(),
             account_identity: String::new(),
@@ -198,7 +199,7 @@ impl ConfigHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:config-manage-v1".into(),
             },
             symbol: "config.manage.execute".into(),
@@ -222,7 +223,7 @@ impl ConfigHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -570,13 +571,13 @@ fn validate_name(field: &str, value: &str) -> Result<()> {
 
 #[async_trait]
 impl NativeTaskHandler for ConfigHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "config.manage".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-config-manager/1".into(),
@@ -585,7 +586,7 @@ impl NativeTaskHandler for ConfigHandler {
                 "config.manage/v1 管理安装自身的配置。{\"op\":\"discover\"} 列出已注册命名空间及其键；{\"op\":\"read\",\"namespace\":\"…\",\"logical_key\":\"…\"} 读保存的 desired、各消费者已采用的 revision、当前实际运行值，以及该键是否有被中断的 apply；{\"op\":\"preview\",\"namespace\":\"…\",\"logical_key\":\"…\",\"desired\":…} 只看候选，不保存；{\"op\":\"apply\",…,\"desired\":…,\"expected_base_revision\":N} 提交持久修改并取得回执与 adoption；{\"op\":\"recover\",…} 只对账被中断的 apply（可带 namespace 与 logical_key，或都不带），它不重新执行命名空间的 apply 合同。保存值、消费者采用值和健康是三个不同事实：apply 返回 applied 表示消费者已采用该 revision，不表示服务一定健康。同一意图重复提交返回原回执（replayed）。expected_base_revision 不匹配返回 BASE_CONFIG_STALE，应先重新读取再决定新值；不得擅自把 stale 当成覆盖许可。若返回 saved 但无回执，说明那次 apply 的进程已经消失而效果未知：先 read 或 recover 取得对账结果，消费者现在报告的值只是现状，不证明是那次修改造成的；不要靠重复同一意图去逼出结果，需要改变时用新的意图。对账结果 unknown 不填默认置信，也不冒充已生效。普通配置改动不需要人类审批；管理员身份与凭据不能由本工具设置。"
                     .into(),
             ),
-        }
+        })
     }
 
     /// effect contract of `config.manage.v1`.
@@ -595,9 +596,9 @@ impl NativeTaskHandler for ConfigHandler {
     /// window because the change identity is derived from the operation and
     /// the exact desired bytes: a recovered attempt resolves the original
     /// change, and a different payload under the same key is refused.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![
             EffectContractBuilder::new(
                 descriptor.implementation_ref.plugin_id,
                 descriptor.implementation(),
@@ -623,7 +624,7 @@ impl NativeTaskHandler for ConfigHandler {
             })
             .basis(GuaranteeBasis::ClaimOnly)
             .build(),
-        ]
+        ])
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

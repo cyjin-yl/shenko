@@ -182,6 +182,7 @@ impl PlaygroundManageHandler {
         invocation: &NativeTaskInvocation,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let bindings = ResourceBindings {
             provider: "store.artifacts.write/delegated_subject/v1".into(),
             account_identity: String::new(),
@@ -202,7 +203,7 @@ impl PlaygroundManageHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:playground-manage-v1".into(),
             },
             symbol: "playground.manage.execute".into(),
@@ -226,7 +227,7 @@ impl PlaygroundManageHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -617,13 +618,13 @@ impl PlaygroundManageHandler {
 
 #[async_trait]
 impl shenko_kernel::task::NativeTaskHandler for PlaygroundManageHandler {
-    fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
-        shenko_kernel::task::NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<shenko_kernel::task::NativeTaskDescriptor> {
+        Ok(shenko_kernel::task::NativeTaskDescriptor {
             kind: PLAYGROUND_MANAGE_KIND.into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-child/1".into(),
@@ -636,7 +637,7 @@ rollback：必填 artifact_id、source_revision（整数），把该旧修订追
 list：input={"schema_version":1,"op":"list"}。不要传未知字段。每次改动都是耐久事实，并回到你自己的收件箱；unknown 表示原操作尚未判明，不应通过新请求盲目重做。"#
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

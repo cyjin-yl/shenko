@@ -194,7 +194,7 @@ impl DocumentHandler {
         invocation: &NativeTaskInvocation,
         input: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
-        let descriptor = self.descriptor();
+        let descriptor = self.descriptor()?;
         let version = descriptor.implementation();
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let resource = seal(
@@ -800,18 +800,18 @@ impl OxrAttemptStore for StoreReceipts {
 
 #[async_trait]
 impl NativeTaskHandler for DocumentHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "document.parse".into(), definition_version: 1,
             implementation_ref: ImplementationRef { plugin_id: Self::plugin_id(), artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
             role_revision: "native-document-parse/1".into(), authority_refs: vec!["document.parse/v1".into()],
             prompt_section: Some("document.parse/v1 是已配置的文档解析 child。输入 source_ref（本地 CAS 的完整 ObjectRef）及 request（schema_version:1、source_digest、source_name、pages、closure_id:oxr/1.0、scope）。source_digest 必须等于 source_ref.digest；pages 留空表示全文，页索引从零开始。只向绑定的 OXR 部署上传一次，结果保留页结构及来源；unknown/unavailable 不表示成功。取消或等待超时不证明远端任务已结束，恢复查询原任务，不重新上传。".into()),
-        }
+        })
     }
 
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(Self::plugin_id(), descriptor.implementation(), OPERATION, 1)
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(Self::plugin_id(), descriptor.implementation(), OPERATION, 1)
             .resource("document_source", "frozen CAS source digest", ResourceAccess::Read)
             .resource("oxr_task", "bound endpoint/account/scope and original task handle", ResourceAccess::Write)
             .action(EffectActionKind::Cancel).action(EffectActionKind::Restore)
@@ -824,7 +824,7 @@ impl NativeTaskHandler for DocumentHandler {
             .checkpoint(CheckpointContract { capturable: vec!["original attempt binding, accepted task handle/deadline and page receipts in existing CAS/E1 history".into()],
                 excluded: vec!["remote engine memory and remote task termination".into()], coordinated: false,
                 consistency: "durable arm before upload; immutable acceptance before polling; unknown is not replayable".into() })
-            .basis(GuaranteeBasis::RuntimeConstrained).build()]
+            .basis(GuaranteeBasis::RuntimeConstrained).build()])
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {

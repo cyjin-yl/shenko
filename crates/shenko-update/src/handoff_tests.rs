@@ -1081,9 +1081,11 @@ async fn selected_successor_restart_finishes_retired_ledger_before_admission() {
     );
     assert_eq!(slots::resolve_live_slot(&fixture.data_dir).unwrap(), Some(slot));
 
-    // Keep #328's rejection: successful recursion alone cannot certify a
-    // predecessor whose durable activation facts do not match the selection.
-    let mut divergent = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    // An inconsistent late write to the retired ledger can make its
+    // source-side scan skip this selection and return Ok. The selected-first
+    // caller must not interpret that no-op as proof that A was reconciled.
+    let mut divergent = fixture.store.activation_record(record.activation_id)
+        .unwrap().unwrap();
     divergent.expected_selector_revision += 1;
     fixture.store.update_activation_record(
         &divergent, RecordRevision(divergent.record_revision),

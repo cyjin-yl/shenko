@@ -113,12 +113,12 @@ impl AndroidDeviceProbeHandler {
 
 #[async_trait]
 impl NativeTaskHandler for AndroidDeviceProbeHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.device.probe",
             "mobile.device.probe/v1",
             PROBE_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -226,12 +226,12 @@ impl AndroidScreenObserveHandler {
 
 #[async_trait]
 impl NativeTaskHandler for AndroidScreenObserveHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.screen.observe",
             "mobile.screen.observe/v1",
             OBSERVE_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -303,12 +303,12 @@ impl AndroidControlLeaseHandler {
 
 #[async_trait]
 impl NativeTaskHandler for AndroidControlLeaseHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.control.lease",
             "mobile.control.lease/v1",
             LEASE_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -465,12 +465,12 @@ fn load_observation(
 
 #[async_trait]
 impl NativeTaskHandler for AndroidControlInputHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.control.input",
             "mobile.control.input/v1",
             INPUT_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -571,12 +571,12 @@ impl AndroidShellExecHandler {
 
 #[async_trait]
 impl NativeTaskHandler for AndroidShellExecHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.shell.exec",
             "mobile.shell.exec/v1",
             SHELL_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1051,12 +1051,12 @@ fn key_material_note(state: &KeyMaterialState) -> &'static str {
 
 #[async_trait]
 impl NativeTaskHandler for AndroidAppDbSnapshotHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        descriptor_for(
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(descriptor_for(
             "android.appdb.snapshot",
             "mobile.appdb.snapshot/v1",
             APPDB_PROMPT,
-        )
+        ))
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

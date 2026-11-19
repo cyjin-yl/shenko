@@ -902,9 +902,26 @@ pub fn establish_primary(
     store: &Store,
     cancel: &CancellationToken,
 ) -> Result<Option<FencingToken>> {
+    establish_primary_with_model_gate(data_dir, store, cancel, true)
+}
+
+pub(crate) fn establish_primary_for_control(
+    data_dir: &Path,
+    store: &Store,
+    cancel: &CancellationToken,
+) -> Result<Option<FencingToken>> {
+    establish_primary_with_model_gate(data_dir, store, cancel, false)
+}
+
+fn establish_primary_with_model_gate(
+    data_dir: &Path,
+    store: &Store,
+    cancel: &CancellationToken,
+    require_model_candidate: bool,
+) -> Result<Option<FencingToken>> {
     let mut node = open_node(data_dir, store)?;
     node.ensure_member_configuration()?;
-    if node.component_presence()?.candidate.is_none() {
+    if require_model_candidate && node.component_presence()?.candidate.is_none() {
         return Err(PrimaryNotSelected(
             "local runtime has no fresh usable model binding; deterministic recovery remains available".into()
         ).into());
@@ -1271,7 +1288,7 @@ fn member_change(
         Vec::new()
     };
     ensure!(
-        establish_primary(data_dir, store, cancel)?.is_some(),
+        establish_primary_for_control(data_dir, store, cancel)?.is_some(),
         "membership change requires a current primary; local availability work may continue without domain reconfiguration"
     );
     let (proposal, catch_up, joint_votes, joint_outcome) = match pending {
@@ -1320,7 +1337,7 @@ fn member_change(
     // before they can approve its final phase.
     let joint_catch_up = catch_up_members(&mut node, &voters, cancel, &mut BTreeSet::new())?;
     ensure!(
-        establish_primary(data_dir, store, cancel)?.is_some(),
+        establish_primary_for_control(data_dir, store, cancel)?.is_some(),
         "final membership phase requires durable primary authority under the joint configuration"
     );
     let fin = node.propose_final_member_change(&proposal)?;
@@ -1909,7 +1926,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             ElectionCommand::Campaign => {
                 drop(node);
                 let fence = tokio::task::spawn_blocking(move || {
-                    establish_primary(&data_dir, &store, &CancellationToken::new())
+                    establish_primary_for_control(&data_dir, &store, &CancellationToken::new())
                 })
                 .await??;
                 match fence {

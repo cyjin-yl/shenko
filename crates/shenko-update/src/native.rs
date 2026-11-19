@@ -199,6 +199,7 @@ impl UpdateControlHandler {
         agent_id: EntityId,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let bindings = ResourceBindings {
             provider: "shenko.activation.store.v1".into(),
             account_identity: String::new(),
@@ -222,7 +223,7 @@ impl UpdateControlHandler {
         let contract_digest = Digest::blake3(UPDATE_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:update-control-v1".into(),
             },
             symbol: "update.control.execute".into(),
@@ -246,7 +247,7 @@ impl UpdateControlHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -431,13 +432,13 @@ impl UpdateControlHandler {
 
 #[async_trait]
 impl NativeTaskHandler for UpdateControlHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "update.control".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-update-control/1".into(),
@@ -455,7 +456,7 @@ impl NativeTaskHandler for UpdateControlHandler {
                  四个操作都不发真实消息、不驱动真实 seat、不启动第二条主体循环；是否更新由你自主决定。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
