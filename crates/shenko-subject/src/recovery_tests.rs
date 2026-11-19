@@ -546,7 +546,8 @@ async fn withdrawal_after_delivery_before_staging_excludes_original_through_s1_a
     assert_eq!(sealed.context.source.input_raw_event_ids.len(), 1);
     assert!(store.first_subject_input(agent, original.event_id).unwrap().is_none());
     assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
-    record_result(&store, &mut subject, "replacement observed");
+    record_result(&store, &mut subject, &format!("replacement observed\n[dispose] {}",
+        serde_json::json!({"event_id":replacement.event_id,"disposition":"acknowledged"})));
     let committed = execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().unwrap();
     assert_eq!(store.event_disposition_commit(agent, replacement.event_id).unwrap(), Some(committed));
