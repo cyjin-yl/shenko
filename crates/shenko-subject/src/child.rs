@@ -111,7 +111,7 @@ enum Admission {
 // registry that runs the contract, not the contract itself.
 use shenko_kernel::task::{
     ChildToolCall, ChildToolOutcome, ChildToolRuntime, NativeTaskDescriptor, NativeTaskHandler,
-    NativeTaskInvocation,
+    NativeTaskDeferred, NativeTaskInvocation,
     execute_native_handler,
 };
 
@@ -956,6 +956,17 @@ impl NativeChildService {
         let operation = match execute_native_handler(registered.handler.as_ref(), invocation).await {
             Ok(operation) => operation,
             Err(error) => {
+                if error.is::<NativeTaskDeferred>()
+                    && self.store.get_operation(claim.operation_id)?.is_none()
+                {
+                    let current = self.store.external_task(claim.task.task_id)?;
+                    park_managed(&self.store, &current, "reconciling", &error.to_string(), true);
+                    // This is local scheduling information, not an invented
+                    // Failed/Unknown operation or a terminal tool result.
+                    return Ok(unavailable("unavailable".into(), serde_json::json!({
+                        "reason": error.to_string(), "kind": call.kind, "retry_pending": true,
+                    })));
+                }
                 park_managed(
                     &self.store,
                     &claim.task,
@@ -1367,6 +1378,26 @@ async fn drive_execution(
             let operation = match execute_native_handler(registered.handler.as_ref(), invocation).await {
                 Ok(operation) => operation,
                 Err(error) => {
+                    if error.is::<NativeTaskDeferred>() {
+                        match store.get_operation(claim.operation_id) {
+                            Ok(None) => {
+                                if let Some(current) = fetch_task(&store, task_id) {
+                                    // The existing durable retry timer and scan
+                                    // cursor release this worker without T1/T2.
+                                    // A retry reclaims the same operation ID;
+                                    // an actual operation always uses Settle.
+                                    park_managed(&store, &current, "reconciling", &error.to_string(), true);
+                                }
+                                return;
+                            }
+                            Ok(Some(_)) => {} // An armed operation is never a fresh retry.
+                            Err(read_error) => {
+                                tracing::warn!(task_id=%task_id, %read_error,
+                                    "cannot prove pre-T1 deferral; retaining the durable claim for recovery");
+                                return;
+                            }
+                        }
+                    }
                     // the handler failure is also a runtime fact
                     // the owning subject can read; journaling is fail-soft.
                     store.journal_runtime_error(

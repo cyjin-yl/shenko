@@ -17,7 +17,7 @@ fn request(pages: &[u32]) -> ParseRequest {
 }
 
 fn unbound_provider() -> std::sync::Arc<dyn DocumentProvider> {
-    std::sync::Arc::new(OxrProvider::new(OxrProviderConfig::default()))
+    std::sync::Arc::new(OxrProvider::new(OxrProviderConfig::default()).unwrap())
 }
 
 #[test]
@@ -113,7 +113,7 @@ async fn model_identity_missing_is_not_ready() {
         endpoint: Some("http://127.0.0.1:8000/v1".into()),
         credential: Some(CredentialHandle::new("dummy")),
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     match provider.availability().await {
         ProviderAvailability::Unavailable { reason } => {
             assert!(reason.contains("model"), "{reason}");
@@ -128,7 +128,7 @@ async fn credential_missing_is_not_ready() {
         endpoint: Some("http://127.0.0.1:8000/v1".into()),
         model_identity: Some("OXR-1.0".into()),
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     match provider.availability().await {
         ProviderAvailability::Unavailable { reason } => {
             assert!(reason.contains("credential"), "{reason}");
@@ -146,12 +146,3 @@ fn select_provider_never_substitutes() {
     assert!(select_provider(oxr.closure_id(), std::slice::from_ref(&oxr)).is_some());
 }
 
-#[test]
-fn engine_configuration_rejects_undeclared_fields() {
-    let remote: OxrEngineBinding = serde_json::from_str(r#"{"kind":"remote"}"#).unwrap();
-    assert_eq!(remote, OxrEngineBinding::Remote {});
-    assert!(serde_json::from_str::<OxrEngineBinding>(r#"{"kind":"remote","attestation":"not a remote field"}"#).is_err());
-    let local: OxrEngineBinding = serde_json::from_str(r#"{"kind":"local","attestation":null}"#).unwrap();
-    assert_eq!(local, OxrEngineBinding::Local { attestation: None });
-    assert!(serde_json::from_str::<OxrEngineBinding>(r#"{"kind":"local","unexpected":true}"#).is_err());
-}

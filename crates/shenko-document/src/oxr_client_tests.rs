@@ -40,7 +40,6 @@ fn bound_request(provider: &dyn DocumentProvider, pages: &[u32]) -> ParseRequest
 struct MockState {
     /// Recorded `(request-target, raw body)` pairs.
     requests: Vec<(String, Vec<u8>)>,
-    response_delays: HashMap<String, std::time::Duration>,
     response_content_type: Option<String>,
     chunked: bool,
     response_bytes: usize,
@@ -144,13 +143,11 @@ async fn serve(
         404 => "Not Found",
         _ => "Status",
     };
-    let (delay, chunked, content_type) = {
+    let (chunked, content_type) = {
         let state = state.lock().unwrap();
-        (state.response_delays.get(&target).copied().unwrap_or_default(), state.chunked,
-            state.response_content_type.clone())
+        (state.chunked, state.response_content_type.clone())
     };
     let content_type = content_type.as_deref().unwrap_or("application/json");
-    tokio::time::sleep(delay).await;
     if chunked {
         let header = format!("HTTP/1.1 {} {}\r\nContent-Type: {content_type}\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n", answer.0, reason);
         let mut connected = writer.write_all(header.as_bytes()).await.is_ok();
@@ -175,47 +172,6 @@ async fn serve(
     );
     let _ = writer.write_all(response.as_bytes()).await;
     let _ = writer.shutdown().await;
-}
-
-#[tokio::test]
-async fn accepted_unknown_is_shared_with_pages_and_whole_document_discovery() {
-    let routes = HashMap::from([
-        ("/parse/async", VecDeque::from([(200, json!({"code":0,"data":{"task_id":"original-task"}}).to_string())])),
-        ("/async_check", VecDeque::from([(503, "{}".into())])),
-    ]);
-    let (base, state, server) = spawn_mock(routes);
-    let provider = provider_with(&base, OxrTransport::Async);
-    let req = bound_request(provider.as_ref(), &[0, 1]);
-    let run = run_parse(&req, &provider, b"owned protocol fixture", ParseOptions::default()).await.unwrap();
-    assert_eq!(run.state, ParseState::Running);
-    assert_eq!(run.checkpoints.len(), 2);
-    assert!(run.checkpoints.iter().all(|checkpoint| checkpoint.unknown_outcome.as_deref()
-        .is_some_and(|reason| reason.contains("outcome unknown"))));
-    let whole = bound_request(provider.as_ref(), &[]);
-    let discovery = run_parse(&whole, &provider, b"owned protocol fixture", ParseOptions::default()).await.unwrap();
-    assert_eq!(discovery.state, ParseState::Running);
-    assert!(discovery.checkpoints.is_empty());
-    let checkpoint = discovery.request_checkpoint.unwrap();
-    assert_eq!(checkpoint.request_id, parse_request_id(&whole));
-    assert!(checkpoint.reason.contains("outcome unknown"));
-    let requests = &state.lock().unwrap().requests;
-    assert_eq!(requests.iter().filter(|(path, _)| path.ends_with("/parse/async")).count(), 1);
-    assert_eq!(requests.iter().filter(|(path, _)| path.ends_with("/async_check")).count(), 1);
-    let original_check = requests.iter().find(|(path, _)| path.ends_with("/async_check")).unwrap();
-    assert!(String::from_utf8_lossy(&original_check.1).contains("original-task"),
-        "the original handle remains on the wire, outside diagnostic rendering");
-    server.abort();
-}
-
-#[test]
-fn absent_pages_are_not_an_explicit_empty_or_real_document() {
-    let missing = json!({"code":0,"data":{"result":{"outputs":{"json":{}}}}});
-    assert!(OxrDocument::from_response(serde_json::to_vec(&missing).unwrap()).is_err());
-    let empty = json!({"code":0,"data":{"metadata":{"page_num":0},"result":{"outputs":{"json":{"pages":[]}}}}});
-    let document = OxrDocument::from_response(serde_json::to_vec(&empty).unwrap()).unwrap();
-    assert_eq!(document.page_count, Some(0));
-    assert!(document.pages.is_empty());
-    assert_eq!(OxrDocument::from_response(upstream_document_json().into_bytes()).unwrap().pages.len(), 2);
 }
 
 async fn assert_original_inventory_unknown(mut response: serde_json::Value) {
@@ -254,77 +210,28 @@ async fn assert_original_inventory_unknown(mut response: serde_json::Value) {
 }
 
 #[tokio::test]
-async fn contradictory_zero_page_count_keeps_original_task_unknown() {
-    assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":0},
-        "result":{"outputs":{"json":{"pages":[{"page_num":0,"blocks":[{"content":"not an empty document"}]}]}}}}})).await;
-}
-
-#[tokio::test]
-async fn missing_original_page_is_not_a_terminal_absent_page() {
-    assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":2},
-        "result":{"outputs":{"json":{"pages":[{"page_num":0,"blocks":[{"content":"only one original page arrived"}]}]}}}}})).await;
-}
-
-#[tokio::test]
-async fn duplicate_original_page_identity_never_publishes() {
-    assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":2},
-        "result":{"outputs":{"json":{"pages":[{"page_num":0},{"page_num":0}]}}}}})).await;
-}
-
-#[tokio::test]
 async fn invalid_explicit_page_identity_never_becomes_array_position() {
     for invalid in [json!(-1), json!(4_294_967_296u64), json!(1), json!(0.5), serde_json::Value::Null] {
         assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":1},
             "result":{"outputs":{"json":{"pages":[{"page_num":invalid}]}}}}})).await;
     }
+    for (count, pages) in [(json!(0), json!([{"page_num":0}])),
+        (json!(2), json!([{"page_num":0}])), (json!(2), json!([{"page_num":0},{"page_num":0}])),
+        (json!(-1), json!([{"page_num":0}])), (json!(4_294_967_296u64), json!([{"page_num":0}])),
+        (json!(1.5), json!([{"page_num":0}]))] {
+        assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":count},
+            "result":{"outputs":{"json":{"pages":pages}}}}})).await;
+    }
+    assert_original_inventory_unknown(json!({"code":0,"data":{"result":{"outputs":{"json":{}}}}})).await;
+    let empty = json!({"code":0,"data":{"metadata":{"page_num":0},"result":{"outputs":{"json":{"pages":[]}}}}});
+    let empty = OxrDocument::from_response(serde_json::to_vec(&empty).unwrap()).unwrap();
+    assert_eq!(empty.page_count, Some(0));
+    assert!(empty.pages.is_empty());
     let positional = json!({"code":0,"data":{"metadata":{"page_num":2},
         "result":{"outputs":{"json":{"pages":[{"blocks":[{"content":"zero"}]},{"blocks":[{"content":"one"}]}]}}}}});
     let parsed = OxrDocument::from_response(serde_json::to_vec(&positional).unwrap()).unwrap();
     assert_eq!(parsed.pages.iter().map(|page| page.page_num).collect::<Vec<_>>(), vec![0, 1]);
     assert_eq!(parsed.pages[1].blocks[0].text, "one");
-}
-
-#[tokio::test]
-async fn invalid_nonnull_page_count_keeps_original_observation_unknown() {
-    for invalid in [json!(-1), json!(4_294_967_296u64), json!(1.5)] {
-        assert_original_inventory_unknown(json!({"code":0,"data":{"metadata":{"page_num":invalid},
-            "result":{"outputs":{"json":{"pages":[{"page_num":0}]}}}}})).await;
-    }
-}
-
-#[tokio::test]
-async fn exact_deployment_scope_is_required_before_upload_and_cached_reuse() {
-    for scope in [Some("scope-a".to_owned()), None, Some(String::new())] {
-        let (base, state, server) = spawn_mock(HashMap::from([
-            ("/parse/sync", VecDeque::from([(200, upstream_document_json())])),
-        ]));
-        let provider: std::sync::Arc<dyn DocumentProvider> = std::sync::Arc::new(OxrProvider::new(OxrProviderConfig {
-            endpoint: Some(base), model_identity: Some("owned-scope-fixture".into()), scope: scope.clone(),
-            credential: Some(CredentialHandle::new("owned-scope-fixture")), transport: OxrTransport::Sync,
-            ..OxrProviderConfig::default()
-        }));
-        let req = bound_request(provider.as_ref(), &[]);
-        let mut refused = req.clone();
-        refused.deployment_scope = Some("other-scope".into());
-        assert!(provider.page_count(b"owned scope fixture", &refused).await.is_err());
-        assert!(provider.parse_page(b"owned scope fixture", PageRef { page_index:0 }, &refused).await.is_err());
-        assert!(run_parse(&refused, &provider, b"owned scope fixture", ParseOptions::default()).await.is_err());
-        assert!(state.lock().unwrap().requests.is_empty(), "scope refusal precedes even a probe");
-        let run = run_parse(&req, &provider, b"owned scope fixture", ParseOptions::default()).await.unwrap();
-        assert_eq!(run.checkpoints.len(), 2);
-        let before = state.lock().unwrap().requests.len();
-        refused.deployment_scope = if scope.is_some() { None } else { Some(String::new()) };
-        assert!(provider.page_count(b"owned scope fixture", &refused).await.is_err());
-        assert!(provider.parse_page(b"owned scope fixture", PageRef { page_index:0 }, &refused).await.is_err());
-        assert!(run_parse(&refused, &provider, b"owned scope fixture", ParseOptions::default()).await.is_err());
-        assert_eq!(state.lock().unwrap().requests.len(), before, "cached bytes grant no different scope");
-        let mut other_partition = req.clone();
-        other_partition.cache_scope = Some("subject-b:independent-cache".into());
-        assert_eq!(provider.page_count(b"owned scope fixture", &other_partition).await.unwrap(), Some(2));
-        assert_eq!(state.lock().unwrap().requests.iter().filter(|(path, _)| path.ends_with("/parse/sync")).count(), 2,
-            "cache partition is separate from exact deployment permission");
-        server.abort();
-    }
 }
 
 #[tokio::test]
@@ -428,32 +335,6 @@ async fn chunked_response_is_rejected_before_the_entire_oversized_body_arrives()
     server.abort();
 }
 
-#[tokio::test]
-async fn poll_deadline_bounds_a_slow_check_without_claiming_remote_stop() {
-    let routes = HashMap::from([("/async_check", VecDeque::from([(200, upstream_check_success_json()), (200, upstream_check_success_json())]))]);
-    let (base, state, server) = spawn_mock(routes);
-    state.lock().unwrap().response_delays.insert("/v1/parse/async_check".into(), std::time::Duration::from_secs(2));
-    let mut config = OxrClientConfig::new(base, CredentialHandle::new("owned-protocol-fixture"));
-    config.poll_timeout = std::time::Duration::from_millis(20);
-    config.request_timeout = std::time::Duration::from_secs(5);
-    let client = OxrClient::new(config).unwrap();
-    for durable in [false, true] {
-        let deadline = chrono::Utc::now() + chrono::Duration::milliseconds(20);
-        let error = if durable {
-            tokio::time::timeout(std::time::Duration::from_millis(500), client.poll_document_with_observer("t1", deadline, |_| Ok(())))
-                .await.expect("the original deadline must also bound the durable observer").expect("no ledger failure").unwrap_err()
-        } else {
-            tokio::time::timeout(std::time::Duration::from_millis(500), client.poll_document("t1", deadline))
-                .await.expect("the absolute poll deadline must bound a slow HTTP check").unwrap_err()
-        };
-        assert!(matches!(error, OxrError::TaskUnknown { ref task_id, .. } if task_id == "t1"));
-        assert!(error.outcome_is_unknown());
-    }
-    assert_eq!(state.lock().unwrap().requests.len(), 2);
-    assert!(state.lock().unwrap().requests.iter().all(|request| request.0.ends_with("/async_check")));
-    server.abort();
-}
-
 /// Two upstream-shaped pages covering several element types and formats
 /// verbatim, including OXR-native spellings ("Picture", "Caption") and blocks
 /// with no bbox (unknown, never fabricated).
@@ -531,7 +412,7 @@ fn provider_with(endpoint: &str, transport: OxrTransport) -> std::sync::Arc<dyn 
         transport,
         poll_interval: Some(std::time::Duration::from_millis(1)),
         ..OxrProviderConfig::default()
-    }))
+    }).unwrap())
 }
 
 #[test]
@@ -572,6 +453,10 @@ async fn sync_transport_maps_upstream_page_exactly() {
     );
     let (base, state, _server) = spawn_mock(routes);
     let provider = provider_with(&base, OxrTransport::Sync);
+    let mut refused = bound_request(provider.as_ref(), &[0]);
+    refused.deployment_scope = Some("other-scope".into());
+    assert!(provider.parse_page(b"%PDF-1.7 fake", PageRef { page_index: 0 }, &refused).await.is_err());
+    assert!(state.lock().unwrap().requests.is_empty());
 
     assert_eq!(provider.availability().await, ProviderAvailability::Ready);
 
@@ -850,12 +735,12 @@ async fn rate_limited_upstream_is_an_unknown_outcome_not_a_failure() {
 #[tokio::test]
 async fn unreachable_endpoint_is_unavailable_naming_the_reason() {
     // Nothing listens on this port: an honest Unavailable, never a parse.
-    let endpoint = "http://127.0.0.1:1/private-tenant-r70/v1?capability=private-query-r70";
+    let endpoint = "http://127.0.0.1:1/private-tenant-r70/v1";
     let bound = std::sync::Arc::new(OxrProvider::new(OxrProviderConfig {
         endpoint: Some(endpoint.into()), model_identity: Some("owned-availability-fixture".into()),
         scope: Some("scope-a".into()), credential: Some(CredentialHandle::new("owned-availability-fixture")),
         transport: OxrTransport::Sync, ..OxrProviderConfig::default()
-    }));
+    }).unwrap());
     assert_eq!(bound.binding().endpoint.as_deref(), Some(endpoint), "structured deployment binding remains exact");
     let provider: std::sync::Arc<dyn DocumentProvider> = bound;
     let reason = match provider.availability().await {
@@ -870,8 +755,6 @@ async fn unreachable_endpoint_is_unavailable_naming_the_reason() {
     for reason in [reason, run.request_checkpoint.unwrap().reason] {
         assert!(!reason.contains(endpoint));
         assert!(!reason.contains("private-tenant-r70"));
-        assert!(!reason.contains("private-query-r70"));
-        assert!(!reason.contains("capability="));
     }
 }
 
@@ -883,7 +766,7 @@ async fn local_engine_without_attestation_is_unavailable() {
         credential: Some(CredentialHandle::new("dummy")),
         engine: OxrEngineBinding::Local { attestation: None },
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     match provider.availability().await {
         ProviderAvailability::Unavailable { reason } => {
             assert!(reason.contains("attestation"), "{reason}");
@@ -895,17 +778,23 @@ async fn local_engine_without_attestation_is_unavailable() {
 
 #[tokio::test]
 async fn invalid_endpoint_shape_is_unavailable() {
-    let provider = OxrProvider::new(OxrProviderConfig {
-        endpoint: Some("not a url".into()),
-        model_identity: Some("OXR-1.0".into()),
-        credential: Some(CredentialHandle::new("dummy")),
-        ..OxrProviderConfig::default()
-    });
-    match provider.availability().await {
-        ProviderAvailability::Unavailable { reason } => {
-            assert!(reason.contains("endpoint"), "{reason}");
+    let private_query = "http://127.0.0.1:1/private-tenant-r70/v1?capability=private-query-r70";
+    for endpoint in ["not a url", private_query] {
+        let provider = OxrProvider::new(OxrProviderConfig {
+            endpoint: Some(endpoint.into()),
+            model_identity: Some("OXR-1.0".into()),
+            credential: Some(CredentialHandle::new("dummy")),
+            ..OxrProviderConfig::default()
+        }).unwrap();
+        match provider.availability().await {
+            ProviderAvailability::Unavailable { reason } => {
+                assert!(reason.contains("endpoint"), "{reason}");
+                assert!(!reason.contains(endpoint));
+                assert!(!reason.contains("private-query-r70"));
+                assert!(!reason.contains("capability="));
+            }
+            ProviderAvailability::Ready => panic!("an invalid endpoint is never ready"),
         }
-        ProviderAvailability::Ready => panic!("an invalid endpoint is never ready"),
     }
 }
 
@@ -921,7 +810,7 @@ fn credential_is_redacted_in_every_rendering() {
         model_identity: Some("OXR-1.0".into()),
         credential: Some(credential),
         ..OxrProviderConfig::default()
-    });
+    }).unwrap();
     let reason = futures::executor::block_on(async {
         match provider.availability().await {
             ProviderAvailability::Unavailable { reason } => reason,

@@ -612,6 +612,7 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
                 shenko_store::external::ExternalEvidenceFold {
                     expected_revision: RecordRevision(0),
                     terminal_content_conflict: false,
+                    source_operation_revision: None,
                 },
             )?
             .context("first fold")?;

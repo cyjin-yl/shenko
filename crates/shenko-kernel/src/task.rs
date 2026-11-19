@@ -122,6 +122,21 @@ pub trait ChildToolRuntime: Send + Sync + 'static {
     ) -> anyhow::Result<ChildToolOutcome>;
 }
 
+/// A transient local admission refusal before any external operation was armed.
+/// The runtime must confirm that the invocation's stable operation ID has no
+/// record before parking it for retry. This is neither an operation outcome
+/// nor permission to replay an existing T1/attempt.
+#[derive(Debug)]
+pub struct NativeTaskDeferred(pub &'static str);
+
+impl std::fmt::Display for NativeTaskDeferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::error::Error for NativeTaskDeferred {}
+
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> Result<NativeTaskDescriptor>;
@@ -177,7 +192,7 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     ) -> Result<Option<OperationRecord>> {
         tokio::select! {
             biased;
-            result = self.reconcile(task, operation_id) => result.map(Some),
+            _result = self.reconcile(task, operation_id) => _result.map(Some),
             _ = cancellation.cancelled() => Ok(None),
         }
     }

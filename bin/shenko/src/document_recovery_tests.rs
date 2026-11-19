@@ -36,11 +36,11 @@ mod document_recovery {
                 loop {
                     tokio::select! {
                         _ = worker_stop.cancelled() => break,
-                        stream = listener.accept() => {
-                            let (stream, _) = stream.unwrap(); let state = observations.clone();
+                        _accepted = listener.accept() => {
+                            let (stream, _) = _accepted.unwrap(); let state = observations.clone();
                             connections.spawn(async move { serve(stream, state).await });
                         }
-                        result = connections.join_next(), if !connections.is_empty() => { result.unwrap().unwrap(); }
+                        _result = connections.join_next(), if !connections.is_empty() => { _result.unwrap().unwrap(); }
                     }
                 }
                 connections.abort_all();
@@ -221,24 +221,29 @@ mod document_recovery {
                 scope: scope.to_owned(), credential_env: "OWNED_DOCUMENT_FIXTURE_HANDLE".into(), engine: OxrEngineBinding::Remote {},
                 transport: OxrTransport::Async, max_documents: 1, max_source_bytes: 1024 * 1024,
                 request_timeout_secs: 2, poll_timeout_secs: 1, poll_interval_millis: 10, legacy_main };
-            let bytes = serde_json::to_vec(&profile).unwrap(); let digest = Digest::blake3(&bytes);
-            let unit = UnitDescriptor { unit_id: DOCUMENT_OXR_UNIT.into(), kind: UnitKind::Code, revision: "owned-fixture-1".into(),
+            Self::install_profile(&mut node, &root, &profile, "owned-fixture-1");
+            let source = store.cas.seal_object(b"%PDF-1.7\nowned HTTP protocol fixture; no recognition engine runs\n",
+                "application/pdf", "owned-fixture", "source", 1).unwrap().object;
+            Self::open(root, store, node, source).await
+        }
+        fn install_profile(node: &mut shenko_node::Node, root: &std::path::Path, profile: &OxrInstallation, revision: &str) {
+            let bytes = serde_json::to_vec(profile).unwrap(); let digest = Digest::blake3(&bytes);
+            let unit = UnitDescriptor { unit_id: DOCUMENT_OXR_UNIT.into(), kind: UnitKind::Code, revision: revision.into(),
                 artifact_digest: digest.clone(), provides: vec!["cap.document.parse/1".into()], dependencies: vec![], applicability: None,
                 config: serde_json::json!({"format":"document-oxr-http","schema_version":1}) };
             node.handle_unit_request(UnitRequest::Import { export: UnitExport { schema: UNIT_SCHEMA, root_unit_id: DOCUMENT_OXR_UNIT.into(),
                 root_revision: Some(unit.revision.clone()), root_artifact_digest: Some(digest), origin_node: None, enabled: true,
                 packages: vec![UnitPackage { unit, artifact_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
                     evidence: vec![], resolved_dependencies: None }] }, package_root: root.join("units").to_string_lossy().into_owned(), enable: Some(true) }).unwrap();
-            let source = {
-                let source = store.cas.seal_object(b"%PDF-1.7\nowned HTTP protocol fixture; no recognition engine runs\n", "application/pdf", "owned-fixture", "source", 1).unwrap().object;
-                source
-            };
-            Self::open(root, store, node, source).await
         }
         async fn open(root: PathBuf, store: Arc<shenko_store::Store>, node: shenko_node::Node, source: ObjectRef) -> Self {
+            Self::open_with_credentials(root, store, node, source, true).await
+        }
+        async fn open_with_credentials(root: PathBuf, store: Arc<shenko_store::Store>, node: shenko_node::Node,
+            source: ObjectRef, credential_available: bool) -> Self {
             let handler = DocumentParseHandler::installed_with_credentials(store.clone(), Arc::new(parking_lot::Mutex::new(node)), |handle| {
                 assert_eq!(handle, "OWNED_DOCUMENT_FIXTURE_HANDLE");
-                Ok(Some(CredentialHandle::new("owned-http-fixture-only")))
+                Ok(credential_available.then(|| CredentialHandle::new("owned-http-fixture-only")))
             }).unwrap().unwrap();
             let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
             supervisor.spawn(shenko_subject::NativeChildPlugin, (store.clone(), RuntimeGeneration::default())).await.unwrap();
@@ -366,165 +371,6 @@ mod document_recovery {
     }
 
     #[tokio::test]
-    async fn malformed_inventory_retains_original_body_handle_and_attempt_across_reopen() {
-        let peer = Peer::new(3).await;
-        let fixture = Fixture::fresh(&peer, "owned-fixture").await;
-        let task_id = EntityId::new(); let input = fixture.input(&fixture.source, &[]);
-        {
-            commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[task_id], vec![]);
-        }
-        let operation = fixture.handler.execute(fixture.claim(task_id, input)).await.unwrap();
-        assert_eq!(operation.outcome, None);
-        assert_eq!(operation.effect_status, EffectStatus::Unknown);
-        let attempt = fixture.store.external_operation_attempt(operation.operation_id).unwrap();
-        let original_attempt = attempt.attempt_id;
-        let evidence = fixture.store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
-        let snapshot: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&evidence.raw_ref.digest).unwrap()).unwrap();
-        assert_eq!(snapshot["schema_version"], 2);
-        assert_eq!(snapshot["response_mapping_version"], 2);
-        assert_eq!(snapshot["provider_task_id"], "original-1");
-        assert!(snapshot["raw_output"].is_null());
-        assert!(snapshot["pages"].as_object().unwrap().is_empty());
-        assert_eq!(snapshot["raw_observation"]["operation_id"], operation.operation_id.to_string());
-        assert_eq!(snapshot["raw_observation"]["attempt_id"], original_attempt.to_string());
-        assert_eq!(snapshot["raw_observation"]["provider_task_id"], "original-1");
-        assert_eq!(snapshot["raw_observation"]["source_digest"], fixture.source.digest.0);
-        assert_eq!(snapshot["raw_observation"]["capture_complete"], true);
-        assert_eq!(snapshot["raw_observation"]["source"], "async_check");
-        let declared: Vec<u8> = serde_json::from_value(snapshot["raw_observation"]["declared_content_type"].clone()).unwrap();
-        assert_eq!(declared, b"application/json");
-        let raw: ObjectRef = serde_json::from_value(snapshot["raw_observation"]["body"].clone()).unwrap();
-        assert_eq!(raw.media_type, "application/octet-stream");
-        let received = fixture.store.cas.read_object(&raw.digest).unwrap();
-        assert_eq!(received, *peer.state.last_observation.lock().unwrap().as_ref().unwrap());
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1);
-        assert_eq!(peer.checked_tasks(), vec!["original-1".to_owned()]);
-        let (root, source) = fixture.close().await;
-        let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
-        let node = node_sync::open_node(&root, &store).unwrap();
-        let fixture = Fixture::open(root, store, node, source).await;
-        assert_eq!(fixture.store.cas.read_object(&raw.digest).unwrap(), received);
-        peer.state.mode.store(1, Ordering::SeqCst);
-        let task = fixture.store.external_task(task_id).unwrap();
-        let resolved = fixture.handler.reconcile(&task, operation.operation_id).await.unwrap();
-        assert_eq!(resolved.operation_id, operation.operation_id);
-        assert_eq!(peer.checked_tasks(), vec!["original-1".to_owned(), "original-1".to_owned()]);
-        assert_eq!(resolved.outcome, Some(OperationOutcome::Succeeded));
-        assert_eq!(fixture.store.external_operation_attempt(resolved.operation_id).unwrap().attempt_id, original_attempt);
-        assert_eq!(fixture.store.external_operation_attempts(resolved.operation_id).unwrap().len(), 1);
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "reconciliation queries only the original task");
-        let attempt = fixture.store.external_operation_attempt(resolved.operation_id).unwrap();
-        let evidence = fixture.store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
-        let completed: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&evidence.raw_ref.digest).unwrap()).unwrap();
-        assert_eq!(completed["raw_observation"]["body"], snapshot["raw_observation"]["body"]);
-        assert!(completed["raw_output"].is_object());
-        assert_eq!(completed["pages"].as_object().unwrap().len(), 2);
-        fixture.close().await; peer.finish().await;
-    }
-
-    #[tokio::test]
-    async fn refused_checks_retain_original_debt_across_reopen_until_terminal() {
-        let peer = Peer::new(4).await;
-        let fixture = Fixture::fresh(&peer, "owned-fixture").await;
-        let first = EntityId::new(); let input = fixture.input(&fixture.source, &[]);
-        {
-            commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[first], vec![]);
-        }
-        let operation = fixture.handler.execute(fixture.claim(first, input)).await.unwrap();
-        assert_eq!(operation.outcome, None);
-        assert_eq!(operation.effect_status, EffectStatus::Unknown);
-        let original_attempt = fixture.store.external_operation_attempt(operation.operation_id).unwrap().attempt_id;
-        let denied = fixture.request_snapshot(operation.operation_id);
-        assert_eq!(denied["provider_task_id"], "original-1");
-        let original_handle = denied["provider_task_id"].as_str().unwrap().to_owned();
-        assert_eq!(denied["raw_observation"]["http_status"], 401);
-        assert_eq!(denied["raw_observation"]["capture_complete"], true);
-        assert_eq!(denied["remote_may_be_running"], true);
-        assert_eq!(denied["remote_finished"], false);
-        assert!(denied["raw_output"].is_null());
-        assert!(denied["pages"].as_object().unwrap().is_empty());
-        let empty: ObjectRef = serde_json::from_value(denied["raw_observation"]["body"].clone()).unwrap();
-        assert_eq!(empty.media_type, "application/octet-stream");
-        assert_eq!(empty.bytes, 0);
-        assert!(fixture.store.cas.read_object(&empty.digest).unwrap().is_empty());
-        assert_eq!(peer.checked_tasks(), vec![original_handle.clone()]);
-        let (root, source) = fixture.close().await;
-
-        let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
-        let node = node_sync::open_node(&root, &store).unwrap();
-        let fixture = Fixture::open(root, store, node, source).await;
-        peer.state.mode.store(6, Ordering::SeqCst);
-        let task = fixture.store.external_task(first).unwrap();
-        let no_capture = fixture.handler.reconcile(&task, operation.operation_id).await.unwrap();
-        assert_eq!(no_capture.effect_status, EffectStatus::Unknown);
-        assert_eq!(no_capture.outcome, None);
-        let missing = fixture.request_snapshot(operation.operation_id);
-        assert!(missing["raw_observation"]["body"].is_null(), "unread body is not a fabricated empty object");
-        assert_eq!(missing["raw_observation"]["capture_complete"], false);
-        assert_eq!(missing["provider_task_id"], original_handle);
-        assert_eq!(peer.checked_tasks(), vec![original_handle.clone(), original_handle.clone()]);
-        let (root, source) = fixture.close().await;
-
-        let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
-        let node = node_sync::open_node(&root, &store).unwrap();
-        let fixture = Fixture::open(root, store, node, source).await;
-        assert!(fixture.request_snapshot(operation.operation_id)["raw_observation"]["body"].is_null());
-        peer.state.mode.store(7, Ordering::SeqCst);
-        let task = fixture.store.external_task(first).unwrap();
-        let partial = fixture.handler.reconcile(&task, operation.operation_id).await.unwrap();
-        assert_eq!(partial.outcome, None);
-        assert_eq!(partial.effect_status, EffectStatus::Unknown);
-        let captured = fixture.request_snapshot(operation.operation_id);
-        assert_eq!(captured["raw_observation"]["capture_complete"], false);
-        let prefix: ObjectRef = serde_json::from_value(captured["raw_observation"]["body"].clone()).unwrap();
-        let prefix_bytes = fixture.store.cas.read_object(&prefix.digest).unwrap();
-        assert!(!prefix_bytes.is_empty());
-        assert_eq!(prefix_bytes, *peer.state.last_observation.lock().unwrap().as_ref().unwrap());
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1);
-        assert!(peer.checked_tasks().iter().all(|handle| handle == &original_handle));
-        let (root, source) = fixture.close().await;
-
-        let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
-        let node = node_sync::open_node(&root, &store).unwrap();
-        let fixture = Fixture::open(root, store, node, source).await;
-        assert_eq!(fixture.store.cas.read_object(&prefix.digest).unwrap(), prefix_bytes);
-        assert!(fixture.store.cas.read_object(&empty.digest).unwrap().is_empty());
-        let other_source = {
-            let source = fixture.store.cas.seal_object(b"%PDF-1.7\nsecond source waiting for original remote termination\n", "application/pdf", "owned-fixture", "source", 1).unwrap().object;
-            source
-        };
-        let second = EntityId::new(); let input = fixture.input(&other_source, &[]);
-        {
-            commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[second], vec![]);
-        }
-        drive_native_until(&fixture.service, || Ok(fixture.store.external_task(second)?.is_running())).await.unwrap();
-        assert!(!fixture.store.external_operations_after("document.parse", None, 256).unwrap().iter()
-            .any(|operation| operation.task_id == second), "capacity waiting precedes atomic T1+dispatch");
-        assert!(fixture.store.native_task_result(second).unwrap().is_none());
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "refused/partial checks retain max_documents=1 debt after reopen");
-        assert!(peer.checked_tasks().iter().all(|handle| handle == &original_handle));
-        assert_eq!(fixture.store.external_operation_attempts(operation.operation_id).unwrap().len(), 1);
-        peer.task_mode(&original_handle, 5);
-        peer.state.mode.store(1, Ordering::SeqCst);
-        let task = fixture.store.external_task(first).unwrap();
-        let terminal = fixture.handler.reconcile(&task, operation.operation_id).await.unwrap();
-        assert_eq!(terminal.outcome, Some(OperationOutcome::Failed));
-        assert_eq!(terminal.effect_status, EffectStatus::Complete);
-        assert_eq!(fixture.store.external_operation_attempt(operation.operation_id).unwrap().attempt_id, original_attempt);
-        drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(second)?.is_some())).await.unwrap();
-        assert_eq!(fixture.store.native_task_result(second).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 2, "only one subsequent source upload follows the authentic terminal fact");
-        assert_eq!(fixture.store.external_operation_attempts(operation.operation_id).unwrap().len(), 1);
-        let subsequent = fixture.store.external_operations_after("document.parse", None, 256).unwrap().into_iter()
-            .find(|operation| operation.task_id == second).unwrap();
-        assert_eq!(fixture.store.external_operation_attempts(subsequent.operation_id).unwrap().len(), 1);
-        assert!(peer.checked_tasks().contains(&"original-2".to_owned()));
-        assert!(fixture.store.cas.read_object(&empty.digest).unwrap().is_empty());
-        assert_eq!(fixture.store.cas.read_object(&prefix.digest).unwrap(), prefix_bytes);
-        fixture.close().await; peer.finish().await;
-    }
-
-    #[tokio::test]
     async fn accepted_task_keeps_original_deadline_and_late_terminal_conflict() {
         let peer = Peer::new(0).await;
         let fixture = Fixture::fresh(&peer, "owned-fixture").await;
@@ -634,8 +480,8 @@ mod document_recovery {
                 tokio::select! {
                     biased;
                     _ = worker_stop.cancelled() => Err(anyhow::anyhow!("owned late reconciliation cancelled during fixture cleanup")),
-                    result = tokio::time::timeout(Duration::from_secs(20), late_owner.reconcile(&late_task, operation_id)) =>
-                        result.map_err(|_| anyhow::anyhow!("owned late reconciliation exceeded fixture deadline"))?,
+                    _result = tokio::time::timeout(Duration::from_secs(20), late_owner.reconcile(&late_task, operation_id)) =>
+                        _result.map_err(|_| anyhow::anyhow!("owned late reconciliation exceeded fixture deadline"))?,
                 }
             });
             runtime.shutdown_timeout(Duration::from_secs(2));
@@ -840,7 +686,7 @@ mod document_recovery {
                     producer_epoch:Some(attempt.epoch.0),producer_schema_version:Some("2".into()),raw_ref:raw,decoder_ref:Some(descriptor.implementation()),
                     decode_status:shenko_types::evidence::DecodeStatus::Decoded,observation_level:None,normalized_ref:Some(normalized),observed_at:Some(accepted_at),
                     received_commit:operation.prepared_commit },None,EffectStatus::Unknown).unwrap();
-                Some(handle)
+                Some(task)
             } else if no_send {
                 let seal = |value: &serde_json::Value, schema: &str| fixture.store.cas.seal_object(
                     &serde_json::to_vec(value).unwrap(), "application/json", "document-parse", schema, 1).unwrap().object;
@@ -884,7 +730,7 @@ mod document_recovery {
                     assert_eq!(fixture.store.external_operation_attempt(operation.operation_id).unwrap().attempt_id,attempt_id);
                 }
                 let malformed = fixture.store.external_operation_evidence(operation.operation_id).unwrap().into_iter()
-                    .filter(|evidence| evidence.source_id == "document.oxr.transport.v1").last().unwrap();
+                    .rfind(|evidence| evidence.source_id == "document.oxr.transport.v1").unwrap();
                 let original_body = fixture.store.cas.read_object(&malformed.raw_ref.digest).unwrap();
                 assert_eq!(original_body,b"{owned original malformed JSON response");
                 let (root,source) = fixture.close().await;
@@ -893,6 +739,51 @@ mod document_recovery {
                 fixture = Fixture::open(root,store,node,source).await;
                 assert_eq!(fixture.store.cas.read_object(&malformed.raw_ref.digest).unwrap(),original_body);
                 peer.state.mode.store(9,Ordering::SeqCst);
+                // The original admitted reader obtains and seals the real
+                // terminal observation, then stops before local page projection.
+                let client = shenko_document::legacy_main::OxrClient::new(
+                    shenko_document::legacy_main::OxrClientConfig::new(peer.endpoint.clone(),
+                        CredentialHandle::new("owned-http-fixture-only"))).unwrap();
+                let observed = client.check_document_observed(handle.as_ref().unwrap()).await;
+                let document = observed.outcome.unwrap().expect("the original task reached success");
+                let response = observed.response.expect("terminal receipt retains the original wire body");
+                assert_eq!(response.body_state, shenko_document::legacy_main::OxrBodyState::Complete);
+                let raw = fixture.store.cas.seal_object(response.body(), "application/octet-stream", "document-parse",
+                    "oxr-http-response-body", 1).unwrap().object;
+                let receipt = shenko_document::legacy_main::AttemptReceipt { task: handle.clone(),
+                    outcome: Some(Ok(document)), raw_output_ref: Some(raw.digest.0.clone()) };
+                assert!(receipt.terminal());
+                let normalized = fixture.store.cas.seal_object(&serde_json::to_vec(&serde_json::json!({"schema_version":2,
+                    "binding_digest":binding.digest().unwrap(),"receipt":receipt,
+                    "response":{"path":response.path,"status":response.status,"declared_length":response.declared_length,
+                        "body_state":response.body_state,"body":raw}})).unwrap(),
+                    "application/json", "document-parse", "oxr-transport-observation", 1).unwrap().object;
+                operation = fixture.store.external_operation(operation.operation_id).unwrap();
+                operation = fixture.store.record_external_evidence(operation.operation_id,attempt_id,shenko_types::evidence::EvidenceReceipt {
+                    record_schema_version:1,receipt_id:EntityId::new(),operation_id:Some(operation.operation_id),attempt_id:Some(attempt_id),
+                    source_id:"document.oxr.transport.v1".into(),source_instance_id:attempt.node_id.to_string(),source_event_key:None,
+                    producer_epoch:Some(attempt.epoch.0),producer_schema_version:Some("2".into()),raw_ref:raw.clone(),
+                    decoder_ref:Some(descriptor.implementation()),decode_status:shenko_types::evidence::DecodeStatus::Decoded,
+                    observation_level:None,normalized_ref:Some(normalized),observed_at:Some(chrono::Utc::now()),
+                    received_commit:operation.prepared_commit },None,EffectStatus::Unknown).unwrap();
+                assert_eq!(operation.outcome,None);
+                assert!(!fixture.store.external_operation_evidence(operation.operation_id).unwrap().iter()
+                    .any(|evidence| evidence.source_id == "document.parse.result.v1"));
+                let (root,source) = fixture.close().await;
+                let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
+                let mut node = node_sync::open_node(&root,&store).unwrap();
+                let original_unit = node.installed_unit_fact(DOCUMENT_OXR_UNIT).unwrap().unwrap();
+                let mut profile: OxrInstallation = serde_json::from_slice(
+                    &node.unit_object_bytes(&original_unit.artifact_digest).unwrap()).unwrap();
+                assert!(profile.legacy_main.take().is_some());
+                Fixture::install_profile(&mut node, &root, &profile, "owned-fixture-terminal-offline");
+                let replacement = node.installed_unit_fact(DOCUMENT_OXR_UNIT).unwrap().unwrap();
+                assert!(replacement.enabled);
+                assert_ne!(replacement.artifact_digest,original_unit.artifact_digest);
+                assert_eq!(replacement.revision,"owned-fixture-terminal-offline");
+                fixture = Fixture::open_with_credentials(root,store,node,source,false).await;
+                assert_eq!(fixture.store.cas.read_object(&malformed.raw_ref.digest).unwrap(),original_body);
+                assert_eq!(fixture.store.cas.read_object(&raw.digest).unwrap(),response.body());
             }
             assert_eq!(fixture.service.installed_definitions().iter()
                 .filter(|(kind, _)| kind == "document.parse").count(), 1);
@@ -917,15 +808,19 @@ mod document_recovery {
                 drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(task_id)?.is_some())).await.unwrap();
                 let recovered = fixture.store.external_operation(operation.operation_id).unwrap();
                 assert_eq!(recovered.outcome,Some(OperationOutcome::Succeeded));
-                assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks+1);
-                assert_eq!(peer.checked_tasks().last(),handle.as_ref());
+                assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks,"sealed terminal recovery must be offline");
+                assert_eq!(peer.checked_tasks().last(),handle.as_ref().map(|task| &task.task_id));
+                let retained = fixture.store.external_operation_evidence(operation.operation_id).unwrap();
+                assert!(original_evidence.iter().all(|evidence| retained.contains(evidence)));
+                let terminal = retained.iter().rfind(|evidence| evidence.source_id == "document.oxr.transport.v1").unwrap();
                 let attempt = fixture.store.external_operation_attempt(operation.operation_id).unwrap();
                 let evidence = fixture.store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
                 let run: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&evidence.raw_ref.digest).unwrap()).unwrap();
                 assert_eq!(run["checkpoints"][0]["result"]["provenance"]["code_version"],"oxr/1.0");
                 assert_eq!(run["checkpoints"][0]["result"]["provenance"]["model_version"],binding.model_identity);
                 assert_eq!(run["checkpoints"][0]["result"]["coordinates_restored"],true,"retain the original mapper's historical assertion");
-                assert!(run["checkpoints"][0]["result"]["provenance"]["raw_output_ref"].is_string());
+                assert_eq!(run["checkpoints"][0]["result"]["provenance"]["raw_output_ref"],terminal.raw_ref.digest.0);
+                assert_eq!(run["checkpoints"][0]["result"]["provenance"]["params_digest"],binding.params_digest);
                 let read = EntityId::new();
                 let input = serde_json::json!({"operation_id":operation.operation_id,"page_index":0});
                 commit_native_fixture_step(&fixture.store,&format!("[delegate:document.page.read:1] {input}"),&[read],vec![]);
@@ -933,6 +828,7 @@ mod document_recovery {
                 let read_op = fixture.store.external_operations_after("document.page.read", None, 256).unwrap()
                     .into_iter().find(|item| item.task_id == read).unwrap();
                 assert_eq!(read_op.outcome, Some(OperationOutcome::Succeeded));
+                assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks,"saved page reads must also stay offline");
             } else {
                 if accepted {
                     let owner = fixture.store.external_task(task_id).unwrap();
@@ -953,7 +849,12 @@ mod document_recovery {
                 {
                     commit_native_fixture_step(&fixture.store,&format!("[delegate:document.parse:1] {input}"),&[waiting],vec![]);
                 }
-                drive_native_until(&fixture.service,|| Ok(fixture.store.external_task(waiting)?.is_running())).await.unwrap();
+                drive_native_until(&fixture.service, || {
+                    let task = fixture.store.external_task(waiting)?;
+                    Ok(shenko_store::child::park_reason(&task) == Some("reconciling")
+                        && matches!(task.dispatch_eligibility,
+                            shenko_types::task::DispatchEligibility::Parked { until_utc: Some(_), .. }))
+                }).await.unwrap();
                 assert!(!fixture.store.external_operations_after("document.parse",None,256).unwrap().iter().any(|operation| operation.task_id == waiting));
                 assert!(fixture.store.native_task_result(waiting).unwrap().is_none(),"unattested original debt remains charged");
                 assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks,"original operation lacks a permitted query");
@@ -970,79 +871,173 @@ mod document_recovery {
     }
 
     #[tokio::test]
-    async fn oversized_frozen_input_is_refused_before_arm_and_reopens_cleanly() {
-        let peer = Peer::new(1).await;
-        let long_scope = "s".repeat(24_000);
-        let fixture = Fixture::fresh(&peer, &long_scope).await;
-        let task_id = EntityId::new(); let input = fixture.input(&fixture.source, &[]);
-        {
-            commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[task_id], vec![]);
+    async fn cancellation_retains_remote_capacity_while_unrelated_child_progresses() {
+        let peer = Peer::new(0).await; let fixture = Fixture::fresh(&peer, "owned-fixture").await;
+        fixture.supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin,
+            Arc::new(shenko_exec_host::HostPrintfHandler::new(fixture.store.clone())) as Arc<dyn NativeTaskHandler>).await.unwrap();
+        let first = EntityId::new(); let one = fixture.input(&fixture.source, &[]);
+        commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {one}"), &[first], vec![]);
+        drive_native_until(&fixture.service, || {
+            let task = fixture.store.external_task(first)?;
+            Ok(shenko_store::child::park_reason(&task) == Some("reconciling")
+                && fixture.store.external_operations_after("document.parse", None, 256)?.len() == 1)
+        }).await.unwrap();
+        let original = fixture.store.external_operations_after("document.parse", None, 256).unwrap().pop().unwrap();
+        assert_eq!(original.task_id, first);
+        assert_eq!(original.effect_status, EffectStatus::Unknown);
+        assert_eq!(original.outcome, None);
+        let operation_id = original.operation_id;
+        let attempt_id = fixture.store.external_operation_attempt(operation_id).unwrap().attempt_id;
+        let original_handle = fixture.request_snapshot(operation_id)["provider_task_id"].as_str().unwrap().to_owned();
+        let acceptance = fixture.store.external_operation_evidence(operation_id).unwrap().into_iter().find(|receipt| {
+            let value: serde_json::Value = serde_json::from_slice(&fixture.store.cas.read_object(&receipt.raw_ref.digest).unwrap()).unwrap();
+            value["raw_observation"]["source"] == "async_submit"
+        }).expect("the original accepted handle must have immutable evidence before the queue arrives");
+        let acceptance_bytes = fixture.store.cas.read_object(&acceptance.raw_ref.digest).unwrap();
+        let original_receipts = fixture.store.external_operation_evidence(operation_id).unwrap().len();
+        let original_checks = peer.state.checks.load(Ordering::SeqCst);
+
+        // More than the eight managed workers, each with an actually admitted,
+        // distinct source. A wave of workers sleeping on remote capacity would
+        // prevent both the original Settle job and this short task progressing.
+        let mut waiting = Vec::new(); let mut sources = Vec::new(); let mut output = String::new();
+        for index in 0..12 {
+            let source = fixture.store.cas.seal_object(format!("%PDF-1.7\nqueued distinct document {index}\n").as_bytes(),
+                "application/pdf", "owned-fixture", "source", 1).unwrap().object;
+            let id = EntityId::new(); let input = fixture.input(&source, &[]);
+            output.push_str(&format!("[delegate:document.parse:1] {input}\n"));
+            waiting.push(id); sources.push(source);
         }
-        let error = fixture.handler.execute(fixture.claim(task_id, input)).await.unwrap_err();
-        assert!(error.to_string().contains("frozen input exceeds its reader bound"));
-        assert!(fixture.store.external_operations_after("document.parse", None, 256).unwrap().is_empty(), "no T1 or attempt may be admitted");
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 0);
-        assert_eq!(peer.state.checks.load(Ordering::SeqCst), 0);
-        let closure = fixture.handler.closure_id().to_owned();
-        // This refused source has no frozen operation root. The owned fixture
-        // keeps its private CAS intact through close/reopen; no collector runs.
+        assert_eq!(sources.iter().map(|source| source.digest.0.as_str()).collect::<std::collections::BTreeSet<_>>().len(), waiting.len());
+        assert!(sources.iter().all(|source| source.digest != fixture.source.digest));
+        let short = EntityId::new();
+        output.push_str("[delegate:host.printf:1] {\"text\":\"short-progress-under-full-document-queue\"}");
+        let mut admitted = waiting.clone(); admitted.push(short);
+        commit_native_fixture_step(&fixture.store, &output, &admitted, vec![]);
+        for id in &admitted { assert_eq!(fixture.store.external_task(*id).unwrap().task_id, *id); }
+        let queued_are_parked = |store: &shenko_store::Store| -> Result<bool> {
+            for id in &waiting {
+                let task = store.external_task(*id)?;
+                if !matches!(task.state, shenko_types::task::TaskState::Pending { .. })
+                    || shenko_store::child::park_reason(&task) != Some("reconciling")
+                    || !matches!(task.dispatch_eligibility, shenko_types::task::DispatchEligibility::Parked { until_utc: Some(_), .. })
+                    || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_CHILD)
+                    || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_RECOVERY)
+                    || task.first_run_at.is_none()
+                { return Ok(false); }
+            }
+            Ok(true)
+        };
+        drive_native_until(&fixture.service, || Ok(queued_are_parked(&fixture.store)?
+            && fixture.store.native_task_result(short)?.is_some()
+            && peer.state.checks.load(Ordering::SeqCst) > original_checks
+            && fixture.store.external_operation_evidence(operation_id)?.len() > original_receipts)).await.unwrap();
+        assert_eq!(fixture.store.native_task_result(short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
+        let queued_operations: Vec<_> = waiting.iter().map(|id| {
+            let task = fixture.store.external_task(*id).unwrap();
+            shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID).unwrap()
+        }).collect();
+        let queued_are_unarmed = |store: &shenko_store::Store| -> Result<()> {
+            for (id, operation_id) in waiting.iter().zip(&queued_operations) {
+                let task = store.external_task(*id)?;
+                assert_eq!(shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID), Some(*operation_id));
+                assert!(store.get_operation(*operation_id)?.is_none(), "capacity deferral must precede T1");
+                assert!(store.external_operation_attempts(*operation_id)?.is_empty(), "a deferred child has no attempt");
+                assert!(store.external_operation_evidence(*operation_id)?.is_empty(), "no invented scheduling receipt");
+                assert!(store.native_task_result(*id)?.is_none(), "no invented Failed/Unknown terminal result");
+            }
+            Ok(())
+        };
+        queued_are_unarmed(&fixture.store).unwrap();
+        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1);
+        assert!(peer.checked_tasks().iter().all(|handle| handle == &original_handle));
+        assert_eq!(fixture.store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
+        assert_eq!(fixture.store.external_operation_attempts(operation_id).unwrap().len(), 1);
+        assert_eq!(fixture.store.external_evidence(acceptance.receipt_id).unwrap().raw_ref, acceptance.raw_ref);
+        assert_eq!(fixture.store.cas.read_object(&acceptance.raw_ref.digest).unwrap(), acceptance_bytes);
+
+        let task = fixture.store.external_task(first).unwrap();
+        fixture.store.request_native_cancellation(first, EntityId::new(), task.created_by_step_id.unwrap(),
+            "owned cancellation fixture", AbortScope::Task).unwrap();
+        drive_native_until(&fixture.service, || Ok(queued_are_parked(&fixture.store)?)).await.unwrap();
+        assert_eq!(fixture.store.external_operation(operation_id).unwrap().effect_status, EffectStatus::Unknown);
+        assert_eq!(fixture.store.external_operation(operation_id).unwrap().outcome, None);
+        assert!(fixture.store.external_task(first).unwrap().abort_request.is_some());
+        queued_are_unarmed(&fixture.store).unwrap();
+        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "local cancellation cannot release remote capacity");
+
+        // The same durable queued children must retry after reopen, while the
+        // cancelled original still contributes its authenticated capacity debt.
         let (root, source) = fixture.close().await;
         let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
         let node = node_sync::open_node(&root, &store).unwrap();
         let fixture = Fixture::open(root, store, node, source).await;
-        assert_eq!(fixture.handler.closure_id(), closure);
-        assert!(fixture.store.external_operations_after("document.parse", None, 256).unwrap().is_empty());
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 0);
-        assert!(peer.checked_tasks().is_empty());
-        fixture.close().await; peer.finish().await;
-    }
-
-    #[tokio::test]
-    async fn cancellation_retains_remote_capacity_while_unrelated_child_progresses() {
-        let peer = Peer::new(2).await; let fixture = Fixture::fresh(&peer, "owned-fixture").await;
         fixture.supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin,
             Arc::new(shenko_exec_host::HostPrintfHandler::new(fixture.store.clone())) as Arc<dyn NativeTaskHandler>).await.unwrap();
-        let first = EntityId::new(); let second = EntityId::new(); let short = EntityId::new();
-        let other_source = {
-            let source = fixture.store.cas.seal_object(b"%PDF-1.7\nsecond owned protocol fixture\n", "application/pdf", "owned-fixture", "source", 1).unwrap().object;
-            source
-        };
-        let one = fixture.input(&fixture.source, &[]); let two = fixture.input(&other_source, &[]);
-        {
-            commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {one}\n[delegate:document.parse:1] {two}\n[delegate:host.printf:1] {{\"text\":\"short-progress\"}}"), &[first, second, short], vec![]);
-        }
-        drive_native_until(&fixture.service, || Ok(peer.state.checks.load(Ordering::SeqCst) > 0
-            && fixture.store.native_task_result(short)?.is_some())).await.unwrap();
-        assert_eq!(fixture.store.native_task_result(short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1);
-        // Admission order is a runtime decision. Cancel whichever original
-        // owns the observed upload, rather than assuming UUID ordering.
-        let active = fixture.store.external_operations_after("document.parse", None, 256).unwrap().into_iter()
-            .find(|operation| fixture.store.external_operation_attempt(operation.operation_id).unwrap().final_receipt_id.is_some()).unwrap();
-        let active_task = active.task_id;
-        let waiting_task = if active_task == first { second } else { first };
-        let task = fixture.store.external_task(active_task).unwrap();
-        let operation_id: EntityId = task.memos[shenko_store::child::NATIVE_OPERATION_ID].as_str().unwrap().parse().unwrap();
-        fixture.store.request_native_cancellation(active_task, EntityId::new(), task.created_by_step_id.unwrap(),
-            "owned cancellation fixture", AbortScope::Task).unwrap();
-        tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                let attempt = fixture.store.external_operation_attempt(operation_id).unwrap();
-                if attempt.dispatch_stage == shenko_types::operation::AttemptDispatchStage::Unknown { break; }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+        let revisions: Vec<_> = waiting.iter().map(|id| fixture.store.external_task(*id).unwrap().record_revision).collect();
+        let reopened_short = EntityId::new();
+        commit_native_fixture_step(&fixture.store, "[delegate:host.printf:1] {\"text\":\"short-progress-after-reopen\"}", &[reopened_short], vec![]);
+        drive_native_until(&fixture.service, || {
+            let mut retried = true;
+            for (id, revision) in waiting.iter().zip(&revisions) {
+                retried &= fixture.store.external_task(*id)?.record_revision.0 > revision.0;
             }
+            Ok(retried && queued_are_parked(&fixture.store)? && fixture.store.native_task_result(reopened_short)?.is_some())
         }).await.unwrap();
-        assert_eq!(fixture.store.external_operation(operation_id).unwrap().effect_status, EffectStatus::Unknown);
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "local cancellation is not proof that remote capacity was released");
-        assert!(fixture.store.native_task_result(waiting_task).unwrap().is_none());
-        peer.state.mode.store(1, Ordering::SeqCst);
-        let task = fixture.store.external_task(active_task).unwrap();
-        let resolved = fixture.handler.reconcile(&task, operation_id).await.unwrap();
-        assert_eq!(resolved.effect_status, EffectStatus::Complete);
-        drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(waiting_task)?.is_some())).await.unwrap();
-        assert_eq!(fixture.store.native_task_result(waiting_task).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
-        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 2);
+        assert_eq!(fixture.store.native_task_result(reopened_short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
+        queued_are_unarmed(&fixture.store).unwrap();
+        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "reopen cannot forgive the cancelled original's remote debt");
+        assert_eq!(fixture.store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
         assert_eq!(fixture.store.external_operation_attempts(operation_id).unwrap().len(), 1);
+        assert_eq!(fixture.store.cas.read_object(&acceptance.raw_ref.digest).unwrap(), acceptance_bytes);
+
+        // The dispatcher deliberately skips aborted tasks. Observe only that
+        // original handle explicitly, as before; the earlier full-queue receipt
+        // advancement proved dispatcher Settle independently of cancellation.
+        peer.task_mode(&original_handle, 5);
+        peer.state.mode.store(2, Ordering::SeqCst);
+        let task = fixture.store.external_task(first).unwrap();
+        let resolved = fixture.handler.reconcile(&task, operation_id).await.unwrap();
+        assert_eq!(resolved.outcome, Some(OperationOutcome::Failed));
+        assert_eq!(resolved.effect_status, EffectStatus::Complete);
+        drive_native_until(&fixture.service, || Ok(peer.state.uploads.load(Ordering::SeqCst) == 2
+            && fixture.store.external_operations_after("document.parse", None, 256)?.len() == 2)).await.unwrap();
+        let replacement = fixture.store.external_operations_after("document.parse", None, 256).unwrap().into_iter()
+            .find(|operation| operation.operation_id != operation_id).unwrap();
+        assert!(waiting.contains(&replacement.task_id));
+        assert_eq!(fixture.store.external_operation_attempts(replacement.operation_id).unwrap().len(), 1);
+        drive_native_until(&fixture.service, || {
+            for id in &waiting {
+                if *id != replacement.task_id {
+                    let task = fixture.store.external_task(*id)?;
+                    if shenko_store::child::park_reason(&task) != Some("reconciling") { return Ok(false); }
+                }
+            }
+            Ok(fixture.store.external_operation_attempt(replacement.operation_id)?.final_receipt_id.is_some())
+        }).await.unwrap();
+        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 2, "max_documents=1 admits one replacement while it is Unknown");
+        for (id, queued_operation) in waiting.iter().zip(&queued_operations) {
+            if *id != replacement.task_id {
+                assert!(fixture.store.get_operation(*queued_operation).unwrap().is_none());
+                assert!(fixture.store.native_task_result(*id).unwrap().is_none());
+            }
+        }
+        peer.state.mode.store(1, Ordering::SeqCst);
+        drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(replacement.task_id)?.is_some()
+            && peer.state.uploads.load(Ordering::SeqCst) > 2)).await.unwrap();
+        assert_eq!(fixture.store.native_task_result(replacement.task_id).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
+        assert!(peer.state.uploads.load(Ordering::SeqCst) <= 1 + waiting.len());
+        for (id, queued_operation) in waiting.iter().zip(&queued_operations) {
+            let task = fixture.store.external_task(*id).unwrap();
+            assert_eq!(shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID), Some(*queued_operation));
+            assert!(fixture.store.external_operation_attempts(*queued_operation).unwrap().len() <= 1);
+        }
+        assert_eq!(fixture.store.external_operation_attempts(operation_id).unwrap().len(), 1);
+        assert_eq!(fixture.store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
+        assert_eq!(fixture.store.external_evidence(acceptance.receipt_id).unwrap().raw_ref, acceptance.raw_ref);
+        assert_eq!(fixture.store.cas.read_object(&acceptance.raw_ref.digest).unwrap(), acceptance_bytes);
+        assert!(fixture.store.external_task(first).unwrap().abort_request.is_some());
+        assert!(fixture.store.native_task_result(first).unwrap().is_none(), "late original evidence cannot complete an aborted task");
         fixture.close().await; peer.finish().await;
     }
 }

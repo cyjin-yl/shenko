@@ -478,7 +478,10 @@ impl OxrClient {
                     .filter(|id| !id.trim().is_empty() && id.len() <= 4096) else {
                     return Err(observed_envelope_error(submitted, OxrError::MalformedResponse("`data.task_id`".into())));
                 };
-                let response = submitted.observation.take().expect("HTTP acceptance has original response evidence");
+                let Some(response) = submitted.observation.take() else {
+                    return Err(OxrError::TaskUnknown { task_id,
+                        reason: "original async acceptance response evidence is missing".into(), observation: None });
+                };
                 Ok(OxrSubmission::Accepted { task_id, response })
             }
         }
@@ -510,7 +513,11 @@ impl OxrClient {
             Err(error) => return Ok(Self::original_task_outcome(task_id, Err(error))),
         };
         if envelope.data.as_ref().and_then(|data| data.status.as_deref()) != Some("success") {
-            observe(envelope.observation.as_ref().expect("HTTP check has original response evidence"))?;
+            let Some(observation) = envelope.observation.as_ref() else {
+                return Ok(Self::original_task_outcome(task_id, Err(observed_envelope_error(envelope,
+                    OxrError::MalformedResponse("original async check response evidence".into())))));
+            };
+            observe(observation)?;
             return Ok(Ok(None));
         }
         Ok(Self::original_task_outcome(task_id, map_document(envelope).map(Some)))
@@ -631,7 +638,9 @@ impl OxrClient {
         }
         observation.capture_complete = true;
         observation.body = Some(body);
-        let body = observation.body.as_deref().expect("complete HTTP body captured");
+        let Some(body) = observation.body.as_deref() else {
+            return Err(observed_error(OxrError::MalformedResponse("original HTTP response body".into()), observation));
+        };
         if !status.is_success() {
             let error = if let Ok(envelope) = serde_json::from_slice::<OxrEnvelope>(body)
                 && let Some(code) = envelope.code.filter(|code| *code != 0)
@@ -701,7 +710,7 @@ impl OxrClient {
         let remaining = (original_deadline - chrono::Utc::now()).to_std()
             .map_err(|_| OxrError::PollTimeout(self.poll_timeout))?;
         let deadline = tokio::time::Instant::now().checked_add(remaining.min(self.poll_timeout))
-            .ok_or_else(|| OxrError::PollTimeout(self.poll_timeout))?;
+            .ok_or(OxrError::PollTimeout(self.poll_timeout))?;
         loop {
             if tokio::time::Instant::now() >= deadline {
                 return Err(OxrError::PollTimeout(self.poll_timeout));
@@ -884,8 +893,13 @@ fn map_document(mut envelope: OxrEnvelope) -> Result<OxrDocument, OxrError> {
     let observation = envelope.observation.take();
     match map_document_output(envelope) {
         Ok(mut document) => {
-            document.raw_response = observation.and_then(|observation| observation.body)
-                .expect("a mapped HTTP or saved response carries its actual bytes");
+            let Some(mut observation) = observation else {
+                return Err(OxrError::MalformedResponse("original parse response evidence".into()));
+            };
+            let Some(body) = observation.body.take() else {
+                return Err(OxrError::MalformedResponse("original parse response body".into()).observed(observation));
+            };
+            document.raw_response = body;
             Ok(document)
         }
         Err(error) => Err(match observation {

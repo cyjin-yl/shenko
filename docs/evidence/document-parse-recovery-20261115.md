@@ -270,6 +270,10 @@ uses only the installed credential source and queries only the original
 known handle. Missing or mismatched admission issues no query, grants no
 reupload and retains Unknown capacity debt. Historical acceptance time and
 deadline remain immutable; saved terminal conflicts stay sticky.
+An already sealed terminal transport receipt can be authenticated and
+projected under the current installation without a live credential or a
+`legacy_main` polling grant. Its original mapper output and raw-response
+digest remain the provenance of the recovered pages.
 
 The installed generation carries a recovery-only reader keyed to the original
 native descriptor and `document.parse.v1` operation. It can reconcile only an
@@ -279,7 +283,10 @@ keeps one capacity charge and records Unknown without contacting OXR. The page
 reader uses the original checkpoint format and page keys for those operations.
 
 Native cancellation stops and joins the local document worker. The original
-HTTP receipts and remote capacity accounting survive that boundary. The
+HTTP receipts and remote capacity accounting survive that boundary. Fresh
+tasks that cannot acquire document capacity or a same-source worker park
+before T1. The dispatcher can use the released worker for original-operation
+settlement and other native tasks while the deferred children await retry. The
 evidence transaction checks the inspected cache source revision alongside the
 consumer revision, so a conflicting source cannot settle its consumer with a
 stale success. If OXR echoes a credential in response body or content-type

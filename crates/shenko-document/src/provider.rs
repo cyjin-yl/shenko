@@ -191,7 +191,9 @@ impl OxrProvider {
     /// credential. Endpoint, model and credential must be provisioned.
     /// Scope `None` explicitly binds an unscoped provider; requests must
     /// still match that exact absence.
-    pub fn new(config: OxrProviderConfig) -> Self {
+    /// Missing prerequisites remain availability facts; a binding encoding
+    /// failure returns an error before any provider identity is claimed.
+    pub fn new(config: OxrProviderConfig) -> Result<Self, OxrError> {
         let client = match (&config.endpoint, &config.credential) {
             (Some(endpoint), Some(credential)) => OxrClient::new(OxrClientConfig {
                 endpoint: endpoint.clone(),
@@ -204,7 +206,7 @@ impl OxrProvider {
             .map_err(|error| error.to_string()),
             _ => Err(String::new()),
         };
-        let params_digest = Some(params_digest_of(&config));
+        let params_digest = params_digest_of(&config);
         let mut code = blake3::Hasher::new();
         code.update(include_bytes!("provider.rs"));
         code.update(include_bytes!("oxr_client.rs"));
@@ -214,24 +216,25 @@ impl OxrProvider {
                 .or_else(|| config.endpoint.clone()),
             model_identity: config.model_identity.clone(),
             scope: config.scope.clone(),
-            params_digest: params_digest.clone().expect("effective parameters are bound"),
+            params_digest: params_digest.clone(),
             code_digest: format!("blake3:{}", code.finalize().to_hex()),
             transport: config.transport,
         };
-        let identity = serde_json::to_vec(&binding).expect("provider binding serializes");
+        let identity = serde_json::to_vec(&binding)
+            .map_err(|error| OxrError::Request(format!("original provider binding could not be encoded: {error}")))?;
         let closure_identity = format!("oxr/1.0/{}", blake3::hash(&identity).to_hex());
-        Self {
+        Ok(Self {
             endpoint: config.endpoint,
             model_identity: config.model_identity,
             scope: config.scope,
             credential: config.credential,
             engine: config.engine,
             client,
-            params_digest,
+            params_digest: Some(params_digest),
             binding,
             closure_identity,
             documents: Mutex::new(HashMap::new()),
-        }
+        })
     }
 
     pub fn binding(&self) -> &OxrProviderBinding {
@@ -294,7 +297,7 @@ impl OxrProvider {
         let identity = serde_json::to_vec(&(
             &req.source_digest, &req.source_name, self.closure_id(), &req.cache_scope, &req.deployment_scope,
             req.schema_version, blake3::hash(source_bytes).to_hex().as_str(),
-        )).expect("document identity serializes");
+        )).map_err(|error| OxrError::Request(format!("original document identity could not be encoded: {error}")))?;
         let key = blake3::hash(&identity).to_hex().to_string();
         let cell = {
             let mut documents = self.documents.lock().await;
@@ -317,7 +320,10 @@ impl OxrProvider {
             )));
             *result = Some(client.parse_document(&file_name, source_bytes).await.map(Arc::new));
         }
-        result.as_ref().expect("original attempt retained").clone()
+        match result.as_ref() {
+            Some(result) => result.clone(),
+            None => Err(OxrError::Transport("original upload result is missing; reconcile before another attempt".into())),
+        }
     }
 }
 
