@@ -739,6 +739,8 @@ mod document_recovery {
                 fixture = Fixture::open(root,store,node,source).await;
                 assert_eq!(fixture.store.cas.read_object(&malformed.raw_ref.digest).unwrap(),original_body);
                 peer.state.mode.store(9,Ordering::SeqCst);
+                let prior_results: Vec<_> = fixture.store.external_operation_evidence(operation.operation_id).unwrap()
+                    .into_iter().filter(|evidence| evidence.source_id == "document.parse.result.v1").collect();
                 // The original admitted reader obtains and seals the real
                 // terminal observation, then stops before local page projection.
                 let client = shenko_document::legacy_main::OxrClient::new(
@@ -767,8 +769,10 @@ mod document_recovery {
                     observation_level:None,normalized_ref:Some(normalized),observed_at:Some(chrono::Utc::now()),
                     received_commit:operation.prepared_commit },None,EffectStatus::Unknown).unwrap();
                 assert_eq!(operation.outcome,None);
-                assert!(!fixture.store.external_operation_evidence(operation.operation_id).unwrap().iter()
-                    .any(|evidence| evidence.source_id == "document.parse.result.v1"));
+                let retained_results: Vec<_> = fixture.store.external_operation_evidence(operation.operation_id).unwrap()
+                    .into_iter().filter(|evidence| evidence.source_id == "document.parse.result.v1").collect();
+                assert_eq!(retained_results, prior_results, "terminal transport is durable before its result projection");
+                assert!(fixture.store.native_task_result(task_id).unwrap().is_none());
                 let (root,source) = fixture.close().await;
                 let store = Arc::new(open_native_fixture(&root)); store.start_subject_dispatcher().unwrap();
                 let mut node = node_sync::open_node(&root,&store).unwrap();
@@ -795,11 +799,17 @@ mod document_recovery {
                 assert_eq!(operation.effect_status, EffectStatus::None);
                 assert_eq!(before_checks, 0);
                 assert_eq!(before_uploads, 0);
-                peer.state.mode.store(1, Ordering::SeqCst);
+                peer.state.mode.store(9, Ordering::SeqCst);
                 let fresh = EntityId::new();
                 let input = fixture.input(&fixture.source, &[]);
                 commit_native_fixture_step(&fixture.store, &format!("[delegate:document.parse:1] {input}"), &[fresh], vec![]);
-                drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(fresh)?.is_some())).await.unwrap();
+                drive_native_until(&fixture.service, || {
+                    Ok(peer.state.uploads.load(Ordering::SeqCst) == 1
+                        && fixture.store.external_operations_after("document.parse", None, 256)?
+                            .iter().any(|entry| entry.task_id == fresh))
+                }).await.expect("fresh T1 and original upload were not observed");
+                drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(fresh)?.is_some()))
+                    .await.expect("fresh original upload did not settle");
                 let fresh = fixture.store.external_operations_after("document.parse", None, 256).unwrap()
                     .into_iter().find(|entry| entry.task_id == fresh).unwrap();
                 assert_eq!(fresh.outcome, Some(OperationOutcome::Succeeded));
@@ -915,27 +925,66 @@ mod document_recovery {
         let mut admitted = waiting.clone(); admitted.push(short);
         commit_native_fixture_step(&fixture.store, &output, &admitted, vec![]);
         for id in &admitted { assert_eq!(fixture.store.external_task(*id).unwrap().task_id, *id); }
-        let queued_are_parked = |store: &shenko_store::Store| -> Result<bool> {
-            for id in &waiting {
-                let task = store.external_task(*id)?;
-                if !matches!(task.state, shenko_types::task::TaskState::Pending { .. })
-                    || shenko_store::child::park_reason(&task) != Some("reconciling")
-                    || !matches!(task.dispatch_eligibility, shenko_types::task::DispatchEligibility::Parked { until_utc: Some(_), .. })
-                    || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_CHILD)
-                    || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_RECOVERY)
-                    || task.first_run_at.is_none()
-                { return Ok(false); }
+        // Sample each actual capacity park before the next dispatcher pass
+        // can reclaim it. Retry deadlines may expire while another child's
+        // synchronous Store publication runs; all children need not be Pending
+        // at one instant. Each as-yet-unobserved child has its own 10s phase.
+        async fn observe_capacity_parks(
+            fixture: &Fixture,
+            tasks: &[EntityId],
+            minimum_revisions: &std::collections::BTreeMap<EntityId, u64>,
+        ) -> std::collections::BTreeMap<EntityId, EntityId> {
+            let mut observed = std::collections::BTreeMap::new();
+            for target in tasks {
+                if observed.contains_key(target) { continue; }
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        for id in tasks {
+                            let task = fixture.store.external_task(*id)?;
+                            if !matches!(task.state, shenko_types::task::TaskState::Pending { .. })
+                                || shenko_store::child::park_reason(&task) != Some("reconciling")
+                                || task.memos.get("native_diagnostic").and_then(|value| value.get("detail"))
+                                    .and_then(serde_json::Value::as_str)
+                                    != Some("document remote capacity is occupied; retry before admission")
+                                || !matches!(task.dispatch_eligibility,
+                                    shenko_types::task::DispatchEligibility::Parked { until_utc: Some(_), .. })
+                                || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_CHILD)
+                                || !shenko_store::child::memo_flag(&task, shenko_store::child::NATIVE_RECOVERY)
+                                || task.first_run_at.is_none()
+                                || task.record_revision.0 <= minimum_revisions.get(id).copied().unwrap_or(0)
+                            { continue; }
+                            let operation = shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID)
+                                .expect("an actual deferred claim retains its stable operation ID");
+                            assert!(fixture.store.get_operation(operation)?.is_none(), "capacity park precedes T1");
+                            assert!(fixture.store.external_operation_attempts(operation)?.is_empty());
+                            assert!(fixture.store.external_operation_evidence(operation)?.is_empty());
+                            assert!(fixture.store.native_task_result(*id)?.is_none());
+                            if let Some(previous) = observed.insert(*id, operation) { assert_eq!(previous, operation); }
+                        }
+                        if observed.contains_key(target) { return anyhow::Ok(()); }
+                        fixture.service.run_once().await?;
+                        tokio::time::sleep(Duration::from_millis(20)).await;
+                    }
+                }).await.unwrap().unwrap();
             }
-            Ok(true)
-        };
-        drive_native_until(&fixture.service, || Ok(queued_are_parked(&fixture.store)?
-            && fixture.store.native_task_result(short)?.is_some()
+            observed
+        }
+        // Change the original observation only after the full queue is durable.
+        // A 401 snapshot proves a new original-handle Settle, independently of
+        // whether identical 503 observations are folded by the receipt reader.
+        peer.task_mode(&original_handle, 4);
+        let observed = observe_capacity_parks(&fixture, &waiting, &std::collections::BTreeMap::new()).await;
+        assert_eq!(observed.len(), waiting.len());
+        drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(short)?.is_some()
             && peer.state.checks.load(Ordering::SeqCst) > original_checks
-            && fixture.store.external_operation_evidence(operation_id)?.len() > original_receipts)).await.unwrap();
+            && fixture.store.external_operation_evidence(operation_id)?.len() > original_receipts
+            && fixture.request_snapshot(operation_id)["raw_observation"]["http_status"] == 401)).await.unwrap();
         assert_eq!(fixture.store.native_task_result(short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
         let queued_operations: Vec<_> = waiting.iter().map(|id| {
             let task = fixture.store.external_task(*id).unwrap();
-            shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID).unwrap()
+            let operation = shenko_store::child::memo_uuid(&task, shenko_store::child::NATIVE_OPERATION_ID).unwrap();
+            assert_eq!(observed.get(id), Some(&operation));
+            operation
         }).collect();
         let queued_are_unarmed = |store: &shenko_store::Store| -> Result<()> {
             for (id, operation_id) in waiting.iter().zip(&queued_operations) {
@@ -959,7 +1008,6 @@ mod document_recovery {
         let task = fixture.store.external_task(first).unwrap();
         fixture.store.request_native_cancellation(first, EntityId::new(), task.created_by_step_id.unwrap(),
             "owned cancellation fixture", AbortScope::Task).unwrap();
-        drive_native_until(&fixture.service, || Ok(queued_are_parked(&fixture.store)?)).await.unwrap();
         assert_eq!(fixture.store.external_operation(operation_id).unwrap().effect_status, EffectStatus::Unknown);
         assert_eq!(fixture.store.external_operation(operation_id).unwrap().outcome, None);
         assert!(fixture.store.external_task(first).unwrap().abort_request.is_some());
@@ -974,16 +1022,13 @@ mod document_recovery {
         let fixture = Fixture::open(root, store, node, source).await;
         fixture.supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin,
             Arc::new(shenko_exec_host::HostPrintfHandler::new(fixture.store.clone())) as Arc<dyn NativeTaskHandler>).await.unwrap();
-        let revisions: Vec<_> = waiting.iter().map(|id| fixture.store.external_task(*id).unwrap().record_revision).collect();
+        let revisions = waiting.iter().map(|id| (*id, fixture.store.external_task(*id).unwrap().record_revision.0))
+            .collect::<std::collections::BTreeMap<_, _>>();
         let reopened_short = EntityId::new();
         commit_native_fixture_step(&fixture.store, "[delegate:host.printf:1] {\"text\":\"short-progress-after-reopen\"}", &[reopened_short], vec![]);
-        drive_native_until(&fixture.service, || {
-            let mut retried = true;
-            for (id, revision) in waiting.iter().zip(&revisions) {
-                retried &= fixture.store.external_task(*id)?.record_revision.0 > revision.0;
-            }
-            Ok(retried && queued_are_parked(&fixture.store)? && fixture.store.native_task_result(reopened_short)?.is_some())
-        }).await.unwrap();
+        let reopened = observe_capacity_parks(&fixture, &waiting, &revisions).await;
+        assert_eq!(reopened, observed, "reopened retries retain every original stable operation ID");
+        drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(reopened_short)?.is_some())).await.unwrap();
         assert_eq!(fixture.store.native_task_result(reopened_short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
         queued_are_unarmed(&fixture.store).unwrap();
         assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1, "reopen cannot forgive the cancelled original's remote debt");
@@ -1006,15 +1051,10 @@ mod document_recovery {
             .find(|operation| operation.operation_id != operation_id).unwrap();
         assert!(waiting.contains(&replacement.task_id));
         assert_eq!(fixture.store.external_operation_attempts(replacement.operation_id).unwrap().len(), 1);
-        drive_native_until(&fixture.service, || {
-            for id in &waiting {
-                if *id != replacement.task_id {
-                    let task = fixture.store.external_task(*id)?;
-                    if shenko_store::child::park_reason(&task) != Some("reconciling") { return Ok(false); }
-                }
-            }
-            Ok(fixture.store.external_operation_attempt(replacement.operation_id)?.final_receipt_id.is_some())
-        }).await.unwrap();
+        let still_waiting: Vec<_> = waiting.iter().copied().filter(|id| *id != replacement.task_id).collect();
+        let replacement_parks = observe_capacity_parks(&fixture, &still_waiting, &std::collections::BTreeMap::new()).await;
+        for (id, operation) in &replacement_parks { assert_eq!(observed.get(id), Some(operation)); }
+        drive_native_until(&fixture.service, || Ok(fixture.store.external_operation_attempt(replacement.operation_id)?.final_receipt_id.is_some())).await.unwrap();
         assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 2, "max_documents=1 admits one replacement while it is Unknown");
         for (id, queued_operation) in waiting.iter().zip(&queued_operations) {
             if *id != replacement.task_id {

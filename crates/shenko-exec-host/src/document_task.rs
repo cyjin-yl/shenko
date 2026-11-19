@@ -1032,12 +1032,13 @@ impl DocumentParseHandler {
                 return self.observe(&operation, &attempt, &snapshot, Some(OperationOutcome::Failed), EffectStatus::None);
             }
             None => {
-                anyhow::bail!("local observer stopped before document admission");
+                return Err(NativeTaskDeferred("local observer stopped before document admission").into());
             }
         }
-        ensure!(!self.cancelled(invocation.task.task_id)?
-            && self.store().native_invocation_current(&invocation.task_invocation)?,
-            "cancelled or fenced before document admission");
+        if self.cancelled(invocation.task.task_id)?
+            || !self.store().native_invocation_current(&invocation.task_invocation)? {
+            return Err(NativeTaskDeferred("cancelled or fenced before document admission").into());
+        }
         let admitted = { let mut capacity = self.runtime.capacity.lock();
             if capacity.len() < self.profile.max_documents { capacity.insert(invocation.operation_id); true } else { false } };
         if !admitted {
@@ -1069,7 +1070,7 @@ impl DocumentParseHandler {
             cancelled => {
                 self.runtime.capacity.lock().remove(&invocation.operation_id);
                 cancelled?;
-                anyhow::bail!("document admission stopped while reading its source");
+                return Err(NativeTaskDeferred("document admission stopped while reading its source").into());
             }
         }
         let armed = self.arm_bytes(&invocation, &frozen_bytes, 2, serde_json::to_value(&frozen.provider)?, true);
@@ -1678,14 +1679,16 @@ impl NativeTaskHandler for DocumentParseHandler {
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let worker = {
             let closed = self.runtime.closed.lock();
-            ensure!(!*closed, "document plugin is retiring");
+            if *closed {
+                return Err(NativeTaskDeferred("document plugin is retiring before worker admission").into());
+            }
             let mut handler = self.clone();
             handler.cancellation = invocation.cancellation.clone();
             self.runtime.workers.spawn(async move {
                 let lock = handler.runtime.operations.lock().entry(invocation.operation_id)
                     .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone();
                 let guard = handler.observing_original(invocation.task.task_id, true, lock.lock()).await?
-                    .context("document execution cancelled before worker admission")?;
+                    .ok_or(NativeTaskDeferred("document execution cancelled before worker admission"))?;
                 let result = if handler.reader { handler.read_page(invocation).await } else { handler.parse(invocation).await };
                 if let Ok(operation) = &result { handler.worker_finished(operation)?; }
                 drop(guard);
