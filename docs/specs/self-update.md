@@ -205,6 +205,21 @@ must supply that evidence rather than treating process startup as full success.
 
 ## Live control and the final writer boundary
 
+Physical exclusion and selected software authority are separate checks. A
+standard `shenko.db` data copy sharing `cas` retains the installation mutation
+permit even when its directory is outside the root and `versions/` layout.
+Ordinary data writes there require both an unclaimed layout (no root database,
+`versions`, or `current-slot`, including dangling entries) and absence of local
+runtime bindings in the copy. These conditions are rechecked under that same
+permit on each mutation; path/metadata errors are not treated as absence.
+A copied selector, subject, activation or provisioning record cannot become
+new dispatch authority by moving the database to another directory. Once a
+real slot is created, an already open detached handle loses ordinary admission.
+Actual root/version slots retain the existing current-route and head checks;
+late factual receipts and typed maintenance retain their separate admission.
+This is not a proof of arbitrary filename/hard-link aliases, hostile filesystem
+replacement, all CAS writers, or the complete installation-wide fence.
+
 The optional CLI `start --pause-at-start <request-UUID>` applies the existing
 subject-only boundary after runtime authority activation and before consumers
 start. `Store::pause_subject_at_start` holds a source reservation across one

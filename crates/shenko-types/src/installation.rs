@@ -44,9 +44,10 @@ impl InstallationDomain {
         Ok(domain)
     }
 
-    /// These are the installed public paths. Other standalone databases do
-    /// not have a software-slot handoff domain; they cannot become an installed
-    /// writer by passing a foreign manifest or archive.
+    /// Resolve physical coordination for the standard Store/CAS paths. Sharing
+    /// a CAS retains this permit even for detached data copies. The Ledger
+    /// separately checks whether a mutation has current software-slot authority;
+    /// this physical reservation never supplies that authority by itself.
     pub fn for_store(db: &Path, cas: &Path) -> io::Result<Option<Self>> {
         if db.file_name().is_none_or(|name| name != "shenko.db")
             || cas.file_name().is_none_or(|name| name != "cas")

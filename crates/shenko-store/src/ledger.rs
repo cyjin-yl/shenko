@@ -569,8 +569,33 @@ impl Ledger {
         let Some((domain, db, cas)) = &self.installation else { return Ok(()); };
         permit.validate(domain).map_err(crate::store::storage_error)?;
         let validate = || -> anyhow::Result<()> {
-            let slot = db.parent().ok_or_else(|| anyhow::anyhow!("database slot is absent"))?.canonicalize()?;
+            let physical_db = db.canonicalize()?;
+            let slot = physical_db.parent().ok_or_else(|| anyhow::anyhow!("database slot is absent"))?;
             let root = domain.root();
+            if slot != root && slot.parent() != Some(root.join("versions").as_path()) {
+                // A data-only store can share a CAS before any software slot
+                // exists. It still holds the SAME physical permit; location
+                // alone must never demote a copied/retired runtime to data-only.
+                for name in ["shenko.db", "versions", "current-slot"] {
+                    match std::fs::symlink_metadata(root.join(name)) {
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => return Err(error.into()),
+                        Ok(_) => anyhow::bail!("detached database belongs to a managed installation"),
+                    }
+                }
+                let conn = self.conn.lock();
+                let bound: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM activation_selectors)
+                         OR EXISTS(SELECT 1 FROM activation_records)
+                         OR EXISTS(SELECT 1 FROM subject_branch_heads)
+                         OR EXISTS(SELECT 1 FROM subject_genesis)
+                         OR EXISTS(SELECT 1 FROM bootstrap_records)
+                         OR EXISTS(SELECT 1 FROM local_installation_provisioning)",
+                    [], |row| row.get(0),
+                )?;
+                anyhow::ensure!(!bound, "detached database retains runtime installation bindings");
+                return Ok(());
+            }
             let selected = match std::fs::read(root.join("current-slot")) {
                 Ok(bytes) => {
                     let pointer: serde_json::Value = serde_json::from_slice(&bytes)?;
