@@ -187,10 +187,46 @@ impl Store {
         reason: &str, permit: Option<&shenko_types::installation::InstallationPermit>)
         -> Result<SubjectBranchFork, ShenkoError>
     {
+        self.fork_subject_branch_admitted(expected, branch, reason, permit, None)
+    }
+
+    /// A source-reserved availability transition, never a runtime grant. Only
+    /// the first local continuation of an exactly imported bootstrap may
+    /// replace its foreign route. Established local writers use the ordinary
+    /// checked API, including its handoff and selected-route checks.
+    pub fn fork_availability_subject_branch(
+        &self, expected: &SubjectBranchHead, branch: BranchId, reason: &str,
+        origin: &Digest, authority: &dyn shenko_types::authority::AvailabilityForkAuthority,
+        executable: &std::path::Path,
+    ) -> Result<SubjectBranchFork, ShenkoError> {
+        authority.validate_fork(expected.agent_id, &expected.branch_id, origin, &branch)?;
+        let genesis = self.get_subject_genesis(expected.agent_id)?
+            .ok_or_else(|| ShenkoError::conflict("availability fork genesis missing"))?;
+        if Digest::blake3(&serde_json::to_vec(&genesis)?) != *origin
+            || genesis.genesis_id != expected.genesis_ref.genesis_id
+            || genesis.created_commit.ledger_id != expected.genesis_ref.ledger_id
+        {
+            return Err(ShenkoError::conflict("availability fork differs from reserved subject origin"));
+        }
+        let permit = authority.installation_permit();
+        let local = crate::store::read_local_subject_id(&self.ledger.conn.lock(), self.ledger.ledger_id())?;
+        // A newly selected software copy can have a valid local route before
+        // its first local subject commit. Keep it on ordinary fork admission.
+        let needs_imported_route = local.is_none()
+            && permit.is_some_and(|permit| self.ledger.check_selected_installation(permit).is_err());
+        self.fork_subject_branch_admitted(expected, branch, reason, permit,
+            needs_imported_route.then_some((origin, executable)))
+    }
+
+    fn fork_subject_branch_admitted(&self, expected: &SubjectBranchHead, branch: BranchId,
+        reason: &str, permit: Option<&shenko_types::installation::InstallationPermit>,
+        imported: Option<(&Digest, &std::path::Path)>)
+        -> Result<SubjectBranchFork, ShenkoError>
+    {
         if branch == expected.branch_id || branch.0 == EntityId::nil().0 || reason.trim().is_empty() {
             return Err(ShenkoError::conflict("fork needs a distinct branch and an explicit reason"));
         }
-        self.ledger.with_mutation_under(permit, || {
+        let write = || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(storage_error)?;
@@ -204,6 +240,8 @@ impl Store {
                 return Ok(fork);
             }
             let parent = checked_head(&tx, expected)?;
+            let local_selector = imported.map(|(origin, executable)|
+                self.imported_fork_selector(&tx, &parent, &branch, origin, executable)).transpose()?;
             let pending = read_step(&tx, &parent.branch_id, parent.next_step_id)?
                 .ok_or_else(|| ShenkoError::conflict("fork parent successor missing"))?;
             validate_step_binding(&parent, &pending)?;
@@ -228,6 +266,12 @@ impl Store {
                 created_commit: commit, reason: reason.to_owned(),
             };
             let mut head = parent.clone();
+            if let Some(selector) = &local_selector {
+                head.controller_epoch = shenko_types::ids::ControllerEpoch(selector.active_epoch);
+                crate::activation::cas_selector(&tx, selector.selector_revision - 1, selector)?;
+                tx.execute("UPDATE activation_selectors SET updated_commit_seq=?2 WHERE agent_id=?1",
+                    params![head.agent_id.to_string(), seq.0 as i64]).map_err(storage_error)?;
+            }
             head.branch_origin = Some(self.cas.seal_object(
                 &serde_json::to_vec(&fork)?, "application/json", "subject_branch", "subject_branch_fork", 1,
             )?.object);
@@ -282,10 +326,124 @@ impl Store {
             // never resurrect an earlier visible note after a reset.
             tx.execute("INSERT INTO context_notes(scope_id,revision,body,source,written_at_ms,visible) SELECT ?1,1,body,'fork',written_at_ms,visible FROM context_notes WHERE scope_id=?2 ORDER BY revision DESC LIMIT 1",
                 params![branch.0.to_string(), parent.branch_id.0.to_string()]).map_err(storage_error)?;
-            self.record_subject_commit(&tx, commit, 7 + inherited as i64)?;
+            self.record_subject_commit(&tx, commit, 7 + inherited as i64 + i64::from(local_selector.is_some()))?;
             tx.commit().map_err(storage_error)?;
             Ok(fork)
-        }, |error| matches!(error, ShenkoError::Storage(_)))
+        };
+        let storage_failure = |error: &ShenkoError| matches!(error, ShenkoError::Storage(_));
+        if imported.is_some() {
+            let permit = permit.ok_or_else(|| shenko_types::authority::authority_fenced(
+                "imported fork requires the source reservation's installation permit"))?;
+            self.ledger.with_imported_fork_mutation_under(permit, write, storage_failure)
+        } else {
+            self.ledger.with_mutation_under(permit, write, storage_failure)
+        }
+    }
+
+    /// Called only inside the fork's IMMEDIATE transaction and physical
+    /// permit. Every foreign fact stays retained; the mutable local selector
+    /// advances with the child epoch, before any launch or runtime takeover.
+    fn imported_fork_selector(&self, conn: &Connection, parent: &SubjectBranchHead,
+        child: &BranchId, origin: &Digest, executable: &std::path::Path)
+        -> Result<shenko_types::activation::ActivationSelector, ShenkoError>
+    {
+        use shenko_types::activation::{ActivationOrigin, RouteAuthority};
+        let reject = || shenko_types::authority::authority_fenced(
+            "availability fork is not an unowned, exactly imported bootstrap");
+        if crate::store::read_local_subject_id(conn, self.ledger.ledger_id())?.is_some()
+            || parent.branch_origin.is_some()
+        { return Err(reject()); }
+        let raw: String = conn.query_row("SELECT data FROM subject_genesis WHERE subject_id=?1",
+            [parent.agent_id.to_string()], |row| row.get(0)).map_err(storage_error)?;
+        let genesis: shenko_types::subject::SubjectGenesis = serde_json::from_str(&raw)?;
+        let imported: Option<(String, String)> = conn.query_row(
+            "SELECT source_ledger_id,genesis_id FROM cognition_origins WHERE agent_id=?1",
+            [parent.agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional().map_err(storage_error)?;
+        if genesis.subject_id != parent.agent_id || Digest::blake3(&serde_json::to_vec(&genesis)?) != *origin
+            || genesis.genesis_id != parent.genesis_ref.genesis_id
+            || genesis.created_commit.ledger_id != parent.genesis_ref.ledger_id
+            || genesis.created_commit.ledger_id == self.ledger.ledger_id()
+            || imported != Some((genesis.created_commit.ledger_id.to_string(), genesis.genesis_id.to_string()))
+        { return Err(reject()); }
+        let raw: Option<String> = conn.query_row(
+            "SELECT data FROM local_installation_provisioning WHERE singleton=1", [], |row| row.get(0))
+            .optional().map_err(storage_error)?;
+        let provision: crate::local_installation::LocalInstallationProvisioning =
+            serde_json::from_str(&raw.ok_or_else(reject)?)?;
+        // This shared reader verifies the bootstrap event/index agreement,
+        // imported origin, local home CAS evidence and physical receipt.
+        if crate::local_installation::installation_id_for_subject_conn(conn, &self.cas, parent.agent_id)?
+            != provision.installation_id
+            || provision.installation_id != self.ledger.ledger_id()
+        { return Err(reject()); }
+        let owned: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM subject_authority_bindings)
+                 OR EXISTS(SELECT 1 FROM commit_authority_policy)
+                 OR EXISTS(SELECT 1 FROM activation_records)
+                 OR (SELECT COUNT(*) FROM activation_selectors)!=1", [], |row| row.get(0))
+            .map_err(storage_error)?;
+        if owned { return Err(reject()); }
+        let (domain, db, cas) = self.ledger.installation.as_ref().ok_or_else(reject)?;
+        let root = domain.root();
+        let db = db.canonicalize().map_err(storage_error)?;
+        let slot = db.parent().ok_or_else(reject)?;
+        // A first imported bootstrap cannot select or manufacture a software
+        // generation in an existing version slot. Such a slot needs its real
+        // activation/recovery contract, not this initial continuation proof.
+        if slot != root || cas.canonicalize().map_err(storage_error)? != root.join("cas") {
+            return Err(reject());
+        }
+        match std::fs::symlink_metadata(root.join("slot.json")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(storage_error(error)),
+            Ok(_) => return Err(reject()),
+        }
+        let mut selector = crate::activation::read_selector(conn, parent.agent_id)?.ok_or_else(reject)?;
+        let indexed: (u64, u64) = conn.query_row(
+            "SELECT selector_revision,active_epoch FROM activation_selectors WHERE agent_id=?1",
+            [parent.agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).map_err(storage_error)?;
+        let bytes = self.cas.read_object(&selector.route_authority_ref.digest)?;
+        let route: RouteAuthority = serde_json::from_slice(&bytes)?;
+        if selector.agent_id != parent.agent_id || selector.generation != parent.software_generation
+            || selector.generation != shenko_types::ids::RuntimeGeneration::default()
+            || indexed != (selector.selector_revision, selector.active_epoch)
+            || selector.active_epoch != parent.controller_epoch.0
+            || !matches!(&selector.origin, ActivationOrigin::Genesis { genesis_ref } if *genesis_ref == parent.genesis_ref)
+            || bytes.len() as u64 != selector.route_authority_ref.bytes
+            || Digest::blake3(&bytes) != selector.route_authority_ref.digest
+            || route.schema_version != RouteAuthority::SCHEMA_VERSION
+            || route.agent_id != parent.agent_id || route.generation != selector.generation
+            || route.active_epoch == 0 || route.active_epoch > selector.active_epoch
+            || route.selector_revision > selector.selector_revision || route.activation_id.is_some()
+            || route.primary_claim.is_some()
+            || route.data_dir == root.to_string_lossy() || route.slot_dir == slot.to_string_lossy()
+        { return Err(reject()); }
+        let parent_selector = serde_json::to_value(&selector)?;
+        selector.selector_revision = selector.selector_revision.checked_add(1).ok_or_else(reject)?;
+        selector.active_epoch = selector.active_epoch.checked_add(1).ok_or_else(reject)?;
+        let executable = executable.canonicalize().map_err(storage_error)?;
+        let program = executable.to_string_lossy().into_owned();
+        let data_dir = root.to_string_lossy().into_owned();
+        let local_route = RouteAuthority {
+            schema_version: RouteAuthority::SCHEMA_VERSION, agent_id: parent.agent_id,
+            generation: selector.generation.clone(), active_epoch: selector.active_epoch,
+            selector_revision: selector.selector_revision, data_dir: data_dir.clone(),
+            slot_dir: slot.to_string_lossy().into_owned(), artifact_path: program.clone(),
+            artifact_digest: Digest::blake3(&std::fs::read(&executable).map_err(storage_error)?),
+            launch_command: vec![program, "--data-dir".into(), data_dir, "start".into()],
+            primary_claim: None, activation_id: None,
+        };
+        selector.route_authority_ref = self.cas.seal_object(&serde_json::to_vec(&local_route)?,
+            "application/json", "subject_branch", "json", 1)?.object;
+        selector.state_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
+            "schema_version":1, "kind":"activation_state_ref", "slot":"data-dir", "db":"shenko.db",
+            "controller_epoch":selector.active_epoch, "generation":selector.generation,
+            "availability_fork": {"parent_branch_id":parent.branch_id, "branch_id":child,
+                "origin_proof":origin, "installation_id":provision.installation_id,
+                "parent_selector":parent_selector},
+        }))?, "application/json", "subject_branch", "json", 1)?.object;
+        Ok(selector)
     }
 
     pub fn branch_history_range(&self, branch: EntityId, from: i64, to: i64)

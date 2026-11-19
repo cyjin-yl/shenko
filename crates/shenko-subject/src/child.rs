@@ -16,7 +16,7 @@
 //! before any handler code runs, a rejected/late completion only leaves a
 //! durable park, and restart recovery is unchanged because a `Running` task
 //! whose owner died is reconciled from its own memos, never from task handles.
-use anyhow::{Context as _, Result, ensure};
+use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
 use parking_lot::RwLock;
@@ -32,7 +32,6 @@ use shenko_types::{
     ids::{EntityId, RecordRevision, RuntimeGeneration},
     object::Digest,
     operation::{AuthorityRef, OperationOutcome, OperationRecord, OperationState},
-    subject::{DelegationIntent, StepDecision},
     task::*,
 };
 use std::{
@@ -1220,39 +1219,7 @@ impl NativeChildService {
     }
 
     fn native_input(&self, task: &TaskRecord) -> Result<serde_json::Value> {
-        let bytes = self.store.cas.read_object(&task.input_ref.digest)?;
-        ensure!(
-            bytes.len() as u64 == task.input_ref.bytes
-                && Digest::blake3(&bytes) == task.input_ref.digest,
-            "native_input_object_mismatch"
-        );
-        match task
-            .memos
-            .get(NATIVE_INPUT)
-            .and_then(|value| value.as_str())
-        {
-            Some("subject_decision") => {
-                let decision: StepDecision = serde_json::from_slice(&bytes)?;
-                // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6, model children schema 7,
-                // versioned publication targets schema 8 and reconciliation
-                // acknowledgements schema 9; all bind the same native
-                // delegation field without rewriting the historical CAS
-                // object.
-                ensure!(
-                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
-                    "unsupported_decision_schema"
-                );
-                let intent = decision
-                    .delegated_task_intents
-                    .iter()
-                    .find(|intent| intent.intent_id == task.task_id)
-                    .context("native_delegation_missing_from_frozen_decision")?;
-                definition_input(intent, task)
-            }
-            Some("object") => Ok(serde_json::from_slice(&bytes)?),
-            _ => anyhow::bail!("unknown_native_input_encoding"),
-        }
+        self.store.native_task_input(task)
     }
 }
 
@@ -1535,18 +1502,6 @@ impl Drop for NativeChildService {
             worker.cancellation.cancel();
         }
     }
-}
-
-fn definition_input(intent: &DelegationIntent, task: &TaskRecord) -> Result<serde_json::Value> {
-    let definition = intent
-        .definition
-        .as_ref()
-        .context("missing_explicit_native_definition")?;
-    ensure!(
-        definition.kind == task.kind && definition.definition_version == task.definition_version,
-        "native_definition_identity_mismatch"
-    );
-    Ok(definition.input.clone())
 }
 
 pub struct NativeChildPlugin;

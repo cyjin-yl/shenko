@@ -91,6 +91,11 @@ pub struct ApiState {
     /// Ownership state (claim + authenticated actor). None means the routes
     /// report that ownership is not installed rather than fabricating one.
     pub owner: Option<OwnerState>,
+    /// Pinned roots from the validated runtime startup, never data-dir guesses.
+    pub file_mounts: Option<Arc<crate::files::FileMounts>>,
+    /// Other nodes this node syncs with, as the runtime knows them, for the
+    /// file view. None means the runtime supplied no node facts.
+    pub file_peers: Option<Vec<crate::files::FilePeer>>,
 }
 
 impl ApiState {
@@ -141,6 +146,16 @@ impl ApiState {
         self.owner = Some(owner);
         self
     }
+
+    pub fn with_file_peers(mut self, peers: Vec<crate::files::FilePeer>) -> Self {
+        self.file_peers = Some(peers);
+        self
+    }
+
+    pub fn with_file_mounts(mut self, mounts: Arc<crate::files::FileMounts>) -> Self {
+        self.file_mounts = Some(mounts);
+        self
+    }
 }
 
 /// Mount the JSON API. Registered from [`crate::server::UiServer::run`] so
@@ -165,6 +180,15 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/owner/state", get(owner_state_handler))
         .route("/api/owner/claim", post(owner_claim_handler))
         .route("/api/playground", get(playground_surface_handler))
+        .route(
+            "/api/attachments",
+            post(upload_attachment_handler).layer(axum::extract::DefaultBodyLimit::max(
+                shenko_store::web_attachment::MAX_WEB_ATTACHMENT_BYTES as usize,
+            )),
+        )
+        .route("/api/attachments/{digest}", get(attachment_bytes_handler))
+        .route("/api/files/roots", get(file_roots_handler))
+        .route("/api/files/list", get(file_list_handler))
         .with_state(state)
 }
 
@@ -1219,5 +1243,145 @@ mod naming_tests {
             "the name was refused, so the instance keeps the name it had"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Attachments: bytes the owner attaches to a browser submission.
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct UploadQuery {
+    name: String,
+}
+
+/// `POST /api/attachments?name=<file name>` with the raw bytes as the body and
+/// the browser's `Content-Type`. The bytes are sealed into the CAS first; the
+/// answer is the reference a later submission may carry. Uploading alone
+/// tells the subject nothing: only an admitted submission does.
+async fn upload_attachment_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<UploadQuery>,
+    headers: axum::http::HeaderMap,
+    body: bytes::Bytes,
+) -> (axum::http::StatusCode, Json<Value>) {
+    use axum::http::StatusCode;
+    let Some(store) = state.store.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "accepted": false, "error": "ATTACHMENT_UNAVAILABLE: no store is attached" })));
+    };
+    let media_type = shenko_store::web_attachment::normalise_media_type(
+        headers.get(axum::http::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()),
+    );
+    let store = store.clone();
+    let sealed = tokio::task::spawn_blocking(move || store.seal_web_attachment(&body, &query.name, &media_type)).await;
+    match sealed {
+        Ok(Ok(attachment)) => (StatusCode::OK, Json(json!({ "accepted": true, "attachment": attachment }))),
+        Ok(Err(error)) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "accepted": false, "error": error.to_string() }))),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "accepted": false, "error": error.to_string() }))),
+    }
+}
+
+#[derive(Deserialize)]
+struct AttachmentQuery {
+    #[serde(rename = "type")]
+    media_type: Option<String>,
+}
+
+/// `GET /api/attachments/{digest}?type=<media type>`: the stored bytes. Only
+/// raster images are served inline under their own type, for thumbnails;
+/// everything else is a download, so stored bytes are never rendered as a
+/// same-origin page.
+async fn attachment_bytes_handler(
+    State(state): State<ApiState>,
+    AxumPath(digest): AxumPath<String>,
+    Query(query): Query<AttachmentQuery>,
+) -> axum::response::Response {
+    use axum::http::{StatusCode, header};
+    use axum::response::IntoResponse;
+    let Some(store) = state.store.as_ref() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, "no store").into_response();
+    };
+    let digest = shenko_types::object::Digest(digest);
+    let store = store.clone();
+    let read = tokio::task::spawn_blocking({
+        let digest = digest.clone();
+        move || store.web_attachment_bytes(&digest)
+    })
+    .await;
+    let Ok(Ok(bytes)) = read else {
+        return (StatusCode::NOT_FOUND, "attachment not found").into_response();
+    };
+    let declared = shenko_store::web_attachment::normalise_media_type(query.media_type.as_deref());
+    let inline = matches!(declared.as_str(), "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "image/avif");
+    let content_type = if inline { declared } else { "application/octet-stream".to_owned() };
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (header::CONTENT_SECURITY_POLICY, "sandbox; default-src 'none'".to_owned()),
+            (header::CACHE_CONTROL, "private, max-age=31536000, immutable".to_owned()),
+            (header::CONTENT_DISPOSITION, if inline { "inline".to_owned() } else { "attachment".to_owned() }),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Files: the Finder-like view of every file system the subject reaches.
+// ---------------------------------------------------------------------------
+
+/// `GET /api/files/roots`: the home, other declared mounts and other nodes.
+async fn file_roots_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(mounts) = state.file_mounts.clone() else {
+        return Json(json!({ "available": false, "roots": [], "nodes_known": state.file_peers.is_some(),
+            "error": "运行时未提供已准入的文件系统" }));
+    };
+    let peers = state.file_peers.clone().unwrap_or_default();
+    match tokio::task::spawn_blocking(move || crate::files::roots(&mounts, &peers)).await {
+        Ok(roots) => Json(json!({ "available": true, "roots": roots, "nodes_known": state.file_peers.is_some() })),
+        Err(error) => Json(json!({ "available": false, "roots": [], "nodes_known": state.file_peers.is_some(), "error": error.to_string() })),
+    }
+}
+
+#[derive(Deserialize)]
+struct FileListQuery {
+    root: String,
+    #[serde(default)]
+    path: String,
+}
+
+/// `GET /api/files/list?root=<id>&path=<native tokens>`: bounded metadata.
+/// Like configuration discover/read, metadata uses the existing read-only API
+/// convention; it does not grant administrative effects or file-content reads.
+async fn file_list_handler(State(state): State<ApiState>, Query(query): Query<FileListQuery>) -> Json<Value> {
+    let Some(mounts) = state.file_mounts.clone() else {
+        return Json(json!({ "available": false, "entries": [], "truncated": false,
+            "error": "运行时未提供已准入的文件系统" }));
+    };
+    let listed = tokio::task::spawn_blocking(move || crate::files::list(&mounts, &query.root, &query.path)).await;
+    match listed {
+        Ok(Ok(listing)) => Json(json!({ "available": true, "entries": listing.entries, "truncated": listing.truncated })),
+        Ok(Err(error)) => Json(json!({ "available": true, "entries": [], "truncated": false, "error": error })),
+        Err(error) => Json(json!({ "available": false, "entries": [], "truncated": false, "error": error.to_string() })),
+    }
+}
+
+#[cfg(test)]
+mod file_boundary_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn files_without_runtime_authority_are_unavailable_even_with_a_data_directory() {
+        let state = ApiState::new().with_data_dir("an-unvalidated-installation");
+        let Json(roots) = file_roots_handler(State(state.clone())).await;
+        assert_eq!(roots["available"], false);
+        assert!(roots["error"].is_string());
+        let Json(listing) = file_list_handler(State(state), Query(FileListQuery {
+            root: "mount:/home".to_owned(), path: String::new(),
+        })).await;
+        assert_eq!(listing["available"], false);
+        assert!(listing["error"].is_string());
+        assert_eq!(listing["truncated"], false);
     }
 }

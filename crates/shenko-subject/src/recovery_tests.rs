@@ -510,6 +510,165 @@ async fn staged_input_recovers_before_s0_without_duplication() {
     assert!(text.contains("recover this exact input"));
 }
 
+fn admit_withdrawal_fixture(store: &Store, agent: EntityId, id: &str) -> shenko_types::inbox::InboxEvent {
+    let event = message(id);
+    admit_web_event(store, agent, id, &event);
+    event
+}
+
+#[tokio::test]
+async fn withdrawal_after_delivery_before_staging_excludes_original_through_s1_and_reopen() {
+    use shenko_store::web_input::WebWithdrawResultKind;
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let original = admit_withdrawal_fixture(&store, agent, "withdraw-original");
+    let accepted = store.web_submission(agent, "withdraw-original").unwrap().unwrap();
+    // Both volatile delivery and a durable read can precede the cancellation.
+    subject.inbox.sender().send(original.clone()).await.unwrap();
+    let delivered = subject.inbox.recv_batch(1, 1).await;
+    assert_eq!(delivered, vec![original.clone()]);
+    assert_eq!(store.pending_inbox_events(agent, 1).unwrap()[0].0, original.event_id);
+    assert!(!store.event_withdrawn_before_presentation(agent, original.event_id).unwrap());
+    let receipt = store.submit_web_withdrawal(agent, "withdraw-original", "cancel-original")
+        .unwrap().unwrap();
+    assert_eq!(receipt.result, WebWithdrawResultKind::WithdrawnBeforePresentation);
+    let replacement = admit_withdrawal_fixture(&store, agent, "replacement-distinct");
+    let pending = store.pending_inbox_events(agent, 1).unwrap();
+    assert_eq!(pending.len(), 1, "withdrawn rows are excluded before LIMIT");
+    assert_eq!(pending[0].0, replacement.event_id);
+    // Bypass the loop's advisory filter: real S0 must enforce the transaction
+    // boundary even when its caller already holds the original live copy.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(1, &[delivered[0].clone(), replacement.clone()], &mut subject, &cancel).await.unwrap();
+    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(sealed.events, vec![replacement.clone()]);
+    assert_eq!(sealed.context.source.input_raw_event_ids.len(), 1);
+    assert!(store.first_subject_input(agent, original.event_id).unwrap().is_none());
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+    record_result(&store, &mut subject, "replacement observed");
+    let committed = execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().unwrap();
+    assert_eq!(store.event_disposition_commit(agent, replacement.event_id).unwrap(), Some(committed));
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+    drop(subject);
+    drop(store);
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    assert!(store.pending_inbox_events(agent, 1).unwrap().is_empty());
+    let replay = store.submit_web_withdrawal(agent, "withdraw-original", "cancel-original")
+        .unwrap().unwrap();
+    assert_eq!(replay.commit, receipt.commit);
+    assert_eq!(replay.result, receipt.result);
+    let retained = store.web_submission(agent, "withdraw-original").unwrap().unwrap();
+    assert_eq!(retained.event_id, original.event_id);
+    assert_eq!(retained.payload, accepted.payload);
+    assert_eq!(retained.accepted_commit, accepted.accepted_commit);
+    let prepared = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
+        .unwrap().expect("fixture projection must fit");
+    assert!(prepared.events.is_empty(), "replayed canceled input stays excluded after reopen");
+    assert!(store.first_subject_input(agent, original.event_id).unwrap().is_none());
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn staging_before_withdrawal_queues_control_and_retains_original_on_reopen() {
+    use shenko_store::web_input::WebWithdrawResultKind;
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let original = admit_withdrawal_fixture(&store, agent, "stage-first-original");
+    // Exercise the real projection consumer while the step is still Planned.
+    let prepared = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
+        .unwrap().expect("fixture projection must fit");
+    assert_eq!(prepared.events, vec![original.clone()]);
+    let raw_ids = prepared.context.source.input_raw_event_ids;
+    let receipt = store.submit_web_withdrawal(agent, "stage-first-original", "cancel-after-stage")
+        .unwrap().unwrap();
+    assert_eq!(receipt.result, WebWithdrawResultKind::WithdrawalQueued);
+    assert!(!store.event_withdrawn_before_presentation(agent, original.event_id).unwrap());
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+    drop(subject);
+    drop(store);
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    let replay = store.submit_web_withdrawal(agent, "stage-first-original", "cancel-after-stage")
+        .unwrap().unwrap();
+    assert_eq!(replay.commit, receipt.commit);
+    assert_eq!(replay.result, WebWithdrawResultKind::WithdrawalQueued);
+    let controls = store.pending_web_withdrawals(agent, 0).unwrap();
+    assert_eq!(controls.len(), 1);
+    assert_eq!(controls[0].event_id, original.event_id);
+    assert_eq!(controls[0].cancel_id, "cancel-after-stage");
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(1, &[], &mut subject, &cancel).await.unwrap();
+    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(sealed.events, vec![original.clone()]);
+    assert_eq!(sealed.context.source.input_raw_event_ids, raw_ids);
+    assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
+}
+
+#[test]
+fn racing_withdrawal_and_staging_agree_across_store_connections() {
+    use shenko_store::web_input::WebWithdrawResultKind;
+    let (dir, store, agent) = fixture();
+    let original = admit_withdrawal_fixture(&store, agent, "racing-original");
+    let (head, step) = store.load_subject(agent).unwrap();
+    let other = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let gate = Arc::new(std::sync::Barrier::new(2));
+    let stage_gate = Arc::clone(&gate);
+    let event_id = original.event_id;
+    let input = shenko_store::SubjectHistoryInput {
+        event_id, event_type:"user".into(),
+        data:serde_json::json!({"v":1,"text":"racing-original","inbox_event":&original}),
+    };
+    let stage = std::thread::spawn(move || {
+        stage_gate.wait();
+        other.stage_subject_inputs(&head, &step, &[input]).unwrap()
+    });
+    gate.wait();
+    let withdrawal = store.submit_web_withdrawal(agent, "racing-original", "racing-cancel")
+        .unwrap().unwrap();
+    let staged = stage.join().unwrap();
+    match withdrawal.result {
+        WebWithdrawResultKind::WithdrawnBeforePresentation => {
+            assert!(staged.is_empty());
+            assert!(store.first_subject_input(agent, event_id).unwrap().is_none());
+            assert!(store.pending_inbox_events(agent, 1).unwrap().is_empty());
+        }
+        WebWithdrawResultKind::WithdrawalQueued => {
+            assert_eq!(staged.len(), 1);
+            assert_eq!(store.first_subject_input(agent, event_id).unwrap(), Some(staged[0].clone()));
+        }
+    }
+    assert!(store.event_disposition_commit(agent, event_id).unwrap().is_none());
+    let mut subject = state(store.clone(), agent).unwrap();
+    let recovered = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
+        .unwrap().expect("fixture projection must fit");
+    assert_eq!(recovered.events,
+        if withdrawal.result == WebWithdrawResultKind::WithdrawalQueued { vec![original] } else { vec![] });
+}
+
+#[test]
+fn browser_withdrawal_does_not_suppress_other_ingress() {
+    let (_dir, store, agent) = fixture();
+    let canceled = admit_withdrawal_fixture(&store, agent, "only-this-browser-input");
+    store.submit_web_withdrawal(agent, "only-this-browser-input", "browser-cancel").unwrap().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let mut events = vec![canceled.clone()];
+    for source in ["playground", "subject", "media/audio", "napcat", "native-child"] {
+        events.push(shenko_types::inbox::InboxEvent { source:source.into(), ..message(source) });
+    }
+    let prepared = crate::context_projection::prepare_context(&mut subject, &events)
+        .unwrap().expect("fixture projection must fit");
+    assert_eq!(prepared.events, events[1..]);
+    assert_eq!(prepared.context.source.input_raw_event_ids.len(), 5);
+    assert!(store.first_subject_input(agent, canceled.event_id).unwrap().is_none());
+    for event in &events {
+        assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
+    }
+}
+
 #[tokio::test]
 async fn deferred_channel_restage_preserves_first_projection() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();

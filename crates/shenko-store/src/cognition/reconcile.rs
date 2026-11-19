@@ -423,7 +423,7 @@ fn unit_key_for<'a>(
     row: &'a CognitionRow,
     question_seats: &HashMap<&'a str, String>,
 ) -> Option<String> {
-    let key = match row.table.as_str() {
+    match row.table.as_str() {
         "research_epochs" => Some(format!("epoch/{}", row.key)),
         "research_candidates" | "intervention_bank_entries" | "intervention_reminders" => {
             row.value("epoch_id").map(|epoch| format!("epoch/{epoch}"))
@@ -509,8 +509,7 @@ fn unit_key_for<'a>(
             row.value("logical_key").unwrap_or_default()
         )),
         _ => None,
-    };
-    key
+    }
 }
 
 /// True when the row's table participates in a semantic conflict unit.
@@ -559,13 +558,16 @@ pub(super) fn is_unit_table(table: &str) -> bool {
 /// Apply every semantic unit of this archive atomically. Each unit is one
 /// savepoint; a member that diverges from the local fact rejects the whole
 /// unit and every member is reported as a conflict, mirroring the task
-/// closure semantics. Returns the outcome plus every row the pass owned.
+/// closure semantics. An archived parallel head also refuses its complete
+/// activation unit: its selector cannot become this installation's writer.
+/// Returns the outcome plus every row the pass owned.
 pub(super) fn apply_semantic_units<'a>(
     tx: &Transaction<'_>,
     rows: &[&'a CognitionRow],
     peer_id: EntityId,
     seq: LedgerSeq,
     manifest: &CognitionManifest,
+    parallel_head_agents: &HashSet<&str>,
 ) -> Result<(CognitionApplyOutcome, HashSet<(&'a str, &'a str)>)> {
     // Answer decisions bind to their question's seat; questions that are not
     // in this archive resolve through the local store.
@@ -612,12 +614,17 @@ pub(super) fn apply_semantic_units<'a>(
 
     let mut outcome = CognitionApplyOutcome::default();
     for (unit, mut group) in groups {
+        let parallel_activation = unit.strip_prefix("activation/")
+            .is_some_and(|agent| parallel_head_agents.contains(agent));
         // The same fixed SQL identifier is reused only after RELEASE.
         tx.execute("SAVEPOINT semantic_unit", []).map_err(db)?;
-        let mut conflict = false;
+        let mut conflict = parallel_activation;
         let mut part = CognitionApplyOutcome::default();
         group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
         for row in &group {
+            if conflict {
+                break;
+            }
             let Some(spec) = spec_for(&row.table) else {
                 conflict = true;
                 break;
@@ -650,9 +657,11 @@ pub(super) fn apply_semantic_units<'a>(
         tx.execute("RELEASE semantic_unit", []).map_err(db)?;
         if conflict {
             for row in group {
-                let detail = format!(
-                    "conflict unit {unit} diverges from the local fact; the complete local unit is kept"
-                );
+                let detail = if parallel_activation {
+                    format!("conflict unit {unit} belongs to an archived parallel subject head; the complete local activation unit is kept")
+                } else {
+                    format!("conflict unit {unit} diverges from the local fact; the complete local unit is kept")
+                };
                 record_conflict(tx, peer_id, &row.table, &row.key, &detail)?;
                 outcome.conflicts.push(CognitionConflict {
                     table: row.table.clone(),

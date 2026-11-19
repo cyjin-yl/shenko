@@ -1285,6 +1285,130 @@ fn claimed_native_task(
         .unwrap().expect("the pending native task has an admitted input")
 }
 
+#[test]
+fn peer_dialogue_fences_fresh_invocations_but_replays_recorded_outcomes() -> Result<()> {
+    use shenko_store::child::PeerMessage;
+    use shenko_types::{ids::*, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let claim = claimed_native_task(&store, agent);
+    let recipient = recovery_task(&store, agent, 2, false);
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(recipient.clone());
+    store.commit(batch)?;
+    let message = PeerMessage {
+        message_id: EntityId::new(), sender_task_id: claim.task.task_id,
+        sender_name: "sender".into(), sender_operation_id: claim.operation_id,
+        step_index: 0, to: "peer".into(), recipient_task_id: Some(recipient.task_id),
+        unresolved_reason: None, message: "sealed peer observation".into(),
+    };
+    let sent = store.deliver_peer_dialogue(&claim.invocation, &message)?;
+    assert_eq!(sent.state, "delivered");
+    // Mutable record revisions advance at delivery. They do not replace the
+    // invocation that still owns a second message from the same sealed step.
+    let second = PeerMessage { message_id: EntityId::new(), ..message.clone() };
+    store.deliver_peer_dialogue(&claim.invocation, &second)?;
+    let fresh = PeerMessage { message_id: EntityId::new(), ..message.clone() };
+    let mut stale = vec![claim.invocation.clone(); 5];
+    stale[0].invocation_id = EntityId::new();
+    stale[1].task_revision = stale[1].task_revision.next();
+    stale[2].epoch = ControllerEpoch(claim.invocation.epoch.0 + 1);
+    stale[3].software_generation = RuntimeGeneration("stale-peer-generation".into());
+    stale[4].task_id = recipient.task_id;
+    let before = store.current_commit_seq()?;
+    for invocation in stale {
+        assert!(store.deliver_peer_dialogue(&invocation, &fresh).is_err());
+    }
+    assert_eq!(store.current_commit_seq()?, before);
+    assert_eq!(store.peer_outbox(claim.task.task_id)?.len(), 2);
+    assert_eq!(store.pending_child_dialogue(recipient.task_id)?.len(), 2);
+
+    let current = store.external_task(claim.task.task_id)?;
+    assert!(store.park_native_task(current.task_id, current.record_revision,
+        "reconciling", "replace the original worker", false)?);
+    let replacement = store.claim_native_task(current.task_id, current.implementation_ref, false)?
+        .context("a replacement invocation owns the still-unfinished run")?;
+    assert_ne!(replacement.invocation.invocation_id, claim.invocation.invocation_id);
+    let before = store.current_commit_seq()?;
+    assert!(store.deliver_peer_dialogue(&claim.invocation, &fresh).is_err());
+    assert_eq!(store.current_commit_seq()?, before);
+    store.deliver_peer_dialogue(&replacement.invocation, &fresh)?;
+    assert_eq!(store.pending_child_dialogue(recipient.task_id)?.len(), 3);
+    store.request_native_cancellation(claim.task.task_id, EntityId::new(), EntityId::new(),
+        "cancel further peer sends", AbortScope::Task)?;
+    let next = PeerMessage { message_id: EntityId::new(), ..message.clone() };
+    let before = store.current_commit_seq()?;
+    assert!(store.deliver_peer_dialogue(&replacement.invocation, &next).is_err());
+    assert_eq!(store.deliver_peer_dialogue(&claim.invocation, &message)?, sent);
+    assert_eq!(store.current_commit_seq()?, before);
+    let ids: Vec<_> = store.pending_child_dialogue(recipient.task_id)?
+        .into_iter().map(|turn| turn.intent_id).collect();
+    assert_eq!(store.consume_child_dialogue(recipient.task_id, &ids)?, 3);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    // No new dispatcher has been installed. Reading the original outcome
+    // needs neither a current dispatcher nor the cancelled invocation.
+    let before = reopened.current_commit_seq()?;
+    assert_eq!(reopened.deliver_peer_dialogue(&claim.invocation, &message)?, sent);
+    assert!(reopened.deliver_peer_dialogue(&replacement.invocation, &next).is_err());
+    reopened.close_external_writer();
+    assert_eq!(reopened.deliver_peer_dialogue(&claim.invocation, &message)?, sent);
+    assert_eq!(reopened.current_commit_seq()?, before);
+    assert!(reopened.pending_child_dialogue(recipient.task_id)?.is_empty());
+    assert_eq!(reopened.peer_outbox(claim.task.task_id)?.len(), 3);
+    Ok(())
+}
+
+#[test]
+fn peer_dialogue_bounds_inbox_bodies_and_preserves_old_outcomes() -> Result<()> {
+    use shenko_store::child::{MAX_CHILD_DIALOGUE_BYTES, PeerMessage};
+    use shenko_types::ids::EntityId;
+    let (dir, store, agent) = initialized_subject();
+    let claim = claimed_native_task(&store, agent);
+    let recipient = recovery_task(&store, agent, 2, false);
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(recipient.clone());
+    store.commit(batch)?;
+    let bounded = format!("{}a", "界".repeat(MAX_CHILD_DIALOGUE_BYTES / 3));
+    assert_eq!(bounded.len(), MAX_CHILD_DIALOGUE_BYTES);
+    let accepted = PeerMessage {
+        message_id: EntityId::new(), sender_task_id: claim.task.task_id,
+        sender_name: "sender".into(), sender_operation_id: claim.operation_id,
+        step_index: 0, to: "peer".into(), recipient_task_id: Some(recipient.task_id),
+        unresolved_reason: None, message: bounded,
+    };
+    let sent = store.deliver_peer_dialogue(&claim.invocation, &accepted)?;
+    assert_eq!(sent.state, "delivered");
+    let recipient_before = store.external_task(recipient.task_id)?;
+    let oversized = PeerMessage {
+        message_id: EntityId::new(), message: format!("{}界", accepted.message), ..accepted.clone()
+    };
+    let rejected = store.deliver_peer_dialogue(&claim.invocation, &oversized)?;
+    assert_eq!((rejected.state.as_str(), rejected.reason.as_deref()),
+        ("undelivered", Some("message_too_large")));
+    let recipient_after = store.external_task(recipient.task_id)?;
+    assert_eq!(recipient_after.record_revision, recipient_before.record_revision);
+    assert_eq!(recipient_after.memos, recipient_before.memos);
+    assert_eq!(recipient_after.updated_commit, recipient_before.updated_commit);
+    let inbox = store.pending_child_dialogue(recipient.task_id)?;
+    assert_eq!(inbox.len(), 1);
+    assert_eq!(inbox[0].message, accepted.message);
+    // The same sealed identities return their original outcomes without a
+    // second recipient write, including the oversized historical tell.
+    let before = store.current_commit_seq()?;
+    assert_eq!(store.deliver_peer_dialogue(&claim.invocation, &accepted)?, sent);
+    assert_eq!(store.deliver_peer_dialogue(&claim.invocation, &oversized)?, rejected);
+    assert_eq!(store.current_commit_seq()?, before);
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    let before = reopened.current_commit_seq()?;
+    assert_eq!(reopened.deliver_peer_dialogue(&claim.invocation, &oversized)?, rejected);
+    assert_eq!(reopened.peer_outbox(claim.task.task_id)?.len(), 2);
+    assert_eq!(reopened.pending_child_dialogue(recipient.task_id)?, inbox);
+    assert_eq!(reopened.current_commit_seq()?, before);
+    Ok(())
+}
+
 fn arm_dispatch_probe(
     store: &Store, invocation: &shenko_types::task::TaskInvocation, key: &str,
 ) -> (shenko_types::ids::EntityId, shenko_types::ids::EntityId) {
@@ -3789,5 +3913,62 @@ fn canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results(
     assert_eq!(connection.query_row("SELECT count(*) FROM inbox_events WHERE kind='task_result'", [], |row| row.get::<_, i64>(0))?, 2);
     assert_eq!(connection.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 2);
     assert!(reopened.control_admission_applied_here(&finishing.admission)?);
+    Ok(())
+}
+
+#[test]
+fn peer_dialogue_reserves_both_writers_and_replays_without_the_source() -> Result<()> {
+    use shenko_store::child::PeerMessage;
+    use shenko_types::ids::EntityId;
+
+    let fixture = NativeT2Fixture::new(true)?;
+    let recipient = fixture.child.as_ref().context("recipient claim")?;
+    let message = PeerMessage {
+        message_id: EntityId::new(), sender_task_id: fixture.parent.task.task_id,
+        sender_name: "sender".into(), sender_operation_id: fixture.parent.operation_id,
+        step_index: 0, to: "peer".into(), recipient_task_id: Some(recipient.task.task_id),
+        unresolved_reason: None, message: "retained peer observation".into(),
+    };
+    let sender_before = fixture.store.external_task(message.sender_task_id)?;
+    let recipient_before = fixture.store.external_task(recipient.task.task_id)?;
+    let before = fixture.store.current_commit_seq()?;
+    let grants_before = fixture.state.lock().grants.len();
+    fixture.state.lock().fail_before_choose = true;
+    let error = fixture.store.deliver_peer_dialogue(&fixture.parent.invocation, &message)
+        .expect_err("a refused source admission cannot publish either task");
+    assert!(format!("{error:#}").contains("fixture failed before choosing dispatch"));
+    assert_eq!(fixture.state.lock().grants.len(), grants_before);
+    assert_eq!(fixture.store.current_commit_seq()?, before);
+    assert_eq!(serde_json::to_value(fixture.store.external_task(message.sender_task_id)?)?,
+        serde_json::to_value(&sender_before)?);
+    assert_eq!(serde_json::to_value(fixture.store.external_task(recipient.task.task_id)?)?,
+        serde_json::to_value(&recipient_before)?);
+
+    let sent = fixture.store.deliver_peer_dialogue(&fixture.parent.invocation, &message)?;
+    assert_eq!(sent.state, "delivered");
+    let grant = fixture.chosen()?;
+    for task in [&sender_before, &recipient_before] {
+        assert!(grant.admission.conflict_aliases.contains(&format!(
+            "task/{}/revision/{}", task.task_id, task.record_revision.0)));
+    }
+    assert!(fixture.store.control_admission_applied_here(&grant.admission)?);
+    let sender_after = fixture.store.external_task(message.sender_task_id)?;
+    let recipient_after = fixture.store.external_task(recipient.task.task_id)?;
+    assert_eq!(sender_after.updated_commit, recipient_after.updated_commit);
+    assert_eq!(sender_after.record_revision, sender_before.record_revision.next());
+    assert_eq!(recipient_after.record_revision, recipient_before.record_revision.next());
+    assert_eq!(fixture.store.pending_child_dialogue(recipient.task.task_id)?.len(), 1);
+
+    // A fresh connection has the durable required policy but no attached
+    // source, activated writer or dispatcher. Historical outcomes stay readable.
+    let reopened = Store::open(fixture.dir.join("head.db"), fixture.dir.join("cas"))?;
+    let before = reopened.current_commit_seq()?;
+    assert_eq!(reopened.deliver_peer_dialogue(&fixture.parent.invocation, &message)?, sent);
+    let fresh = PeerMessage { message_id: EntityId::new(), ..message.clone() };
+    assert!(reopened.deliver_peer_dialogue(&fixture.parent.invocation, &fresh).is_err());
+    reopened.close_external_writer();
+    assert_eq!(reopened.deliver_peer_dialogue(&fixture.parent.invocation, &message)?, sent);
+    assert_eq!(reopened.current_commit_seq()?, before);
+    assert_eq!(reopened.pending_child_dialogue(recipient.task.task_id)?.len(), 1);
     Ok(())
 }

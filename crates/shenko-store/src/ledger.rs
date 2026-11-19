@@ -566,6 +566,10 @@ impl Ledger {
     }
 
     pub(crate) fn check_selected_installation(&self, permit: &InstallationPermit) -> Result<(), ShenkoError> {
+        self.check_installation_selection(permit, true)
+    }
+
+    fn check_installation_selection(&self, permit: &InstallationPermit, runtime: bool) -> Result<(), ShenkoError> {
         let Some((domain, db, cas)) = &self.installation else { return Ok(()); };
         permit.validate(domain).map_err(crate::store::storage_error)?;
         let validate = || -> anyhow::Result<()> {
@@ -573,6 +577,7 @@ impl Ledger {
             let slot = physical_db.parent().ok_or_else(|| anyhow::anyhow!("database slot is absent"))?;
             let root = domain.root();
             if slot != root && slot.parent() != Some(root.join("versions").as_path()) {
+                anyhow::ensure!(runtime, "availability fork requires a physical runtime slot");
                 // A data-only store can share a CAS before any software slot
                 // exists. It still holds the SAME physical permit; location
                 // alone must never demote a copied/retired runtime to data-only.
@@ -609,6 +614,7 @@ impl Ledger {
             anyhow::ensure!(selected == root || selected.parent() == Some(root.join("versions").as_path()),
                 "selected writer is outside this installation");
             anyhow::ensure!(slot == selected, "writer belongs to a retired or unselected installation slot");
+            if !runtime { return Ok(()); }
             let conn = self.conn.lock();
             let agents = {
                 let mut statement = conn.prepare("SELECT agent_id FROM activation_selectors")?;
@@ -624,6 +630,21 @@ impl Ledger {
             Ok(())
         };
         validate().map_err(|error| shenko_types::authority::authority_fenced(format!("installation writer is not current: {error:#}")))
+    }
+
+    /// Only the exact first imported-subject fork may replace its foreign
+    /// bootstrap route. The caller must verify that proof in its transaction;
+    /// physical selection is still required under the original source permit.
+    pub(crate) fn with_imported_fork_mutation_under<T, E: From<ShenkoError>>(
+        &self, permit: &InstallationPermit, write: impl FnOnce() -> Result<T, E>,
+        storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        if self.installation.is_none() {
+            return Err(shenko_types::authority::authority_fenced(
+                "imported fork requires a real installed Store").into());
+        }
+        self.check_installation_selection(permit, false)?;
+        self.with_installation_mutation(Some(permit), false, write, storage_failure)
     }
 
     /// Borrow the source reservation's original physical permit. Acquiring a

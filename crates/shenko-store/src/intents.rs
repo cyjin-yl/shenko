@@ -1309,6 +1309,9 @@ fn deliver_child_dialogue(
             TaskOwner::Conversation { id } => *id,
         }),
         delivered_at: chrono::Utc::now(),
+        // A subject turn: the sender is the step, not a peer.
+        sender_task_id: None,
+        sender_name: None,
     });
     target
         .memos

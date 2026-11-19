@@ -82,6 +82,17 @@ pub trait CommitAuthorityGuard {
     fn installation_permit(&self) -> Option<&crate::installation::InstallationPermit> { None }
 }
 
+/// A held source reservation for one parent-to-child availability transition.
+/// This proves no runtime stamp, controller ownership or dispatch permission.
+/// Implementations must exclude identity and opening-authority changes until
+/// the Store transaction ends, and lend the same physical installation permit.
+pub trait AvailabilityForkAuthority {
+    fn validate_fork(&self, subject: EntityId, parent: &BranchId, origin: &Digest,
+        child: &BranchId) -> Result<(), ShenkoError>;
+
+    fn installation_permit(&self) -> Option<&crate::installation::InstallationPermit>;
+}
+
 struct InstalledAuthorityGuard {
     // Drop the Node/source reservation before releasing physical exclusion.
     source: Box<dyn CommitAuthorityGuard>,

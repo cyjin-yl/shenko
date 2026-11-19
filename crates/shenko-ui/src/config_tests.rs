@@ -762,3 +762,37 @@ async fn config_manage_rejects_invalid_input_without_a_change() {
     }
     drop(root);
 }
+
+/// Attachments are sealed before a submission names them: a sealed reference
+/// is admitted and the subject reads its text, while a reference to bytes this
+/// store does not hold rejects the whole input.
+#[test]
+fn submissions_admit_only_sealed_attachments_and_the_subject_reads_their_text() -> anyhow::Result<()> {
+    use crate::input::{SubmissionMode, SubmissionStage, UserSubmission, WebInputService};
+    use crate::presentation::{PresentationService, SurfaceCapabilityProvider};
+    let (root, store, agent, _, _) = subject_fixture("owner-attachments");
+    let input = WebInputService::new(Arc::clone(&store), agent, None,
+        PresentationService::new(8, SurfaceCapabilityProvider::new(false, "attachment-fixture".into())));
+    let notes = store.seal_web_attachment("第一行笔记\n第二行".as_bytes(), "notes.md", "text/markdown")?;
+    let photo = store.seal_web_attachment(&[0x89, b'P', b'N', b'G'], "photo.png", "image/png")?;
+    let submission = |id: &str, refs: Vec<Value>| UserSubmission {
+        schema_version: 2, kind: "submit".into(), submission_id: id.into(), message_id: format!("{id}-message"),
+        subject_id: agent.to_string(), mode: SubmissionMode::Append, content: String::new(), attachment_refs: refs,
+        rich_content_ref: None, observed_step_id: None, observed_request_id: None,
+    };
+    let missing = json!({"digest": Digest::blake3(b"never uploaded"), "name": "ghost.txt", "media_type": "text/plain", "bytes": 14});
+    let rejected = input.submit(&submission("with-missing", vec![serde_json::to_value(&notes)?, missing]));
+    assert!(matches!(rejected.stage, SubmissionStage::Rejected), "{rejected:?}");
+    assert!(store.web_submission(agent, "with-missing")?.is_none(), "a rejected input leaves no durable submission");
+
+    let accepted = input.submit(&submission("with-sealed", vec![serde_json::to_value(&notes)?, serde_json::to_value(&photo)?]));
+    assert!(matches!(accepted.stage, SubmissionStage::Accepted), "{accepted:?}");
+    let record = store.web_submission(agent, "with-sealed")?.context("accepted submission has no record")?;
+    let event: Value = serde_json::from_str(&store.pending_inbox_events(agent, 8)?
+        .into_iter().find(|(id, _)| *id == record.event_id).context("no inbox event")?.1)?;
+    let seen = shenko_subject::web_attachments_text(&store, &event["payload"])?;
+    assert!(seen.contains("[附件 1] notes.md · text/markdown") && seen.contains("第一行笔记\n第二行"), "{seen}");
+    assert!(seen.contains("[附件 2] photo.png · image/png") && seen.contains("看不到画面"), "{seen}");
+    drop(root);
+    Ok(())
+}

@@ -150,6 +150,45 @@ CREATE TRIGGER IF NOT EXISTS context_revision_operations_delete AFTER DELETE ON 
 END;
 "#;
 
+fn normalize_trigger_sql(sql: &str) -> String {
+    let normalized = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = normalized.trim_end_matches(';').trim_end();
+    if let Some(rest) = trimmed.strip_prefix("CREATE TRIGGER IF NOT EXISTS ") {
+        format!("CREATE TRIGGER {rest}")
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+pub(crate) fn canonical_projection_trigger(name: &str, tbl_name: &str, sql: &str) -> bool {
+    let target = normalize_trigger_sql(sql);
+    SCHEMA.split("END;").any(|chunk| {
+        let Some(pos) = chunk.find("CREATE TRIGGER ") else {
+            return false;
+        };
+        let canonical = normalize_trigger_sql(&format!("{}END;", &chunk[pos..]));
+        let mut parts = canonical.split_whitespace();
+        matches!(
+            (
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+            ),
+            (
+                Some("CREATE"),
+                Some("TRIGGER"),
+                Some(trig_name),
+                Some("AFTER"),
+                Some(_),
+                Some("ON"),
+            ) if trig_name == name && parts.next() == Some(tbl_name) && canonical == target
+        )
+    })
+}
+
 fn storage(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
 }

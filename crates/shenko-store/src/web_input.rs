@@ -103,7 +103,8 @@ pub enum WebWithdrawResultKind {
     /// the original event stays retained, but it must not participate in
     /// ordinary selection any more.
     WithdrawnBeforePresentation,
-    /// The input was already selected into a sealed step or disposed by S1:
+    /// The input was already durably staged (including a Planned step),
+    /// selected into a sealed step, or disposed by S1:
     /// the withdrawal is appended as a causally linked control fact for a
     /// later step; the original fact and decision are never rewritten.
     WithdrawalQueued,
@@ -459,24 +460,16 @@ impl Store {
         .transpose()
     }
 
-    /// Whether this event was withdrawn before any presentation. The subject
-    /// loop's volatile wake path checks this per merged event so a withdrawn
-    /// input already copied into the bounded channel never enters a step.
+    /// Whether this event was withdrawn before durable staging. This read
+    /// filters volatile wakes; staging rechecks inside its Immediate transaction
+    /// so a withdrawal committed after this read still excludes the input.
     pub fn event_withdrawn_before_presentation(
         &self,
         agent_id: EntityId,
         event_id: EntityId,
     ) -> Result<bool, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM web_input_withdrawals
-                 WHERE agent_id=?1 AND event_id=?2 AND result='\"withdrawn_before_presentation\"'",
-                params![agent_id.to_string(), event_id.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
-        Ok(count > 0)
+        event_withdrawn_before_presentation(&conn, agent_id, event_id)
     }
 
     /// Withdrawal controls committed after `after_commit_seq`, in commit
@@ -595,6 +588,21 @@ impl Store {
         }
         Ok(None)
     }
+}
+
+/// Connection-scoped form shared with the staging transaction. Do not acquire
+/// Store's connection lock from a transaction that already owns it.
+pub(crate) fn event_withdrawn_before_presentation(
+    conn: &rusqlite::Connection,
+    agent_id: EntityId,
+    event_id: EntityId,
+) -> Result<bool, ShenkoError> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM web_input_withdrawals
+         WHERE agent_id=?1 AND event_id=?2 AND result='\"withdrawn_before_presentation\"')",
+        params![agent_id.to_string(), event_id.to_string()],
+        |row| row.get(0),
+    ).map_err(storage_error)
 }
 
 fn read_web_submission(

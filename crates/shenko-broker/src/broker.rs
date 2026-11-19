@@ -23,7 +23,7 @@ use tracing::{info, warn};
 use crate::admission::{AdmissionController, AdmissionGuard, CapacityPool, CapacitySnapshot};
 use crate::capability::BackendCapabilitySnapshot;
 use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
-use crate::execution::{execute_request, now_ms};
+use crate::execution::{ExecutionContext, execute_request, now_ms};
 use crate::kv::{
     AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState,
     ResidencyIdentity,
@@ -1160,11 +1160,13 @@ impl Broker {
                         receipt_sink.as_ref(),
                         purpose,
                         stream,
-                        &registry,
-                        &resources.domain,
-                        &resources.kv,
-                        &error_sink,
-                        &stop,
+                        &ExecutionContext {
+                            registry: &registry,
+                            domain: &resources.domain,
+                            kv: &resources.kv,
+                            error_sink: &error_sink,
+                            stop: &stop,
+                        },
                     )
                     .await;
                     let completed = CompletedRequest {

@@ -23,7 +23,7 @@ use anyhow::{Context, Result, ensure};
 use serde_json::Value;
 use shenko_types::ids::EntityId;
 
-fn command(root: &Path) -> Command {
+fn command(root: &Path, log_level: &str) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_shenko"));
     command
         .env_clear()
@@ -31,7 +31,7 @@ fn command(root: &Path) -> Command {
         .arg("--data-dir")
         .arg(root)
         .arg("--log")
-        .arg("warn");
+        .arg(log_level);
     command
 }
 
@@ -195,9 +195,16 @@ impl Observer {
                         break;
                     }
                     if headers.starts_with("GET /v1/models ") {
-                        let body = br#"{"data":[{"id":"dispatch-observer","max_model_len":65536}]}"#;
-                        write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len())?;
-                        stream.write_all(body)?;
+                        let body = r#"{"data":[{"id":"dispatch-observer","max_model_len":65536}]}"#;
+                        let response = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+                        if let Err(error) = stream.write_all(response.as_bytes()) {
+                            // An ordinary read-only discovery probe has its own shorter deadline.
+                            // The held metadata and inference paths still require a peer ending.
+                            if !matches!(error.kind(), std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset) {
+                                return Err(error).context("writing the ordinary model discovery response");
+                            }
+                            fs::write(logs.join(format!("model-{:03}.reply-error", number - 1)), error.to_string())?;
+                        }
                     } else if headers.starts_with("POST /v1/chat/completions ") {
                         sent.send(wire[end + 4..end + 4 + length].to_vec())?;
                         // No response, server timeout or deliberate peer
@@ -267,7 +274,7 @@ fn start(
     label: &str,
 ) -> Result<OwnedRuntime> {
     let log = fs::File::create(root.join(format!("{label}.log")))?;
-    let mut command = command(data_dir);
+    let mut command = command(data_dir, "info");
     command.arg("start").arg("--port").arg(port.to_string());
     if let Some(boundary) = boundary { command.arg("--pause-at-start").arg(boundary.to_string()); }
     Ok(OwnedRuntime(
@@ -283,9 +290,19 @@ fn start(
 }
 
 fn ready(runtime: &mut OwnedRuntime, port: u16) -> Result<Value> {
+    // This includes opening the installation and initializing the Node store.
+    wait_for_self(runtime, port, Duration::from_secs(120), None)
+}
+
+fn wait_for_self(
+    runtime: &mut OwnedRuntime,
+    port: u16,
+    timeout: Duration,
+    expected_status: Option<&str>,
+) -> Result<Value> {
     let address: SocketAddr = format!("127.0.0.1:{port}").parse()?;
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
         ensure!(
             runtime.0.try_wait()?.is_none(),
             "runtime exited before its real UI was ready"
@@ -296,21 +313,32 @@ fn ready(runtime: &mut OwnedRuntime, port: u16) -> Result<Value> {
                 b"GET /api/self HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n",
             )?;
             let mut response = String::new();
-            stream.read_to_string(&mut response)?;
+            match stream.read_to_string(&mut response) {
+                Ok(_) => {}
+                // A single accepted socket can expire while startup is still
+                // settling. The original overall observation deadline holds.
+                Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                    thread::sleep(Duration::from_millis(20));
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            }
             if let Some((headers, body)) = response.split_once("\r\n\r\n")
                 && headers.starts_with("HTTP/1.1 200")
             {
                 let value: Value = serde_json::from_str(body)?;
-                if value.get("subject_id").and_then(Value::as_str).is_some() {
+                if value.get("subject_id").and_then(Value::as_str).is_some()
+                    && expected_status.is_none_or(|status| value["status"] == status)
+                {
                     return Ok(value);
                 }
             }
         }
-        ensure!(
-            Instant::now() < deadline,
-            "runtime UI readiness deadline exceeded"
-        );
         thread::sleep(Duration::from_millis(20));
+    }
+    match expected_status {
+        Some(status) => anyhow::bail!("runtime UI did not report {status} within {timeout:?}"),
+        None => anyhow::bail!("runtime UI readiness deadline exceeded"),
     }
 }
 
@@ -324,7 +352,7 @@ fn control(root: &Path, operation: &str, boundary: EntityId) -> Result<Value> {
     // Files keep the actual output without an unbounded pipe reader or a
     // full-pipe deadlock while this owner observes the process deadline.
     let mut process = OwnedRuntime(
-        command(root)
+        command(root, "warn")
             .arg("runtime")
             .arg(operation)
             .arg(boundary.to_string())
@@ -511,9 +539,12 @@ fn journey(root: &Path) -> Result<()> {
     );
     let resumed = control(&data_dir, "resume", boundary)?;
     ensure!(resumed["state"] == "resumed" && resumed["closed_at"].is_object());
+    // Resume commits before the subject has sealed S0 and passed the broker's
+    // durable dispatch fence. Give those writes their own bounded window.
     let body = observer
         .requests
-        .recv_timeout(Duration::from_secs(30))
+        .recv_timeout(Duration::from_secs(90))
+        .context("resumed subject never reached the observed inference POST")
         .with_context(|| runtime_log(root, "restarted"))?;
     let request: Value = serde_json::from_slice(&body)?;
     ensure!(
@@ -555,17 +586,11 @@ fn journey(root: &Path) -> Result<()> {
     // physical debt already restored. The UI remains available and blocked;
     // no replacement generation or S1 is invented by process restart.
     let mut reopened = start(root, &data_dir, port, None, observer.address, "unknown-reopened")?;
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        let status = ready(&mut reopened, port).with_context(|| runtime_log(root, "unknown-reopened"))?;
-        if status["status"] == "blocked" {
-            ensure!(status["subject_id"] == first["subject_id"]);
-            ensure!(status["blocked_reason"].is_string());
-            break;
-        }
-        ensure!(Instant::now() < deadline, "model failure did not reach the isolated blocked state");
-        thread::sleep(Duration::from_millis(20));
-    }
+    ready(&mut reopened, port).with_context(|| runtime_log(root, "unknown-reopened"))?;
+    let blocked = wait_for_self(&mut reopened, port, Duration::from_secs(10), Some("blocked"))
+        .with_context(|| runtime_log(root, "unknown-reopened"))?;
+    ensure!(blocked["subject_id"] == first["subject_id"]);
+    ensure!(blocked["blocked_reason"].is_string());
     ensure!(observer.requests.try_recv().is_err(), "unknown generation was replayed");
     reopened
         .stop()

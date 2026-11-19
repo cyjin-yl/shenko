@@ -291,12 +291,27 @@ impl WebInputService {
         }
         if submission.submission_id.is_empty()
             || submission.message_id.is_empty()
-            || submission.content.trim().is_empty()
+            || (submission.content.trim().is_empty() && submission.attachment_refs.is_empty())
         {
             return Err("输入身份或内容为空。");
         }
-        if !submission.attachment_refs.is_empty() || submission.rich_content_ref.is_some() {
-            return Err("附件引用解析尚未接入；未接纳输入。");
+        if submission.rich_content_ref.is_some() {
+            return Err("富内容引用尚未接入；未接纳输入。");
+        }
+        if submission.attachment_refs.len() > shenko_store::web_attachment::MAX_WEB_ATTACHMENTS {
+            return Err("附件数量超过上限；未接纳输入。");
+        }
+        // Every reference must name bytes already sealed in this store; one
+        // unresolvable reference rejects the whole input.
+        for reference in &submission.attachment_refs {
+            let attachment: shenko_store::web_attachment::WebAttachment =
+                serde_json::from_value(reference.clone()).map_err(|_| "附件引用格式无效；未接纳输入。")?;
+            attachment.validate()?;
+            match self.store.web_attachment_present(&attachment) {
+                Ok(true) => {}
+                Ok(false) => return Err("附件引用不在本存储中；未接纳输入。"),
+                Err(_) => return Err("附件存储暂不可读；未接纳输入。"),
+            }
         }
         if self.subject_id.to_string() != submission.subject_id {
             return Err("真实 subject 绑定不匹配；未接纳输入。");
