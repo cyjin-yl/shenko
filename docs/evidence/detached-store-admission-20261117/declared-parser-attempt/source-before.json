@@ -1,0 +1,17 @@
+{
+  "head": "8978816295429b65308e6dd6c8499cca360f8552",
+  "tree": "fd05ecc5a372e8e13c61e5018e0e67eaa3558b00",
+  "files": {
+    "crates/shenko-types/src/installation.rs": "46f2344432656d3ed2eb73c9be05b6391fb25bb7f563f0bba846173ec15d8554",
+    "crates/shenko-store/src/ledger.rs": "c07d6fa30ba8787cde6d4dc7acf97fedf71fb20986245cc0ac4cfe7d401162a5",
+    "crates/shenko-update/tests/rollback_migration.rs": "73650121c1de1e6cb5c8afe68fb908ea85527af116d59b5d0fcf4cde1181ddae",
+    "crates/shenko-update/src/handoff_tests.rs": "f8fbada20904039ce36064d77a4c8c16553f19c1e2f65849336660252e014aad",
+    "docs/specs/self-update.md": "1ad7d3a6db9f8d8abacd43525a392105a98e7a199c09b5fa4712889a6089780d",
+    "Cargo.toml": "d066de04709ad54adcf3b5d7f86ab8732a77d551147dcc7e688a2128294ca65b",
+    "Cargo.lock": "449f2c5bc3841467bdb105eb209dbb9f87cd9569cda91bd2bde293bfcde910a1",
+    "scripts/check_docs.py": "5719a94476f34642e37c6834b5d104fb4260e3b7bd9b6cd7a9f73a3428603aa6",
+    "scripts/requirements-ci.txt": "cacbbf38dad74ee532963a17f868d98648a2f765babefbd60d6fe0af16c828a7"
+  },
+  "observed_at": "2026-11-17T14:22:53.338765+00:00",
+  "atomic_source_freeze": false
+}

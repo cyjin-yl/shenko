@@ -1,0 +1,11 @@
+{
+  "rust_compilation": false,
+  "rust_tests": false,
+  "full_ship_work": false,
+  "same_observed_inputs": true,
+  "notes": [
+    "Host static observations, not the required devcontainer runtime validation.",
+    "Prior driver-r1 failed at git status timeout before Rust execution.",
+    "Device command policy rejected sudo; no privilege workaround attempted."
+  ]
+}

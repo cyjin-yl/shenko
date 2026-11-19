@@ -1,0 +1,34 @@
+{
+  "observed_at": "2026-11-17T14:29:19.046738+00:00",
+  "method": "Transcription of visible Desktop Commander tool results, not recovered raw process stderr.",
+  "development_container_entry": {
+    "result": "blocked",
+    "detail": "Command not allowed: \"sudo\" is in the blockedCommands setting.",
+    "policy_changed": false,
+    "privilege_workaround_attempted": false
+  },
+  "second_document_observer": {
+    "pid": 1882837,
+    "exit_code": 1,
+    "reported_runtime_seconds": 102.35,
+    "error": "json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+    "checker_exit_not_persisted": true,
+    "migration_not_started": true
+  },
+  "rust_compilation": false,
+  "rust_tests": false,
+  "model_validation": false,
+  "full_ship_work": false,
+  "initial_evidence_add": {
+    "argv": [
+      "git",
+      "add",
+      "-f",
+      "--",
+      "docs/evidence/detached-store-admission-20261117"
+    ],
+    "reported_exit_code": 1,
+    "reason": "New evidence path is outside the local sparse checkout; no entries were updated.",
+    "followup": "Stage exactly the intended evidence directory with git add --sparse, without changing sparse configuration or source."
+  }
+}

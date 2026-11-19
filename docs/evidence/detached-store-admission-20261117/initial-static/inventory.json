@@ -1,0 +1,92 @@
+[
+  {
+    "path": "commands.json",
+    "bytes": 4508,
+    "sha256": "747d569e7ad06ce2d87d0dd8c68c2b63e437459ad38a779b9359b188b9a3daac"
+  },
+  {
+    "path": "diff-check.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "diff-check.stdout",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "docs.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "docs.stdout",
+    "bytes": 271606,
+    "sha256": "47b92b37223741b4136018243935ccf96a70b1c39a7255570c29c08e04d40582"
+  },
+  {
+    "path": "head.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "head.stdout",
+    "bytes": 41,
+    "sha256": "25b7d3f639d47b391231de0038608bc1150ed3a16de61c320aeee7cf9bba2867"
+  },
+  {
+    "path": "migration.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "migration.stdout",
+    "bytes": 271606,
+    "sha256": "47b92b37223741b4136018243935ccf96a70b1c39a7255570c29c08e04d40582"
+  },
+  {
+    "path": "rustfmt-version.stderr",
+    "bytes": 186,
+    "sha256": "9b81e38a318293d9c5368486890fa9a423a5ad47b92271b4140b56e2d074b224"
+  },
+  {
+    "path": "rustfmt-version.stdout",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "scope.json",
+    "bytes": 368,
+    "sha256": "3b11fcb56e71a8eb4e579dfbadd41298d7ce7b3c8a81cb9948e496ecce292324"
+  },
+  {
+    "path": "source-after.json",
+    "bytes": 938,
+    "sha256": "40081d16da070d670651a3aa7def5225fa55b4e736864b41e017d12791b754c1"
+  },
+  {
+    "path": "source-before.json",
+    "bytes": 986,
+    "sha256": "ee7a4c022f9e917457e5c643743ecd27f072e0b39b7bdb924d51d234f6e5f786"
+  },
+  {
+    "path": "status.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "status.stdout",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "tree.stderr",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "tree.stdout",
+    "bytes": 41,
+    "sha256": "4ab584ab11c5371ba1e906d90c30f7c0af6ac22f03a9c763a38520dade511d64"
+  }
+]
