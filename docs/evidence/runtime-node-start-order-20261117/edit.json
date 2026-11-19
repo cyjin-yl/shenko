@@ -1,0 +1,9 @@
+{
+  "base": "79291b136c41517578111f5293354cecd552b64d",
+  "observed_at": "2026-11-17T15:31:55.449070+00:00",
+  "old": "    tokio::task::spawn_blocking({\n        let data_dir = data_dir.to_owned();\n        let candidate = candidate.clone();\n        move || {\n            Node::open(&data_dir.join(\"node\"))?.advertise_component_runtime(runtime_id, candidate)\n        }\n    })",
+  "new": "    tokio::task::spawn_blocking({\n        let data_dir = data_dir.to_owned();\n        let store = Arc::clone(store);\n        let candidate = candidate.clone();\n        move || {\n            // Bind the existing installation identity before any resident or\n            // replication worker can open this Node. Recovery-only startup\n            // must not leave first initialization to competing consumers.\n            open_node(&data_dir, &store)?.advertise_component_runtime(runtime_id, candidate)\n        }\n    })",
+  "appended_module": "\n#[cfg(test)]\n#[path = \"component_start_order_tests.rs\"]\nmod start_order_tests;\n",
+  "new_named_tests": 1,
+  "local_rust_execution": false
+}

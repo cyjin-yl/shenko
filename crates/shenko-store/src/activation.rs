@@ -460,58 +460,77 @@ impl Store {
     /// Repair identity metadata omitted by an older successor CAS. This never
     /// chooses a generation: both physical ledgers must already retain the
     /// same committed selector and activation, with the original source fenced.
-    /// A peer import or rekeyed candidate at another slot cannot supply this
-    /// proof. Missing retained source evidence is an explicit recovery error.
-    /// Borrow Store opening's physical permit through the final witness write;
-    /// reacquiring it here would block behind the same open's reservation.
-    pub(crate) fn recover_legacy_successor_identity(&self, cas_dir: &std::path::Path,
+    /// Only the physically selected installed slot is considered. Foreign
+    /// history (including missing route CAS) is not an open-time repair.
+    /// Once the sealed route proves local selection, incomplete retained
+    /// source evidence is an explicit recovery error, never guessed identity.
+    pub(crate) fn recover_legacy_successor_identity_under(&self,
         permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<(), ShenkoError> {
         use shenko_types::activation::{ActivationOrigin, RouteAuthority};
         use std::path::{Path, PathBuf};
 
-        let (db_path, candidates) = {
+        // open_under already validates this borrowed permit. Detached data
+        // copies and unselected slots must still open without their foreign
+        // route objects, so establish positive physical selection first.
+        let Some(permit) = permit else { return Ok(()); };
+        let db_path = {
+            let conn = self.ledger.conn.lock();
+            let Some(db) = conn.path() else { return Ok(()); };
+            PathBuf::from(db)
+        };
+        let physical = db_path.canonicalize().map_err(storage_error)?;
+        let slot = physical.parent().ok_or_else(|| ShenkoError::conflict("successor database has no slot"))?;
+        let root = permit.root();
+        if physical.file_name().is_none_or(|name| name != "shenko.db")
+            || !(slot == root || slot.parent() == Some(root.join("versions").as_path())) {
+            return Ok(());
+        }
+        let selected_slot = match std::fs::read(root.join("current-slot")) {
+            Ok(bytes) => {
+                let Ok(pointer) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return Ok(()); };
+                if pointer["schema_version"] != 1 { return Ok(()); }
+                let Some(path) = pointer["slot_dir"].as_str() else { return Ok(()); };
+                let Ok(path) = Path::new(path).canonicalize() else { return Ok(()); };
+                path
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => root.to_path_buf(),
+            Err(error) => return Err(storage_error(error)),
+        };
+        if selected_slot != slot { return Ok(()); }
+
+        let candidates = {
             let conn = self.ledger.conn.lock();
             if crate::store::read_local_subject_id(&conn, self.ledger.ledger_id())?.is_some() {
                 return Ok(());
             }
-            let db = conn.path().ok_or_else(|| ShenkoError::conflict("successor identity requires a physical database"))?;
-            let mut query = conn.prepare("SELECT s.data FROM activation_selectors s JOIN subject_branch_heads h ON h.agent_id=s.agent_id")
+            // The original successor CAS closed a locally retained quiesce
+            // request at the selector's original commit coordinates.
+            // Peer imports rewrite SQL sequence columns but retain the
+            // request's original closed_at ledger, so cannot supply this proof.
+            let mut query = conn.prepare("SELECT s.data FROM activation_selectors s
+                JOIN subject_branch_heads h ON h.agent_id=s.agent_id
+                JOIN subject_steps p ON p.step_id=h.next_step_id
+                JOIN commit_log c ON c.ledger_id=?1 AND c.seq=s.updated_commit_seq
+                WHERE h.mode='active' AND p.state='planned'
+                    AND EXISTS(SELECT 1 FROM subject_quiesce_requests q
+                        WHERE q.agent_id=s.agent_id AND q.state='resumed'
+                            AND json_extract(q.data,'$.closed_at.ledger_id')=?1
+                            AND json_extract(q.data,'$.closed_at.seq')=s.updated_commit_seq)")
                 .map_err(storage_error)?;
-            let rows = query.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
-                .collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
-            (PathBuf::from(db), rows)
+            let matches = query.query_map([self.ledger.ledger_id().to_string()], |row| row.get::<_, String>(0))
+                .map_err(storage_error)?;
+            matches.collect::<Result<Vec<_>, _>>().map_err(storage_error)?
         };
-        if candidates.is_empty() || cas_dir.file_name().and_then(|name| name.to_str()) != Some("cas") {
-            return Ok(());
-        }
-        let Some(root) = cas_dir.canonicalize().map_err(storage_error)?.parent().map(Path::to_owned) else {
-            return Ok(());
-        };
-        let physical = db_path.canonicalize().map_err(storage_error)?;
-        let Some(slot) = physical.parent() else { return Ok(()); };
-        if slot != root && slot.parent() != Some(root.join("versions").as_path()) {
-            return Ok(());
-        }
-        // Use the launcher pointer only to scope recovery. The original
-        // committed selector, sealed route and physical pair still prove it.
-        let pointer = match std::fs::read(root.join("current-slot")) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(storage_error(error)),
-        };
-        let pointer: serde_json::Value = serde_json::from_slice(&pointer).map_err(storage_error)?;
-        let points_here = pointer.get("schema_version").and_then(|value| value.as_u64()) == Some(1)
-            && pointer.get("slot_dir").and_then(|value| value.as_str())
-                .and_then(|path| Path::new(path).canonicalize().ok()).as_deref() == Some(slot);
-        if !points_here { return Ok(()); }
-
         for raw in candidates {
             let selected: ActivationSelector = serde_json::from_str(&raw).map_err(storage_error)?;
             let ActivationOrigin::Activation { activation_id } = selected.origin else { continue; };
             let (head, step) = self.load_subject(selected.agent_id)?;
-            if !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+            if head.mode != SubjectMode::Active
                 || head.software_generation != selected.generation
                 || head.controller_epoch.0 != selected.active_epoch { continue; }
+            // An unresolved foreign route grants no identity. Ordinary Store
+            // open must not become an availability check for imported CAS.
+            if !self.cas.object_exists(&selected.route_authority_ref.digest) { continue; }
             let route_path = self.cas.verified_object_path(&selected.route_authority_ref).map_err(storage_error)?;
             let route: RouteAuthority = serde_json::from_slice(&std::fs::read(route_path).map_err(storage_error)?)
                 .map_err(storage_error)?;
@@ -519,8 +538,8 @@ impl Store {
             // identity. Do not open its source or manufacture a witness here.
             let Ok(route_slot) = Path::new(&route.slot_dir).canonicalize() else { continue; };
             if route_slot != slot { continue; }
-            if Path::new(&route.data_dir).canonicalize().map_err(storage_error)? != root
-                || route.schema_version != RouteAuthority::SCHEMA_VERSION
+            let route_root = Path::new(&route.data_dir).canonicalize().map_err(storage_error)?;
+            if route_root != root || route.schema_version != RouteAuthority::SCHEMA_VERSION
                 || route.agent_id != selected.agent_id || route.generation != selected.generation
                 || route.activation_id != Some(activation_id)
                 || route.selector_revision != selected.selector_revision || route.active_epoch != selected.active_epoch {
@@ -564,60 +583,60 @@ impl Store {
             if source_db.parent() != Some(source_slot.as_path()) || source_db.file_name() != physical.file_name() {
                 return Err(ShenkoError::conflict("legacy source database does not bind its retained slot"));
             }
-            let mut source = Connection::open_with_flags(&source_db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .map_err(storage_error)?;
-            let source_tx = source.transaction().map_err(storage_error)?;
-            let source_ledger: String = source_tx.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))
-                .map_err(storage_error)?;
-            let source_record = read_activation_record(&source_tx, activation_id)?
-                .ok_or_else(|| ShenkoError::conflict("legacy retired activation missing"))?;
-            let (retired, retired_step) = crate::store::read_subject(&source_tx, head.agent_id)?;
-            crate::store::validate_step_binding(&retired, &retired_step)?;
-            // Live rollback legitimately replaces recovery_closure_ref with
-            // its frozen request and updates resource receipts on the selected
-            // record. Those later facts are retained, not used as birth or
-            // selection authority. Compare the original activation identity.
-            let same_activation = source_record.activation_id == record.activation_id
-                && source_record.agent_id == record.agent_id
-                && source_record.from_generation == record.from_generation
-                && source_record.to_generation == record.to_generation
-                && source_record.from_state_ref == record.from_state_ref
-                && source_record.to_state_ref == record.to_state_ref
-                && source_record.migrator_ref == record.migrator_ref
-                && source_record.contract_revision == record.contract_revision
-                && source_record.w0 == record.w0 && source_record.w1 == record.w1
-                && source_record.imported_through == record.imported_through
-                && source_record.ingress_cursors_ref == record.ingress_cursors_ref
-                && source_record.evidence_cursors_ref == record.evidence_cursors_ref
-                && source_record.expected_selector_revision == record.expected_selector_revision
-                && source_record.target_epoch == record.target_epoch
-                && source_record.smoke_evidence_ref == record.smoke_evidence_ref
-                && source_record.rollback_plan_ref == record.rollback_plan_ref
-                && source_record.expected_primary_claim == record.expected_primary_claim
-                && matches!(source_record.phase, ActivationPhase::Activated | ActivationPhase::Observing | ActivationPhase::Retired);
-            if source_ledger == self.ledger.ledger_id().to_string()
-                || read_selector(&source_tx, head.agent_id)?.as_ref() != Some(&selected)
-                || !same_activation || retired.mode != SubjectMode::Handoff
-                || retired.software_generation != record.from_generation
-                || retired.genesis_ref != head.genesis_ref || retired.branch_id != head.branch_id
-                || retired.committed_at != head.committed_at || retired.committed_step_no != head.committed_step_no
-                || retired.committed_step_id != head.committed_step_id || retired.next_step_id != head.next_step_id {
-                return Err(ShenkoError::conflict("legacy successor lacks the exact physical retired-source proof"));
-            }
-            let source_installation = crate::local_installation::installation_id_for_subject_conn(&source_tx, &self.cas, head.agent_id)?;
-            if self.installation_id_for_subject(head.agent_id)? != source_installation {
-                return Err(ShenkoError::conflict("legacy successor and retired source belong to different installations"));
-            }
-            self.ledger.with_mutation_under(permit, || {
+            // Stage the source tuple through the immutable inspection path:
+            // a read-only live SQLite connection can still create -shm.
+            Store::inspect_database(&source_db, |source_tx| {
+                let source_ledger: String = source_tx.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))
+                    .map_err(storage_error)?;
+                let source_record = read_activation_record(source_tx, activation_id)?
+                    .ok_or_else(|| ShenkoError::conflict("legacy retired activation missing"))?;
+                let (retired, retired_step) = crate::store::read_subject(source_tx, head.agent_id)?;
+                crate::store::validate_step_binding(&retired, &retired_step)?;
+                // Live rollback legitimately replaces recovery_closure_ref with
+                // its frozen request and updates resource receipts on the selected
+                // record. Those later facts are retained, not used as birth or
+                // selection authority. Compare the original activation identity.
+                let same_activation = source_record.activation_id == record.activation_id
+                    && source_record.agent_id == record.agent_id
+                    && source_record.from_generation == record.from_generation
+                    && source_record.to_generation == record.to_generation
+                    && source_record.from_state_ref == record.from_state_ref
+                    && source_record.to_state_ref == record.to_state_ref
+                    && source_record.migrator_ref == record.migrator_ref
+                    && source_record.contract_revision == record.contract_revision
+                    && source_record.w0 == record.w0 && source_record.w1 == record.w1
+                    && source_record.imported_through == record.imported_through
+                    && source_record.ingress_cursors_ref == record.ingress_cursors_ref
+                    && source_record.evidence_cursors_ref == record.evidence_cursors_ref
+                    && source_record.expected_selector_revision == record.expected_selector_revision
+                    && source_record.target_epoch == record.target_epoch
+                    && source_record.smoke_evidence_ref == record.smoke_evidence_ref
+                    && source_record.rollback_plan_ref == record.rollback_plan_ref
+                    && source_record.expected_primary_claim == record.expected_primary_claim
+                    && matches!(source_record.phase, ActivationPhase::Activated | ActivationPhase::Observing | ActivationPhase::Retired);
+                if source_ledger == self.ledger.ledger_id().to_string()
+                    || read_selector(source_tx, head.agent_id)?.as_ref() != Some(&selected)
+                    || !same_activation || retired.mode != SubjectMode::Handoff
+                    || retired.software_generation != record.from_generation
+                    || retired.genesis_ref != head.genesis_ref || retired.branch_id != head.branch_id
+                    || retired.committed_at != head.committed_at || retired.committed_step_no != head.committed_step_no
+                    || retired.committed_step_id != head.committed_step_id || retired.next_step_id != head.next_step_id {
+                    return Err(ShenkoError::conflict("legacy successor lacks the exact physical retired-source proof").into());
+                }
+                let source_installation = crate::local_installation::installation_id_for_subject_conn(source_tx, &self.cas, head.agent_id)?;
+                if self.installation_id_for_subject(head.agent_id)? != source_installation {
+                    return Err(ShenkoError::conflict("legacy successor and retired source belong to different installations").into());
+                }
+                Ok(())
+            }).map_err(storage_error)?;
+            self.ledger.with_maintenance_mutation_under(Some(permit), || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
-                let (current, _) = crate::store::read_subject(&tx, head.agent_id)?;
-                if locally_materialized_successor(&tx, self.ledger.ledger_id(), &current)? {
-                    return Ok(());
-                }
+                let (current, current_step) = crate::store::read_subject(&tx, head.agent_id)?;
                 if read_selector(&tx, head.agent_id)?.as_ref() != Some(&selected)
                     || read_activation_record(&tx, activation_id)?.as_ref() != Some(&record)
-                    || serde_json::to_string(&current)? != serde_json::to_string(&head)? {
+                    || serde_json::to_string(&current)? != serde_json::to_string(&head)?
+                    || serde_json::to_string(&current_step)? != serde_json::to_string(&step)? {
                     return Err(ShenkoError::conflict("legacy successor changed before identity recovery"));
                 }
                 let (revision, epoch, original_seq): (u64, u64, i64) = tx.query_row(

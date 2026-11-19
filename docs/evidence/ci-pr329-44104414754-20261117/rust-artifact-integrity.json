@@ -1,0 +1,19 @@
+{
+  "artifact_id": 14338588409,
+  "run": 44104414754,
+  "head": "c59feb9ee6fba4aa19525d2af38e60b82a1728c8",
+  "started_at": "2026-11-17T15:06:38.537303+00:00",
+  "available_disk_bytes": 10990454308864,
+  "expected_bytes": 974026444,
+  "expected_sha256": "685280ce165a96d8d1a4efb4d8d38c093eacf232f9c455ef343d3599fd742830",
+  "download_timeout_seconds": 240,
+  "executes_artifact_contents": false,
+  "exit": 0,
+  "finished_at": "2026-11-17T15:09:27.351919+00:00",
+  "actual_bytes": 974026444,
+  "actual_sha256": "685280ce165a96d8d1a4efb4d8d38c093eacf232f9c455ef343d3599fd742830",
+  "size_and_sha_match": true,
+  "all_member_crc_passed": true,
+  "members": 5234,
+  "uncompressed_bytes": 4944492869
+}

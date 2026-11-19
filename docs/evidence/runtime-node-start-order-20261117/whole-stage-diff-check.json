@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "git",
+    "diff",
+    "--cached",
+    "--check"
+  ],
+  "exit": 2,
+  "observed_at": "2026-11-17T15:41:26.969525+00:00",
+  "source_and_contract_check_exit": 0,
+  "original_evidence_bytes_normalized": false
+}

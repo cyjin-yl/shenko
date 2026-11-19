@@ -1,0 +1,20 @@
+{
+  "method": "Transcription of a visible tool error; not claimed recovered process bytes",
+  "read_only_shell_inspection": {
+    "pid": 2110303,
+    "error": "Nested shell/heredoc quoting caused a Python SyntaxError while printing an already-retained parent test log.",
+    "source_or_evidence_mutated": false,
+    "followup": "Read the retained log using Python directly; do not replay a mutation."
+  },
+  "local_rust_execution": false,
+  "original_node_identity_conflict_check_changed": false,
+  "new_named_tests": 1,
+  "initial_archive_attempt": {
+    "pid": 2116206,
+    "exit": 1,
+    "error": "KeyError for a component stderr member name absent from the original ZIP.",
+    "source_reapplied": false,
+    "original_zip_modified": false,
+    "recovery": "Read the actual member index; use its exact unique sync-members-add stderr path. Existing copied originals are compared byte-for-byte before completing the same archive."
+  }
+}

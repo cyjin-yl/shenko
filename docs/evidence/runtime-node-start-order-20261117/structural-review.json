@@ -1,0 +1,29 @@
+{
+  "observed_at": "2026-11-17T15:33:10.662942+00:00",
+  "base": "79291b136c41517578111f5293354cecd552b64d",
+  "files": [
+    {
+      "path": "bin/shenko/src/component_runtime.rs",
+      "sha256": "767fca2aca778c775fee465227f27bdd897c6b7bcefff27fc4e4abc1f87d7159",
+      "bytes": 23100,
+      "syntax_errors": []
+    },
+    {
+      "path": "bin/shenko/src/component_start_order_tests.rs",
+      "sha256": "d6ee1fab04f85991d1bc764ffdac272a8856d8e4e6d67a1b9649e3ec71cd7393",
+      "bytes": 6418,
+      "syntax_errors": []
+    }
+  ],
+  "inverse_production_edits_equal_parent": true,
+  "unchanged_protected_sources": {
+    "bin/shenko/tests/ssh_wasi_client.rs": "82219c94983e65c27b911cf7473d9c3be33c91f962898f7907e3c5095fd3af6f",
+    "bin/shenko/tests/component_process.rs": "598a8486d9c6df4c3595c26e793c588fd012373f8c05b308883f31b07d829f38",
+    "bin/shenko/tests/start_boundary.rs": "a81d3e320ecc38a579aee455aede18d5535c84f710432b23977d244d8910f70b",
+    "bin/shenko/src/recovery_integration_tests.rs": "e0d1a0e83bf04424ea46b35befc3291c369e0c2ba7adb7343d4a10c92ea064d2",
+    "crates/shenko-node/src/lib.rs": "9f27550feb31ac1aa2785e097fa49252348c556d73b8d439d30aee896a410d21"
+  },
+  "added_named_tests": 1,
+  "compiler_executed": false,
+  "runtime_executed": false
+}

@@ -1,0 +1,54 @@
+{
+  "artifact_id": 14337393521,
+  "started_at": "2026-11-17T15:34:24.590764+00:00",
+  "expected_bytes": 2804596,
+  "expected_sha256": "7fba85ad7bab628f0da7241b4cd54a8de1a9330690e988e9cc71880ad3048c0b",
+  "exit": 0,
+  "actual_bytes": 2804596,
+  "actual_sha256": "7fba85ad7bab628f0da7241b4cd54a8de1a9330690e988e9cc71880ad3048c0b",
+  "size_sha_match": true,
+  "members": 18,
+  "all_crc_passed": true,
+  "ratchet_json_members": [
+    "clippy/ratchet.json"
+  ],
+  "compiler_streams": [
+    {
+      "member": "clippy/base-all-targets.jsonl",
+      "build_finished": [
+        {
+          "reason": "build-finished",
+          "success": true
+        }
+      ]
+    },
+    {
+      "member": "clippy/base-production.jsonl",
+      "build_finished": [
+        {
+          "reason": "build-finished",
+          "success": true
+        }
+      ]
+    },
+    {
+      "member": "clippy/candidate-all-targets.jsonl",
+      "build_finished": [
+        {
+          "reason": "build-finished",
+          "success": true
+        }
+      ]
+    },
+    {
+      "member": "clippy/candidate-production.jsonl",
+      "build_finished": [
+        {
+          "reason": "build-finished",
+          "success": true
+        }
+      ]
+    }
+  ],
+  "finished_at": "2026-11-17T15:34:29.864152+00:00"
+}

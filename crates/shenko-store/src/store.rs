@@ -175,7 +175,7 @@ impl Store {
         let conn = Arc::new(Mutex::new(conn));
         let installation = domain.map(|domain| (domain, db_path.clone(), cas_dir.clone()));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation, installation)?);
-        let cas = Arc::new(ContentStore::new(cas_dir.clone())?);
+        let cas = Arc::new(ContentStore::new(cas_dir)?);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
         let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
@@ -197,7 +197,7 @@ impl Store {
         if let Err(error) = crate::channel::migrate_publication_targets_under(&store, permit) {
             tracing::warn!(error = %error, "publication target migration did not complete");
         }
-        store.recover_legacy_successor_identity(&cas_dir, permit)?;
+        store.recover_legacy_successor_identity_under(permit)?;
         Ok(store)
     }
 

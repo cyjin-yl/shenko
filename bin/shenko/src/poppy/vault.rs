@@ -21,8 +21,18 @@ const MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// refresh token. A busy vault is reported before dispatch, never retried here.
 pub(super) struct Vault {
     root: PathBuf,
-    _lock: File,
+    _lock: VaultLock,
     key: aead::LessSafeKey,
+}
+
+struct VaultLock(File);
+
+impl Drop for VaultLock {
+    fn drop(&mut self) {
+        // A forked child can still hold this open file description before exec.
+        // End the owner's lock lifetime even if that descriptor survives briefly.
+        let _ = self.0.unlock();
+    }
 }
 
 impl Vault {
@@ -56,6 +66,7 @@ impl Vault {
         let lock = open_private(&root.join("lock"), true)?;
         lock.try_lock()
             .context("Poppy credentials are in use by another operation")?;
+        let lock = VaultLock(lock);
         let key_path = root.join("key");
         let mut key_bytes = match read_private(&key_path) {
             Ok(bytes) => bytes,
@@ -274,4 +285,41 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
     Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_vault_releases_lock_with_an_inherited_descriptor() -> Result<()> {
+        let directory =
+            std::env::temp_dir().join(format!("shenko-poppy-lock-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&directory)?;
+        let result = (|| -> Result<()> {
+            let owner = Vault::open(&directory, true)?;
+            // Like a descriptor inherited across fork, this shares the lock's
+            // open file description and survives the parent's close.
+            let inherited = owner._lock.0.try_clone()?;
+            let contender = open_private(&owner.root.join("lock"), true)?;
+            assert!(matches!(
+                contender.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            drop(owner);
+            let next = Vault::open(&directory, false)?;
+            drop(inherited);
+            assert!(matches!(
+                contender.try_lock(),
+                Err(std::fs::TryLockError::WouldBlock)
+            ));
+            drop(next);
+            contender.try_lock()?;
+            Ok(())
+        })();
+        let cleanup = fs::remove_dir_all(&directory);
+        result?;
+        cleanup?;
+        Ok(())
+    }
 }
