@@ -50,3 +50,10 @@ impl RuntimeErrorSink for StoreRuntimeErrorSink {
 pub fn install_runtime_error_sink(handle: &BrokerHandle, store: Arc<Store>) {
     handle.set_runtime_error_sink(Arc::new(StoreRuntimeErrorSink::new(store)));
 }
+
+/// Connect real terminal receipts to the same binding evidence the authority
+/// selector and new-attempt admission observe.
+pub(crate) fn install_model_health(handle: &BrokerHandle,
+    health: &Arc<crate::runtime_model_health::RuntimeModelHealth>) -> anyhow::Result<()> {
+    health.attach_broker(handle)
+}

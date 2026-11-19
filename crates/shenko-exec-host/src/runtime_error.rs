@@ -213,14 +213,14 @@ impl ErrorsReadHandler {
         let contract_digest = Digest::blake3(ERRORS_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:errors-read-v1".into(),
             },
             symbol: "errors.read.execute".into(),
             schema: SchemaRef {
                 name: "errors-read-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("errors-read-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -237,7 +237,7 @@ impl ErrorsReadHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -400,13 +400,13 @@ impl ErrorsReadHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ErrorsReadHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "errors.read".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(ERRORS_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-errors-reader/1".into(),
@@ -418,7 +418,7 @@ impl NativeTaskHandler for ErrorsReadHandler {
                  journal_dropped_total 非零表示有错误日志在提交前丢失。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -644,14 +644,14 @@ impl IssueSubmitHandler {
         let contract_digest = Digest::blake3(ISSUE_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:issue-submit-v1".into(),
             },
             symbol: "issue.submit.execute".into(),
             schema: SchemaRef {
                 name: "issue-submit-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("issue-submit-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -668,7 +668,7 @@ impl IssueSubmitHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -889,13 +889,13 @@ impl IssueSubmitHandler {
 
 #[async_trait]
 impl NativeTaskHandler for IssueSubmitHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "issue.submit".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(ISSUE_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-issue-submit/1".into(),
@@ -908,7 +908,7 @@ impl NativeTaskHandler for IssueSubmitHandler {
                  回执的 normalized_ref 指向该草案字节并给出路径。是否提交以及内容是你的自主决定。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1105,6 +1105,7 @@ mod tests {
             operation_id,
             input,
             child_tools: None,
+            cancellation: Default::default(),
         }
     }
 
@@ -1173,7 +1174,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn issue_submit_publishes_digest_deduped_draft_and_reconciles() {
+    async fn issue_submit_publishes_digest_deduped_draft_and_reconciles() -> Result<()> {
         let (dir, store) = open_store("issue-submit");
         let outbox = dir.join("issues");
         let (agent, step_id) = subject_fixture(&store);
@@ -1188,7 +1189,7 @@ mod tests {
         let input_ref = handler.seal(&frozen, "issue-submit-frozen-input").unwrap();
         let (task, task_invocation) = running_task(
             &store,
-            handler.descriptor().implementation_ref,
+            handler.descriptor()?.implementation_ref,
             agent,
             step_id,
             "issue.submit",
@@ -1243,7 +1244,7 @@ mod tests {
         std::fs::write(&drafts_after[0], &tampered_bytes).unwrap();
         let (new_task, new_invocation) = running_task(
             &store,
-            handler.descriptor().implementation_ref,
+            handler.descriptor()?.implementation_ref,
             agent,
             step_id,
             "issue.submit",
@@ -1263,10 +1264,11 @@ mod tests {
         drop(handler);
         drop(store);
         let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn errors_read_armed_recovery_observes_original_attempt() {
+    async fn errors_read_armed_recovery_observes_original_attempt() -> Result<()> {
         let (dir, store) = open_store("errors-read-recovery");
         let (agent, step_id) = subject_fixture(&store);
         let session_id = EntityId(store.load_subject(agent).unwrap().0.branch_id.0);
@@ -1276,7 +1278,7 @@ mod tests {
         let input_ref = handler.seal(&frozen, "errors-read-frozen-input").unwrap();
         let (task, task_invocation) = running_task(
             &store,
-            handler.descriptor().implementation_ref,
+            handler.descriptor()?.implementation_ref,
             agent,
             step_id,
             "errors.read",
@@ -1341,5 +1343,6 @@ mod tests {
         drop(recovered);
         drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 }

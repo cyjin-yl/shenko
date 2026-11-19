@@ -113,7 +113,11 @@ async fn obligations_reach_model_and_retire_with_exact_creation_provenance() {
     let input_bytes = store.cas.read_object(&input_ref.digest).unwrap();
     let frozen = runner::frozen_input(&store, &subject.step).unwrap();
     assert_eq!(frozen.obligations, open);
-    assert!(frozen.payload.system_prompt.contains(&serde_json::to_string(&open).unwrap()));
+    for obligation in &open {
+        assert!(frozen.payload.system_prompt.contains(&obligation.obligation_id.to_string()));
+        assert!(frozen.payload.system_prompt.contains(&obligation.description));
+    }
+    assert!(frozen.payload.system_prompt.contains("body_digest"));
     assert_eq!(frozen.context.profile_digest, profile);
     let payload = serde_json::to_vec(&frozen.payload).unwrap();
     drop((subject, store));
@@ -281,7 +285,7 @@ async fn obligation_late_sealed_request_rejects_without_discarding_other_actions
 
 
 #[tokio::test]
-async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_budget() {
+async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_budget() -> anyhow::Result<()> {
     let (_dir,store,agent)=fixture();let mut subject=state(store.clone(),agent).unwrap();
     let description="x".repeat(65536);let resume="long resume condition;".repeat(6000);
     let raw=format!("[obligation] {}",serde_json::json!({"description":description,"resume_condition":resume}));
@@ -289,10 +293,14 @@ async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_
     let prepared=crate::context_projection::prepare_context(&mut subject,&[]).unwrap().unwrap();
     assert_eq!(prepared.obligations[0].description.len(),65536);
     assert_eq!(prepared.obligations[0].resume_condition,resume);
-    assert!(prepared.payload.system_prompt.contains(&description));
-    assert!(prepared.payload.system_prompt.contains(&resume));
+    assert!(!prepared.payload.system_prompt.contains(&description));
+    assert!(!prepared.payload.system_prompt.contains(&resume));
+    let frontier = prepared.payload.system_prompt.split("持久义务工作前沿").nth(1).unwrap();
+    assert!(frontier.len() <= 8 * 1024);
+    assert!(frontier.contains("body_digest") && frontier.contains("read_obligation"));
+    assert!(frontier.contains(&prepared.obligations[0].obligation_id.to_string()));
     let projected_tokens=prepared.context.estimated_input_tokens.unwrap();
-    let (offline,handle)=shenko_broker::broker::Broker::offline();
+    let (offline,handle)=shenko_broker::broker::Broker::offline()?;
     let caps=shenko_broker::request::ProviderCapabilities {
         binding:handle.binding().clone(),max_context_tokens:Some(projected_tokens/2),vision:None,
     };
@@ -301,11 +309,12 @@ async fn obligation_projection_keeps_full_bodies_and_charges_the_normal_context_
     assert_eq!(subject.step.state,SubjectStepState::Planned);
     assert_eq!(store.open_subject_obligations(agent).unwrap()[0].description,description);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn obligation_projection_survives_real_history_compaction() {
-    let (_dir,store,agent)=fixture();let (offline,handle)=shenko_broker::broker::Broker::offline();
+async fn obligation_projection_survives_real_history_compaction() -> anyhow::Result<()> {
+    let (_dir,store,agent)=fixture();let (offline,handle)=shenko_broker::broker::Broker::offline()?;
     let capabilities=shenko_broker::request::ProviderCapabilities {
         binding:handle.binding().clone(),max_context_tokens:Some(8000),vision:None,
     };
@@ -329,9 +338,12 @@ async fn obligation_projection_survives_real_history_compaction() {
     let compacted=crate::context_projection::prepare_context(&mut subject,&[]).unwrap().unwrap();
     assert!(matches!(compacted.context.selection,crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(compacted.obligations,open);
-    assert!(compacted.payload.system_prompt.contains(&serde_json::to_string(&open).unwrap()));
+    assert!(compacted.payload.system_prompt.contains(&open[0].obligation_id.to_string()));
+    assert!(compacted.payload.system_prompt.contains(&open[0].description));
+    assert!(compacted.payload.system_prompt.contains("body_digest"));
     assert_eq!(compacted.context.profile_digest,before.context.profile_digest);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
@@ -853,10 +865,10 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     let due_obligation = obligations.iter().find(|o| o.due_at.is_some()).unwrap();
 
     let inbox = Arc::new(Inbox::new(8));
-    let mut sent = std::collections::HashSet::new();
+    let mut sent = None;
     crate::dispatch::wake_due_obligations(
         &store, agent, &inbox.sender(), &mut sent).await.unwrap();
-    assert_eq!(sent.len(), 1, "only the dated obligation wakes; due_at=None stays unscheduled");
+    assert!(sent.is_none(), "one bounded due page completed; the undated obligation was not selected");
     let delivered = inbox.recv_batch(8, 1_000).await;
     assert_eq!(delivered.len(), 1, "one volatile wake for the durable admission");
     let wake = delivered.into_iter().next().unwrap();
@@ -875,9 +887,9 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     assert!(pending.iter().any(|(event_id, _)| *event_id == wake.event_id),
         "the admitted wake survives a lost volatile delivery: {pending:?}");
 
-    // Inside one process the sent-set bounds repeated scans; across a
-    // "restart" (fresh set) the deterministic identity admits as an exact
-    // replay instead of a second row or a same-id conflict.
+    // A repeated sweep or restarted cursor derives the same durable
+    // identity. Replay does not push another volatile wake, and a changed
+    // original under the same identity remains a conflict.
     let mut replacement = wake.clone();
     replacement.created_at = chrono::Utc::now();
     assert!(store.admit_inbox_event(wake.event_id, agent,
@@ -888,19 +900,22 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
         &store, agent, &inbox.sender(), &mut sent).await.unwrap();
     assert!(inbox.recv_batch(8, 200).await.is_empty(),
         "the same due fact never produces a second wake in one process");
-    let mut fresh = std::collections::HashSet::new();
+    let mut fresh = None;
     crate::dispatch::wake_due_obligations(
         &store, agent, &inbox.sender(), &mut fresh).await.unwrap();
-    assert_eq!(fresh.len(), 1, "a restarted scanner wakes the still-open fact once");
+    assert!(fresh.is_none());
+    assert!(inbox.recv_batch(8, 0).await.is_empty(), "restart does not duplicate an admitted wake");
     assert_eq!(store.admit_inbox_event(wake.event_id, agent,
         shenko_types::inbox::SELF_WAKE_KIND, shenko_types::inbox::SUBJECT_WAKE_SOURCE,
         &serde_json::to_value(&wake).unwrap()).unwrap(), InboxAdmission::Replay);
     drop(inbox.recv_batch(8, 200).await);
 
-    // Staging the wake into a real step consumes it on the same lane as the
-    // other complete originals; the sealed S0 cites the wake it selected.
+    // Staging is a delivery checkpoint; only an explicit S1 disposition
+    // removes the wake from pending. Merely showing it leaves it Deferred.
     let commit_seq = subject.step.step_no;
-    commit_output(&store, &mut subject, commit_seq, &[wake.clone()], "I pick the due promise back up.").await;
+    let acknowledgement = format!("[dispose] {}\nI pick the due promise back up.",
+        serde_json::json!({"event_id":wake.event_id,"disposition":"acknowledged"}));
+    commit_output(&store, &mut subject, commit_seq, &[wake.clone()], &acknowledgement).await;
     let consumed: i64 = rusqlite::Connection::open(dir.join("store.db")).unwrap()
         .query_row("SELECT consumed FROM inbox_events WHERE event_id=?1",
             [wake.event_id.to_string()], |row| row.get(0)).unwrap();
@@ -912,6 +927,97 @@ async fn due_obligation_admits_deterministic_self_wake_through_input_lanes() {
     assert!(runner::frozen_input(&store, &committed).unwrap().events.iter()
         .any(|event| event.event_id == wake.event_id));
 
+    crate::dispatch::wake_due_obligations(&store, agent, &inbox.sender(), &mut fresh).await.unwrap();
+    assert!(inbox.recv_batch(8, 0).await.is_empty(), "an explicitly acknowledged wake is never pushed back");
+
+    // Cross a real indexed page boundary. Future and undated obligations
+    // remain absent; a lost volatile page is recovered from durable input.
+    let page_size = crate::dispatch::DUE_OBLIGATION_PAGE_SIZE;
+    let extra = (0..page_size + 1).map(|index| format!("[obligation] {}", serde_json::json!({
+        "description":format!("bounded due-page obligation {index}"),
+        "resume_condition":"read the actual later fact", "due_at":"2019-01-01T00:00:00Z",
+    }))).chain(std::iter::once(format!("[obligation] {}", serde_json::json!({
+        "description":"future promise is not due", "due_at":"2100-01-01T00:00:00Z",
+    })))).collect::<Vec<_>>().join("\n");
+    let next_seq = subject.step.step_no;
+    commit_output(&store, &mut subject, next_seq, &[], &extra).await;
+    let first = store.due_subject_obligations_page(agent, chrono::Utc::now(), None, page_size).unwrap();
+    assert_eq!(first.obligations.len(), page_size);
+    let second = store.due_subject_obligations_page(agent, chrono::Utc::now(), first.next.as_ref(), page_size).unwrap();
+    assert_eq!(second.obligations.len(), 2);
+    assert!(second.next.is_none());
+    let expected: Vec<_> = first.obligations.iter().chain(&second.obligations)
+        .map(crate::dispatch::self_wake_event).map(|event| event.event_id)
+        .filter(|id| *id != wake.event_id).collect();
+    assert_eq!(expected.len(), page_size + 1);
+    let mut cursor = None;
+    crate::dispatch::wake_due_obligations(&store, agent, &inbox.sender(), &mut cursor).await.unwrap();
+    assert!(cursor.is_some(), "one pass reads only one bounded page");
+    drop(inbox.recv_batch(32, 0).await); // The durable originals survive this lost projection.
     drop((subject, store));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restarted = None;
+    crate::dispatch::wake_due_obligations(&reopened, agent, &inbox.sender(), &mut restarted).await.unwrap();
+    assert!(inbox.recv_batch(32, 0).await.is_empty(), "replayed first page is not re-emitted");
+    crate::dispatch::wake_due_obligations(&reopened, agent, &inbox.sender(), &mut restarted).await.unwrap();
+    assert!(restarted.is_none());
+    let last_delivery = inbox.recv_batch(32, 0).await;
+    assert_eq!(last_delivery.len(), 1, "only the not-yet-admitted remainder emits a wake");
+    let pending = reopened.pending_inbox_events(agent, 64).unwrap();
+    assert_eq!(pending.len(), expected.len());
+    assert!(expected.iter().all(|id| pending.iter().any(|(event_id, _)| event_id == id)));
+    assert!(!pending.iter().any(|(event_id, _)| *event_id == wake.event_id));
+    let count: usize = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT count(*) FROM inbox_events WHERE agent_id=?1 AND kind='self_wake'",
+            [agent.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(count, page_size + 2, "one durable row per due fact, including the acknowledged original");
+    drop(reopened);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+
+#[tokio::test]
+async fn obligation_frontier_is_bounded_rotates_and_preserves_complete_recovery() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let description = "long original\n".repeat(256);
+    let resume = "resume\n".repeat(256);
+    let raw = (0..30).map(|index| format!("[obligation] {}", serde_json::json!({
+        "description":format!("{index}: {description}"), "resume_condition":resume,
+    }))).collect::<Vec<_>>().join("\n");
+    // Creation and terminal retirement cross the real parser and S0/S1 Store
+    // boundary, while the frontier/page checks exercise their public readers.
+    commit_output(&store, &mut subject, 1, &[], &raw).await;
+    let original = store.open_subject_obligations(agent).unwrap();
+    let ids: Vec<_> = original.iter().map(|body| body.obligation_id).collect();
+    let first = store.subject_obligation_frontier(agent, 0, &[], 12).unwrap();
+    assert_eq!(first.total_open, 30);
+    assert_eq!(first.obligations.len(), 12);
+    assert_eq!(first.obligations[0], original[0]);
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    let text = prepared.payload.system_prompt.split("持久义务工作前沿").nth(1).unwrap();
+    assert!(text.len() <= 8 * 1024);
+    assert!(text.contains("开放总数 30") && text.contains("read_obligation"));
+    let rotated = store.subject_obligation_frontier(agent, 29, &[ids[20]], 12).unwrap();
+    assert_eq!(rotated.obligations[0].obligation_id, ids[20]);
+    assert!(rotated.obligations.iter().any(|body| body.obligation_id == ids[29]));
+    let page = store.subject_obligations_page(agent, None, 12).unwrap();
+    let cursor = page.next.as_ref().unwrap();
+    // Step 2's real frontier starts at the third canonical open record. A
+    // legitimate terminal judgment cannot reference an unsealed obligation.
+    assert!(prepared.obligations.iter().any(|body| body.obligation_id == ids[2]));
+    commit_output(&store, &mut subject, 2, &[], &terminal(ids[2], "completed")).await;
+    let next = store.subject_obligations_page(agent, Some(cursor), 12).unwrap();
+    assert_eq!(next.obligations[0].obligation_id, ids[12]);
+    assert_eq!(store.subject_obligation(agent, ids[2]).unwrap().unwrap().1, "completed");
+    assert!(store.subject_obligation(EntityId::new(), ids[2]).unwrap().is_none());
+    drop((subject, store));
+    let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let restored = reopened.subject_obligation_frontier(agent, 29, &[ids[20]], 12).unwrap();
+    assert_eq!(restored.total_open, 29);
+    assert_eq!(restored.obligations[0].obligation_id, ids[20]);
+    assert_eq!(reopened.subject_obligation(agent, ids[29]).unwrap().unwrap().0, original[29]);
+    assert_eq!(reopened.subject_obligation(agent, ids[2]).unwrap().unwrap().1, "completed");
+    drop(reopened);
+    let _ = std::fs::remove_dir_all(dir);
 }

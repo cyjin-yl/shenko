@@ -227,7 +227,7 @@ impl Store {
                 "chosen S1 original head was replaced inside its action");
             let reservation = self.reserve_recovered_admission(grant.clone(),
                 envelope.expected_tasks.clone(), envelope.expected_steps.clone())?;
-            let outcome = self.ledger.with_mutation(
+            let outcome = reservation.with_mutation(&self.ledger,
                 || self.try_commit_step_and_advance_head(&step, &expected_head, next_step_id, &reservation),
                 |error| matches!(error, ShenkoError::Storage(_)),
             );

@@ -14,7 +14,7 @@ use shenko_types::object::Digest;
 use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 
 use crate::cognition_archive::{
-    CognitionFileDescriptor, CognitionFileOrigin, CognitionGitDescriptor, CognitionManifest,
+    CognitionFileDescriptor, CognitionFileOrigin, CognitionGap, CognitionGitDescriptor, CognitionManifest,
     CognitionRow, read_archive,
 };
 use crate::store::Store;
@@ -40,6 +40,20 @@ use super::{
     db, is_constraint_violation, storage_failure,
 };
 
+/// Verified, uninstalled archive bytes bound to the original receiving Store
+/// and options. This value carries no selection or mutation authority. Its
+/// private fields and consuming publication API prevent an external caller
+/// from substituting a manifest or moving a prepared import to another Store.
+pub struct PreparedCognitionImport {
+    target_incarnation: EntityId,
+    target_ledger: EntityId,
+    options: CognitionImportOptions,
+    manifest: CognitionManifest,
+    files: Vec<(CognitionFileDescriptor, Vec<u8>)>,
+    git_history: Option<(CognitionGitDescriptor, Vec<u8>)>,
+    gaps: Vec<CognitionGap>,
+}
+
 impl Store {
     /// Import a recovery snapshot.
     ///
@@ -51,9 +65,20 @@ impl Store {
         reader: R,
         options: &CognitionImportOptions,
     ) -> Result<CognitionImportOutcome> {
-        let mut import_gate = self.cognition_import_gate.lock();
-        let _gate_tx = import_gate.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
+        self.import_cognition_archive_under(reader, options, None)
+    }
+
+    pub fn import_cognition_archive_under<R: Read>(&self, reader: R,
+        options: &CognitionImportOptions,
+        borrowed: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionImportOutcome> {
+        let prepared = self.prepare_cognition_import(reader, options)?;
+        self.apply_prepared_cognition_import_under(prepared, borrowed)
+    }
+
+    /// Read, seal and verify the whole archive without taking a live mutation
+    /// permit. Publication still rechecks import order and all live conflicts.
+    pub fn prepare_cognition_import<R: Read>(&self, reader: R,
+        options: &CognitionImportOptions) -> Result<PreparedCognitionImport> {
         let mut files: Vec<(CognitionFileDescriptor, Vec<u8>)> = Vec::new();
         let mut git_history: Option<(CognitionGitDescriptor, Vec<u8>)> = None;
         let mut manifest = {
@@ -74,7 +99,6 @@ impl Store {
                 &mut git_history,
             )?
         };
-        let verified_objects = manifest.objects.len();
         let fingerprint = fingerprint_of_manifest(&manifest);
         ensure!(
             fingerprint == manifest.fingerprint,
@@ -85,16 +109,16 @@ impl Store {
         check_archive_membership(&manifest)?;
         // Local control facts are installed only by a declared handover. The
         // claim comes from the importer, never from the archive.
-        if !options.local_control_handover {
-            if let Some(class) = LOCAL_CONTROL_CLASSES.iter().find(|class| {
+        if !options.local_control_handover
+            && let Some(class) = LOCAL_CONTROL_CLASSES.iter().find(|class| {
                 manifest.fact_classes.iter().any(|declared| declared == *class)
                     || manifest.rows.iter().any(|row| row.table == **class)
-            }) {
-                bail!(
-                    "cognition archive carries the local control fact class {class}; \
-                     only a declared same-installation handover may install it"
-                );
-            }
+            })
+        {
+            bail!(
+                "cognition archive carries the local control fact class {class}; \
+                 only a declared same-installation handover may install it"
+            );
         }
         // A legacy archive is migrated to the current column layout first:
         // the layout only grew, so the migration is by name and keeps every
@@ -124,6 +148,36 @@ impl Store {
                 blocking.join(", ")
             );
         }
+        Ok(PreparedCognitionImport {
+            target_incarnation: self.capabilities.incarnation,
+            target_ledger: self.ledger.ledger_id(), options: options.clone(),
+            manifest, files, git_history, gaps,
+        })
+    }
+
+    /// Consume verified bytes at their original receiver. An enclosing A/B
+    /// cutover can borrow its reservation without doing archive I/O inside it.
+    pub fn apply_prepared_cognition_import_under(&self, prepared: PreparedCognitionImport,
+        borrowed: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionImportOutcome> {
+        ensure!(prepared.target_incarnation == self.capabilities.incarnation
+            && prepared.target_ledger == self.ledger.ledger_id(),
+            "prepared cognition import belongs to another Store receiver");
+        let PreparedCognitionImport { options, manifest, files, git_history, gaps, .. } = prepared;
+        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
+        let verified_objects = manifest.objects.len();
+        let fingerprint = manifest.fingerprint.clone();
+        // Download/verification above holds no installed mutation lock. Only
+        // the final live file/Git/row publication enters the shared domain,
+        // before taking the existing import gate or either SQLite lock.
+        let owned = if borrowed.is_none() {
+            self.ledger.acquire_installation(!options.local_control_handover)?
+        } else { None };
+        let permit = borrowed.or(owned.as_ref());
+        if !options.local_control_handover && let Some(permit) = permit {
+            self.validate_installation_permit(permit)?;
+        }
+        let mut import_gate = self.cognition_import_gate.lock();
+        let _gate_tx = import_gate.transaction_with_behavior(TransactionBehavior::Immediate)?;
         self.check_import_order(&manifest)?;
         // Reject unresumable imported heads or a conflicting paused successor
         // before publishing files or rows. Recheck under the mutation
@@ -162,7 +216,7 @@ impl Store {
         // All required row conflicts are decided while the IMMEDIATE ledger
         // transaction is still held, before any file or Git publication.
         let (applied, verified_files, restored_git_history) =
-            self.apply_rows(&manifest, peer_id, &files, &git_history, options)?;
+            self.apply_rows(&manifest, peer_id, &files, &git_history, &options, permit)?;
         let conflicts = applied.conflicts;
 
         self.record_receipt(
@@ -174,6 +228,7 @@ impl Store {
             applied.updated,
             applied.unchanged,
             conflicts.len(),
+            permit,
         )?;
 
         Ok(CognitionImportOutcome {
@@ -210,6 +265,7 @@ impl Store {
         files: &[(CognitionFileDescriptor, Vec<u8>)],
         git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
         options: &CognitionImportOptions,
+        permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<(CognitionApplyOutcome, usize, bool)> {
         let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
@@ -220,8 +276,8 @@ impl Store {
         });
         // Local retirement roots must survive rollback of the imported facts.
         // Reserve and register them before the transaction can move any bytes.
-        let retirements = self.prepare_file_retirements(manifest, peer_id, options)?;
-        self.ledger.with_mutation(
+        let retirements = self.prepare_file_retirements(manifest, peer_id, options, permit)?;
+        self.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
@@ -231,6 +287,15 @@ impl Store {
                 self.validate_obligation_rows(&manifest.rows)?;
                 check_import_order_conn(&tx, manifest)?;
                 validate_subject_boundaries(&tx, manifest)?;
+                // One admission decision governs both head archival and the
+                // complete activation unit. A parallel branch's newer selector
+                // revision cannot grant authority over the retained local head.
+                let mut parallel_head_agents = HashSet::new();
+                for row in ordered.iter().filter(|row| row.table == "subject_branch_heads") {
+                    if archives_parallel_head(&tx, row)? {
+                        parallel_head_agents.insert(row.value("agent_id").context("subject head agent missing")?);
+                    }
+                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
                 let mut updated = 0usize;
@@ -256,7 +321,9 @@ impl Store {
                     // replace this installation's active controller projection.
                     // Retain every exact head by content identity instead of
                     // treating distinct branches as competing updates to it.
-                    if row.table == "subject_branch_heads" && archives_parallel_head(&tx, row)? {
+                    if row.table == "subject_branch_heads"
+                        && parallel_head_agents.contains(row.value("agent_id").context("subject head agent missing")?)
+                    {
                         let data = row.value("data").context("parallel head data missing")?;
                         let snapshot = Digest::blake3(data.as_bytes());
                         let historical = CognitionRow {
@@ -330,7 +397,7 @@ impl Store {
                     // applied or refused together.
                     if !semantic_units_applied && is_unit_table(&row.table) {
                         let (outcome, owned) =
-                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest)?;
+                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest, &parallel_head_agents)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;

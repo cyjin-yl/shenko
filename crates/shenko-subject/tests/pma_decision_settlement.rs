@@ -151,7 +151,7 @@ async fn runtime(
         handle,
         policy,
     ));
-    let implementation = handler.descriptor().implementation_ref;
+    let implementation = handler.descriptor()?.implementation_ref;
     supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
     native.recover()?;
     Ok((supervisor, native, implementation))
@@ -472,7 +472,7 @@ async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result
     let projection = supervisor.spawn(MemoryInterventionPlugin, MemoryInterventionConfig {
         store: store.clone(), agent_id: a, policy: policy.clone(), failure_cancel: failure_cancel.clone(),
     }).await?;
-    let implementation = PmaEvaluateHandler::new(store.clone(), handle.clone(), policy).descriptor().implementation_ref;
+    let implementation = PmaEvaluateHandler::new(store.clone(), handle.clone(), policy).descriptor()?.implementation_ref;
     supervisor.spawn(shenko_subject::intervention::PmaEvaluatePlugin, (store.clone(), handle.clone())).await?;
     let keys = |scope| {
         let mut keys: Vec<_> = registry.collect(&scope_wide(scope), chrono::Utc::now().timestamp_millis())

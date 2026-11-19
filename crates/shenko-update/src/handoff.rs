@@ -44,6 +44,7 @@ use shenko_types::activation::{
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration};
+use shenko_types::installation::{InstallationDomain, InstallationPermit};
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionRef};
 use shenko_types::subject::{SubjectBranchHead, SubjectMode};
 
@@ -93,6 +94,12 @@ pub trait PrimaryClaimSource: Send + Sync {
     /// quorum claim. Absence of both bindings is not authority.
     fn local_branch_authority(&self) -> Result<Option<serde_json::Value>> {
         Ok(None)
+    }
+    /// Re-read the real local authority while the original cutover permit
+    /// excludes Node/Store writers. Implementations must borrow it, never
+    /// reopen a writer that tries to acquire the same installation again.
+    fn authority_snapshot_under(&self, _permit: &InstallationPermit) -> Result<serde_json::Value> {
+        anyhow::bail!("authority source does not implement installation-reserved observation")
     }
 }
 
@@ -573,6 +580,8 @@ impl UpdateService {
     pub fn reconcile_interrupted_handoff(&self, agent_id: EntityId) -> UpdateResult<HandoffReconciliation> {
         ensure!(self.participants.exclusive_owner_proven(),
             "HANDOFF_OWNER_UNPROVEN: reconciling an interrupted hand-over needs the installation's exclusive runtime owner");
+        let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
+            .acquire().map_err(anyhow::Error::from)?;
         let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
         let selector = self.store.activation_selector(agent_id).map_err(UpdateError::CandidateStore)?;
         let mut answer = HandoffReconciliation {
@@ -603,7 +612,15 @@ impl UpdateService {
             .map_err(UpdateError::CandidateStore)?
             .ok_or_else(|| anyhow!("PAUSED_BOUNDARY_UNBOUND: the paused head has no local quiesce record; explicit reconciliation required"))?;
         answer.request_id = Some(request.request_id);
-        let Some(activation) = self.store.open_activation(agent_id).map_err(UpdateError::CandidateStore)? else {
+        let activation = self.store.open_activation(agent_id).map_err(UpdateError::CandidateStore)?;
+        // A crash can occur after the abandonment receipt and before the
+        // same-boundary resume. Only that original receipt names a resumable
+        // terminal record; an arbitrary old Abandoned activation does not.
+        let activation = match activation {
+            Some(activation) => Some(activation),
+            None => self.abandoned_boundary_activation(agent_id, request.request_id)?,
+        };
+        let Some(activation) = activation else {
             // An explicit operator pause is a control state, not an
             // interrupted hand-over: only an explicit resume may end it.
             answer.reason = "the paused boundary is not an open hand-over".to_string();
@@ -629,7 +646,7 @@ impl UpdateService {
         // committed candidate first (a no-op when none committed), then read
         // the selector again.
         let selected = if selected.selector_revision == activation.expected_selector_revision {
-            self.finish_committed_handoff(agent_id)?;
+            self.finish_committed_handoff_under(agent_id, &permit)?;
             self.store.activation_selector(agent_id).map_err(UpdateError::CandidateStore)?
                 .ok_or(UpdateError::SelectorMissing)?
         } else {
@@ -638,7 +655,7 @@ impl UpdateService {
         if selected.selector_revision > activation.expected_selector_revision {
             // The candidate CAS committed. Completion (mirror, fence, pointer)
             // is deterministic; the old writer is never resumed.
-            self.finish_committed_handoff(agent_id)?;
+            self.finish_committed_handoff_under(agent_id, &permit)?;
             let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
             ensure!(head.mode != SubjectMode::Paused,
                 "the committed selection was completed but the retired writer is still paused");
@@ -667,7 +684,9 @@ impl UpdateService {
         // re-reads the head, the epoch, the generation and the planned successor
         // inside one transaction, so a boundary that moved in the meantime is
         // refused instead of resumed.
-        let resumed = self.store.resume_subject_quiesce(agent_id, request.request_id)
+        let abandoned = if activation.phase == ActivationPhase::Abandoned { activation.clone() }
+            else { self.abandon_interrupted_handoff(&activation, &request, &permit)? };
+        let resumed = self.store.resume_subject_quiesce_under(agent_id, request.request_id, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
         ensure!(resumed.state == SubjectQuiesceState::Resumed,
             "the boundary resume did not commit; the paused subject must not be treated as active");
@@ -675,7 +694,6 @@ impl UpdateService {
         ensure!(head.mode == SubjectMode::Active && head.controller_epoch == request.epoch
             && head.software_generation == request.generation,
             "the resumed controller is not the same generation/epoch");
-        let abandoned = self.abandon_interrupted_handoff(&activation, &request)?;
         answer.state = HandoffReconciliationState::ResumedSameController;
         answer.reason = "the selection never committed; the same controller generation resumed its boundary".to_string();
         answer.mode_after = Some(head.mode);
@@ -754,6 +772,7 @@ impl UpdateService {
         &self,
         activation: &ActivationRecord,
         request: &SubjectQuiesce,
+        permit: &InstallationPermit,
     ) -> UpdateResult<ActivationRecord> {
         ensure!(!activation.phase.is_terminal(),
             "the interrupted hand-over is already terminal in phase {:?}", activation.phase);
@@ -761,7 +780,7 @@ impl UpdateService {
         abandoned.last_error_ref = Some(self.seal_json(
             &serde_json::json!({
                 "state": "abandoned_before_selection",
-                "reason": "the process hand-over never committed its selection; the same controller resumed its boundary",
+                "reason": "the process hand-over never committed its selection; the same controller may reclaim its verified boundary",
                 "activation_id": activation.activation_id,
                 "request_id": request.request_id,
                 "epoch": request.epoch,
@@ -780,8 +799,28 @@ impl UpdateService {
         )?);
         abandoned.phase = ActivationPhase::Abandoned;
         self.store
-            .update_activation_record(&abandoned, RecordRevision(abandoned.record_revision))
+            .update_activation_record_under(&abandoned, RecordRevision(abandoned.record_revision), Some(permit))
             .map_err(UpdateError::CandidateStore)
+    }
+
+    fn abandoned_boundary_activation(&self, agent: EntityId, request: EntityId)
+        -> UpdateResult<Option<ActivationRecord>> {
+        let mut matching = Vec::new();
+        for record in self.store.activation_records(agent)? {
+            if record.phase != ActivationPhase::Abandoned { continue; }
+            let Some(reference) = &record.last_error_ref else { continue; };
+            let bytes = self.store.cas.read_object(&reference.digest).map_err(anyhow::Error::from)?;
+            ensure!(Digest::blake3(&bytes) == reference.digest && bytes.len() as u64 == reference.bytes,
+                "abandoned boundary receipt integrity differs");
+            let evidence: serde_json::Value = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
+            if evidence["state"] == "abandoned_before_selection"
+                && evidence["request_id"] == serde_json::to_value(request).map_err(anyhow::Error::from)?
+                && evidence["activation_id"] == serde_json::to_value(record.activation_id).map_err(anyhow::Error::from)? {
+                matching.push(record);
+            }
+        }
+        ensure!(matching.len() <= 1, "multiple abandonment receipts name this boundary");
+        Ok(matching.pop())
     }
 
     /// The candidate program this activation will select, re-verified against
@@ -850,10 +889,32 @@ impl UpdateService {
         Ok(serde_json::json!({"primary_claim": claim, "local_branch": branch}))
     }
 
+    fn authority_snapshot_under(&self, permit: &InstallationPermit) -> UpdateResult<serde_json::Value> {
+        permit.validate(&InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?)
+            .map_err(anyhow::Error::from)?;
+        let source = self.claim_source.as_ref().ok_or_else(|| anyhow!("AUTHORITY_UNBOUND"))?;
+        let snapshot = source.authority_snapshot_under(permit)?;
+        ensure!(snapshot.get("primary_claim").is_some_and(|value| !value.is_null())
+            || snapshot.get("local_branch").is_some_and(|value| !value.is_null()),
+            "AUTHORITY_UNAVAILABLE: neither committed primary nor local branch authority");
+        Ok(snapshot)
+    }
+
+    fn check_primary_claim_under(&self, record: &ActivationRecord, permit: &InstallationPermit) -> UpdateResult<()> {
+        let current = self.authority_snapshot_under(permit)?;
+        let bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        let closure: serde_json::Value = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
+        if closure.get("authority") != Some(&current) {
+            return Err(UpdateError::PrimaryClaimChanged);
+        }
+        Ok(())
+    }
+
     /// Re-read the committed primary claim before the swap. A changed claim
     /// refuses the hand-over: participants and subject are resumed and the
     /// activation is recorded abandoned.
-    async fn check_primary_claim(&self, record: &ActivationRecord, request_id: EntityId) -> UpdateResult<()> {
+    async fn check_primary_claim(&self, record: &ActivationRecord, _request_id: EntityId) -> UpdateResult<()> {
         let now = self.authority_snapshot()?;
         let closure_bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest)
             .map_err(anyhow::Error::from)?;
@@ -862,24 +923,12 @@ impl UpdateService {
         if closure.get("authority") == Some(&now) {
             return Ok(());
         }
-        self.participants
-            .resume_all()
-            .await
-            .map_err(UpdateError::Other)?;
-        if request_id != EntityId::nil() {
-            let _ = self
-                .store
-                .resume_subject_quiesce(record.agent_id, request_id)
-                .map_err(UpdateError::CandidateStore)?;
-        }
         tracing::warn!(
             activation_id = %record.activation_id,
             "the committed primary claim changed; the hand-over is refused"
         );
-        let _ = self.fail_open(
-            record.clone(),
-            "the committed primary claim changed between preparation and the swap".to_string(),
-        );
+        // The outer abort path rechecks the actual candidate selection under
+        // the installation permit before resuming any original boundary.
         Err(UpdateError::PrimaryClaimChanged)
     }
 
@@ -1075,6 +1124,7 @@ impl UpdateService {
         candidate: &Store,
         selector: &ActivationSelector,
         activation_id: EntityId,
+        permit: &InstallationPermit,
     ) -> UpdateResult<ActivationRecord> {
         let source_selector = self.store.activation_selector(selector.agent_id)?
             .ok_or(UpdateError::SelectorMissing)?;
@@ -1125,13 +1175,13 @@ impl UpdateService {
         // comparison can finish after reopening without incrementing twice.
         if selected.phase == ActivationPhase::Activated {
             selected.phase = ActivationPhase::Observing;
-            selected = candidate.update_activation_record(
-                &selected, RecordRevision(selected.record_revision))?;
+            selected = candidate.update_activation_record_under(
+                &selected, RecordRevision(selected.record_revision), Some(permit))?;
         }
         if source.phase == ActivationPhase::Activated {
             source.phase = ActivationPhase::Observing;
-            source = self.store.update_activation_record(
-                &source, RecordRevision(source.record_revision))?;
+            source = self.store.update_activation_record_under(
+                &source, RecordRevision(source.record_revision), Some(permit))?;
         }
         ensure!(source == selected,
             "OBSERVING_POST_COMMIT_CONFLICT: both ledgers did not converge");
@@ -1142,13 +1192,20 @@ impl UpdateService {
     /// success/abandonment from the last error or from the launcher pointer.
     /// The caller holds the runtime's control lane or exclusive offline owner.
     pub fn finish_committed_handoff(&self, agent_id: EntityId) -> UpdateResult<()> {
+        let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
+            .acquire().map_err(anyhow::Error::from)?;
+        self.finish_committed_handoff_under(agent_id, &permit)
+    }
+
+    fn finish_committed_handoff_under(&self, agent_id: EntityId,
+        permit: &InstallationPermit) -> UpdateResult<()> {
         // B may still select A->B after C commits B->C. Finish committed
         // successors before following B's historical predecessor: returning
         // through A would hide C and could let reconciliation resume B.
         for source_record in self.store.activation_records(agent_id)?.into_iter().rev() {
             let target_slot = self.state_slot(&source_record.to_state_ref)?;
             if target_slot == self.live_slot || !target_slot.join(SLOT_DB_FILENAME).is_file() { continue; }
-            let candidate = Store::open(target_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?;
+            let candidate = Store::open_under(target_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone(), Some(permit))?;
             let Some(selected) = candidate.activation_selector(agent_id)? else { continue; };
             if selected.origin != (ActivationOrigin::Activation { activation_id: source_record.activation_id })
                 || selected.selector_revision != source_record.expected_selector_revision + 1 { continue; }
@@ -1165,20 +1222,20 @@ impl UpdateService {
                     "retired selector cannot mirror this candidate commit");
                 let mut mirror = committed.clone();
                 mirror.record_revision = source_record.record_revision;
-                self.store.swap_activation_selector(current.selector_revision, &selected, &mirror)?;
+                self.store.swap_activation_selector_under(current.selector_revision, &selected, &mirror, Some(permit))?;
             }
             let (head, _) = self.store.load_subject(agent_id)?;
             ensure!(head.software_generation == source_record.from_generation,
                 "retired head no longer belongs to interrupted activation");
             if head.mode != SubjectMode::Handoff {
                 ensure!(head.mode == SubjectMode::Paused, "retired writer is not quiesced; refusing route publication");
-                self.store.fence_head_for_handoff(&head, head.record_revision, &selected.route_authority_ref)?;
+                self.store.fence_head_for_handoff_under(&head, head.record_revision, &selected.route_authority_ref, Some(permit))?;
             }
-            slots::publish_current_slot(&self.data_dir, &target_slot).map_err(anyhow::Error::from)?;
+            slots::publish_current_slot_under(&self.data_dir, &target_slot, permit).map_err(anyhow::Error::from)?;
             // Completion also repairs a crash between the two Observing
             // projections. A Retired historical record is not reopened here.
             if matches!(committed.phase, ActivationPhase::Activated | ActivationPhase::Observing) {
-                self.converge_observing_activation(&candidate, &selected, source_record.activation_id)?;
+                self.converge_observing_activation(&candidate, &selected, source_record.activation_id, permit)?;
             }
             let mirrored = self.store.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
             let committed_selector = candidate.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
@@ -1206,12 +1263,12 @@ impl UpdateService {
                     "SELECTED_RECOVERY_SOURCE_CONFLICT: retired slot is outside this installation");
                 ensure!(source_slot.join(SLOT_DB_FILENAME).is_file(),
                     "SELECTED_RECOVERY_SOURCE_MISSING: retired ledger is not available");
-                let source = Arc::new(Store::open(
-                    source_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?);
+                let source = Arc::new(Store::open_under(
+                    source_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone(), Some(permit))?);
                 let retired = UpdateService::new(
                     self.data_dir.clone(), source_slot, source,
                     Arc::clone(&self.participants), Arc::clone(&self.builder));
-                retired.finish_committed_handoff(agent_id)?;
+                retired.finish_committed_handoff_under(agent_id, permit)?;
                 let retired_selector = retired.store.activation_selector(agent_id)?
                     .ok_or(UpdateError::SelectorMissing)?;
                 let selected_selector = self.store.activation_selector(agent_id)?
@@ -1645,25 +1702,33 @@ impl UpdateService {
         //     committed one; a changed claim refuses the swap.
         self.check_primary_claim(&record, quiesce_request).await?;
 
+        // The final snapshot, authority recheck, selector/head and route
+        // publication share one physical reservation. All async teardown and
+        // preparation happened before it; no writer may slip into the gap.
+        let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
+            .acquire().map_err(anyhow::Error::from)?;
+        self.check_primary_claim_under(&record, &permit)?;
+
         // 3. The final import up to the live watermark.
         let slot = self
             .layout()
             .slot_dir(&record.to_generation)
             .join(SLOT_DB_FILENAME);
-        let import = migration::import_delta(&self.live_slot.join(SLOT_DB_FILENAME), &slot, &self.cas_dir)
+        let import = migration::import_delta_under(&self.live_slot.join(SLOT_DB_FILENAME), &slot, &self.cas_dir, Some(&permit))
             .map_err(anyhow::Error::from)?;
         if !import.blocked_units.is_empty() {
+            drop(permit);
             return Err(self.fail_open(record, format!("{:?}", import.blocked_units)));
         }
         let w1 = import
             .watermark
             .ok_or_else(|| anyhow!("the live watermark could not be read"))?;
-        self.check_primary_claim(&record, quiesce_request).await?;
+        self.check_primary_claim_under(&record, &permit)?;
 
         // 4. The selector swap in the candidate copy — the linearization
         //    point. Before this commit the candidate has no authority.
         let candidate_store =
-            Store::open(slot.parent().unwrap().join(SLOT_DB_FILENAME), self.cas_dir.clone())
+            Store::open_under(slot.parent().unwrap().join(SLOT_DB_FILENAME), self.cas_dir.clone(), Some(&permit))
                 .map_err(UpdateError::Other)?;
         let mut candidate_record = self
             .store
@@ -1718,7 +1783,7 @@ impl UpdateService {
             ..next
         };
         let (swapped_selector, _, commit) = candidate_store
-            .activate_successor(expected_selector_revision, &next, &candidate_record)
+            .activate_successor_under(expected_selector_revision, &next, &candidate_record, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
         drop(candidate_store);
 
@@ -1751,25 +1816,25 @@ impl UpdateService {
         )?;
         let (_, mirrored_record, _) = self
             .store
-            .swap_activation_selector(expected_selector_revision, &swapped_selector, &candidate_record)
+            .swap_activation_selector_under(expected_selector_revision, &swapped_selector, &candidate_record, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
         let fenced = self
             .store
-            .fence_head_for_handoff(&head, head_revision, &reason)
+            .fence_head_for_handoff_under(&head, head_revision, &reason, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
         let _ = mirrored_record;
 
         // 6. The route publication: the launcher pointer. It follows the
         //    swap; it never creates authority.
-        slots::publish_current_slot(&self.data_dir, slot.parent().unwrap())
+        slots::publish_current_slot_under(&self.data_dir, slot.parent().unwrap(), &permit)
             .map_err(anyhow::Error::from)?;
 
         // A crash between the two non-atomic phase writes is recoverable
         // from the selected authority and the original activation identity.
         // Never report Observing if the ledger pair does not agree.
-        let selected_store = Store::open(slot.clone(), self.cas_dir.clone())?;
+        let selected_store = Store::open_under(slot.clone(), self.cas_dir.clone(), Some(&permit))?;
         let observed = self.converge_observing_activation(
-            &selected_store, &swapped_selector, activation_id)?;
+            &selected_store, &swapped_selector, activation_id, &permit)?;
 
         tracing::info!(
             activation_id = %record.activation_id,
@@ -1851,22 +1916,18 @@ impl UpdateService {
         let from_slot = self.live_slot.join(SLOT_DB_FILENAME);
         let previous_slot = self.state_slot(&record.from_state_ref)?;
         let to_slot = previous_slot.join(SLOT_DB_FILENAME);
-        // Rollback is the one direction where the destination becomes the
-        // selected generation immediately after the import, so a source commit
-        // that the export did not cover is unrecoverable. The strict importer
-        // refuses that instead of reporting a caught-up copy. Prepare and
-        // activate keep the ordinary importer: the live subject is still
-        // committing while they catch up.
-        let import = migration::import_rollback_delta(&from_slot, &to_slot, &self.cas_dir)
+        // Bring the retained copy current for its smoke. The final snapshot is
+        // taken again under the cutover permit after that subprocess exits.
+        let initial_import = migration::import_rollback_delta(&from_slot, &to_slot, &self.cas_dir)
             .map_err(anyhow::Error::from)?;
-        if !import.blocked_units.is_empty() {
-            return Err(UpdateError::MigrationBlocked(import.blocked_units));
+        if !initial_import.blocked_units.is_empty() {
+            return Err(UpdateError::MigrationBlocked(initial_import.blocked_units));
         }
         ensure!(self.authority_snapshot()? == rollback_authority,
             "rollback authority changed during catchup");
         let recovery_bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest).map_err(anyhow::Error::from)?;
         let mut recovery: serde_json::Value = serde_json::from_slice(&recovery_bytes).map_err(anyhow::Error::from)?;
-        recovery["authority"] = rollback_authority;
+        recovery["authority"] = rollback_authority.clone();
         recovery["rollback_of"] = serde_json::to_value(record.activation_id).map_err(anyhow::Error::from)?;
         let rollback_recovery = self.seal_json(&recovery, "activation", "recovery-closure")?;
 
@@ -1880,6 +1941,17 @@ impl UpdateService {
             Path::new(previous_manifest.artifact_path.as_ref().context("retained rollback executable missing")?),
             &previous_slot, &record.from_generation,
         ).await.map_err(|error| UpdateError::SmokeFailed(error.to_string()))?;
+
+        let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
+            .acquire().map_err(anyhow::Error::from)?;
+        let reserved_authority = self.authority_snapshot_under(&permit)?;
+        ensure!(reserved_authority == rollback_authority,
+            "rollback authority changed before final selection");
+        let import = migration::import_rollback_delta_under(&from_slot, &to_slot, &self.cas_dir, Some(&permit))
+            .map_err(anyhow::Error::from)?;
+        if !import.blocked_units.is_empty() {
+            return Err(UpdateError::MigrationBlocked(import.blocked_units));
+        }
         let rollback_record = ActivationRecord {
             activation_id: EntityId::new(),
             agent_id: record.agent_id,
@@ -1906,14 +1978,16 @@ impl UpdateService {
             rollback_plan_ref: record.rollback_plan_ref.clone(),
             last_error_ref: None,
             record_revision: 0,
-            expected_primary_claim: self.current_primary_claim()?,
+            expected_primary_claim: serde_json::from_value(reserved_authority["primary_claim"].clone())
+                .map_err(anyhow::Error::from)?,
         };
-        let rollback_record = self.store.create_activation_record(&rollback_record)?;
+        let rollback_record = self.store.create_activation_record_under(&rollback_record, Some(&permit))?;
 
         // 4. Swap the selector back in the older copy — its authority.
-        let old_store = Store::open(
+        let old_store = Store::open_under(
             previous_slot.join(SLOT_DB_FILENAME),
             self.cas_dir.clone(),
+            Some(&permit),
         )
         .map_err(UpdateError::Other)?;
         let rollback_route = RouteAuthority {
@@ -1924,7 +1998,7 @@ impl UpdateService {
             slot_dir: previous_slot.to_string_lossy().into_owned(),
             artifact_path: previous_manifest.artifact_path.context("retained rollback program missing")?,
             artifact_digest: previous_manifest.artifact_digest.context("retained rollback digest missing")?,
-            launch_command: Vec::new(), primary_claim: record.expected_primary_claim.clone(),
+            launch_command: Vec::new(), primary_claim: rollback_record.expected_primary_claim.clone(),
             activation_id: Some(rollback_record.activation_id),
         };
         let rollback_route = RouteAuthority {
@@ -1932,7 +2006,7 @@ impl UpdateService {
                 self.data_dir.to_string_lossy().into_owned(), "start".into()], ..rollback_route
         };
         let rollback_route_ref = self.seal_json(&rollback_route, "activation", "route-authority")?;
-        old_store.create_activation_record(&rollback_record)?;
+        old_store.create_activation_record_under(&rollback_record, Some(&permit))?;
         let next = ActivationSelector {
             agent_id: record.agent_id,
             selector_revision: current.selector_revision + 1,
@@ -1945,7 +2019,7 @@ impl UpdateService {
             route_authority_ref: rollback_route_ref,
         };
         let (swapped, _, commit) = old_store
-            .activate_successor(current.selector_revision, &next, &rollback_record)
+            .activate_successor_under(current.selector_revision, &next, &rollback_record, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
 
         // 5. The newer copy mirrors the swap back and is fenced.
@@ -1967,22 +2041,22 @@ impl UpdateService {
             "handoff-reason",
         )?;
         self.store
-            .swap_activation_selector(current.selector_revision, &swapped, &rollback_record)
+            .swap_activation_selector_under(current.selector_revision, &swapped, &rollback_record, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
         let fenced = self
             .store
-            .fence_head_for_handoff(&head, head_revision, &reason)
+            .fence_head_for_handoff_under(&head, head_revision, &reason, Some(&permit))
             .map_err(UpdateError::CandidateStore)?;
 
         // 6. The route publication back to the old slot.
-        slots::publish_current_slot(&self.data_dir, &previous_slot)
+        slots::publish_current_slot_under(&self.data_dir, &previous_slot, &permit)
             .map_err(anyhow::Error::from)?;
 
         // 7. Converge the same Activated -> Observing projection as a forward
         // activation. Either interrupted phase write can be completed from
         // the committed selector without changing the rollback's bindings.
         let rollback_record = self.converge_observing_activation(
-            &old_store, &swapped, rollback_record.activation_id)?;
+            &old_store, &swapped, rollback_record.activation_id, &permit)?;
 
         tracing::info!(
             activation_id = %rollback_record.activation_id,
@@ -2080,7 +2154,9 @@ impl UpdateService {
 
     async fn abort_before_selection(&self, record: &ActivationRecord, request_id: EntityId,
         expected: u64, target_slot: &Path) -> UpdateResult<()> {
-        if self.store.subject_quiesce(request_id)?.is_none() { return Ok(()); }
+        let Some(request) = self.store.subject_quiesce(request_id)? else { return Ok(()); };
+        let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
+            .acquire().map_err(anyhow::Error::from)?;
         let conn = rusqlite::Connection::open_with_flags(target_slot.join(SLOT_DB_FILENAME),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(anyhow::Error::from)?;
         let selected = shenko_store::activation::read_selector(&conn, record.agent_id)?;
@@ -2089,8 +2165,20 @@ impl UpdateService {
             // Deterministic completion reconciles mirror/fence/pointer.
             return Ok(());
         }
+        let current = self.store.activation_selector(record.agent_id)?.ok_or(UpdateError::SelectorMissing)?;
+        ensure!(current.selector_revision == expected && current.generation == request.generation,
+            "aborted handoff no longer owns the source selection");
+        let pending = self.store.activation_records(record.agent_id)?.into_iter()
+            .filter(|record| record.phase == ActivationPhase::Handoff
+                && record.expected_selector_revision == expected && record.from_generation == request.generation)
+            .collect::<Vec<_>>();
+        ensure!(pending.len() <= 1, "multiple pending handoffs bind the same selection");
+        if let Some(pending) = pending.first() {
+            self.abandon_interrupted_handoff(pending, &request, &permit)?;
+        }
+        let subject = self.store.resume_subject_quiesce_under(record.agent_id, request_id, Some(&permit));
+        drop(permit);
         let resources = self.participants.resume_all().await;
-        let subject = self.store.resume_subject_quiesce(record.agent_id, request_id);
         match (resources, subject) {
             (Ok(()), Ok(_)) => Ok(()),
             (resources, subject) => bail!("resource resume={resources:?}; subject resume={subject:?}"),

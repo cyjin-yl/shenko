@@ -178,8 +178,16 @@ Matching requests return its original facts; changed payloads conflict.
 Only a fresh successful T1 starts the worker. `SessionStore::open` can repair
 journal state, so it is also behind T1. Explicit `repl.session cancel` keeps
 its independent signal path and does not wait for the executing cell's mutex.
-Durable task `abort_request` is not yet bridged to that session token; this
-boundary does not prove that cancelling a task physically stops its interpreter.
+Native task cancellation and ordinary service teardown signal one invocation's
+own execution control, then join its blocking worker. A queued operation stops
+waiting without cancelling another task that owns the same session. After
+acquiring the session, the control reaches one-shot guests, resident cell
+exchanges, restore replay and dependency installers. Restore keeps its durable
+recovery fence if interrupted; an interrupted installer does not publish its
+candidate generation. A resident cell cancellation closes stdin and joins the
+actual interpreter before publishing a stopped cell. Cancellation is a request:
+an uninterruptible host call can delay that join, and unresolved original
+effects remain Unknown rather than gaining replay authority.
 A provable
 refusal before session opening settles the already armed attempt without
 creating a replacement attempt. Opening may already have healed metadata or

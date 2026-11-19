@@ -20,7 +20,7 @@ const OUTPUT_CONTRACT_PREFIX: &str = "控制动作只在独立、无缩进、非
 
 const OUTPUT_CONTRACT_SUFFIX: &str = "\n\
 [remember] 要保存的内容。有限模型 child 用 [delegate] 后接一行 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
-每个 child 可选择不同 system_prompt/model；模型名称在本轮冻结的已配置 provider 通路上请求，不改变你的主模型、不允许指定 endpoint 或自授工具。provider 是否提供该模型以真实回执为准。\n\
+每个 child 可选择不同 system_prompt/model；省略 profile_id 时在本轮原 provider 通路上请求，显式 profile_id 只能精确选择本轮冻结的已安装 provider 绑定。模型名称不会推断供应商、endpoint 或账号，不改变你的主模型或授予额外工具；provider 是否提供该模型以真实回执为准。\n\
 child 是多步有界运行：可用所授 tools 调用已注册能力；有 reply_grant 才能向其固定目标外发。tools/context/budget/reply_grant 及继续运行的完整形状见当前注册的 model.child 定义。\n\
 任务资料与完成条件写入 goal。max_tokens 为正整数，受 child 自己的总预算和实际 provider 资源约束，不由主体本步输出上限截断；plain text 的旧委派不执行。\n\
 [delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
@@ -31,7 +31,9 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 语义等待不是事件阻塞也不是新建任务：仍在同一条思考流里用同一个模型结合前文与新上下文持续轮询，直到条件成立、你的判断改变或期限到达；\n\
 等待最长 600 秒，继续等待不会延长原截止时间；新消息不会被框架自动当成结束，但你应判断它是否满足原条件或使你改变关注；不要用相同条件反复新建等待来绕过上限。\n\
 输入处置用 [dispose] {\"event_id\":\" durable 事件 uuid\",\"disposition\":\"acknowledged|deferred|delegated|ignored\",\"reason\":\"你的理由\",\"priority\":\"low|normal|high\",\"review_after\":\"RFC3339 时间\"}；除 acknowledged 外必须给 reason；带 priority 必须给 review_after。\n\
-持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务会一直带在后续思考里直到完成或取消。\n\
+本轮已选入却没有显式 dispose 的事件，系统记录为 deferred 并保留待复查；没有写处置不表示 acknowledged 或 ignored，也不能自行当作已完成、已忽略。\n\
+持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务持续保存在账本中直到完成或取消。每轮输入只展示有界的一部分待办，未展示的义务仍然开放。\n\
+通过已安装的 [delegate:history.query:1] {\"op\":\"obligations\",\"limit\":20} 可分页读取完整义务目录：page.total_open 是总数，page.obligations 是摘要，续页把 page.next 原样放入 after。读取一项完整内容用 {\"op\":\"read_obligation\",\"obligation_id\":\"uuid\"}；摘要截断不等于原义务内容丢失。\n\
 完成或取消本轮持久事实中的义务用 [obligation:terminal] {\"obligation_id\":\"本轮义务 uuid\",\"state\":\"completed|cancelled\",\"reason\":\"完成或取消的理由\"}；同一义务一次结果最多改变一次，两个终态都不可再改变。\n\
 对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个仍在运行的 child task：消息进入它同一讨论，由它下一步读取；已经结束的 child 收不到对话。\n\
 child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 continue_task_id 与你自己的 owner_answer 继续同一讨论；这是对已结束 child 说话的唯一路径。\n\

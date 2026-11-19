@@ -33,6 +33,86 @@ async fn fixture_request(socket: &mut tokio::net::TcpStream) -> Result<serde_jso
     Ok(serde_json::from_slice(&bytes[header_end..header_end + length])?)
 }
 
+/// Author fixture dispositions from the actual S0 selected for this request.
+/// Historical `[event ...]` text is deliberately insufficient: acknowledging
+/// an earlier, unselected event would turn this into a control-repair fixture.
+fn fixture_selected_input(root: &Path, request: &serde_json::Value)
+    -> Result<(PathBuf, Vec<InboxEvent>)>
+{
+    #[derive(Deserialize)]
+    struct Input {
+        step_id: EntityId,
+        events: Vec<InboxEvent>,
+        payload: InferencePayload,
+    }
+    let mut directories = vec![(root.to_owned(), 0)];
+    let mut selected = None;
+    while let Some((directory, depth)) = directories.pop() {
+        let database = directory.join("shenko.db");
+        if !database.is_file() {
+            // Prepared pair fixtures nest their installation at depth three.
+            // Stop at an installation rather than walking its CAS objects.
+            if depth < 3 {
+                for entry in std::fs::read_dir(&directory)? {
+                    let entry = entry?;
+                    if entry.file_type()?.is_dir() {
+                        directories.push((entry.path(), depth + 1));
+                    }
+                }
+            }
+            continue;
+        }
+        let connection = rusqlite::Connection::open_with_flags(database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
+        let mut query = connection.prepare(
+            "SELECT data FROM subject_steps WHERE state='awaiting_model'")?;
+        let rows = query.query_map([], |row| row.get::<_, String>(0))?;
+        let cas = shenko_store::ContentStore::open_existing(directory.join("cas"))?;
+        for row in rows {
+            let step: SubjectStep = serde_json::from_str(&row?)?;
+            let reference = step.input_plan_ref.context("awaiting fixture input has no S0")?;
+            let bytes = cas.read_object(&reference.digest)?;
+            ensure!(bytes.len() as u64 == reference.bytes
+                && Digest::blake3(&bytes) == reference.digest, "fixture S0 identity mismatch");
+            let input: Input = serde_json::from_slice(&bytes)?;
+            ensure!(input.step_id == step.step_id, "fixture S0 belongs to a different step");
+            let mut messages = Vec::new();
+            if !input.payload.system_prompt.is_empty() {
+                messages.push(serde_json::json!({
+                    "role": "system", "content": input.payload.system_prompt,
+                }));
+            }
+            for message in input.payload.messages {
+                let mut content = String::new();
+                for part in message.parts {
+                    let shenko_broker::request::InferencePart::Text { text } = part else {
+                        bail!("the cognition fixture expects a text-only sealed request");
+                    };
+                    content.push_str(&text);
+                }
+                messages.push(serde_json::json!({"role": message.role, "content": content}));
+            }
+            if request["messages"] == serde_json::json!(messages) {
+                ensure!(selected.is_none(), "fixture wire request matches more than one S0");
+                selected = Some((directory.clone(), input.events));
+            }
+        }
+    }
+    selected.context("fixture wire request has no matching awaiting-model S0")
+}
+
+fn fixture_acknowledgements(events: &[InboxEvent], answer: &str) -> String {
+    let mut content = String::new();
+    for event in events {
+        content.push_str(&format!("[dispose] {}\n", serde_json::json!({
+            "event_id": event.event_id, "disposition": "acknowledged",
+        })));
+    }
+    content.push_str(answer);
+    content
+}
+
 #[tokio::test]
 async fn native_read_reaches_the_committed_continuation() -> Result<()> {
     native_read_fixture(false, false).await
@@ -72,12 +152,14 @@ async fn native_read_fixture(followup: bool, missing: bool) -> Result<()> {
     // The reader accepts surrounding whitespace; observation must validate
     // the same normalized identity when this later read is consumed.
     let second_delegate = format!("[delegate:cognition.unit.read:1] {{\"unit_id\":\" {} \",\"revision\":\" {} \"}}", second.unit_id, second.revision);
+    let fixture_root = root.clone();
     let server = tokio::spawn(async move {
         let mut delegated = false;
         let mut delegated_second = false;
         loop {
             let (mut socket, _) = listener.accept().await?;
             let request = fixture_request(&mut socket).await?;
+            let (_, selected) = fixture_selected_input(&fixture_root, &request)?;
             let has_body = request["messages"].as_array().context("messages missing")?.iter()
                 .any(|message| message["content"].as_str().is_some_and(|text| text.contains(BODY_MARKER)));
             let has_second = request["messages"].as_array().context("messages missing")?.iter()
@@ -91,6 +173,7 @@ async fn native_read_fixture(followup: bool, missing: bool) -> Result<()> {
                 delegated = true;
                 &delegate
             } else { "intervening thought while the native read runs" };
+            let content = fixture_acknowledgements(&selected, content);
             let body = serde_json::to_vec(&serde_json::json!({
                 "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 1, "completion_tokens": 1}
@@ -241,20 +324,31 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = format!("http://{}", listener.local_addr()?);
     let delegate = format!("[delegate:cognition.unit.read:1] {{\"unit_id\":\"{unit_id}\",\"revision\":\"{revision}\"}}");
+    let fixture_root = root.clone();
     let server = tokio::spawn(async move {
         let mut delegated = false;
+        let mut active_installation = None;
         loop {
             let (mut socket, _) = listener.accept().await?;
             let request = fixture_request(&mut socket).await?;
             let messages = request["messages"].as_array().context("messages missing")?;
             let is_judge = messages.iter().any(|message| message["role"] == "system"
                 && message["content"].as_str().is_some_and(|text| text.contains("你只做评审")));
+            let selected = if is_judge {
+                None
+            } else {
+                let (installation, events) = fixture_selected_input(&fixture_root, &request)?;
+                if active_installation.as_ref() != Some(&installation) {
+                    // A failed control has no judge request. Condition state
+                    // therefore follows the real installation, not the judge.
+                    delegated = false;
+                    active_installation = Some(installation);
+                }
+                Some(events)
+            };
             let body_or_failure = messages.iter().any(|message| message["content"].as_str()
                 .is_some_and(|text| text.contains(BODY_MARKER) || text.contains("unit_not_readable")));
             let content = if is_judge {
-                // Subject cleanup completed before this request. The next
-                // subject belongs to the other fresh condition.
-                delegated = false;
                 if empty_judge { "" } else { "EFFECTIVE the native read reached this decision" }
             } else if body_or_failure {
                 "native body reached this continuation"
@@ -264,6 +358,8 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
             } else {
                 "intervening thought while the native read runs"
             };
+            let content = selected.as_ref().map(|events| fixture_acknowledgements(events, content))
+                .unwrap_or_else(|| content.to_owned());
             let body = serde_json::to_vec(&serde_json::json!({
                 "choices": [{"message": {"content": content}, "finish_reason": "stop"}],
                 "usage": {"prompt_tokens": 37, "completion_tokens": 3},
@@ -703,13 +799,33 @@ fn unstarted_slots_are_not_started_failures() {
     // A started failure is still a failure, not an unstarted slot.
     let failed = totals_of(&[booked_sample(Condition::Control, true, "failed")], Condition::Control);
     assert_eq!((failed.attempted, failed.unstarted, failed.scored, failed.failed), (1, 0, 0, 1));
+    // One lucky surviving candidate must not beat seven measured successes
+    // by dropping its seven infrastructure failures from the denominator.
+    let mut unequal = vec![booked_sample(Condition::Candidate, true, "effective")];
+    unequal.extend((0..7).map(|_| booked_sample(Condition::Candidate, true, "failed")));
+    unequal.extend((0..7).map(|_| booked_sample(Condition::Control, true, "effective")));
+    unequal.push(booked_sample(Condition::Control, true, "ineffective"));
+    let sparse = totals_of(&unequal, Condition::Candidate);
+    let complete = totals_of(&unequal, Condition::Control);
+    assert!(sparse.rate_over_scored > complete.rate_over_scored);
+    assert_eq!(verdict_of(&sparse, &complete).0, "inconclusive");
+    assert_eq!(sparse.scored_coverage, 0.125);
+    let all_effective = totals_of(&(0..8).map(|_| booked_sample(Condition::Candidate, true, "effective")).collect::<Vec<_>>(), Condition::Candidate);
+    let all_ineffective = totals_of(&(0..8).map(|_| booked_sample(Condition::Control, true, "ineffective")).collect::<Vec<_>>(), Condition::Control);
+    assert_eq!(verdict_of(&all_effective, &all_ineffective).0, "supported");
+    assert_eq!(verdict_of(&all_ineffective, &all_effective).0, "not_supported");
+    let one_negative = totals_of(&[booked_sample(Condition::Control, true, "ineffective")], Condition::Control);
+    assert_eq!(verdict_of(&candidate, &one_negative).0, "inconclusive");
 }
 
 #[test]
 fn every_planned_slot_of_a_pair_gets_the_same_window() {
     assert_eq!(sample_window(900_000, 2), Duration::from_millis(450_000));
     assert_eq!(sample_window(90_000, 4), Duration::from_millis(22_500));
-    assert_eq!(sample_window(1_000, 2), Duration::from_millis(MIN_SAMPLE_WINDOW_MS));
+    assert_eq!(sample_window(1_000, 2), Duration::from_millis(500));
+    assert_eq!(condition_order(0, 0), [Condition::Candidate, Condition::Control]);
+    assert_eq!(condition_order(0, 1), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(1, 0), [Condition::Control, Condition::Candidate]);
 }
 
 #[test]

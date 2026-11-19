@@ -25,6 +25,47 @@ explicitly instead of being implied.
 Owner: the subject slice (`shenko-subject` loop/context/dispatch/inbox/output,
 `shenko-types` subject types, `shenko-store` step/head/request/state).
 
+<a id="subject-interactive-ingress-20261117"></a>
+## Background self-modification and interactive ingress — 2026-11-17
+
+Source: the author's current instruction, retained in [Issue #326](https://github.com/cyjin-yl/shenko/issues/326):
+
+> 自我修改应该在后台，如果有新消息打断肯定优先处理及时 IM 消息。
+
+Self-modification, builds and long investigations belong to finite background
+children. Their task, branch, budget, checkpoint and original effect evidence
+survive an interactive interruption. One serial main thought continues to own
+the next decision; no second main loop is created to answer an IM. Starting
+background work does not implicitly enable DND or wait for the entire build.
+
+Ingress persists the complete first original before offering a volatile wake.
+New trusted `message`/`media_priority` input is selected before background
+progress at the next unsealed S0, and its inference enters the urgent lane.
+The broker considers all submissions already ready at a dispatch boundary;
+finite background work retains fair progress. A message body cannot promote
+itself to this class or grant authority. For an already running generation,
+the backend's actual yield/cancel/finite-completion boundary governs latency;
+dropping a local future does not prove remote termination or release Unknown.
+
+Model/request failures stop one subject incarnation. Durable input, UI,
+configuration, queries and reconciliation keep their own lifetimes. Status
+reports the blocked reason; recovery reopens the existing step from new durable
+facts and never resends an Unknown merely because a timer elapsed. Missing
+fresh model evidence permits recovery services but does not qualify a thinking
+primary. Actual read-only probes and actual generation outcomes remain
+distinguishable observations bound to the configured provider/model.
+
+The architecture repair in [Issue #325](https://github.com/cyjin-yl/shenko/issues/325)
+also supersedes the older automatic-`Ignored` implementation described in
+§57.3 below: an input without an authored disposition remains `Deferred` with
+an explicit **system-observed absence of decision** reason. It is not labelled
+as a model-authored decision to ignore. Explicit `Ignored` remains terminal.
+Deferred inputs rotate by their last presentation commit; explicit review
+times and source pauses filter before LIMIT. A full wake buffer or a long
+pause therefore cannot silently discard originals or create an unbounded
+in-memory hold. Historical receipts and the migrated source text keep their
+original meanings.
+
 ## The step
 
 A step is the unit of the subject's life. `SubjectStep` moves through
@@ -60,7 +101,7 @@ path, so all of them see the same facts.
 | `identity`, `identity_provider_revision` | the persona snapshot this step reasoned about, and the identity policy revision that produced it. |
 | `request_id` | the wire request identity of this step's FIRST attempt. Sealing it before any send is what makes a resumed step reuse the same identity instead of minting a fresh one for the same request. |
 | `hook_graph_ref` | the hook graph this step dispatches under. |
-| `obligations` | the commitments the subject is still carrying. |
+| `obligations` | the complete bodies of this step's bounded working frontier; other retained commitments remain queryable. |
 | `attention` | the subject's own do-not-disturb decision in force. |
 
 Readers of this schema: `shenko-store/src/store.rs`
@@ -197,6 +238,35 @@ late completions cannot publish into a replacement. An accepted S0 remains
 immutable after disposal. Consumption means reservation by the sealed request,
 not proof that a provider received it; delivery still requires its own receipt.
 
+## Bounded obligation frontier
+
+The normal S0 seals at most twelve complete `PendingObligation` bodies. Its
+model prompt presents at most 8 KiB of labelled previews, exact identities,
+body digests, the total open count and the durable-step rotation coordinate.
+A preview is not the original body; omitted obligations are neither completed
+nor forgotten. When the model's input limit is known, the frontier shrinks to
+at most one quarter of the budget remaining after the other system material,
+leaving room for raw input and recovery; under tighter pressure it retains a
+short complete-query pointer. Retried/recovered seals keep their original selection.
+
+Up to one quarter of slots may be selected by structured `obligation_id`
+references from authenticated native-child T2 results or typed subject self-wake
+facts. The remainder rotates in canonical `(created_seq, obligation_id)` order
+using the durable step number. A reference changes only presentation of an
+existing own-subject record; it never grants authority or executes an action,
+and selection does not dispatch by plugin name or business keywords.
+
+The installed `history.query/v1` supports `op=obligations` with a bounded
+`limit` and the returned `page.next` as `after`, and `op=read_obligation` with
+an exact `obligation_id`. List pages contain bounded previews; the exact read
+returns the retained original body and current state. Pagination uses `(created_seq, obligation_id)` keys,
+so closing an earlier record cannot skip a later one. Pages are live reads,
+not a claimed cross-call snapshot. Exact reads retain completed/cancelled
+bodies and state. A returned structured reference can bring a cold obligation
+into the next frontier, where the existing S1 exact-body/ownership checks
+continue to govern a completion/cancellation. The raw obligation ledger and
+its creation/terminal receipts remain the recovery authority.
+
 ## Authored input controls
 
 The subject decides, in its own words, what to do with an input and what it
@@ -205,15 +275,42 @@ store at S1.
 
 | Control | Durable effect |
 | --- | --- |
-| `[dispose]` | the per-event disposition, its reason, its priority and its review time. Every selected event is disposed explicitly; an event the model did not mention is acknowledged, never silently dropped. |
-| `[obligation]` | a durable commitment, read back into every later S0 until a later committed step completes or cancels it. It is not a scheduler: nothing wakes the subject by itself. |
+| `[dispose]` | the per-event disposition, its reason, its priority and its review time. Every selected event receives a durable disposition. An omitted event receives system-recorded `Deferred` with an explicit absence-of-decision reason and remains pending, subject to review times and source pauses; explicit `Ignored` remains terminal. See the [current input contract](#subject-interactive-ingress-20261117). |
+| `[obligation]` | a durable commitment retained until a later committed step completes or cancels it; a bounded working frontier is selected for S0, and full bodies remain queryable. Due facts enter through the existing typed self-wake path. |
 | `[dialogue]` | an authored turn to a durable task. |
 | `[dnd]` | the subject's own attention decision. `off` requires the silenced sources and a review time; an unbounded silent switch is refused at S1 admission. |
 | `[steer]` | the adoption of one live steer that was carried into this step. The submission key must name a steer that was actually selected into this S0; the store re-checks that binding at S1. |
 
 ## R0 rejection and correction
 
-A correction is a new request with a newly counted complete payload and the
+New `ControlOutputRejection` body/codec version 3 records its explicit
+`PinnedCorrection` or `ReselectInput` mode. A subject may make at most two
+corrections that pin the same input selection. The bounded count follows the
+actual `correction_observation.parent_input_ref` chain, so provider retry reasons
+and restarts cannot reset it. A fresh, unpaused interactive input outside the
+original S0 opens `ReselectInput` immediately at the next conclusive rejection.
+The Store checks the source/disposition and this decision again inside R0.
+
+`ReselectInput` atomically retires the invalid result and creates a `Planned`
+replacement at the same logical step number, without a request or S0 seal. It
+restores delivery readiness for the original selected events that have no
+terminal disposition; staging's `consumed` flag was never an acknowledgement.
+The ordinary next S0 can then select fresh IM plus the still-pending originals.
+The rejected text, original input seal, terminal outcome and canonical feedback
+remain intact. R0 admits no control, memory write, publication or S1 disposition
+from any rejected attempt, and consumes no contribution for an unsealed plan.
+
+Only an exact recorded provider terminal permits this boundary: a complete
+result or an explicit terminal token-limit/refusal/tool-use stop. Missing or
+unknown termination, a local timeout and storage failures never prove that a
+request ended. Existing version-2 rejection records keep their pinned-correction
+meaning. A newly rejected legacy 12/13 input without an explicit parent boundary
+opens a current-format input selection instead of inventing missing provenance.
+While a correction's owned context worker is pending, the serial loop revisits
+durable interactive ingress at a bounded interval; retirement drops that worker
+so it cannot publish against the replacement selection.
+
+A pinned correction is a new request with a newly counted complete payload and the
 original output reservation. The recorded result and its terminal evidence stay
 `ResultRecorded` while an owned policy preparation is pending. Cancellation drops
 that owner; it does not retire the original step, mint an admitted replacement,
@@ -271,9 +368,9 @@ discovered late and it is not a reason to kill the subject.
 * Rejection retires the step: the original sealed input, the exact model
   text, the sealed outcome and a `StepRejection` record are all durable. The
   rejection names its replacement step; the next attempt gets a NEW request
-  identity. A correction re-seals the same selected events, so a crash
-  between retire and reopen still reconstructs the correction from the
-  durable facts alone.
+  identity. A pinned correction re-seals the same selected events; an explicit
+  input reselection restores their delivery readiness. A crash between retire
+  and reopen reconstructs either mode from durable facts alone.
 * The model's own text is preserved verbatim — including any `[remember]` or
   other controls it wrote alongside the invalid disposition or obligation. They were never
   committed; they are not adopted into the correction either. The subject
@@ -616,3 +713,21 @@ child 进度、结果产物、任务终态、对话投递、渠道发送分别�
 ## 元感知接续与主流连续性
 
 [默认元感知接续合同](../decisions/0006-meta-perception-continuation-2026-11-11.md)中的有限试用是主流可发起的工作，不把主主体变成有限任务。主体可调整观察频率与退避；持续思考、语义等待、真实容量等待和进程暂停仍按本领域各自的合同表达。最小单机闭环要求实际输入、有限 child、真实结果、输出或回执和重启接续彼此连接；可选看门狗不能代替这条原生轨迹，也不能据此关闭完整 S1–S5。
+
+
+### Bounded due-obligation dispatch
+
+Each dispatcher pass reads at most 16 open, due obligations through an indexed
+keyset page. Future and undated obligations are filtered in SQL before `LIMIT`;
+the `(agent_id, due instant, obligation_id)` partial index avoids a whole-open-set
+scan. A sweep retains its initial local row watermark, so continuous new creation
+or imported older facts cannot keep it from wrapping fairly to earlier due facts. The
+only in-memory scan state is its cursor, independent of the number of promises.
+
+The exact obligation/due instant still derives the original deterministic wake
+identity and original body. Only a newly inserted durable inbox row emits a
+best-effort volatile wake. Replay neither re-sends an acknowledged wake nor
+resets any disposition; a missed/full channel recovers through ordinary durable
+pending selection. A failed partial page retains its previous cursor and safely
+retries admission, whose already-written rows return Replay. Restart starts a
+new sweep without duplicating any due fact.

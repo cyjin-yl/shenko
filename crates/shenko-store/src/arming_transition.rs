@@ -593,7 +593,7 @@ impl Store {
             position.expected_tasks.clone(),
             position.expected_steps.clone(),
         );
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
@@ -604,6 +604,7 @@ impl Store {
             // Local dispatcher/authority checks above do not become canonical
             // facts. The captured transaction contains shared state only.
             let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
+                canonical_claim.as_ref().map(|_| &plan.task),
                 |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at))?;
             if canonical_claim.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = ArmTransition { rows, plan: plan.clone(), canonical_claim: canonical_claim.clone() };
@@ -793,7 +794,7 @@ impl Store {
         {
             return Err(invalid("T1 action differs from its admitted envelope"));
         }
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

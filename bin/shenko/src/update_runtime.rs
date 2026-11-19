@@ -28,9 +28,8 @@ pub struct NodeAuthority {
     pub agent_id: EntityId,
 }
 
-impl PrimaryClaimSource for NodeAuthority {
-    fn committed_primary_claim(&self) -> Result<Option<PrimaryClaim>> {
-        let node = crate::node_sync::open_node(&self.data_dir, &self.store)?;
+impl NodeAuthority {
+    fn claim_from_node(node: &shenko_node::Node) -> Result<Option<PrimaryClaim>> {
         let Some(token) = node.fencing_token()? else { return Ok(None); };
         if node.local_node_id()? != Some(token.leader_id) { return Ok(None); }
         // The node's own resource-side validation is authoritative; don't
@@ -45,8 +44,7 @@ impl PrimaryClaimSource for NodeAuthority {
         }))
     }
 
-    fn local_branch_authority(&self) -> Result<Option<serde_json::Value>> {
-        let node = crate::node_sync::open_node(&self.data_dir, &self.store)?;
+    fn branch_from_node(&self, node: &shenko_node::Node) -> Result<Option<serde_json::Value>> {
         if node.is_primary()? { return Ok(None); }
         let (head, _) = self.store.load_subject(self.agent_id)?;
         if node.member_configuration()?.is_none() && node.sync_peers()?.is_empty() {
@@ -75,6 +73,38 @@ impl PrimaryClaimSource for NodeAuthority {
             "subject_id": self.agent_id, "controller_epoch": head.controller_epoch,
             "scope": "this installation's local slot and retained facts only"
         })))
+    }
+}
+
+impl PrimaryClaimSource for NodeAuthority {
+    fn committed_primary_claim(&self) -> Result<Option<PrimaryClaim>> {
+        let node = crate::node_sync::open_node(&self.data_dir, &self.store)?;
+        Self::claim_from_node(&node)
+    }
+
+    fn local_branch_authority(&self) -> Result<Option<serde_json::Value>> {
+        let node = crate::node_sync::open_node(&self.data_dir, &self.store)?;
+        self.branch_from_node(&node)
+    }
+
+    fn authority_snapshot_under(&self,
+        permit: &shenko_types::installation::InstallationPermit) -> Result<serde_json::Value> {
+        permit.validate(&shenko_types::installation::InstallationDomain::open(&self.data_dir)?)?;
+        // Final cutover is read-only with respect to Node. Initialization and
+        // projection repair belong before this reservation, never underneath
+        // it through an opener which would reacquire the same lock.
+        let node = shenko_node::Node::open_inspect(&self.data_dir.join("node"))?
+            .context("installation authority has no existing Node")?;
+        if let Some(bound) = self.store.installation_binding()?.subject {
+            let local = node.local_identity()?.context("Node subject identity missing")?;
+            ensure!(local.agent_id == bound.agent_id && local.branch_id == bound.branch_id
+                && local.origin_proof == bound.origin_proof,
+                "Node/subject binding differs at installation cutover");
+        }
+        Ok(serde_json::json!({
+            "primary_claim": Self::claim_from_node(&node)?,
+            "local_branch": self.branch_from_node(&node)?,
+        }))
     }
 }
 

@@ -89,6 +89,14 @@ shenko context windows [--limit N]         # 已提交窗口链的元数据（�
 
 [§12.3.2](context-policies.md#spec-12-3-2) 要求切换在安全边界完成，并且"准备新表示"这一步本身很慢。慢的部分不能占用请求路径。
 
+### 日常投影与增量执行索引
+
+普通 S0 不再为检查执行状态逐步读取 `0..leaf` 全部原文。纯 verbatim 窗口在读取可见事件时取得当前执行状态；有损窗口通过 `HistorySource::call_items(through)` 取得调用元数据，并只恢复与已变更/未决调用相交的不可分割单元及完整有损范围。
+
+Store 适配器持有每主体的 `HistoryProjectionCache`：只保留调用身份、来源、依赖绑定与状态，不累积普通消息或调用正文。原文末端水位只向前推进，正常投影仅读新增尾部。SQLite 的可重建 `context_execution_revisions` 对真实 task、operation、subject intent、memory intent 和 task result 写入更新绑定水位，每个绑定只保留最新水位；命中后仍从权威账本读取状态，索引不裁决效果。水位在读取前捕获，期间迟到的变更留给下一次重查，不会被读取后的水位吞掉。
+
+进程重启、Store/branch 改变或索引水位回退都从原始事实重建；首次恢复按原始 seq 分页读取。压缩准备 worker 共享并预热这个缓存，避免首次 adoption 在 S0 冷建。当前实现缓存全部调用元数据，长期元数据规模仍随调用数量增长；不声称常量空间。默认第三方 HistorySource 可回退到完整读取以保持正确性。后台压缩仍可读取完整历史；准备、adoption 与 correction 的固定原文边界及执行观测校验继续生效。
+
 ### 慢路径（请求之外）
 
 `PolicyRegistry::prepare_candidate(history, caps, used_tokens)` 读取整段原始历史并渲染新表示。主体持有一个准备任务，使用 `spawn_blocking` 执行这一步；后台任务只返回候选，当前主体负责发布与采纳。`prepare_and_publish(...)` 仍供明确拥有准备与发布生命周期的调用者使用，不能在请求事务中调用。

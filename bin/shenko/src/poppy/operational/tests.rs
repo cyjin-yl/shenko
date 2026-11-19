@@ -792,6 +792,7 @@ fn invocation(store: &Store, agent: EntityId, input: Value) -> Result<NativeTask
     context.invocation_id = Some(invocation_id);
     context.controller_epoch = epoch;
     Ok(NativeTaskInvocation {
+        cancellation: tokio_util::sync::CancellationToken::new(),
         context,
         task_invocation: TaskInvocation {
             task_id,

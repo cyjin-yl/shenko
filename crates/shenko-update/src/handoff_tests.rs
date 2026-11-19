@@ -36,6 +36,10 @@ impl PrimaryClaimSource for FixtureAuthority {
     fn local_branch_authority(&self) -> Result<Option<serde_json::Value>> {
         Ok(Some(serde_json::json!({ "local_installation": true })))
     }
+
+    fn authority_snapshot_under(&self, _permit: &InstallationPermit) -> Result<serde_json::Value> {
+        Ok(authority_json())
+    }
 }
 
 fn authority_json() -> serde_json::Value {
@@ -1586,6 +1590,9 @@ async fn reconcile_refuses_to_revive_a_fenced_retired_writer() {
 #[cfg(unix)]
 async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     let fixture = installation();
+    let original_observation = seal(&fixture.store, &serde_json::json!({
+        "source": "original-inflight-observer", "event": "observed-before-cutover"
+    }));
     let target = RuntimeGeneration::new("gen-b");
     let initial_selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
     let retained_route: RouteAuthority = serde_json::from_value(
@@ -1614,7 +1621,37 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     };
     // Exactly what `prepare` does: an independent slot whose copied state has
     // its own ledger writer identity, then the candidate program.
-    let slot = slots::copy_slot(&live, &SlotLayout::new(fixture.data_dir.clone()), &target).unwrap();
+    let layout = SlotLayout::new(fixture.data_dir.clone());
+    let prepared = slots::prepare_slot_copy(&live, &layout, &target).unwrap();
+    let competing = slots::prepare_slot_copy(&live, &layout, &target).unwrap();
+    let stale = slots::prepare_slot_copy(&live, &layout, &RuntimeGeneration::new("gen-stale")).unwrap();
+    assert!(!layout.slot_dir(&target).exists(), "an incomplete candidate is not published");
+    // Prepared private copies hold no live mutation permit. An original IM
+    // delivery is accepted while they exist, and the final catch-up must keep
+    // that delivery even though none of these backup snapshots contains it.
+    let incoming = EntityId::new();
+    let mut input = shenko_types::store::WriteBatch::new();
+    input.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
+        event_id: incoming, agent_id: fixture.agent_id, source: "fixture-im".into(),
+        kind: "message".into(), payload_json: serde_json::json!({ "text": "new input during preparation" }).to_string(),
+        received_at_ms: 1,
+    });
+    fixture.store.commit(input).expect("live ingress continues while a private candidate is prepared");
+    let slot = prepared.publish().unwrap();
+    assert!(slots::read_slot_manifest(&slot.slot_dir).unwrap().copied_through_seq.is_some());
+    let publication = competing.publish().unwrap_err();
+    match publication {
+        slots::SlotError::Publication { staged, published, .. } => {
+            assert!(staged.is_dir(), "a losing complete copy is retained for inspection");
+            assert_eq!(published, slot.slot_dir);
+        }
+        error => panic!("competing slot publication must retain both paths: {error}"),
+    }
+    let copied = slots::open_slot_db(&slot).unwrap();
+    let copied_incoming: i64 = copied.query_row("SELECT count(*) FROM inbox_events WHERE event_id=?1",
+        [incoming.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(copied_incoming, 0, "the snapshot precedes the new IM");
+    drop(copied);
     let program = write_executable(&fixture.data_dir, "candidate-b", &smoke_script(&target.0));
     let artifact_digest = Digest::blake3(&fs::read(&program).unwrap());
     slots::write_slot_manifest(
@@ -1679,6 +1716,15 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         fixture.data_dir.join("cas"),
     )
     .unwrap();
+    let selected_db = slots::open_slot_db(&slot).unwrap();
+    let retained_incoming: i64 = selected_db.query_row("SELECT count(*) FROM inbox_events WHERE event_id=?1",
+        [incoming.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(retained_incoming, 1, "final typed catch-up retains input accepted after the private backup");
+    drop(selected_db);
+    match stale.publish().unwrap_err() {
+        slots::SlotError::SourceChanged(staged) => assert!(staged.is_dir()),
+        error => panic!("source selection must be rechecked before publishing an earlier preparation: {error}"),
+    }
     // The final watermark is materialized by the successor's selector CAS.
     // The retired ledger must mirror that exact durable activation identity:
     // a local selector match alone does not prove the two records agree.
@@ -1716,6 +1762,63 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
             .is_none(),
         "no launch receipt exists before a process actually starts the selection"
     );
+    // A Store opened before the swap is fenced at its actual mutation, not
+    // just at a later CLI open. Factual late arrivals retain their own origin.
+    let request = EntityId::new();
+    let refused = fixture.store.request_subject_quiesce(fixture.agent_id, request).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    assert!(fixture.store.subject_quiesce(request).unwrap().is_none());
+    let receipt_id = EntityId::new();
+    let mut batch = shenko_types::store::WriteBatch::new();
+    batch.evidence_upserts.push(shenko_types::evidence::EvidenceReceipt {
+        record_schema_version: 1, receipt_id, operation_id: None, attempt_id: None,
+        source_id: "original-inflight-observer".into(), source_instance_id: "source-a".into(),
+        source_event_key: Some("event-before-cutover".into()), producer_epoch: Some(1),
+        producer_schema_version: Some("1".into()), raw_ref: original_observation,
+        decoder_ref: None, decode_status: shenko_types::evidence::DecodeStatus::Uninterpreted,
+        observation_level: None, normalized_ref: None, observed_at: None,
+        received_commit: CommitRef::new(fixture.store.ledger.ledger_id(), LedgerSeq(0)),
+    });
+    fixture.store.commit(batch).expect("retired slot must retain original late evidence");
+    let received = fixture.store.external_evidence(receipt_id).unwrap();
+    assert_eq!(received.received_commit.ledger_id, fixture.store.ledger.ledger_id());
+    assert!(received.received_commit.seq.0 > retired_activation.w1.unwrap().seq.0);
+
+    // A real runtime backup is not an unbound data copy, even under a new
+    // layout with no current-slot or versions directory. Preserve its facts
+    // but refuse fresh authority rather than silently dropping the fence.
+    let detached_home = fixture.data_dir.join("detached-copy-home");
+    let detached_db = detached_home.join("data").join(SLOT_DB_FILENAME);
+    fs::create_dir_all(detached_db.parent().unwrap()).unwrap();
+    slots::backup_database(&slot.db_path, &detached_db).unwrap();
+    let detached = Store::open(detached_db, detached_home.join("cas")).unwrap();
+    let copied_selector = detached.activation_selector(fixture.agent_id).unwrap();
+    let detached_request = EntityId::new();
+    let refused = detached.request_subject_quiesce(fixture.agent_id, detached_request).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    assert!(detached.subject_quiesce(detached_request).unwrap().is_none());
+    assert_eq!(detached.activation_selector(fixture.agent_id).unwrap(), copied_selector);
+    drop(detached);
+
+    // Resolving a different parent of the same old database must not turn it
+    // into a writable data copy. No new runtime or dispatch is launched here.
+    let alias_dir = fixture.data_dir.join("retired-database-alias");
+    fs::create_dir_all(&alias_dir).unwrap();
+    let alias_db = alias_dir.join(SLOT_DB_FILENAME);
+    std::os::unix::fs::symlink(fixture.live_slot.join(SLOT_DB_FILENAME), &alias_db).unwrap();
+    let alias = Store::open(alias_db, fixture.data_dir.join("cas")).unwrap();
+    let intent = shenko_store::MemoryIntentRecord::accepted(
+        EntityId::new(), fixture.agent_id, "save", "personal", "retired alias must not write",
+        None, Some(EntityId::new()),
+    );
+    let refused = alias.admit_memory_intent(&intent, None).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&refused));
+    drop(alias);
+    selected.request_subject_quiesce(fixture.agent_id, request)
+        .expect("current selected slot still admits a fresh control mutation");
+    let cancelled = selected.resume_subject_quiesce(fixture.agent_id, request)
+        .expect("close the admission probe before exercising rollback's own boundary");
+    assert_eq!(cancelled.state, shenko_store::runtime_boundary::SubjectQuiesceState::Cancelled);
 
     // A real successor owns this same subject before producing its first S1;
     // the historical committed_at and genesis still belong to A.

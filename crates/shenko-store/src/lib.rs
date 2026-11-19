@@ -20,6 +20,7 @@ pub use control_recovery::{ControlRecoveryOutcome, PreparedStepDebt, PreparedSte
 mod control_predecessor;
 pub use control_predecessor::ControlPredecessorEvidence;
 pub mod activation;
+pub mod local_model_health;
 mod local_installation;
 pub use local_installation::{
     HomeInstallationBinding, LocalInstallationProvisioning, LOCAL_HOME_CODEC, LOCAL_HOME_NAMESPACE,
@@ -89,6 +90,8 @@ pub use receipt_admission::{ConflictIdentity, EvidenceReceiptConflict};
 
 pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};
+mod model_child_budget;
+pub use model_child_budget::{ModelChildBudgetExceeded, ModelChildBudgetUsage};
 
 pub mod intents;
 

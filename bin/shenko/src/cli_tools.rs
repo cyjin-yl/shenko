@@ -435,7 +435,7 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             let capabilities =
                 authored_capabilities(&requires_fs, &requires_env, &requires_host)?;
             anyhow::ensure!(
-                data_dir.join("shenko.db").is_file(),
+                crate::runtime_bootstrap::installation_db_path(data_dir)?.is_file(),
                 "no managed installation at {}; run `shenko start` once",
                 data_dir.display()
             );
@@ -457,10 +457,7 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
                     tools_dir.display()
                 );
             }
-            let store = shenko_store::store::Store::open(
-                data_dir.join("shenko.db"),
-                data_dir.join("cas"),
-            )?;
+            let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let installed = tool_install::install_set(
                 &mut node,
@@ -525,7 +522,7 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
             // A writer change never creates a new installation. Read identity
             // and subject from the same zero-touch database/CAS snapshot.
             let inspected = shenko_store::Store::inspect_home_installation_binding(
-                &data_dir.join("shenko.db"),
+                &crate::runtime_bootstrap::installation_db_path(data_dir)?,
                 &data_dir.join("cas"),
             )?;
             anyhow::ensure!(
@@ -603,10 +600,7 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
                     shenko_wasm::tool_module(&node, &record)?
                 }
                 shenko_wasm::ToolArtifactKind::ContentStore => {
-                    let store = shenko_store::store::Store::open(
-                        data_dir.join("shenko.db"),
-                        data_dir.join("cas"),
-                    )?;
+                    let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
                     let content = shenko_wasm::CasToolContentStore::new(&store.cas);
                     shenko_wasm::tool_module_with_store(&node, &record, &content)?
                 }

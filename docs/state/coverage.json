@@ -3134,15 +3134,15 @@
       ],
       "implementation_refs": [
         "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events",
-        "crates/shenko-subject/src/loop_runner.rs#SubjectLoopState.held_inputs"
+        "crates/shenko-store/src/raw_session.rs#Store::pending_inbox_events",
+        "crates/shenko-subject/src/loop_runner.rs#hold_paused_sources"
       ],
       "evidence_refs": [],
       "blockers": [
-        "未解决的规范冲突：R152 默认 deferred 与 §57.3/B58/AW13 的 ignored + 理由不同。",
-        "AW13 未完成具名运行判定；不能以 ignored 实现满足 R152 的默认 deferred。"
+        "尚缺覆盖现行默认 Deferred、轮转及重启接续的具名真实运行证据；源码追踪与文档检查不构成本需求的完成判定。"
       ],
       "satisfied": false,
-      "note": "定义冲突未解决：本需求原文要求默认 deferred；领域正文 §57.3、B58 原文与 AW13 规定未处置为 ignored + 理由，显式 deferred 才留队。当前 dispositions_for_events() 实现后者。保留两份原定义及迁移来源，不改写 R152，不以该实现宣称本需求满足。",
+      "note": "现行 subject-runtime.md#subject-interactive-ingress-20261117 修订明确取代旧的自动 Ignored 行为：dispositions_for_events() 对未明确处置的输入记录系统 Deferred 和无主体决定的理由；Store::pending_inbox_events() 在 LIMIT 前过滤复查时间与来源暂停，并按处置提交轮转；hold_paused_sources() 将暂停输入保存在持久队列。R152、§57.3/B58/AW13 的历史定义及迁移来源保持原文，不将源码实现提升为真实运行通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-subject/src/loop_runner.rs:264",
@@ -10429,7 +10429,8 @@
         "docs/specs/cognition-units.md#spec-45-14"
       ],
       "crates/shenko-store/src/raw_session.rs#Store::pending_inbox_events": [
-        "docs/specs/subject-runtime.md#spec-57-3"
+        "docs/specs/subject-runtime.md#spec-57-3",
+        "docs/specs/subject-runtime.md#subject-interactive-ingress-20261117"
       ],
       "crates/shenko-store/src/raw_session.rs#Store::record_runtime_error": [
         "docs/specs/cognition-units.md#spec-45-14"
@@ -11143,7 +11144,8 @@
       "crates/shenko-subject/src/loop_runner.rs#dispositions_for_events": [
         "docs/specs/subject-runtime.md#spec-41-5",
         "docs/specs/subject-runtime.md#spec-5-1",
-        "docs/specs/subject-runtime.md#spec-57-3"
+        "docs/specs/subject-runtime.md#spec-57-3",
+        "docs/specs/subject-runtime.md#subject-interactive-ingress-20261117"
       ],
       "crates/shenko-subject/src/loop_runner.rs#execute_step": [
         "docs/specs/cognition-units.md#spec-51-1",
@@ -11164,7 +11166,8 @@
       ],
       "crates/shenko-subject/src/loop_runner.rs#hold_paused_sources": [
         "docs/specs/subject-runtime.md#spec-13-8",
-        "docs/specs/subject-runtime.md#spec-57-3"
+        "docs/specs/subject-runtime.md#spec-57-3",
+        "docs/specs/subject-runtime.md#subject-interactive-ingress-20261117"
       ],
       "crates/shenko-subject/src/loop_runner.rs#retry_continuation": [
         "docs/specs/durable-state.md#spec-10-6",

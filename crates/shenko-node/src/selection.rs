@@ -9,7 +9,7 @@
 
 use super::{Identity, Node, NodeCapabilityProfile, digest, text};
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{ids::EntityId, object::Digest};
 
@@ -345,7 +345,7 @@ impl Node {
         ensure!(!self.failed, "node requires reopen after storage failure");
         selection.validate()?;
         let seal = digest(&(RECEIPT_SCHEMA, &selection))?;
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some((node, subject)) = binding {
             Self::check_selection_subject(&tx, node, subject)?;
         }
@@ -434,7 +434,7 @@ mod tests {
         // Simulate the identity commit of an administrative adoption on another
         // connection. This is a storage interleaving fixture, not a full Join
         // test or a claim that this test artifact is a bound deployed build.
-        let tx = other.conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        let tx = other.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).unwrap();
         tx.execute("UPDATE meta SET v=?1 WHERE k='identity'", [text(&Some(adopted)).unwrap()]).unwrap();
         tx.commit().unwrap();
         // Old in-memory adapter is no authority after identity changes.

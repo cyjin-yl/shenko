@@ -18,7 +18,7 @@
 //! does not match the token for "我的深刻记忆". This limitation is deliberate
 //! and covered by tests.
 use chrono::Utc;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, params, params_from_iter, types::Value};
 use serde::{Deserialize, Serialize};
 
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
@@ -31,6 +31,16 @@ use crate::store::Store;
 const ENTRY_COLUMNS: &str = "m.entry_id, m.agent_id, m.kind, m.content, m.source_ref, \
      m.source, m.applicability, m.confidence, m.scope, m.record_revision, m.created_at_ms, \
      m.updated_commit_seq, m.deleted, m.superseded_by, m.supersedes, m.git_commit, m.git_path";
+
+/// Predicates of a memory query. Every predicate is applied in SQL before
+/// ranking and LIMIT, so unrelated owners/kinds/scopes cannot consume slots.
+#[derive(Debug, Default)]
+pub struct MemoryQueryFilter<'a> {
+    pub agent_id: Option<EntityId>,
+    pub knowledge_kinds: &'a [String],
+    pub scopes: &'a [String],
+    pub include_retired: bool,
+}
 
 /// A persisted memory record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1116,80 +1126,80 @@ impl Store {
         limit: usize,
         including_retired: bool,
     ) -> Result<Vec<MemoryEntry>, ShenkoError> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-        if contains_cjk(query) {
-            return self.search_memory_like(query, limit, including_retired);
-        }
-        match self.search_memory_fts(query, limit, including_retired) {
-            Ok(entries) => Ok(entries),
-            Err(e) => {
-                tracing::debug!(error = %e, "FTS5 memory search failed; using LIKE fallback");
-                self.search_memory_like(query, limit, including_retired)
+        if query.trim().is_empty() { return Ok(Vec::new()); }
+        self.query_memory(Some(query), &MemoryQueryFilter {
+            include_retired: including_retired, ..Default::default()
+        }, limit)
+    }
+
+    /// Scoped recall, or newest matching entries when `text` is absent/blank.
+    /// Forgotten and superseded facts are both included by `include_retired`.
+    pub fn query_memory(
+        &self,
+        text: Option<&str>,
+        filter: &MemoryQueryFilter<'_>,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>, ShenkoError> {
+        let query = text.map(str::trim).filter(|query| !query.is_empty());
+        if let Some(query) = query.filter(|query| !contains_cjk(query)) {
+            match self.query_memory_entries(Some(query), filter, limit, true) {
+                Ok(entries) => return Ok(entries),
+                Err(error) => tracing::debug!(%error, "FTS5 memory search failed; using LIKE fallback"),
             }
         }
+        self.query_memory_entries(query, filter, limit, false)
     }
 
-    fn search_memory_fts(
+    fn query_memory_entries(
         &self,
-        query: &str,
+        query: Option<&str>,
+        filter: &MemoryQueryFilter<'_>,
         limit: usize,
-        including_retired: bool,
+        fts: bool,
     ) -> Result<Vec<MemoryEntry>, ShenkoError> {
-        // Quoting makes user input a phrase and avoids FTS5 query syntax errors.
-        let quoted = format!("\"{}\"", query.replace('"', "\"\""));
-        let retired = if including_retired { "" } else { " AND m.superseded_by IS NULL" };
-        let sql = format!(
-            "SELECT {ENTRY_COLUMNS}
-               FROM memory_entries_fts f
-               JOIN memory_entries m ON m.rowid = f.rowid
-              WHERE memory_entries_fts MATCH ?1 AND m.deleted = 0{retired}
-              ORDER BY rank
-              LIMIT ?2"
-        );
-        self.query_entries(&sql, params![quoted, limit as i64])
-    }
-
-    fn search_memory_like(
-        &self,
-        query: &str,
-        limit: usize,
-        including_retired: bool,
-    ) -> Result<Vec<MemoryEntry>, ShenkoError> {
-        let retired = if including_retired { "" } else { " AND m.superseded_by IS NULL" };
-        let sql = format!(
-            "SELECT {ENTRY_COLUMNS}
-               FROM memory_entries m
-              WHERE m.deleted = 0{retired} AND m.content LIKE ?1 ESCAPE '\\'
-              ORDER BY m.created_at_ms DESC, m.rowid DESC
-              LIMIT ?2"
-        );
-        self.query_entries(&sql, params![like_pattern(query), limit as i64])
+        let mut predicates = vec!["1".to_string()];
+        let mut values: Vec<Value> = Vec::new();
+        if !filter.include_retired {
+            predicates.push("m.deleted = 0 AND m.superseded_by IS NULL".into());
+        }
+        if let Some(agent_id) = filter.agent_id {
+            predicates.push("m.agent_id = ?".into());
+            values.push(agent_id.to_string().into());
+        }
+        for (column, selected) in [("m.kind", filter.knowledge_kinds), ("m.scope", filter.scopes)] {
+            if !selected.is_empty() {
+                let placeholders = vec!["?"; selected.len()].join(",");
+                predicates.push(format!("{column} IN ({placeholders})"));
+                values.extend(selected.iter().cloned().map(Value::from));
+            }
+        }
+        let (from, order) = if fts {
+            ("memory_entries_fts f JOIN memory_entries m ON m.rowid = f.rowid", "rank, m.rowid DESC")
+        } else {
+            ("memory_entries m", "m.created_at_ms DESC, m.rowid DESC")
+        };
+        if let Some(query) = query {
+            if fts {
+                predicates.push("memory_entries_fts MATCH ?".into());
+                values.push(format!("\"{}\"", query.replace('"', "\"\"")).into());
+            } else {
+                predicates.push("m.content LIKE ? ESCAPE '\\'".into());
+                values.push(like_pattern(query).into());
+            }
+        }
+        values.push(i64::try_from(limit).unwrap_or(i64::MAX).into());
+        let sql = format!("SELECT {ENTRY_COLUMNS} FROM {from} WHERE {} ORDER BY {order} LIMIT ?", predicates.join(" AND "));
+        self.query_entries(&sql, params_from_iter(values))
     }
 
     /// Most recent live memory entries, newest first.
     pub fn list_memory(&self, limit: usize) -> Result<Vec<MemoryEntry>, ShenkoError> {
-        let sql = format!(
-            "SELECT {ENTRY_COLUMNS}
-               FROM memory_entries m
-              WHERE m.deleted = 0 AND m.superseded_by IS NULL
-              ORDER BY m.created_at_ms DESC, m.rowid DESC
-              LIMIT ?1"
-        );
-        self.query_entries(&sql, params![limit as i64])
+        self.query_memory(None, &MemoryQueryFilter::default(), limit)
     }
 
     /// Most recent entries regardless of tombstone or supersession status.
     pub fn list_memory_including_retired(&self, limit: usize) -> Result<Vec<MemoryEntry>, ShenkoError> {
-        let sql = format!(
-            "SELECT {ENTRY_COLUMNS}
-               FROM memory_entries m
-              ORDER BY m.created_at_ms DESC, m.rowid DESC
-              LIMIT ?1"
-        );
-        self.query_entries(&sql, params![limit as i64])
+        self.query_memory(None, &MemoryQueryFilter { include_retired: true, ..Default::default() }, limit)
     }
 
     /// Read one entry by id, including semantically forgotten rows.
@@ -1469,7 +1479,7 @@ mod tests {
             }
             let original = MemoryEntry::new(agent, "quick brown fox");
             store.insert_memory_entry(&original).unwrap();
-            assert_eq!(store.search_memory_fts("quick", 5, false).unwrap().len(), 1);
+            assert_eq!(store.query_memory_entries(Some("quick"), &MemoryQueryFilter::default(), 5, true).unwrap().len(), 1);
 
             // Re-saving the same entry_id must reindex: the old text becomes
             // unsearchable and the FTS index stays consistent (upsert fires
@@ -1478,8 +1488,8 @@ mod tests {
             revised.entry_id = original.entry_id;
             revised.record_revision = 1;
             store.insert_memory_entry(&revised).unwrap();
-            assert!(store.search_memory_fts("quick", 5, false).unwrap().is_empty());
-            assert_eq!(store.search_memory_fts("lazy", 5, false).unwrap().len(), 1);
+            assert!(store.query_memory_entries(Some("quick"), &MemoryQueryFilter::default(), 5, true).unwrap().is_empty());
+            assert_eq!(store.query_memory_entries(Some("lazy"), &MemoryQueryFilter::default(), 5, true).unwrap().len(), 1);
             {
                 let conn = store.ledger.conn.lock();
                 conn.execute_batch(

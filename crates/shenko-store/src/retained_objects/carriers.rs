@@ -71,6 +71,8 @@ pub(super) fn readable_row(value: &Value, origin: &RetentionOrigin) -> bool {
             version_one::<crate::native_evidence_delivery::NativeEvidenceDeliveryRecord>(value),
         ("native_evidence_seal_debts", "data") =>
             version_one::<crate::native_evidence::NativeEvidenceSealDebt>(value),
+        ("local_model_health", "data") =>
+            version_one::<crate::local_model_health::LocalModelHealthHead>(value),
         ("local_installation_provisioning", "data") =>
             version_one::<crate::local_installation::LocalInstallationProvisioning>(value),
         ("reconciliation_cases", "data") => readable::<shenko_types::evidence::ReconciliationCase>(value),

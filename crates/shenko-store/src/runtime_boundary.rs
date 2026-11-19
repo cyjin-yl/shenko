@@ -115,7 +115,7 @@ impl Store {
         request_id: EntityId,
     ) -> Result<SubjectQuiesce, ShenkoError> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(agent_id))?;
@@ -255,7 +255,15 @@ impl Store {
         agent_id: EntityId,
         request_id: EntityId,
     ) -> Result<SubjectQuiesce, ShenkoError> {
-        self.ledger.with_mutation(|| {
+        let permit = self.ledger.acquire_installation(true)?;
+        self.resume_subject_quiesce_under(agent_id, request_id, permit.as_ref())
+    }
+
+    /// Handoff recovery proves the original selection was never committed
+    /// before borrowing its cutover reservation to resume this exact boundary.
+    pub fn resume_subject_quiesce_under(&self, agent_id: EntityId, request_id: EntityId,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<SubjectQuiesce, ShenkoError> {
+        self.ledger.with_mutation_under(permit, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let mut record = read_request(&tx, request_id)?

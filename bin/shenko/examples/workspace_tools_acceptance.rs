@@ -757,7 +757,7 @@ async fn run(args: Args) -> Result<()> {
             "checkout_status_at_run":checkout_fact(&["status","--porcelain=v1","--untracked-files=normal"]),
             "binary_sha256":executable_sha256()?,
             "compiled_runner_digest":Digest::blake3(include_bytes!("workspace_tools_acceptance.rs")),
-            "workspace_implementation_digest":shenko_exec_host::workspace_tools::implementation_digest(),
+            "workspace_implementation_digest":shenko_exec_host::workspace_tools::implementation_digest()?,
             "compiled_subject_prompt_source_digest":Digest::blake3(include_bytes!("../../../crates/shenko-subject/src/lib.rs")),
             "compiled_subject_parser_digest":Digest::blake3(include_bytes!("../../../crates/shenko-subject/src/output.rs")),
             "compiled_child_digest":Digest::blake3(include_bytes!("../../../crates/shenko-subject/src/model_child.rs")),

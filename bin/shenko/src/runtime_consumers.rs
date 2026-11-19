@@ -46,21 +46,28 @@ impl RuntimeConsumers {
         Self { cancel: consumer_cancel, dispatcher_task, replication_task, _stop_on_exit: _consumer_stop_on_exit }
     }
 
-    pub(crate) async fn stop(self, authority_runtime: &RuntimeAuthority) -> Result<()> {
-        let Self { cancel: consumer_cancel, dispatcher_task, replication_task, _stop_on_exit } = self;
+    pub(crate) async fn stop(self, _authority_runtime: &RuntimeAuthority) -> Result<()> {
+        let Self { cancel: consumer_cancel, mut dispatcher_task, mut replication_task, _stop_on_exit } = self;
         consumer_cancel.cancel();
-        match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
-            Ok(Ok(Ok(()))) => {},
-            Ok(Ok(Err(error))) => return Err(error),
-            Ok(Err(error)) => return Err(error.into()),
-            Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
-        }
-        if authority_runtime.recovery_required().is_some() {
-            match tokio::time::timeout(std::time::Duration::from_secs(2), replication_task).await {
-                Ok(joined) => joined?,
-                Err(_) => tracing::warn!("replication drain pending; retained sync debt will resume"),
+        // A diagnostic deadline does not end either writer. Keep the actual
+        // handles and join both even when the other consumer returned an error.
+        let dispatcher = match tokio::time::timeout(std::time::Duration::from_secs(2), &mut dispatcher_task).await {
+            Ok(joined) => joined,
+            Err(_) => {
+                tracing::warn!("dispatcher stop pending after 2s; waiting for its actual writer to finish");
+                dispatcher_task.await
             }
-        } else { replication_task.await?; }
-        Ok(())
+        }.map_err(anyhow::Error::from).and_then(std::convert::identity);
+        let replication = match tokio::time::timeout(std::time::Duration::from_secs(2), &mut replication_task).await {
+            Ok(joined) => joined,
+            Err(_) => {
+                tracing::warn!("replication stop pending after 2s; waiting for its actual writer to finish");
+                replication_task.await
+            }
+        }.map_err(anyhow::Error::from);
+        match (dispatcher, replication) {
+            (Ok(()), result) | (result, Ok(())) => result,
+            (Err(error), Err(cleanup)) => Err(error.context(format!("replication teardown also failed: {cleanup:#}"))),
+        }
     }
 }

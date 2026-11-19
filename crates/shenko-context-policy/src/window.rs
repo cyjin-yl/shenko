@@ -93,29 +93,51 @@ fn identities<'a>(
 impl CommittedWindow {
     pub(crate) fn effective_entries(&self, history: &dyn HistorySource) -> Result<Vec<WindowEntry>, StorageError> {
         let entries = self.materialize(history)?;
-        let raw = match history.leaf_seq()? {
-            Some(leaf) => history.read_range(0, leaf)?,
+        // A verbatim window already resolves current execution status when
+        // each visible event is read; only lossy ranges need rehydration.
+        let lossy: Vec<_> = entries.iter().filter_map(|entry| lossy_range(entry).transpose())
+            .collect::<Result<_, _>>()?;
+        if lossy.is_empty() { return Ok(entries); }
+        let calls = match history.leaf_seq()? {
+            Some(leaf) => history.call_items(leaf)?,
             None => Vec::new(),
         };
-        let current_states = call_states(&raw);
-        let mut changed = unresolved_calls(&raw);
+        let current_states = call_states(&calls);
+        let mut changed = unresolved_calls(&calls);
         for (call_id, states) in &current_states {
-            if self.call_states.get(call_id) != Some(states) {
-                changed.insert(call_id.clone());
-            }
+            if self.call_states.get(call_id) != Some(states) { changed.insert(call_id.clone()); }
         }
-        let mut restore = BTreeSet::new();
-        if !changed.is_empty() {
-            for range in units(&raw) {
-                if raw[range.clone()].iter().any(|item| match &item.kind {
+        // Pairing only needs ordered call metadata. Numeric endpoints keep
+        // all ordinary/interleaved events inside the indivisible unit.
+        let mut restore_ranges = Vec::new();
+        for unit in units(&calls) {
+            let slice = &calls[unit];
+            let (Some(first), Some(last)) = (slice.first(), slice.last()) else {
+                return Err(StorageError("call metadata unit is empty".into()));
+            };
+            let (from, to) = (first.at.seq, last.at.seq);
+            if lossy.iter().any(|(start, end)| from <= *end && to >= *start)
+                && slice.iter().any(|item| match &item.kind {
                     ItemKind::ToolCall { call_id, .. } | ItemKind::ToolResult { call_id, .. } => changed.contains(call_id),
                     _ => false,
-                }) {
-                    restore.extend(raw[range].iter().map(|item| item.at.seq));
-                }
-            }
+                }) { restore_ranges.push((from, to)); }
         }
-        if restore.is_empty() { Ok(entries) } else { rehydrate(entries, &raw, &restore) }
+        if restore_ranges.is_empty() { return Ok(entries); }
+        let mut fetch_ranges = coalesce(restore_ranges.clone());
+        loop {
+            let mut expanded = fetch_ranges.clone();
+            expanded.extend(lossy.iter().copied().filter(|(from, to)|
+                fetch_ranges.iter().any(|(start, end)| from <= end && to >= start)));
+            let expanded = coalesce(expanded);
+            if expanded == fetch_ranges { break; }
+            fetch_ranges = expanded;
+        }
+        let mut raw = Vec::new();
+        for (from, to) in fetch_ranges { raw.extend(history.read_range(from, to)?); }
+        let restore: BTreeSet<_> = raw.iter().filter(|item|
+            restore_ranges.iter().any(|(from, to)| *from <= item.at.seq && item.at.seq <= *to)
+        ).map(|item| item.at.seq).collect();
+        rehydrate(entries, &raw, &restore)
     }
 }
 
@@ -418,7 +440,7 @@ impl WindowLedger {
             return Err(CommitError::LeafAhead { prepared: prepared.base.leaf_seq, leaf });
         }
 
-        let call_states = call_states(&history.read_range(0, prepared.base.leaf_seq)?);
+        let call_states = call_states(&history.call_items(prepared.base.leaf_seq)?);
         let previous = current.effective_entries(history)?;
         let mut window = CommittedWindow {
             id: EntityId::new(),

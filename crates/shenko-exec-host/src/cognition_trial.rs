@@ -64,10 +64,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-const TRIAL_CONTRACT: &[u8] = b"shenko.cognition.unit.trial/v1: finite sandbox comparison of one frozen authored candidate against a candidate-absent baseline; metered inference, no external effects";
+const TRIAL_CONTRACT: &[u8] = b"shenko.cognition.unit.trial/v1: finite sandbox comparison of one frozen authored candidate against a candidate-absent baseline; metered inference, per-slot deadlines, counterbalanced order, conservative coverage-aware verdict, no external effects";
 const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
 /// The default wall-clock budget of one trial.
-pub const DEFAULT_TRIAL_DEADLINE_MS: u64 = 120_000;
+pub const DEFAULT_TRIAL_DEADLINE_MS: u64 = 480_000;
 /// The largest wall-clock budget one trial may take.
 pub const MAX_TRIAL_DEADLINE_MS: u64 = 900_000;
 /// The largest number of trials per condition one trial may run.
@@ -109,7 +109,7 @@ pub struct TrialSpec {
 }
 
 fn default_trials() -> usize {
-    1
+    4
 }
 
 fn default_deadline() -> u64 {
@@ -195,6 +195,18 @@ pub struct ConditionTotals {
     /// reported next to it: a rate over a smaller denominator never hides the
     /// attempts that did not make it.
     pub rate_over_scored: f64,
+    /// Fraction of all planned slots with a judge verdict. Failed and
+    /// unstarted slots remain unknown observations, never negative labels.
+    #[serde(default)]
+    pub scored_coverage: f64,
+    /// Conservative Wilson 95% bounds across all planned slots: the lower
+    /// endpoint treats unknown outcomes as ineffective, the upper endpoint
+    /// treats them as effective. These are measurement bounds, not a claim
+    /// that model judgements or scenario choices are independent/unbiased.
+    #[serde(default)]
+    pub effect_lower: f64,
+    #[serde(default)]
+    pub effect_upper: f64,
 }
 
 /// One scenario's comparison.
@@ -835,9 +847,10 @@ async fn join_trial_task<E: std::fmt::Display>(
     handle: &mut Option<tokio::task::JoinHandle<std::result::Result<(), E>>>,
     execution_failures: &mut Vec<String>,
     failures: &mut Vec<String>,
+    stop: tokio::time::Instant,
 ) {
     let Some(mut handle) = handle.take() else { return };
-    match tokio::time::timeout(Duration::from_secs(30), &mut handle).await {
+    match tokio::time::timeout_at(stop.min(tokio::time::Instant::now() + Duration::from_secs(30)), &mut handle).await {
         Ok(Ok(Ok(()))) => {}
         Ok(Ok(Err(error))) => execution_failures.push(format!("{name}: {error:#}")),
         Ok(Err(error)) => failures.push(format!("{name} join: {error}")),
@@ -849,7 +862,7 @@ async fn join_trial_task<E: std::fmt::Display>(
                 Ok(Err(error)) => format!("task failed: {error:#}"),
                 Ok(Ok(())) => "task completed while aborting".into(),
             };
-            failures.push(format!("{name} shutdown exceeded 30s; {outcome}; admitted broker/provider requests retain their original receipts"));
+            failures.push(format!("{name} shutdown exceeded its remaining sample window; {outcome}; admitted broker/provider requests retain their original receipts"));
         }
     }
 }
@@ -964,12 +977,17 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
     let mut failures = Vec::new();
     let mut execution_failures = Vec::new();
     subject_stopping.cancel();
+    // Stop new plugin work even when the remaining window is too short to
+    // confirm the hook/fiber teardown barrier. Unknown cleanup is reported.
+    supervisor.lifecycle.shutdown();
     inbox.close().await;
-    join_trial_task("sandbox subject", &mut subject_task, &mut execution_failures, &mut failures).await;
     dispatcher_cancel.cancel();
-    join_trial_task("sandbox dispatcher", &mut dispatcher_task, &mut execution_failures, &mut failures).await;
-    if let Err(error) = supervisor.stop().await {
-        failures.push(format!("sandbox supervisor shutdown: {error:#}"));
+    join_trial_task("sandbox subject", &mut subject_task, &mut execution_failures, &mut failures, stop).await;
+    join_trial_task("sandbox dispatcher", &mut dispatcher_task, &mut execution_failures, &mut failures, stop).await;
+    match tokio::time::timeout_at(stop, supervisor.stop()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => failures.push(format!("sandbox supervisor shutdown: {error:#}")),
+        Err(_) => failures.push("sandbox supervisor shutdown exceeded the sample window; local cleanup is unconfirmed and admitted provider requests retain their original receipts".into()),
     }
     let primary = if execution_failures.is_empty() {
         primary
@@ -1012,54 +1030,50 @@ fn totals_of(samples: &[TrialSample], condition: Condition) -> ConditionTotals {
     } else {
         totals.effective as f64 / totals.scored as f64
     };
+    totals.scored_coverage = if totals.attempted == 0 { 0.0 }
+        else { totals.scored as f64 / totals.attempted as f64 };
+    let unknown = totals.attempted.saturating_sub(totals.scored);
+    totals.effect_lower = wilson_bounds(totals.effective, totals.attempted).0;
+    totals.effect_upper = wilson_bounds(totals.effective + unknown, totals.attempted).1;
     totals
 }
 
-/// The verdict of one comparison.
-///
-/// The verdict needs at least one scored attempt per condition. Without one
-/// the trial is inconclusive: an unmeasured comparison is not a negative
-/// result and not a positive one.
+/// Wilson 95% interval for a binary measurement. Applying its lower endpoint
+/// with no unknown successes and its upper endpoint with every unknown a
+/// success prevents selective infrastructure survival from proving benefit.
+fn wilson_bounds(successes: usize, total: usize) -> (f64, f64) {
+    if total == 0 { return (0.0, 1.0); }
+    let n = total as f64;
+    let p = successes as f64 / n;
+    let z = 1.959_963_984_540_054;
+    let z2 = z * z;
+    let center = p + z2 / (2.0 * n);
+    let radius = z * (p * (1.0 - p) / n + z2 / (4.0 * n * n)).sqrt();
+    let scale = 1.0 + z2 / n;
+    (((center - radius) / scale).max(0.0), ((center + radius) / scale).min(1.0))
+}
+
+/// A positive or negative comparison needs separated conservative bounds.
+/// A scored-only rate remains diagnostic; unknown outcomes and small samples
+/// cannot become evidence of improvement merely by disappearing from it.
 fn verdict_of(candidate: &ConditionTotals, control: &ConditionTotals) -> (&'static str, String) {
-    if candidate.scored == 0 || control.scored == 0 {
-        return (
-            "inconclusive",
-            format!(
-                "the comparison has no scored attempt on one side (candidate scored {} of {}, control scored {} of {}); started failures: candidate {}, control {}; unstarted slots: candidate {}, control {}",
-                candidate.scored,
-                candidate.attempted,
-                control.scored,
-                control.attempted,
-                candidate.failed,
-                control.failed,
-                candidate.unstarted,
-                control.unstarted
-            ),
-        );
-    }
-    let verdict = if candidate.rate_over_scored > control.rate_over_scored {
+    let verdict = if candidate.scored == 0 || control.scored == 0 {
+        "inconclusive"
+    } else if candidate.effect_lower > control.effect_upper {
         "supported"
-    } else {
+    } else if candidate.effect_upper < control.effect_lower {
         "not_supported"
+    } else {
+        "inconclusive"
     };
-    (
-        verdict,
-        format!(
-            "the candidate was effective in {} of {} scored attempts ({:.3}) against {} of {} ({:.3}) without it; attempted candidate {}, control {}; started failures: candidate {}, control {}; unstarted slots: candidate {}, control {}",
-            candidate.effective,
-            candidate.scored,
-            candidate.rate_over_scored,
-            control.effective,
-            control.scored,
-            control.rate_over_scored,
-            candidate.attempted,
-            control.attempted,
-            candidate.failed,
-            control.failed,
-            candidate.unstarted,
-            control.unstarted
-        ),
-    )
+    (verdict, format!(
+        "conservative Wilson 95% bounds over all planned slots: candidate [{:.3}, {:.3}], control [{:.3}, {:.3}]; unknown outcomes range from ineffective to effective, not negative labels; effective candidate {} of {} scored ({:.3}), control {} of {} ({:.3}); attempted candidate {}, control {}; scored coverage candidate {:.3}, control {:.3}; started failures: candidate {}, control {}; unstarted slots: candidate {}, control {}; supported requires candidate lower > control upper, not_supported requires candidate upper < control lower, overlapping bounds are inconclusive; local model judgements and supplied scenarios do not prove general effectiveness",
+        candidate.effect_lower, candidate.effect_upper, control.effect_lower, control.effect_upper,
+        candidate.effective, candidate.scored, candidate.rate_over_scored,
+        control.effective, control.scored, control.rate_over_scored,
+        candidate.attempted, control.attempted, candidate.scored_coverage, control.scored_coverage,
+        candidate.failed, control.failed, candidate.unstarted, control.unstarted,
+    ))
 }
 
 /// Make one label safe for a directory name.
@@ -1100,10 +1114,9 @@ pub async fn run_sandbox_trial(
     run_prepared_trial(store, broker, sandbox_root, spec, prepared).await
 }
 
-/// The smallest window one planned attempt is given. The pair budget still
-/// caps the sum, so this only matters when a caller asks for more samples
-/// than its budget can fund.
-const MIN_SAMPLE_WINDOW_MS: u64 = 1_000;
+/// Millisecond precision must not inflate a slot to a one-second minimum
+/// and steal the remaining conditions' share of a small overall budget.
+const MIN_SAMPLE_WINDOW_MS: u64 = 1;
 
 /// The window each planned attempt of one comparison gets.
 ///
@@ -1117,6 +1130,16 @@ const MIN_SAMPLE_WINDOW_MS: u64 = 1_000;
 fn sample_window(deadline_ms: u64, planned: usize) -> Duration {
     let slots = u64::try_from(planned.max(1)).unwrap_or(u64::MAX);
     Duration::from_millis((deadline_ms / slots).max(MIN_SAMPLE_WINDOW_MS))
+}
+
+/// Alternate which condition goes first across repetitions and scenarios.
+/// The order is deterministic and recorded by the ordered sample receipts.
+fn condition_order(scenario: usize, trial: usize) -> [Condition; 2] {
+    if (scenario + trial).is_multiple_of(2) {
+        [Condition::Candidate, Condition::Control]
+    } else {
+        [Condition::Control, Condition::Candidate]
+    }
 }
 
 async fn run_prepared_trial(
@@ -1137,13 +1160,12 @@ async fn run_prepared_trial(
     let mut samples: Vec<TrialSample> = Vec::new();
     let mut scenarios: Vec<ScenarioReport> = Vec::new();
 
-    for scenario in &spec.scenarios {
+    for (scenario_index, scenario) in spec.scenarios.iter().enumerate() {
         let message_digest = Digest::blake3(scenario.message.as_bytes()).0;
         let rubric_digest = Digest::blake3(scenario.rubric.as_bytes()).0;
         let mut scenario_samples: Vec<TrialSample> = Vec::new();
         for trial in 0..trials {
-            for condition in [Condition::Candidate, Condition::Control] {
-                let sample_stop = (tokio::time::Instant::now() + window).min(stop);
+            for condition in condition_order(scenario_index, trial) {
                 scenario_samples.push(run_trial_sample(&store, &broker, &prepared,
                     &sandbox_root, scenario, condition, trial, stop, window).await);
             }
@@ -1168,7 +1190,7 @@ async fn run_prepared_trial(
     let (verdict, reason) = verdict_of(&candidate_totals, &control_totals);
     let shenko_node::UnitExport { root_unit_id, root_revision, root_artifact_digest, .. } = prepared.export;
     Ok(TrialReport {
-        schema_version: 2,
+        schema_version: 3,
         unit_id: root_unit_id,
         revision: root_revision.context("the frozen root revision is absent")?,
         artifact_digest: root_artifact_digest.context("the frozen root artifact is absent")?.0,
@@ -1228,7 +1250,7 @@ async fn run_trial_sample(
     // A slot whose window was already over when the previous attempt ended
     // never runs. It is reported as an unstarted attempt, not counted as a
     // measurement of either condition.
-    if tokio::time::Instant::now() >= stop {
+    if tokio::time::Instant::now() >= sample_stop {
         sample.verdict = "unstarted".into();
         sample.failure = Some("the trial budget was exhausted before this attempt".into());
         return sample;
@@ -1239,8 +1261,9 @@ async fn run_trial_sample(
             sanitize(&scenario.name), condition.as_str(), EntityId::new()));
         let (catalog, installation_ref) = prepare_condition(store, prepared, condition, &root)?;
         sample.installation_ref = Some(installation_ref);
+        ensure!(tokio::time::Instant::now() < sample_stop, "condition preparation exceeded the sample deadline");
         let label = format!("{}-{}", sanitize(&scenario.name), condition.as_str());
-        let observation = committed_output(&label, &root, broker, catalog, &scenario.message, stop).await?;
+        let observation = committed_output(&label, &root, broker, catalog, &scenario.message, sample_stop).await?;
         sample.output_excerpt = Some(observation.output.text.chars().take(240).collect());
         let installation_ref = sample.installation_ref.as_ref().context("condition receipt is absent")?;
         let receipt = seal_trial_object(store, &SampleObservation {
@@ -1254,7 +1277,7 @@ async fn run_trial_sample(
             scenario: &scenario.name, condition, trial,
         };
         judge(Arc::clone(store), broker, &scenario.rubric, &scenario.message,
-            &observation.output, &context, &mut sample.judge_receipt, stop).await
+            &observation.output, &context, &mut sample.judge_receipt, sample_stop).await
     }.await;
     match measured {
         Ok(JudgeVerdict::Effective(text)) => { sample.verdict = "effective".into(); sample.judge_text = text; }
@@ -1372,14 +1395,14 @@ impl CognitionTrialHandler {
         let contract_digest = Digest::blake3(TRIAL_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:cognition-unit-trial-v1".into(),
             },
             symbol: "cognition.unit.trial.execute".into(),
             schema: SchemaRef {
                 name: "cognition-trial-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("cognition-trial-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -1396,7 +1419,7 @@ impl CognitionTrialHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -1637,22 +1660,22 @@ impl CognitionTrialHandler {
 
 #[async_trait]
 impl NativeTaskHandler for CognitionTrialHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "cognition.unit.trial".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(TRIAL_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-trial/1".into(),
             authority_refs: vec!["cognition_unit.trial/v1".into()],
             prompt_section: Some(
-                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":1,\"deadline_ms\":180000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。失败、超时、评审出错都会被如实计入分母，样本不足时结论是 inconclusive 而不是通过。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
+                "cognition.unit.trial/v1 在真实沙箱里比较完整作者包和不含候选的对照安装：[delegate:cognition.unit.trial:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"scenarios\":[{\"name\":\"...\",\"message\":\"...\",\"rubric\":\"...\"}],\"trials_per_condition\":4,\"deadline_ms\":480000}。rubric 只给评审看，描述“这次输出体现了单元应有的判断”的判据；消息是你要试的真实场景。对照组不安装候选的任何版本，其余包和依赖选择保留，缺失候选造成的依赖边界如实留证；评审看不到哪一边。每个样本都有实际执行的等额 deadline，重复与场景交替先运行的条件。失败、超时、未启动和评审出错保留为未知，按全部计划样本计算保守 Wilson 95% 区间；只有候选下界高于对照上界才 supported，反向分离才 not_supported，其余为 inconclusive。scored-only 比率仅作诊断，单次每组 1 个样本通常不足以得到支持。结论只是本机这一次的测量，不是这个单元永远有效的证明。测完用 cognition.unit.judge:1 引用本次返回的 attempt_id 登记你的判断：认为有帮助就 adopt（需要的话同时 enable），认为没帮助就 reject；不登记时单元保持原状，写过的候选也仍然只是候选。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

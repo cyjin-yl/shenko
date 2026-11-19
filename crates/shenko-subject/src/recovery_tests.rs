@@ -317,6 +317,57 @@ async fn pending_backlog_larger_than_inbox_reaches_bounded_s0() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// Real Store/S0/S1 and queue mechanics. This does not claim a live model or
+/// interruptibility of an in-flight provider generation.
+#[tokio::test]
+async fn interactive_input_precedes_background_backlog_and_survives_a_blocked_subject() {
+    let (_dir, store, agent) = fixture();
+    let subject = state(Arc::clone(&store), agent).unwrap();
+    let inbox = Arc::clone(&subject.inbox);
+    let mut background = Vec::new();
+    for index in 0..70 {
+        let event = shenko_types::inbox::InboxEvent {
+            event_id: EntityId::new(),
+            kind: shenko_types::inbox::InboxEventKind::SystemEvent,
+            source: "background-progress".into(),
+            payload: serde_json::json!({"progress": index}),
+            created_at: chrono::Utc::now(),
+        };
+        store.retain_inbox_event(agent, &event).unwrap();
+        let _ = inbox.sender().try_send(event.clone());
+        background.push(event);
+    }
+    let interactive = shenko_types::inbox::InboxEvent { source: "web_ui".into(),
+        ..message("后台继续修改；先处理这条消息") };
+    store.retain_inbox_event(agent, &interactive).unwrap();
+    assert!(matches!(inbox.sender().try_send(interactive.clone()),
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_))));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5),
+        super::run_subject_loop_retaining_inbox(subject,
+            tokio_util::sync::CancellationToken::new())).await.unwrap();
+    assert!(result.is_err(), "fixture has no broker; its durable S0 remains inspectable");
+    assert!(!inbox.sender().is_closed(), "one failed incarnation must not close ingress");
+    let (_, step) = store.load_subject(agent).unwrap();
+    let input = super::frozen_input(&store, &step).unwrap();
+    assert_eq!(input.events[0].event_id, interactive.event_id);
+    assert_eq!(input.events.len(), 64);
+    let mut reopened = state(Arc::clone(&store), agent).unwrap();
+    record_result(&store, &mut reopened, &format!("[dispose] {}", serde_json::json!({
+        "event_id": interactive.event_id, "disposition": "acknowledged",
+    })));
+    execute_step(1, &[], &mut reopened, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert!(store.event_disposition_commit(agent, interactive.event_id).unwrap().is_some());
+    assert_eq!(store.pending_inbox_events(agent, 100).unwrap().len(), background.len(),
+        "background progress remains durable, including the unmentioned inputs");
+    let next = shenko_types::inbox::InboxEvent { source: "web_ui".into(), ..message("又一条即时消息") };
+    store.retain_inbox_event(agent, &next).unwrap();
+    assert_eq!(store.pending_inbox_events(agent, 1).unwrap()[0].0, next.event_id);
+    // Within the non-interactive class, never-presented work precedes deferred
+    // work and the latter rotates by its last presentation commit.
+    let rotated = store.pending_inbox_events(agent, 100).unwrap();
+    assert_eq!(rotated[1].0, background[63].event_id);
+}
+
 #[tokio::test]
 async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     use shenko_broker::{provider::AnthropicProvider, request::*};
@@ -399,6 +450,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let input = super::FrozenStepInput {
         schema_version: 14, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
+        child_provider_bindings: None,
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
         identity: subject.identity.clone(),
@@ -494,7 +546,8 @@ async fn withdrawal_after_delivery_before_staging_excludes_original_through_s1_a
     assert_eq!(sealed.context.source.input_raw_event_ids.len(), 1);
     assert!(store.first_subject_input(agent, original.event_id).unwrap().is_none());
     assert!(store.event_disposition_commit(agent, original.event_id).unwrap().is_none());
-    record_result(&store, &mut subject, "replacement observed");
+    record_result(&store, &mut subject, &format!("replacement observed\n[dispose] {}",
+        serde_json::json!({"event_id":replacement.event_id,"disposition":"acknowledged"})));
     let committed = execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().unwrap();
     assert_eq!(store.event_disposition_commit(agent, replacement.event_id).unwrap(), Some(committed));
@@ -696,7 +749,8 @@ async fn deferred_channel_restage_preserves_first_projection() -> anyhow::Result
     assert_eq!(super::frozen_input(&store, &subject.step)?.request_id, request_id);
     // A deterministic recorded result exercises real S1; it makes no claim
     // about a model understanding the attribution.
-    record_result(&store, &mut subject, "retain the first conversation original");
+    record_result(&store, &mut subject, &format!("retain the first conversation original\n[dispose] {}",
+        serde_json::json!({"event_id":original.event_id,"disposition":"acknowledged"})));
     let commit = execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await?.context("the recorded result commits the deferred input exactly once")?;
     assert_eq!(store.event_disposition_commit(agent, original.event_id)?, Some(commit));
@@ -917,9 +971,9 @@ fn prepared_contribution_text(subject: &mut SubjectLoopState, text: &str) -> (
 }
 
 #[tokio::test]
-async fn contribution_final_budget_rejects_underreported_body_before_s0() {
+async fn contribution_final_budget_rejects_underreported_body_before_s0() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(4096), vision: None,
     };
@@ -936,12 +990,13 @@ async fn contribution_final_budget_rejects_underreported_body_before_s0() {
     assert!(step.input_plan_ref.is_none());
     assert!(store.subject_request_attempts_for_step(agent, step_id).unwrap().is_empty());
     assert_eq!(registry.collect(&scope, 2).contributions, vec![item]);
+    Ok(())
 }
 
 #[test]
-fn contribution_final_budget_calibrates_complete_payload_without_double_charge() {
+fn contribution_final_budget_calibrates_complete_payload_without_double_charge() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut subject = state(store, agent).unwrap().with_broker(handle);
     let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
@@ -955,14 +1010,15 @@ fn contribution_final_budget_calibrates_complete_payload_without_double_charge()
     assert_eq!(prepared.context.estimated_input_tokens, Some(base + added));
     assert_eq!(prepared.context.budget_input_tokens, Some(base + 200));
     assert_eq!(prepared.contribution_tokens, 8);
+    Ok(())
 }
 
 #[test]
-fn contribution_final_budget_keeps_image_estimate() {
+fn contribution_final_budget_keeps_image_estimate() -> anyhow::Result<()> {
     use shenko_context_policy::{CostReport, Derivative, HistorySource, PolicyManifest,
         PreparedWindow, StoreHistory, WindowBase, WindowEntry, estimate_tokens};
     let (_dir, store, agent) = fixture();
-    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(16384),
         vision: Some(shenko_broker::request::ProviderVisionCaps { max_image_context: 4096, patch_px: 1 }),
@@ -995,6 +1051,7 @@ fn contribution_final_budget_keeps_image_estimate() {
     let expected = baseline.context.estimated_input_tokens.unwrap() + added;
     assert_eq!(prepared.context.estimated_input_tokens, Some(expected));
     assert_eq!(prepared.context.budget_input_tokens, Some(expected));
+    Ok(())
 }
 
 #[test]
@@ -1142,9 +1199,9 @@ async fn contribution_recovery_keeps_retired_and_correction_request_usage() {
 // Window preparation runs on the blocking pool, so this case needs the same
 // Tokio context the subject always has in production.
 #[tokio::test]
-async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
+async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut capabilities = shenko_broker::request::ProviderCapabilities {
         binding: binding.clone(), max_context_tokens: None, vision: None,
@@ -1211,7 +1268,7 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let profile = prepared.context.profile_digest.clone();
     let window_id = source.window_id;
     drop((subject, offline));
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let mut reopened = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     reopened.max_tokens = 10;
@@ -1221,12 +1278,13 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     assert_eq!(resumed.context.source.model_generation, source.model_generation);
     assert_eq!(resumed.context.source.window_generation, source.window_generation);
     drop((reopened, offline));
+    Ok(())
 }
 
 #[test]
-fn retained_calibrated_budget_over_limit_blocks_dispatch() {
+fn retained_calibrated_budget_over_limit_blocks_dispatch() -> anyhow::Result<()> {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let binding = handle.binding().clone();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(shenko_broker::request::ProviderCapabilities {
@@ -1242,12 +1300,13 @@ fn retained_calibrated_budget_over_limit_blocks_dispatch() {
     assert_eq!(subject.step.state, SubjectStepState::Planned);
     assert_eq!(subject.step.active_request_id, None);
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
+async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(4000), vision: None,
     };
@@ -1317,7 +1376,11 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     step.record_revision = RecordRevision(revision.0 + 1);
     store.upsert_step(&step, &subject.head, revision).unwrap();
     step.state = SubjectStepState::ResultRecorded;
-    step.model_result_ref = Some(store.cas.seal_object(b"batch understood", "text/plain", "model_results", "text", 1).unwrap().object);
+    let acknowledged = events.iter().map(|event| format!("[dispose] {}",
+        serde_json::json!({"event_id":event.event_id,"disposition":"acknowledged"})))
+        .collect::<Vec<_>>().join("\n");
+    step.model_result_ref = Some(store.cas.seal_object(format!("batch understood\n{acknowledged}").as_bytes(),
+        "text/plain", "model_results", "text", 1).unwrap().object);
     step.model_outcome_ref = Some(store.cas.seal_object(&serde_json::to_vec(&SubjectModelOutcome {
         schema_version: 2, request_id: step.active_request_id.unwrap(),
         result_ref: step.model_result_ref.clone().unwrap(), stop_reason: "end_turn".into(),
@@ -1339,6 +1402,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         let staged: serde_json::Value = serde_json::from_str(&record.data).unwrap();
         assert_eq!(staged["inbox_event"]["payload"], event.payload);
     }
+    Ok(())
 }
 
 #[test]
@@ -1381,9 +1445,9 @@ fn execution_commit_during_projection_is_rejected() {
 }
 
 #[tokio::test]
-async fn oversized_fresh_batch_stays_pending_across_reopen() {
+async fn oversized_fresh_batch_stays_pending_across_reopen() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let capabilities = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(1000), vision: None,
     };
@@ -1410,7 +1474,7 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
     assert_eq!(original.len(), events.len());
     drop((subject, offline, store));
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     subject.max_tokens = 10;
@@ -1422,11 +1486,12 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
         assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
     }
     drop(offline);
+    Ok(())
 }
 
 #[tokio::test]
-async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
-    let (mut subject, _gate, release) = gated_context_subject(16384, false);
+async fn compaction_wait_refuses_when_prepared_window_cannot_fit() -> anyhow::Result<()> {
+    let (mut subject, _gate, release) = gated_context_subject(16384, false)?;
     subject.context_registry.install(Arc::new(WindowOverheadPolicy {
         budget: shenko_compact_budget::BudgetCompact::new(
             shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
@@ -1441,6 +1506,7 @@ async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
     assert_eq!(pending.state, SubjectStepState::Planned);
     assert!(pending.input_plan_ref.is_none());
     assert!(subject.context_preparer.is_none());
+    Ok(())
 }
 
 #[test]
@@ -1449,7 +1515,7 @@ fn compaction_wait_late_arrivals_retry_without_stale_refusal() -> anyhow::Result
         .enable_all()
         .build()?
         .block_on(async {
-            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            let (mut subject, gate, release) = gated_context_subject(16384, false)?;
             assert!(crate::context_projection::prepare_context(&mut subject, &[])?.is_none());
             tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified())
                 .await?;
@@ -1589,10 +1655,10 @@ impl shenko_context_policy::ContextPolicy for GatedContextPolicy {
 }
 
 fn gated_context_subject(history_bytes: usize, fail: bool)
-    -> (SubjectLoopState, Arc<PreparationGate>, PreparationRelease)
+    -> anyhow::Result<(SubjectLoopState, Arc<PreparationGate>, PreparationRelease)>
 {
     let (_dir, store, agent) = fixture();
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     let caps = shenko_broker::request::ProviderCapabilities {
         binding: handle.binding().clone(), max_context_tokens: Some(8192), vision: None,
     };
@@ -1610,12 +1676,12 @@ fn gated_context_subject(history_bytes: usize, fail: bool)
         budget: shenko_compact_budget::BudgetCompact::new(
             shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
     })).unwrap();
-    (subject, gate.clone(), PreparationRelease(gate))
+    Ok((subject, gate.clone(), PreparationRelease(gate)))
 }
 
 #[tokio::test]
-async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() {
-    let (mut subject, gate, release) = gated_context_subject(256, true);
+async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(256, true)?;
     for _ in 0..2 {
         let projected = crate::context_projection::prepare_context(&mut subject, &[])
             .unwrap().expect("fitting requests do not wait for compaction");
@@ -1631,11 +1697,12 @@ async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() {
         crate::context_projection::ContextSelection::NoUsablePolicy { attempts } if attempts.len() == 1));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert!(subject.context_preparer.is_none());
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion() {
-    let (mut subject, gate, release) = gated_context_subject(16384, false);
+async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, false)?;
     let store = subject.store.clone();
     let agent = subject.agent_id;
     let planned = subject.step.step_id;
@@ -1662,11 +1729,12 @@ async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion()
     assert!(matches!(sealed.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     assert_eq!(store.load_subject(agent).unwrap().0.committed_step_no, 0);
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() {
-    let (mut subject, gate, release) = gated_context_subject(16384, true);
+async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, true)?;
     let event = message("still pending after policy failure");
     assert!(crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap().is_none());
     gate.entered.notified().await;
@@ -1681,11 +1749,12 @@ async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() {
     assert_eq!(pending.state, SubjectStepState::Planned);
     assert!(pending.input_plan_ref.is_none());
     assert!(subject.store.event_disposition_commit(subject.agent_id, event.event_id).unwrap().is_none());
+    Ok(())
 }
 
 #[tokio::test]
-async fn context_preparer_replacement_does_not_inherit_old_failure() {
-    let (mut subject, gate, release) = gated_context_subject(16384, true);
+async fn context_preparer_replacement_does_not_inherit_old_failure() -> anyhow::Result<()> {
+    let (mut subject, gate, release) = gated_context_subject(16384, true)?;
     assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
     gate.entered.notified().await;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
@@ -1699,14 +1768,15 @@ async fn context_preparer_replacement_does_not_inherit_old_failure() {
     let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
     assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
 }
 
 #[test]
-fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() {
+fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() -> anyhow::Result<()> {
     for cancel_wait in [true, false] {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let (registry, window_id) = runtime.block_on(async {
-            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            let (mut subject, gate, release) = gated_context_subject(16384, false)?;
             assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
             gate.entered.notified().await;
             let registry = subject.context_registry.clone();
@@ -1719,14 +1789,15 @@ fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() {
             }
             drop(subject);
             release.release();
-            (registry, window_id)
-        });
+            Ok::<_, anyhow::Error>((registry, window_id))
+        })?;
         // Runtime drop joins actual blocking workers, not just their strategy
         // callback: a late publication would be visible after this barrier.
         drop(runtime);
         assert!(!registry.prepared_candidate_pending());
         assert_eq!(registry.ledger().current().unwrap().id, window_id);
     }
+    Ok(())
 }
 
 #[tokio::test]
@@ -1825,7 +1896,7 @@ fn correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail()
 -> anyhow::Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let (dir, store, agent) = fixture();
-        let (offline, handle) = shenko_broker::broker::Broker::offline();
+        let (offline, handle) = shenko_broker::broker::Broker::offline()?;
         let mut subject = state(Arc::clone(&store), agent)?.with_broker(handle.clone());
         subject.max_tokens = 64;
         for index in 0..4 {
@@ -1954,7 +2025,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
     };
-    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let (offline, handle) = shenko_broker::broker::Broker::offline()?;
     drop(offline);
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let close = tokio_util::sync::CancellationToken::new();
@@ -1970,7 +2041,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     drop(store);
 
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
-    let (closed_broker, handle) = shenko_broker::broker::Broker::offline();
+    let (closed_broker, handle) = shenko_broker::broker::Broker::offline()?;
     drop(closed_broker); // positively rejected admission; no provider ever dispatched
     let subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let retained_inbox = subject.inbox.clone();
@@ -2100,7 +2171,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         "[delegate]"
     );
     assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
-    anyhow::ensure!(correction.schema_version == 14);
+    anyhow::ensure!(correction.schema_version == 15);
     let counted = crate::context_projection::estimate_payload_tokens(&correction.payload, 0)
         .context("complete plaintext correction must be countable")?;
     anyhow::ensure!(correction.context.estimated_input_tokens == Some(counted));
@@ -2138,7 +2209,9 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         store
             .cas
             .seal_object(
-                b"persisted complete result",
+                format!("persisted complete result\n[dispose] {}", serde_json::json!({
+                    "event_id":event.event_id,"disposition":"acknowledged",
+                })).as_bytes(),
                 "text/plain",
                 "model_results",
                 "text",
@@ -2182,7 +2255,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     .unwrap()
     .unwrap();
     assert_eq!(subject.head.committed_step_no, 1);
-    assert_eq!(rx.try_recv().unwrap().text, "persisted complete result");
+    assert_eq!(rx.try_recv().unwrap().text, "persisted complete result\n");
     assert!(
         store
             .event_disposition_commit(agent, event.event_id)
@@ -2728,13 +2801,8 @@ fn record_result(
 #[tokio::test]
 async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     let (dir, store, agent) = fixture();
-    let selected = shenko_types::inbox::InboxEvent {
-        event_id: EntityId::new(),
-        kind: shenko_types::inbox::InboxEventKind::Message,
-        payload: serde_json::json!({"content":"retain this selected input"}),
-        source: "fixture".into(),
-        created_at: chrono::Utc::now(),
-    };
+    let selected = message("retain this selected input");
+    admit_web_event(&store, agent, "correction-original", &selected);
     let mut subject = state(store.clone(), agent).unwrap();
     let cancelled = tokio_util::sync::CancellationToken::new();
     cancelled.cancel();
@@ -2774,13 +2842,46 @@ async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
     let correction = super::frozen_input(&reopened, &subject.step).unwrap();
     assert_eq!(correction.events.len(), 1);
     assert_eq!(correction.events[0].event_id, selected.event_id);
-    let repaired = format!("[dispose] {}",
-        serde_json::json!({"event_id":selected.event_id,"disposition":"acknowledged"}));
+    // A new IM interrupts the pinned correction at the next conclusive
+    // invalid result. No controls from either invalid result are admitted.
+    let fresh = message("new interaction must enter the next input selection");
+    admit_web_event(&reopened, agent, "correction-fresh", &fresh);
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert!(subject.step.input_plan_ref.is_none() && subject.step.active_request_id.is_none());
+    assert_eq!(subject.head.committed_step_no, 0);
+    let reselection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&reopened, subject.step.retry_reason_ref.as_ref().unwrap()).unwrap()).unwrap();
+    assert_eq!(reselection.schema_version, 3);
+    assert!(matches!(reselection.correction.as_ref().unwrap().replacement,
+        ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::FreshInteractive { event_id } }
+            if event_id == fresh.event_id));
+    let pending = reopened.pending_inbox_events(agent, 8).unwrap();
+    assert!(pending.iter().any(|(id, _)| *id == selected.event_id));
+    assert!(pending.iter().any(|(id, _)| *id == fresh.event_id));
+    assert!(reopened.event_disposition_commit(agent, selected.event_id).unwrap().is_none());
+    assert!(reopened.committed_intents(None, None, 8).unwrap().is_empty());
+    drop((subject, reopened));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    let events: Vec<shenko_types::inbox::InboxEvent> = reopened.pending_inbox_events(agent, 8).unwrap()
+        .into_iter().map(|(_, data)| serde_json::from_str(&data).unwrap()).collect();
+    execute_step(1, &events, &mut subject, &cancelled).await.unwrap();
+    let renewed = super::frozen_input(&reopened, &subject.step).unwrap();
+    assert!(renewed.events.iter().any(|event| event.event_id == fresh.event_id));
+    assert!(renewed.events.iter().any(|event| event.event_id == selected.event_id));
+    assert!(renewed.context.correction_observation.is_none());
+    let repaired = format!("[dispose] {}\n[dispose] {}",
+        serde_json::json!({"event_id":selected.event_id,"disposition":"acknowledged"}),
+        serde_json::json!({"event_id":fresh.event_id,"disposition":"acknowledged"}));
     record_result(&reopened, &mut subject, &repaired);
     execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().expect("corrected S1 commits without another provider request");
     assert_eq!(subject.head.committed_step_no, 1);
     assert!(reopened.event_disposition_commit(agent, selected.event_id).unwrap().is_some());
+    assert!(reopened.event_disposition_commit(agent, fresh.event_id).unwrap().is_some());
     assert!(reopened.event_disposition_commit(agent, unknown).unwrap().is_none());
     assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
 }
@@ -2829,6 +2930,32 @@ async fn unselected_obligation_origin_preserves_evidence_and_reopens_correction(
     let correction = super::frozen_input(&reopened, &subject.step).unwrap();
     assert!(correction.events.is_empty());
     assert!(correction.obligations.is_empty());
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    // The third rejected result has exhausted two actual pinned corrections.
+    // Count follows their immutable input parents, not process-local retries.
+    record_result(&reopened, &mut subject, &raw);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(reopened.committed_intents(None, None, 8).unwrap().is_empty());
+    let boundary: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&reopened, subject.step.retry_reason_ref.as_ref().unwrap()).unwrap()).unwrap();
+    let disposition = boundary.correction.as_ref().unwrap();
+    assert_eq!(disposition.prior_pinned_corrections, MAX_PINNED_CONTROL_CORRECTIONS);
+    assert!(matches!(disposition.replacement,
+        ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::CorrectionLimit }));
+    assert_eq!(super::read_sealed(&reopened, rejected.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let mut unknown = reopened.recorded_model_outcome(&rejected).unwrap();
+    unknown.stop_reason = "unknown".into();
+    assert!(!unknown.permits_control_correction());
+    drop((subject, reopened));
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    execute_step(1, &[], &mut subject, &cancelled).await.unwrap();
+    assert!(super::frozen_input(&reopened, &subject.step).unwrap().context.correction_observation.is_none());
     record_result(&reopened, &mut subject, "Continue from the original durable receipts.");
     execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await.unwrap().expect("corrected S1 commits without replaying the rejected request");
@@ -2931,7 +3058,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
 
     // Recovery must not silently continue this wait with a different model
     // binding. It remains durable rather than pretending the wait ended.
-    let (offline, changed_binding) = shenko_broker::broker::Broker::offline();
+    let (offline, changed_binding) = shenko_broker::broker::Broker::offline()?;
     let mut changed_subject = state(store.clone(), agent).unwrap().with_broker(changed_binding);
     let error = crate::context_projection::prepare_context(&mut changed_subject, &[])
         .err().expect("a different model binding cannot continue this wait");
@@ -2982,7 +3109,9 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
         &mut subject,
         3,
         &[event.clone()],
-        "我记下了新消息，实验仍未完成。",
+        &format!("我记下了新消息，实验仍未完成。\n[dispose] {}", serde_json::json!({
+            "event_id":event.event_id,"disposition":"acknowledged",
+        })),
     )
     .await;
     assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
@@ -3181,8 +3310,10 @@ impl GatedHandler {
 
 #[async_trait::async_trait]
 impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
-    fn descriptor(&self) -> shenko_kernel::task::NativeTaskDescriptor {
-        shenko_kernel::task::NativeTaskDescriptor {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
+    fn descriptor(&self) -> anyhow::Result<shenko_kernel::task::NativeTaskDescriptor> {
+        Ok(shenko_kernel::task::NativeTaskDescriptor {
             kind: "fixture.gated".into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
@@ -3193,7 +3324,7 @@ impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
             role_revision: "native-child/1".into(),
             authority_refs: vec!["fixture.gated.no_effects/v1".into()],
             prompt_section: None,
-        }
+        })
     }
 
     async fn execute(&self, invocation: shenko_kernel::task::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
@@ -3224,8 +3355,29 @@ impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
             return Ok(operation);
         }
         if hold {
+            if let Some(marker) = invocation.input.get("blocking_stop_marker").and_then(serde_json::Value::as_str) {
+                let marker = std::path::PathBuf::from(marker);
+                let started = self.started.clone();
+                let cancellation = invocation.cancellation.clone();
+                tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                    started.notify_one();
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                    while !cancellation.is_cancelled() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    anyhow::ensure!(cancellation.is_cancelled(), "real worker never received cancellation");
+                    // An actual worker may need cleanup after its stop signal.
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    std::fs::write(marker, b"worker joined")?;
+                    Ok(())
+                }).await??;
+                return Ok(operation);
+            }
             self.started.notify_one();
-            self.release.notified().await;
+            tokio::select! {
+                _ = self.release.notified() => {}
+                _ = invocation.cancellation.cancelled() => return Ok(operation),
+            }
         }
         let raw = self.seal(
             &serde_json::json!({"operation_id":invocation.operation_id,"resolved":!hold}),
@@ -3368,6 +3520,24 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
         .unwrap()
         .iter()
         .any(|result| result.result_id == fast_result.result_id));
+
+    // The exact internal T2 bytes stay bare TaskResult evidence. Both durable
+    // selection and a volatile dispatcher replay derive one stable envelope
+    // from that original; neither re-admits an external task_result envelope.
+    let original = store.ready_native_result_rows(agent, 8).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1;
+    let projected = store.inbox_event_original(agent, fast_result.result_id).unwrap().unwrap();
+    assert_eq!(projected.payload, serde_json::to_value(&fast_result).unwrap());
+    assert_eq!(projected.created_at, store.external_task(fast).unwrap().terminal_at.unwrap());
+    let replay = shenko_types::inbox::InboxEvent {
+        created_at: chrono::Utc::now() + chrono::Duration::seconds(10), ..projected.clone()
+    };
+    assert_eq!(store.retain_inbox_event(agent, &replay).unwrap(), projected);
+    let pending = store.pending_inbox_events(agent, 64).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1;
+    assert_eq!(serde_json::from_str::<shenko_types::inbox::InboxEvent>(&pending).unwrap(), projected);
+    assert_eq!(store.ready_native_result_rows(agent, 8).unwrap().into_iter()
+        .find(|(id, _)| *id == fast_result.result_id).unwrap().1, original);
 
     // Releasing the gate lets the original claim finish; recovery bookkeeping
     // keeps exactly one durable result per task.
@@ -3530,12 +3700,13 @@ async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
 
 /// C02 teardown: managed executions belong to the Cordis lifetime, not
 /// to any retained `Arc<NativeChildService>`. Stopping the supervisor while a
-/// worker is gated must abort/join it before `stop()` returns; releasing the
+/// worker is gated must signal/join it before `stop()` returns; releasing the
 /// gate afterwards must not let the worker commit a late T2, and admission
 /// stays closed even through the retained handle.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
-    let (_dir, store, agent) = fixture();
+    let (dir, store, agent) = fixture();
+    let stopped = dir.join("blocking-worker-stopped");
     store.start_subject_dispatcher().unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
     commit_output(
@@ -3543,7 +3714,9 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
         &mut subject,
         1,
         &[],
-        "[delegate:fixture.gated:1] {\"hold\":true}\n委派一个会被门控的 child。",
+        &format!("[delegate:fixture.gated:1] {}\n委派一个会被门控的 child。", serde_json::json!({
+            "hold":true, "blocking_stop_marker":stopped,
+        })),
     )
     .await;
     let gated = store
@@ -3609,20 +3782,21 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
         .expect("gated handler did not start");
     assert!(store.external_task(gated).unwrap().is_running());
 
-    // `stop()` returns only after admission closed and the gated worker was
-    // aborted and joined — it does not wait for the handler's own gate.
+    // `stop()` returns after the real blocking worker acknowledged its stop
+    // and finished cleanup, not merely after its outer future disappeared.
     tokio::time::timeout(std::time::Duration::from_secs(10), supervisor.stop())
         .await
         .expect("stop must not block on a gated worker")
         .unwrap();
+    assert_eq!(std::fs::read(&stopped).unwrap(), b"worker joined");
     release.notify_one();
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // No effect lands after the barrier: the claim stays durable (Running) for
+    // No effect lands after the barrier: the claim stays durable for
     // the next generation to reconcile, and the retained service handle cannot
     // admit or drive anything new.
     assert!(store.native_task_result(gated).unwrap().is_none());
-    assert!(store.external_task(gated).unwrap().is_running());
+    assert!(!store.external_task(gated).unwrap().is_terminal());
     assert_eq!(service.run_once().await.unwrap(), 0);
     drop(service);
     drop(subject);
@@ -4380,7 +4554,7 @@ fn an_unmentioned_input_is_recorded_as_not_acted_on() {
         .expect("the unmentioned event is disposed too");
     assert_eq!(
         undecided.disposition,
-        Disposition::Ignored,
+        Disposition::Deferred,
         "an input the subject did not mention is recorded as not acted on, \
          never as acknowledged by the harness"
     );
@@ -4543,7 +4717,6 @@ async fn a_paused_source_is_held_out_of_the_window() -> anyhow::Result<()> {
     // No policy yet: the event enters the window.
     let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
     assert_eq!(kept.len(), 1, "without a pause the event enters the window");
-    assert!(subject.held_inputs.is_empty());
 
     // A pause over that source: the event does not enter the window, and the
     // fact is held instead of dropped.
@@ -4563,12 +4736,14 @@ async fn a_paused_source_is_held_out_of_the_window() -> anyhow::Result<()> {
     .await;
     let kept = crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()]).unwrap();
     assert!(kept.is_empty(), "a paused source does not enter the window");
-    assert_eq!(
-        subject.held_inputs.len(),
-        1,
-        "the held fact is kept, not dropped"
-    );
-    assert_eq!(subject.held_inputs[0].event_id, event.event_id);
+    assert_eq!(store.inbox_event_original(agent, event.event_id)?.as_ref(), Some(&event));
+    assert!(store.pending_inbox_events(agent, 1)?.is_empty(),
+        "a paused source is excluded before the bounded selection");
+    assert!(crate::loop_runner::hold_paused_sources(&mut subject, vec![event.clone()])?.is_empty());
+    let live = shenko_types::inbox::InboxEvent { source: "web_ui".into(),
+        event_id: EntityId::new(), ..event.clone() };
+    store.retain_inbox_event(agent, &live)?;
+    assert_eq!(store.pending_inbox_events(agent, 1)?[0].0, live.event_id);
     Ok(())
 }
 
@@ -4607,7 +4782,8 @@ async fn a_pause_that_ended_releases_the_held_fact() -> anyhow::Result<()> {
         "an ended pause does not hold the source any more"
     );
     assert_eq!(kept[0].event_id, event.event_id);
-    assert!(subject.held_inputs.is_empty());
+    store.retain_inbox_event(agent, &event)?;
+    assert_eq!(store.pending_inbox_events(agent, 1)?[0].0, event.event_id);
     Ok(())
 }
 

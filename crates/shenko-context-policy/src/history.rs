@@ -102,6 +102,14 @@ pub trait HistorySource: Send + Sync {
     fn read_range(&self, from: u64, to: u64) -> Result<Vec<HistoryItem>, StorageError>;
     fn read_event(&self, event_id: EntityId) -> Result<Option<HistoryItem>, StorageError>;
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError>;
+    /// Call metadata through a fixed raw boundary. Text/tokens are not used
+    /// here: durable adapters may maintain an incremental execution index.
+    /// The default keeps third-party history sources correct without an index.
+    fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        Ok(self.read_range(0, through)?.into_iter().filter(|item|
+            matches!(item.kind, ItemKind::ToolCall { .. } | ItemKind::ToolResult { .. })
+        ).collect())
+    }
 }
 
 /// In-process append-only history used until the durable ledger adapter lands.

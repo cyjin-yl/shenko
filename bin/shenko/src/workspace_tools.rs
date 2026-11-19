@@ -42,18 +42,18 @@ fn definitions(editor: EditorMode) -> [&'static str; 4] {
 
 /// The manifest identifies the compiled package; configuration selects one of
 /// its editor implementations without making a second installation registry.
-fn manifest() -> Value {
-    json!({
+fn manifest() -> Result<Value> {
+    Ok(json!({
         "id": UNIT_ID,
         "contract": CONTRACT,
-        "implementation_digest": implementation_digest(),
+        "implementation_digest": implementation_digest()?,
         "application": "restart_process",
         "default_editor": "replace",
         "profiles": {
             "replace": definitions(EditorMode::Replace),
             "hashline": definitions(EditorMode::Hashline),
         },
-    })
+    }))
 }
 
 /// Node records its observations under this reserved section. It is not
@@ -71,9 +71,9 @@ fn authored_config(value: &Value) -> Value {
 }
 
 fn import_record(node: &mut Node, config: Value, enabled: bool, package_root: &Path) -> Result<()> {
-    let artifact = serde_json::to_vec(&manifest())?;
+    let artifact = serde_json::to_vec(&manifest()?)?;
     let digest = Digest::blake3(&artifact);
-    // A full hash fits Node's 64-byte revision bound. The source digest is
+    // A full hash fits Node's 64-byte revision bound. The executable digest is
     // also recorded inside the manifest so the two identities are inspectable.
     let revision = digest.hex().to_owned();
     node.handle_unit_request(UnitRequest::Import {
@@ -145,7 +145,7 @@ fn config_of(record: &InstalledUnitFact) -> Result<WorkspaceToolsConfig> {
 fn require_compiled(record: &InstalledUnitFact) -> Result<()> {
     // Importing an already-retained older artifact need not move Node's
     // current pointer. An inactive import must not be reported as adoption.
-    let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
+    let expected = Digest::blake3(&serde_json::to_vec(&manifest()?)?);
     ensure!(
         record.artifact_digest == expected,
         "WORKSPACE_PROFILE_NOT_CURRENT: the compiled package was retained but is not Node's current version"
@@ -192,7 +192,7 @@ fn reconcile(
     let Some(current) = installed(node)? else {
         return Ok(None);
     };
-    let expected = Digest::blake3(&serde_json::to_vec(&manifest())?);
+    let expected = Digest::blake3(&serde_json::to_vec(&manifest()?)?);
     if current.artifact_digest == expected {
         return Ok(Some(current));
     }
@@ -228,7 +228,7 @@ pub async fn install(
 
 fn report(node: Option<&Node>) -> Result<Value> {
     let record = node.map(installed).transpose()?.flatten();
-    let compiled = manifest();
+    let compiled = manifest()?;
     let digest = Digest::blake3(&serde_json::to_vec(&compiled)?);
     let (configuration_status, configured, config_error) = match &record {
         None => ("absent", Value::Null, None),

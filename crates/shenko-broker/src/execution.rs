@@ -5,8 +5,9 @@
 //! from what the provider actually reported. A fenced request provably never
 //! left; an unknown outcome keeps its capacity and stays recoverable.
 
-use std::sync::Arc;
+use std::{panic::AssertUnwindSafe, sync::Arc};
 
+use futures::FutureExt as _;
 use tracing::warn;
 
 use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ResidencyIdentity};
@@ -29,6 +30,18 @@ fn residency_context(request: &InferenceRequest) -> String {
     request.conversation_id.to_string()
 }
 
+/// The original worker-owned services for one admitted execution. This only
+/// borrows the installed runtime and physical accounting owners; it creates no
+/// provider, capacity pool, cancellation lifetime or replacement receipt.
+#[derive(Clone, Copy)]
+pub(crate) struct ExecutionContext<'a> {
+    pub(crate) registry: &'a Arc<ProviderRegistry>,
+    pub(crate) domain: &'a Arc<ResourceDomain>,
+    pub(crate) kv: &'a Arc<KvAllocator>,
+    pub(crate) error_sink: &'a crate::error_sink::ErrorSinkCell,
+    pub(crate) stop: &'a tokio_util::sync::CancellationToken,
+}
+
 /// Execute one admitted request and produce its terminal result.
 ///
 /// The result carries whether execution attempted to report a specific cause
@@ -41,11 +54,9 @@ pub(crate) async fn execute_request(
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
-    registry: &Arc<ProviderRegistry>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
+    context: &ExecutionContext<'_>,
 ) -> ExecutedRequest {
+    let ExecutionContext { domain, kv, .. } = *context;
     // A running request is a real reader of its context's residency. While it
     // runs the context is not an eviction candidate, and a release requested in
     // the meantime stays pending until this read ends (step 6). A first
@@ -60,10 +71,7 @@ pub(crate) async fn execute_request(
         receipt_sink,
         purpose,
         stream,
-        registry,
-        domain,
-        kv,
-        error_sink,
+        context,
     )
     .await;
     if reading {
@@ -96,11 +104,12 @@ async fn execute_admitted(
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
-    registry: &Arc<ProviderRegistry>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
+    let ExecutionContext { registry, error_sink, stop, .. } = *context;
+    if stop.is_cancelled() {
+        return (stopped_before_dispatch(request, purpose), false);
+    }
     let admitted = receipt_sink.map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
     match admitted {
         Ok(DispatchFence::Send) => {
@@ -140,8 +149,8 @@ async fn execute_admitted(
                 );
             }
             match stream {
-                Some(stream) => execute_stream(request, purpose, runtime, stream, domain, kv, error_sink).await,
-                None => execute_complete(request, purpose, runtime, domain, kv, error_sink).await,
+                Some(stream) => execute_stream(request, purpose, runtime, stream, context).await,
+                None => execute_complete(request, purpose, runtime, context).await,
             }
         }
         otherwise => {
@@ -198,11 +207,10 @@ async fn execute_complete(
     request: &InferenceRequest,
     purpose: RequestPurpose,
     runtime: Arc<dyn ProviderRuntime>,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
-    match runtime.complete(request).await {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
+    match provider_outcome(async { runtime.complete_cancellable(request, stop).await }).await {
         Ok(response) => {
             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
             let termination = termination_evidence(&response, terminal,
@@ -248,10 +256,9 @@ async fn execute_stream(
     purpose: RequestPurpose,
     runtime: Arc<dyn ProviderRuntime>,
     stream: StreamSubmission,
-    domain: &Arc<ResourceDomain>,
-    kv: &Arc<KvAllocator>,
-    error_sink: &crate::error_sink::ErrorSinkCell,
+    context: &ExecutionContext<'_>,
 ) -> (InferenceResult, bool) {
+    let ExecutionContext { domain, kv, error_sink, stop, .. } = *context;
     let publisher = BoundedStreamPublisher::new(
         request.request_id,
         stream.identity,
@@ -270,7 +277,9 @@ async fn execute_stream(
             false,
         );
     }
-    let outcome = runtime.stream(request, &publisher).await;
+    let outcome = provider_outcome(async {
+        runtime.stream_cancellable(request, &publisher, stop).await
+    }).await;
     let (response, termination, status, events, batches, quota_headers, cause_report_attempted) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
@@ -333,7 +342,11 @@ fn journal_provider_error(
     error: &anyhow::Error,
     error_sink: &crate::error_sink::ErrorSinkCell,
 ) -> bool {
-    let (code, message) = if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
+    let (code, message) = if error.is::<ProviderPanicked>() {
+        ("INFERENCE_PROVIDER_PANICKED", "the owned provider future unwound before a conclusive result; the original request remains Unknown and its capacity stays charged".into())
+    } else if error.is::<LocalObservationStopped>() {
+        ("INFERENCE_OBSERVATION_STOPPED", "runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown".into())
+    } else if error.downcast_ref::<reqwest::Error>().is_some_and(|error| error.is_timeout()) {
         let limit = request.provider_binding.local_request_timeout_ms()
             .map(|milliseconds| format!(" after the sealed {milliseconds} ms observation limit"))
             .unwrap_or_default();
@@ -353,6 +366,43 @@ fn journal_provider_error(
         &crate::error_sink::report_for(request, purpose, code, &message),
     );
     true
+}
+
+/// The owned HTTP future ended locally. This is deliberately not a
+/// LocalDispatchError: a dispatched remote generation remains Unknown.
+#[derive(Debug, thiserror::Error)]
+#[error("local inference observation stopped; remote completion is unknown")]
+pub(crate) struct LocalObservationStopped;
+
+/// Catch only the plugin's execution future. Dispatch fences, durable sink
+/// writes and the broker's settlement machinery keep their own error paths;
+/// a panic there must not be reclassified as an ordinary provider failure.
+/// The plugin's future has actually unwound before this returns. Its contract
+/// still forbids leaking independently spawned workers behind that future.
+async fn provider_outcome<T>(future: impl std::future::Future<Output = anyhow::Result<T>>)
+    -> anyhow::Result<T>
+{
+    match AssertUnwindSafe(future).catch_unwind().await {
+        Ok(outcome) => outcome,
+        // A plugin panic payload can contain request text or credentials.
+        // Retain a typed cause, never copy its arbitrary payload into E1.
+        Err(_) => Err(ProviderPanicked.into()),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("owned provider future panicked; original request outcome remains unknown")]
+struct ProviderPanicked;
+
+pub(crate) fn stopped_before_dispatch(request: &InferenceRequest, purpose: RequestPurpose)
+    -> InferenceResult
+{
+    InferenceResult {
+        request_id: request.request_id, status: InferenceStatus::Cancelled,
+        response: None, effective: EffectiveInference::for_request(request),
+        termination: TerminationEvidence::never_dispatched(), purpose,
+        stream: None, quota_headers: Vec::new(),
+    }
 }
 
 /// Whether the provider's stop reason is a real terminal outcome.
@@ -884,6 +934,7 @@ mod tests {
             }
         );
         assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
 
         // A real HTTP rejection stays transport-rejected.
         let rejection = anyhow::Error::new(ProviderRejection {
@@ -893,18 +944,27 @@ mod tests {
         let result = failure_result(&request, RequestPurpose::Subject, &rejection, None);
         assert_eq!(result.status, InferenceStatus::Rejected { http_status: 429 });
         assert_eq!(result.termination.kind, TerminationKind::TransportRejected);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
         assert_eq!(result.quota_headers, vec![("retry-after".to_string(), "1".to_string())]);
+
+        let forbidden = anyhow::Error::new(ProviderRejection {
+            http_status: 403, ratelimit_headers: vec![],
+        });
+        let result = failure_result(&request, RequestPurpose::Subject, &forbidden, None);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::BindingRejected);
 
         // A post-dispatch transport failure stays unknown.
         let dropped = anyhow::anyhow!("connection closed mid-response");
         let result = failure_result(&request, RequestPurpose::Subject, &dropped, None);
         assert_eq!(result.status, InferenceStatus::Failed);
         assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unknown);
 
         // The local dispatch-boundary failures map to never-dispatched.
         let missing = anyhow::Error::new(LocalDispatchError::NoProviderRuntime);
         let result = failure_result(&request, RequestPurpose::Subject, &missing, None);
         assert_eq!(result.status, InferenceStatus::Unavailable);
+        assert_eq!(crate::health::inference_usability(&result), crate::health::BindingUsability::Unavailable);
         assert_eq!(result.termination.kind, TerminationKind::NeverDispatched);
         let journal = anyhow::Error::new(LocalDispatchError::JournalOpenFailed(
             StreamSinkError::Journal("journal gone".into()),
@@ -919,11 +979,11 @@ mod tests {
     /// unavailable outcome, the receipt records NeverDispatched, and the freed
     /// slot admits the next valid request.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() {
+    async fn a_missing_provider_runtime_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         let epoch = registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1));
+        let (broker, handle) = Broker::with_registry(Arc::clone(&registry), domain(1))?;
         let binding = handle.binding().clone();
 
         let (request_one, result_one_rx) = new_request(EntityId::new(), &binding);
@@ -973,16 +1033,17 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// Issue #274: the durable stream journal fails before the provider is
     /// called, so the streamed request is never dispatched and its slot frees.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() {
+    async fn a_stream_journal_open_failure_is_never_dispatched_and_releases_its_slot() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1034,17 +1095,18 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// The control case that must not regress: a request that actually left
     /// and then dropped its connection stays unknown, keeps its C=1 slot, and
     /// only original terminal evidence releases it.
     #[tokio::test(flavor = "current_thread")]
-    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() {
+    async fn a_dropped_connection_after_dispatch_stays_unknown_until_reconciled() -> anyhow::Result<()> {
         let registry = Arc::new(ProviderRegistry::new());
         let runtime = CountingRuntime::new();
         registry.install(runtime.clone());
-        let (broker, handle) = Broker::with_registry(registry, domain(1));
+        let (broker, handle) = Broker::with_registry(registry, domain(1))?;
         let binding = handle.binding().clone();
 
         let (request, result_rx) = new_request(EntityId::new(), &binding);
@@ -1113,6 +1175,7 @@ mod tests {
             .await
             .expect("the broker drains")
             .expect("the broker exits");
+        Ok(())
     }
 
     /// A real HTTP reader deadline closes only our observation. The recorded

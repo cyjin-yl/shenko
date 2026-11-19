@@ -219,7 +219,7 @@ fn inspect_window_page(
     Ok(Some(SubjectContextWindowInspection { scope_id, model_generation, profile_digest, page }))
 }
 
-fn verify_selected_context_slot(
+pub(crate) fn verify_selected_context_slot(
     conn: &rusqlite::Connection,
     agent_id: EntityId,
     db_path: &Path,

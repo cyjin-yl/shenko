@@ -81,14 +81,14 @@ fn operation_parts(
     let contract_digest = Digest::blake3(contract);
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             locator: format!("builtin:{operation_name}"),
         },
         symbol: symbol.into(),
         schema: SchemaRef {
             name: schema_name.into(),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest(schema_name, 1),
         },
     };
     let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -105,7 +105,7 @@ fn operation_parts(
         final_input_ref: input_ref,
         contract_ref: OperationContractRef {
             plugin_id,
-            artifact_digest: contract_digest.clone(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             contract_digest,
             receipt_reader_ref: version.clone(),
         },
@@ -472,13 +472,13 @@ impl ResearchResetHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ResearchResetHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "research.reset".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(RESET_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-research-reset/1".into(),
@@ -487,7 +487,7 @@ impl NativeTaskHandler for ResearchResetHandler {
                 "research.reset/v1 打开或重置研究 lineage。输入 op=open|reset、request_id、lineage_id、reason、constraints:[{id,statement,source?}]、budget:{max_tokens?,max_duration_secs?,max_cost_units?,notes?}、effects:[{effect_id,description,external,recorded_at_ms}]、environment:{environment_id,facts,toolchain,dataset_versions,reproducible}；reset 可指定 trigger 与 best_candidate_id。环境与效果必须来自实际事实，不以版本标签代替。返回新 epoch、密封简报、最佳候选校验和保留的约束/预算/效果。旧 epoch 冻结后保持可读，不删除用户数据。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -646,13 +646,13 @@ impl ResearchCandidateHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ResearchCandidateHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "research.candidate".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CANDIDATE_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-research-candidate/1".into(),
@@ -661,7 +661,7 @@ impl NativeTaskHandler for ResearchCandidateHandler {
                 "research.candidate/v1 为当前 epoch 记录候选。输入 candidate_id、epoch_id、artifact_ref、score?、score_source?、environment:{environment_id,facts,toolchain,dataset_versions,reproducible}。artifact_ref 是内容寻址对象；score_source 说明评分来源。环境正文独立密封为 CAS 对象，与候选一起供 reset-to-best 校验。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -941,13 +941,13 @@ impl ResearchBankHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ResearchBankHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "research.bank".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(BANK_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-research-bank/1".into(),
@@ -956,7 +956,7 @@ impl NativeTaskHandler for ResearchBankHandler {
                 "research.bank/v1 维护研究 epoch 的持久事实。put 的 entry 包含 entry_id、epoch_id、kind=requirement|environment_fact|attempt|diagnosis|open_goal、content、source_refs、scope（原样保存的自由字符串）、confidence?、base_revision?、supersedes?。list 指定 epoch_id，可按 selection=all|carried|failures 与精确 scope 过滤；all 返回未立墓碑条目。supersede 指定 entry_id 和 superseded_by；tombstone 指定 entry_id 和 reason。reset 只带入 requirement、environment_fact、open_goal，attempt/diagnosis 保留在旧 epoch 中供审计。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

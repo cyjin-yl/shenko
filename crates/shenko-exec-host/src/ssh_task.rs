@@ -11,11 +11,10 @@ use shenko_exec_ssh::{NativeSshFileTargetConfig, NativeSshInstallation,
 use shenko_node::Node;
 use shenko_store::Store;
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
-use shenko_types::{ids::EntityId, object::Digest, operation::OperationRecord,
+use shenko_types::{ids::EntityId, operation::OperationRecord,
     task::{ImplementationRef, TaskRecord}};
 use std::{collections::BTreeMap, path::Path, sync::{Arc, Mutex}, time::Duration};
 
-const CONTRACT: &[u8] = b"shenko.ssh.native/v1: explicit installed target and signer; selected node is intent, not grant; durable T1 before connection/authentication; generation/owner fencing before exec; recovery queries original sealed operation without replay";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -69,7 +68,7 @@ impl NativeSshTaskHandler {
     fn ensure_task(&self, task: &TaskRecord) -> Result<()> {
         ensure!(task.kind == "ssh.native" && task.definition_version == 1
             && task.implementation_ref.plugin_id == Self::plugin_id()
-            && task.implementation_ref.artifact_digest == Digest::blake3(CONTRACT),
+            && task.implementation_ref.artifact_digest == shenko_kernel::native_artifact::native_artifact_digest()?,
             "ssh_task_implementation_mismatch");
         let subject = self.store.installation_binding()?.subject.context("ssh_subject_not_initialized")?;
         let node = self.node.lock().map_err(|_| anyhow::anyhow!("ssh_node_observation_poisoned"))?;
@@ -83,14 +82,14 @@ impl NativeSshTaskHandler {
 
 #[async_trait]
 impl NativeTaskHandler for NativeSshTaskHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         let names = self.targets.iter().map(|(id, target)| format!("{id} → node {}", target.seal().registered_node_id)).collect::<Vec<_>>().join(", ");
-        NativeTaskDescriptor { kind: "ssh.native".into(), definition_version: 1,
-            implementation_ref: ImplementationRef { plugin_id: Self::plugin_id(), artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+        Ok(NativeTaskDescriptor { kind: "ssh.native".into(), definition_version: 1,
+            implementation_ref: ImplementationRef { plugin_id: Self::plugin_id(), artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?, registry_revision: 0 },
             role_revision: "native-russh-installer/1".into(),
             // Existing task/delegation evidence, not a synthetic policy grant.
             authority_refs: vec!["ssh.native.installed_capability/v1".into()],
-            prompt_section: Some(format!("ssh.native/v1 已安装目标: {names}。使用 [delegate:ssh.native:1] {{\"target_id\":\"已安装目标\",\"decision_id\":\"node.selection.record 的真实 decision_id\",\"action\":{{\"kind\":\"exec\",\"argv\":[\"命令\"],\"stdin_b64\":\"\"}},\"timeout_secs\":30}}。action 也支持 upload(path,data_b64) 或 download(path)。执行前自行评估风险和收益，不传 host、account、私钥、路径授权或 provider。真实 OS/账号能力决定结果；选择记录不是授权或资源预约。超时/断线/未知结果只查询原操作，不盲目重复效果。传输结束或退出码不能证明任意命令业务成功。")) }
+            prompt_section: Some(format!("ssh.native/v1 已安装目标: {names}。使用 [delegate:ssh.native:1] {{\"target_id\":\"已安装目标\",\"decision_id\":\"node.selection.record 的真实 decision_id\",\"action\":{{\"kind\":\"exec\",\"argv\":[\"命令\"],\"stdin_b64\":\"\"}},\"timeout_secs\":30}}。action 也支持 upload(path,data_b64) 或 download(path)。执行前自行评估风险和收益，不传 host、account、私钥、路径授权或 provider。真实 OS/账号能力决定结果；选择记录不是授权或资源预约。超时/断线/未知结果只查询原操作，不盲目重复效果。传输结束或退出码不能证明任意命令业务成功。")) })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

@@ -220,14 +220,14 @@ impl MemoryHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:memory-query-v1".into(),
             },
             symbol: "memory.query.execute".into(),
             schema: SchemaRef {
                 name: "memory-query-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("memory-query-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -244,7 +244,7 @@ impl MemoryHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -487,13 +487,13 @@ impl MemoryHandler {
 
 #[async_trait]
 impl NativeTaskHandler for MemoryHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "memory.query".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-memory-reader/1".into(),
@@ -502,7 +502,7 @@ impl NativeTaskHandler for MemoryHandler {
                 "memory.query/v1 是已安装的只读自有记忆 child。搜索：[delegate:memory.query:1] {\"op\":\"search\",\"query\":\"深刻\"}；读全文用 op=read 且给 entry_id；查修正链用 op=lineage 且给 entry_id。可加 knowledge_kinds/scopes 数组过滤、include_retired=true 查看已遗忘与被取代条目。search 结果带以匹配为中心的预览、截断标志与 match_visible；预览没显示某内容不证明原文没有，需要完整正文时使用 read。不得把尚未返回的回忆当成已核实事实。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

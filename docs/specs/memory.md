@@ -39,7 +39,7 @@ CAS 定位符跨节点比较使用内容寻址尾段（`<ab>/<cd>/<64hex>`，`po
 - **reflect**：knowledge_kind 默认 "reflection"，必带来源（sources）。
 - **correct**：新 entry 的 `supersedes` 指向旧 entry；旧 entry 保留原文、`superseded_by` 回填、`record_revision`+1。拒绝取代已删除/已取代/不存在的条目。`base_revision` 不匹配 → `conflicted` 持久行 + commit_log，两侧证据都保留。
 - **forget**：绑定目标 entry；提交时 tombstone 标记。原文通过 `read` 永远可读；`search/list/recall` 默认不返回（`*_including_retired` 返回并带状态）。
-- **recall**：无 audience ACL（[§6](subject-runtime.md#spec-6)/R104）。预览以匹配为中心（`MatchExcerpt`：preview、start_char(Unicode 标量偏移)、truncated_before/after、match_visible）；FTS 归一化导致匹配无法字面定位时如实报告不可见，绝不编造区间。
+- **recall**：agent、knowledge_kinds、scopes 与 retirement 条件必须在 SQL 排序和 LIMIT 之前应用；limit 限制匹配集合，不能先全局取若干条再过滤造成假空结果。`include_retired=true` 同时包含 forgotten 和 superseded，保留各自状态。无 audience ACL（[§6](subject-runtime.md#spec-6)/R104）。预览以匹配为中心（`MatchExcerpt`：preview、start_char(Unicode 标量偏移)、truncated_before/after、match_visible）；FTS 归一化导致匹配无法字面定位时如实报告不可见，绝不编造区间。
 
 主体自存路径（`settle_subject_memory`）是刻意的不带 sidecar 表示，不算损坏；认知对账（cognition.rs）将其排除在绑定缺口之外。
 

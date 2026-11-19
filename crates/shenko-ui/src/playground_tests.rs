@@ -382,19 +382,26 @@ async fn unknown_guest_attempt_survives_reopen_without_rearm() {
     let host = runtime(store.clone(), pg_root.clone()).await;
     let pg = PlaygroundState::open(pg_root.clone(), store.clone()).unwrap().with_native(host.native.clone());
     let id = EntityId::new();
-    pg.put(id, "trap".into(), "text/plain".into(), b"original").unwrap();
-    // The real counter mutates binary business data and writes stdout before
-    // trapping; unknown must not imply that its already-observed writes vanished.
-    let trapped = std::str::from_utf8(COUNTER).unwrap().replace("(then (call $exit (i32.const 45))))))",
-        "(then (call $exit (i32.const 45)))) unreachable))");
+    pg.put(id, "interrupted".into(), "text/plain".into(), b"original").unwrap();
+    // The real guest changes business data before waiting. Teardown must
+    // cancel and join this guest, preserving the original Unknown evidence
+    // and its writes. A ten-second guest clock fallback bounds a regression.
+    let trapped = std::str::from_utf8(COUNTER).unwrap()
+        .replacen("(module", "(module (import \"wasi_snapshot_preview1\" \"clock_time_get\" (func $clock (param i32 i64 i32) (result i32)))", 1)
+        .replace("(then (call $exit (i32.const 45))))))", r#"(then (call $exit (i32.const 45))))
+        (drop (call $clock (i32.const 1) (i64.const 0) (i32.const 320)))
+        (i64.store (i32.const 328) (i64.add (i64.load (i32.const 320)) (i64.const 10000000000)))
+        (loop $waiting
+          (drop (call $clock (i32.const 1) (i64.const 0) (i32.const 320)))
+          (br_if $waiting (i64.lt_u (i64.load (i32.const 320)) (i64.load (i32.const 328)))))
+        unreachable))"#);
     let binding = pg.bind_backend(id, trapped.as_bytes()).unwrap();
     let action = request(&binding, "unknown-original");
     let actor = ArtifactActor::Participant;
     pg.invoke_action(id, action.clone(), &actor).unwrap();
-    drive_until(&host.native, || {
-        matches!(pg.action_status(id, "unknown-original"), Ok(receipt) if receipt.state == "unknown")
-    })
-    .await;
+    drive_until(&host.native, || pg.artifact_dir(id).join("state/counter.bin").is_file()).await;
+    tokio::time::timeout(std::time::Duration::from_secs(3), host.supervisor.stop()).await
+        .expect("teardown must signal and join the actual guest before its fallback clock").unwrap();
     let receipt = pg.action_status(id, "unknown-original").unwrap();
     assert_eq!(receipt.state, "unknown");
     assert_eq!(receipt.operation.as_ref().unwrap().state, OperationState::Reconciling);

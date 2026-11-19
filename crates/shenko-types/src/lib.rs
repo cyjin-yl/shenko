@@ -46,3 +46,4 @@ pub use subject::*;
 pub use task::*;
 
 pub mod output;
+pub mod installation;

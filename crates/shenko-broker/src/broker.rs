@@ -1,5 +1,5 @@
-//! Inference broker — fair asynchronous dispatch over one physical resource
-//! domain.
+//! Inference broker — fair asynchronous dispatch over explicitly bound physical
+//! resource domains.
 //!
 //! Every controlled call — the subject, a child, memory work, compaction,
 //! diagnostics — enters this broker. The provider is resolved from the open
@@ -23,7 +23,7 @@ use tracing::{info, warn};
 use crate::admission::{AdmissionController, AdmissionGuard, CapacityPool, CapacitySnapshot};
 use crate::capability::BackendCapabilitySnapshot;
 use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
-use crate::execution::{execute_request, now_ms};
+use crate::execution::{ExecutionContext, execute_request, now_ms};
 use crate::kv::{
     AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState,
     ResidencyIdentity,
@@ -144,6 +144,7 @@ struct Submission {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
+    resources: RequestResources,
 }
 
 /// One provider/model pair this broker can really run.
@@ -165,10 +166,23 @@ pub struct AvailableProvider {
     pub binding: ProviderBinding,
 }
 
-// None: queued or live, with a guard owned by the broker. Some: an uncertain
-// completed/recovered request whose charge survives until original evidence.
-type Accounting = Arc<Mutex<HashMap<EntityId, Option<AdmissionGuard>>>>;
+#[derive(Clone)]
+struct RequestResources {
+    domain: Arc<ResourceDomain>,
+    kv: Arc<KvAllocator>,
+}
+
+struct AccountedRequest {
+    /// The original physical owner survives routing changes and reconciliation
+    /// through a different caller's handle.
+    resources: RequestResources,
+    // None: queued/live with a worker-owned guard. Some: retained Unknown debt.
+    charge: Option<AdmissionGuard>,
+}
+
+type Accounting = Arc<Mutex<HashMap<EntityId, AccountedRequest>>>;
 type RecoverySources = Arc<Mutex<HashMap<EntityId, Arc<dyn InferenceRecoverySource>>>>;
+type DomainKvAllocators = Arc<Mutex<HashMap<String, Arc<KvAllocator>>>>;
 
 fn lock_broker_state<'a, T>(state: &'a Mutex<T>, name: &str) -> Result<MutexGuard<'a, T>> {
     state.lock().map_err(|_| {
@@ -193,13 +207,43 @@ pub struct BrokerHandle {
     recovery_sources: RecoverySources,
     accounting_changed: Arc<Notify>,
     kv: Arc<KvAllocator>,
+    domain_kv: DomainKvAllocators,
     error_sink: ErrorSinkCell,
+    health_observer: crate::health::HealthObserverCell,
     handoff_closed: Arc<std::sync::atomic::AtomicBool>,
+    stop: tokio_util::sync::CancellationToken,
 }
 
 impl BrokerHandle {
+    /// Close local admission and ask owned provider observations to end.
+    /// The runner must still be joined. Unknown remote occupancy is retained,
+    /// and a provider with an uninterruptible worker may delay that join.
+    pub fn request_stop(&self) {
+        self.handoff_closed.store(true, std::sync::atomic::Ordering::Release);
+        self.stop.cancel();
+    }
+
     pub fn binding(&self) -> &ProviderBinding {
         &self.binding
+    }
+
+    pub fn set_health_observer(&self, observer: Arc<dyn crate::health::InferenceHealthObserver>) {
+        *self.health_observer.write() = Some(observer);
+    }
+
+    /// Probe this handle's exact binding, independently of the dispatch loop.
+    /// It issues only provider metadata reads and admits no model generation.
+    pub async fn probe_binding(&self) -> Result<crate::health::BindingProbe> {
+        let Some(runtime) = self.registry.runtime_for(&self.binding) else {
+            return Ok(crate::health::BindingProbe {
+                binding: self.binding.clone(), observed_at: chrono::Utc::now(),
+                usability: crate::health::BindingUsability::Unavailable,
+                reason: "no installed runtime can serve this exact configured binding".into(),
+                capabilities: None, snapshot: None,
+            });
+        };
+        let snapshot = runtime.probe().await?;
+        Ok(crate::health::classify_probe(self.binding.clone(), snapshot))
     }
 
     /// Same physical scheduling domain and configured transport, distinct
@@ -207,6 +251,37 @@ impl BrokerHandle {
     /// not by this selector or an invented model-capability table.
     pub fn for_model(&self, model: &str) -> Result<Self> {
         Ok(Self { binding: self.binding.with_model(model)?, ..self.clone() })
+    }
+
+    /// Use one complete already-frozen provider binding on the same queue.
+    /// This selects neither a model by name nor replacement credentials. The
+    /// installed runtime must still match, and its physical domain owns both
+    /// compute admission and residency accounting.
+    pub fn for_binding(&self, binding: &ProviderBinding) -> Result<Self> {
+        binding.validate_endpoint()?;
+        ensure!(self.registry.runtime_for(binding).is_some(),
+            "MODEL_PROVIDER_BINDING_UNAVAILABLE: no installed runtime matches the frozen binding");
+        let resources = self.resources_for_binding(binding)?;
+        Ok(Self {
+            binding: binding.clone(), admission: resources.domain.admission().clone(),
+            domain: resources.domain, kv: resources.kv, ..self.clone()
+        })
+    }
+
+    fn resources_for_binding(&self, binding: &ProviderBinding) -> Result<RequestResources> {
+        let domain = if self.binding.same_transport(binding) {
+            Arc::clone(&self.domain)
+        } else if let Some(profile) = binding.profile() {
+            self.domains.resolve(profile)?
+        } else {
+            let runtime = self.registry.runtime_for(binding)
+                .ok_or_else(|| anyhow!("original legacy binding has no installed resource-domain mapping"))?;
+            self.domains.resolve(runtime.profile())?
+        };
+        let mut allocators = lock_broker_state(&self.domain_kv, "domain_kv")?;
+        let kv = Arc::clone(allocators.entry(domain.identity().domain_id).or_insert_with(||
+            Arc::new(KvAllocator::new(Box::new(AutomaticKvPolicy::default()), KvCapabilities::default()))));
+        Ok(RequestResources { domain, kv })
     }
 
     /// The physical domain this handle dispatches into.
@@ -272,8 +347,11 @@ impl BrokerHandle {
     /// Repeated recovery and live requests cannot count the same identity twice.
     pub fn recover_unknown(&self, request_id: EntityId) -> Result<()> {
         let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
-        accounting.entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
-        self.domain
+        let entry = accounting.entry(request_id).or_insert_with(|| AccountedRequest {
+            resources: RequestResources { domain: Arc::clone(&self.domain), kv: Arc::clone(&self.kv) },
+            charge: Some(self.domain.recover_unknown()),
+        });
+        entry.resources.domain
             .quarantine(request_id, now_ms(), "recovered without terminal evidence");
         Ok(())
     }
@@ -306,6 +384,14 @@ impl BrokerHandle {
                 && result.termination.kind != TerminationKind::Unknown,
                 "recovered inference lacks matching original terminal evidence");
         }
+        let recovered_resources = if result.is_none() {
+            let pinned = lock_broker_state(&self.accounting, "accounting")?
+                .get(&request_id).map(|entry| entry.resources.clone());
+            Some(match pinned {
+                Some(resources) => resources,
+                None => self.resources_for_binding(source.binding())?,
+            })
+        } else { None };
         let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
         let mut sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
         // Reading the ledger must not hold the broker lock. A real terminal
@@ -316,10 +402,18 @@ impl BrokerHandle {
             return Ok(());
         }
         let Some(result) = result else {
-            accounting.entry(request_id).or_insert_with(|| Some(self.domain.recover_unknown()));
+            let resources = recovered_resources
+                .ok_or_else(|| anyhow!("unknown recovery has no resolved original domain"))?;
+            accounting.entry(request_id).or_insert_with(|| {
+                let charge = resources.domain.recover_unknown();
+                resources.domain.quarantine(request_id, now_ms(), "recovered without terminal evidence");
+                AccountedRequest { resources, charge: Some(charge) }
+            });
             return Ok(());
         };
-        if let Some(guard) = accounting.get_mut(&request_id).and_then(Option::take) {
+        if let Some((guard, resources)) = accounting.get_mut(&request_id)
+            .and_then(|entry| entry.charge.take().map(|guard| (guard, entry.resources.clone())))
+        {
             accounting.remove(&request_id);
             if result.termination.kind == TerminationKind::NeverDispatched {
                 guard.release_never_dispatched();
@@ -328,12 +422,12 @@ impl BrokerHandle {
                 // charge; Unknown never reaches a capacity-release path.
                 guard.release_terminal();
             }
-            self.domain.reconcile_debt(request_id);
+            resources.domain.reconcile_debt(request_id);
             // The original terminal evidence ends the context read hold the
             // unknown outcome kept charged; the context may now be reclaimed
             // at the next safe boundary.
-            self.kv
-                .release_unknown_read(&mut self.domain.kv_mut(), &request_id.to_string());
+            resources.kv
+                .release_unknown_read(&mut resources.domain.kv_mut(), &request_id.to_string());
             self.accounting_changed.notify_one();
         }
         if !accounting.contains_key(&request_id) {
@@ -359,12 +453,13 @@ impl BrokerHandle {
         loop {
             let snapshot = {
                 let accounting = lock_broker_state(&self.accounting, "accounting")?;
-                if accounting.values().any(Option::is_none) { None } else {
+                if accounting.values().any(|entry| entry.charge.is_none()) { None } else {
                     let sources = lock_broker_state(&self.recovery_sources, "recovery_sources")?;
-                    let requests = accounting.iter().map(|(id, charge)| {
+                    let requests = accounting.iter().map(|(id, entry)| {
                         let source = sources.get(id);
                         serde_json::json!({
-                            "request_id": id, "state": "unknown", "charged": charge.is_some(),
+                            "request_id": id, "state": "unknown", "charged": entry.charge.is_some(),
+                            "resource_domain": entry.resources.domain.identity(),
                             "binding": source.map(|source| source.binding()),
                             "sealed_payload": source.map(|source| source.payload()),
                             "reader_available": source.is_some(),
@@ -539,7 +634,7 @@ impl BrokerHandle {
                 && sink.payload() == &req.payload, "receipt owner differs from submitted request seal");
         }
         let mut accounting = lock_broker_state(&self.accounting, "accounting")?;
-        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
+        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire) && !self.stop.is_cancelled(),
             "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
         ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
         // Keep both maps locked through enqueue and its rollback: a failed
@@ -550,8 +645,9 @@ impl BrokerHandle {
             ensure!(!sources.contains_key(&id), "request already has an original receipt owner");
             sources.insert(id, source);
         }
-        accounting.insert(id, None);
-        if let Err(failed) = self.tx.send(Submission { request: req, receipt_sink, purpose, stream }) {
+        let resources = RequestResources { domain: Arc::clone(&self.domain), kv: Arc::clone(&self.kv) };
+        accounting.insert(id, AccountedRequest { resources: resources.clone(), charge: None });
+        if let Err(failed) = self.tx.send(Submission { request: req, receipt_sink, purpose, stream, resources }) {
             accounting.remove(&id);
             let source = sources.remove(&id);
             drop(sources);
@@ -596,6 +692,31 @@ impl FairQueue {
         self.lanes.iter().all(VecDeque::is_empty)
     }
 
+    fn len(&self) -> usize {
+        self.lanes.iter().map(VecDeque::len).sum()
+    }
+
+    /// Each distinct blocked domain can wake the one shared dispatcher when
+    /// its external reservation changes. No polling interval or second queue.
+    async fn capacity_changed(&self) {
+        let mut domains = HashMap::new();
+        for submission in self.lanes.iter().flatten() {
+            domains.entry(submission.resources.domain.identity().domain_id)
+                .or_insert_with(|| Arc::clone(&submission.resources.domain));
+        }
+        let domains = domains.into_values().collect::<Vec<_>>();
+        let mut notifications = domains.iter()
+            .map(|domain| Box::pin(domain.budget_changed().notified())).collect::<Vec<_>>();
+        std::future::poll_fn(|context| {
+            for notification in &mut notifications {
+                if std::future::Future::poll(notification.as_mut(), context).is_ready() {
+                    return std::task::Poll::Ready(());
+                }
+            }
+            std::task::Poll::Pending
+        }).await
+    }
+
     fn pop(&mut self) -> Option<Submission> {
         let urgent_ready = !self.lanes[3].is_empty();
         let main_ready = !self.lanes[2].is_empty();
@@ -638,7 +759,8 @@ struct CompletedRequest {
     request: InferenceRequest,
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
-    guard: AdmissionGuard,
+    guard: Option<AdmissionGuard>,
+    resources: RequestResources,
     /// Whether execution submitted a specific cause to the fail-soft reporter.
     /// This does not acknowledge a durable journal write.
     cause_report_attempted: bool,
@@ -653,6 +775,8 @@ pub struct Broker {
     accounting_changed: Arc<Notify>,
     kv: Arc<KvAllocator>,
     error_sink: ErrorSinkCell,
+    health_observer: crate::health::HealthObserverCell,
+    stop: tokio_util::sync::CancellationToken,
 }
 
 impl Broker {
@@ -696,15 +820,17 @@ impl Broker {
         runtime.binding().validate_endpoint()?;
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::with_registry(registry, domain))
+        Self::with_registry(registry, domain)
     }
 
-    /// Bind a whole registry of installed provider runtimes to one physical
-    /// resource domain. The broker serves the bindings the registry can run.
+    /// Bind the registry's primary runtime to the supplied physical domain.
+    /// Additional runtime profiles use explicitly registered domains/aliases;
+    /// they share this broker's queue, not an invented second budget.
+    /// Invalid primary profile aliases fail construction before a queue is published.
     pub fn with_registry(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
-    ) -> (Self, BrokerHandle) {
+    ) -> Result<(Self, BrokerHandle)> {
         Self::assemble(registry, domain)
     }
 
@@ -713,22 +839,27 @@ impl Broker {
         let domain = default_domain(admission);
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::assemble(registry, domain))
+        Self::assemble(registry, domain)
     }
 
     fn assemble(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
-    ) -> (Self, BrokerHandle) {
+    ) -> Result<(Self, BrokerHandle)> {
         let domains = Arc::new(ResourceDomainRegistry::new());
-        domains.register(Arc::clone(&domain))
-            .expect("invariant: a fresh domain registry has no conflicting identity or incarnation");
+        domains.register(Arc::clone(&domain))?;
         let (tx, rx) = mpsc::unbounded_channel();
         // The binding comes from the installed runtime, not from a profile
         // table: the runtime is what actually executes the request.
         let binding = registry
             .primary_binding()
             .unwrap_or(ProviderBinding::Stub { codec: 2 });
+        if let Some(runtime) = registry.runtime_for(&binding) {
+            let domain_id = domain.identity().domain_id;
+            for alias in [&runtime.profile().endpoint_origin, &runtime.profile().profile_id] {
+                domains.bind_alias(alias, &domain_id)?;
+            }
+        }
         // The compute budget belongs to the physical domain; the handle and
         // the broker must observe the same counter.
         let admission = domain.admission().clone();
@@ -739,8 +870,13 @@ impl Broker {
             Box::new(AutomaticKvPolicy::default()),
             KvCapabilities::default(),
         ));
+        let domain_kv = Arc::new(Mutex::new(HashMap::from([
+            (domain.identity().domain_id, Arc::clone(&kv)),
+        ])));
         let error_sink = new_error_sink_cell();
-        (
+        let health_observer: crate::health::HealthObserverCell = Arc::new(parking_lot::RwLock::new(None));
+        let stop = tokio_util::sync::CancellationToken::new();
+        Ok((
             Self {
                 rx,
                 domain: Arc::clone(&domain),
@@ -750,6 +886,8 @@ impl Broker {
                 accounting_changed: Arc::clone(&accounting_changed),
                 kv: Arc::clone(&kv),
                 error_sink: Arc::clone(&error_sink),
+                health_observer: Arc::clone(&health_observer),
+                stop: stop.clone(),
             },
             BrokerHandle {
                 tx,
@@ -762,15 +900,18 @@ impl Broker {
                 recovery_sources,
                 accounting_changed,
                 kv,
+                domain_kv,
                 error_sink,
+                health_observer,
                 handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                stop,
             },
-        )
+        ))
     }
 
     /// Explicit offline construction; does not inspect ambient credentials and
     /// returns typed Unavailable rather than a fabricated successful completion.
-    pub fn offline() -> (Self, BrokerHandle) {
+    pub fn offline() -> Result<(Self, BrokerHandle)> {
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::new(OfflineRuntime));
         let domain = default_domain(AdmissionController::nominal());
@@ -836,37 +977,7 @@ impl Broker {
         // this backend offers; the metadata read below is only the model ceiling.
         self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
-        let mut has_more = false;
-        let mut capabilities = None;
-        for document in &snapshot.raw_evidence {
-            // Metrics and diagnostics are separate evidence, not failed model
-            // lists. A document presenting a data member must parse as one.
-            if document.get("data").is_none() {
-                continue;
-            }
-            let list = ModelMetadataList::deserialize(document)
-                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
-            has_more |= list.has_more == Some(true);
-            for metadata in list.data {
-                if metadata.id != binding.model() {
-                    continue;
-                }
-                let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
-                    .map_err(|error| InvalidModelMetadata(error.to_string()))?;
-                if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
-                    return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
-                }
-                capabilities = Some(observed);
-            }
-        }
-        if let Some(capabilities) = capabilities {
-            return Ok(capabilities);
-        }
-        Err(ProtocolError::new(
-            if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
-            ErrorScope::Request,
-            RetryStrategy::NewRevision,
-        ).with_details(serde_json::json!({ "model": binding.model(), "has_more": has_more })).into())
+        capabilities_from_snapshot(&binding, &snapshot)
     }
 
     /// Count the tokens one request would send, when the binding supports it.
@@ -885,18 +996,20 @@ impl Broker {
         completed: CompletedRequest,
         accounting: &Accounting,
         recovery_sources: &RecoverySources,
-        domain: &ResourceDomain,
-        kv: &KvAllocator,
         error_sink: &ErrorSinkCell,
+        health_observer: &crate::health::HealthObserverCell,
     ) -> Result<()> {
-        let CompletedRequest { request, receipt_sink, result, guard, cause_report_attempted } = completed;
+        let CompletedRequest { request, receipt_sink, result, guard, resources, cause_report_attempted } = completed;
+        let domain = &resources.domain;
+        let kv = &resources.kv;
         let request_id = request.request_id;
         let settlement = (|| -> Result<()> {
             if let Some(sink) = receipt_sink {
                 if let Err(error) = sink.record(&result) {
                     domain.quarantine(request_id, now_ms(), "model receipt not durably recorded");
                     match lock_broker_state(accounting, "accounting") {
-                        Ok(mut accounting) => { accounting.insert(request_id, Some(guard)); }
+                        Ok(mut accounting) => { accounting.insert(request_id,
+                            AccountedRequest { resources: resources.clone(), charge: guard }); }
                         Err(retention_error) => {
                             // Dropping an unreleased guard keeps occupancy even
                             // when its bookkeeping lock is unavailable.
@@ -918,15 +1031,18 @@ impl Broker {
                     let source = sources.remove(&request_id);
                     domain.reconcile_debt(request_id);
                     kv.release_unknown_read(&mut domain.kv_mut(), &request_id.to_string());
-                    if result.termination.kind == TerminationKind::NeverDispatched {
-                        guard.release_never_dispatched();
-                    } else {
-                        guard.release_terminal();
+                    if let Some(guard) = guard {
+                        if result.termination.kind == TerminationKind::NeverDispatched {
+                            guard.release_never_dispatched();
+                        } else {
+                            guard.release_terminal();
+                        }
                     }
                     source
                 }
                 TerminationKind::Unknown => {
-                    accounting.insert(request_id, Some(guard));
+                    accounting.insert(request_id,
+                        AccountedRequest { resources: resources.clone(), charge: guard });
                     domain.quarantine(request_id, now_ms(), "the provider outcome could not be determined");
                     None
                 }
@@ -953,6 +1069,7 @@ impl Broker {
                 &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
             );
         }
+        crate::health::notify(health_observer, &request.provider_binding, &result);
         // The caller may have disappeared; the durable receipt above does not
         // depend on it.
         let _ = request.result_tx.send(result);
@@ -966,43 +1083,90 @@ impl Broker {
         let mut input_closed = false;
         let mut inflight = 0_u64;
         let mut prefer_input = false;
+        let workers = tokio_util::task::TaskTracker::new();
+        let mut stopping = false;
         enum Event {
             Completed(Option<CompletedRequest>),
             Incoming(Option<Submission>),
             AccountingChanged,
+            Stop,
         }
 
         loop {
-            // Fill only currently available slots. A full budget leaves the
-            // request in FairQueue instead of losing it or failing it spuriously.
-            while !queue.is_empty() {
-                // The domain owns the budget: enforceable external
-                // reservations and retained unknown charges gate dispatch
-                // here, not only the diagnostics.
-                let Some(guard) = self.domain.try_admit() else {
-                    break;
-                };
+            if self.stop.is_cancelled() && !stopping {
+                stopping = true;
+                self.rx.close();
+            }
+            // Move the submissions already waiting at this dispatch boundary
+            // into the priority lanes before spending a newly free slot.
+            // Otherwise a background queue can dispatch ahead of a fresh IM
+            // merely because the completion arm won the previous select.
+            // Snapshot the count: a producer flood cannot starve settlement.
+            let ready = self.rx.len();
+            for _ in 0..ready {
+                match self.rx.try_recv() {
+                    Ok(submission) => queue.push(submission),
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        input_closed = true;
+                        break;
+                    }
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                }
+            }
+            // Visit each ready submission at most once. A blocked physical
+            // domain must not prevent another domain from running; put its
+            // requests back in their original lane order after this pass.
+            let ready = queue.len();
+            let mut blocked = Vec::new();
+            for _ in 0..ready {
+                let rotation = (queue.main_next, queue.normal_child_next, queue.last_was_urgent);
                 let submission = queue.pop().expect(
                     "invariant: FairQueue::is_empty and pop inspect the same lanes without intervening mutation"
                 );
+                if stopping {
+                    // This submission never acquired a physical slot or
+                    // crossed this broker's send boundary. Publish its exact
+                    // queued cancellation without inventing a compute charge.
+                    let result = crate::execution::stopped_before_dispatch(&submission.request, submission.purpose);
+                    let completed = CompletedRequest {
+                        request: submission.request, receipt_sink: submission.receipt_sink,
+                        result, guard: None, resources: submission.resources,
+                        cause_report_attempted: false,
+                    };
+                    if let Err(error) = Self::finish(completed, &self.accounting,
+                        &self.recovery_sources, &self.error_sink, &self.health_observer)
+                    {
+                        warn!(error=%format!("{error:#}"), "queued inference stop could not be durably settled");
+                    }
+                    continue;
+                }
+                let Some(guard) = submission.resources.domain.try_admit() else {
+                    // A failed admission does not consume a fairness turn.
+                    (queue.main_next, queue.normal_child_next, queue.last_was_urgent) = rotation;
+                    blocked.push(submission);
+                    continue;
+                };
                 let registry = Arc::clone(&self.registry);
-                let domain = Arc::clone(&self.domain);
-                let kv = Arc::clone(&self.kv);
                 let error_sink = Arc::clone(&self.error_sink);
+                let health_observer = Arc::clone(&self.health_observer);
                 let accounting = Arc::clone(&self.accounting);
                 let recovery_sources = Arc::clone(&self.recovery_sources);
                 let completed_tx = completed_tx.clone();
-                tokio::spawn(async move {
-                    let Submission { request, receipt_sink, purpose, stream } = submission;
+                let stop = self.stop.clone();
+                workers.spawn(async move {
+                    let Submission { request, receipt_sink, purpose, stream, resources } = submission;
                     let executed = execute_request(
                         &request,
                         receipt_sink.as_ref(),
                         purpose,
                         stream,
-                        &registry,
-                        &domain,
-                        &kv,
-                        &error_sink,
+                        &ExecutionContext {
+                            registry: &registry,
+                            domain: &resources.domain,
+                            kv: &resources.kv,
+                            error_sink: &error_sink,
+                            stop: &stop,
+                        },
                     )
                     .await;
                     let completed = CompletedRequest {
@@ -1010,18 +1174,22 @@ impl Broker {
                         receipt_sink,
                         result: executed.result,
                         cause_report_attempted: executed.cause_report_attempted,
-                        guard,
+                        guard: Some(guard),
+                        resources,
                     };
                     if let Err(failed) = completed_tx.send(completed) {
                         // Losing the dispatch loop does not revoke the
                         // original durable receipt owner's completion.
                         let completed = failed.0;
-                        if let Err(error) = Self::finish(completed, &accounting, &recovery_sources, &domain, &kv, &error_sink) {
+                        if let Err(error) = Self::finish(completed, &accounting, &recovery_sources, &error_sink, &health_observer) {
                             warn!(error=%format!("{error:#}"), "model completion settlement failed");
                         }
                     }
                 });
                 inflight += 1;
+            }
+            for submission in blocked.into_iter().rev() {
+                queue.lanes[submission.request.priority as usize].push_front(submission);
             }
 
             if input_closed && queue.is_empty() && inflight == 0 {
@@ -1034,19 +1202,21 @@ impl Broker {
             let event = if prefer_input {
                 tokio::select! {
                     biased;
+                    _ = self.stop.cancelled(), if !stopping => Event::Stop,
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     _ = self.accounting_changed.notified() => Event::AccountingChanged,
-                    _ = self.domain.budget_changed().notified() => Event::AccountingChanged,
+                    _ = queue.capacity_changed() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             } else {
                 tokio::select! {
                     biased;
+                    _ = self.stop.cancelled(), if !stopping => Event::Stop,
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     _ = self.accounting_changed.notified() => Event::AccountingChanged,
-                    _ = self.domain.budget_changed().notified() => Event::AccountingChanged,
+                    _ = queue.capacity_changed() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             };
@@ -1054,7 +1224,7 @@ impl Broker {
                 Event::Completed(completed) => {
                     if let Some(completed) = completed {
                         inflight -= 1;
-                        if let Err(error) = Self::finish(completed, &self.accounting, &self.recovery_sources, &self.domain, &self.kv, &self.error_sink) {
+                        if let Err(error) = Self::finish(completed, &self.accounting, &self.recovery_sources, &self.error_sink, &self.health_observer) {
                             warn!(error=%format!("{error:#}"), "model completion settlement failed");
                         }
                     }
@@ -1068,10 +1238,51 @@ impl Broker {
                     prefer_input = false;
                 }
                 Event::AccountingChanged => {}
+                Event::Stop => {}
             }
         }
+        // Completion delivery and the worker future returning are different
+        // boundaries. Join every owned local worker before the runner ends.
+        workers.close();
+        workers.wait().await;
         info!("inference broker stopped");
     }
+}
+
+pub(crate) fn capabilities_from_snapshot(
+    binding: &ProviderBinding, snapshot: &BackendCapabilitySnapshot,
+) -> Result<ProviderCapabilities> {
+    let mut has_more = false;
+    let mut capabilities = None;
+    for document in &snapshot.raw_evidence {
+        // Metrics and diagnostics are separate evidence, not failed model
+        // lists. A document presenting a data member must parse as one.
+        if document.get("data").is_none() {
+            continue;
+        }
+        let list = ModelMetadataList::deserialize(document)
+            .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+        has_more |= list.has_more == Some(true);
+        for metadata in list.data {
+            if metadata.id != binding.model() {
+                continue;
+            }
+            let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
+                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+            if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
+                return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
+            }
+            capabilities = Some(observed);
+        }
+    }
+    if let Some(capabilities) = capabilities {
+        return Ok(capabilities);
+    }
+    Err(ProtocolError::new(
+        if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
+        ErrorScope::Request,
+        RetryStrategy::NewRevision,
+    ).with_details(serde_json::json!({ "model": binding.model(), "has_more": has_more })).into())
 }
 
 /// The provider runtime selected from the environment.
@@ -1185,10 +1396,19 @@ mod tests {
     use shenko_types::ids::{ControllerEpoch, EntityId};
     use std::collections::BTreeMap;
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::{Semaphore, mpsc, oneshot};
+
+    #[derive(Default)]
+    struct RecordingHealth(Mutex<Vec<(EntityId, ProviderBinding, crate::health::BindingUsability)>>);
+    impl crate::health::InferenceHealthObserver for RecordingHealth {
+        fn observe(&self, binding: &ProviderBinding, result: &InferenceResult) -> Result<()> {
+            self.0.lock().unwrap().push((result.request_id, binding.clone(), crate::health::inference_usability(result)));
+            Ok(())
+        }
+    }
 
     struct ControlledProvider {
         binding: ProviderBinding,
@@ -1196,6 +1416,12 @@ mod tests {
         gate: Arc<Semaphore>,
         active: AtomicU64,
         max_active: AtomicU64,
+        panic_next: AtomicBool,
+    }
+
+    struct ActiveCall<'a>(&'a AtomicU64);
+    impl Drop for ActiveCall<'_> {
+        fn drop(&mut self) { self.0.fetch_sub(1, Ordering::SeqCst); }
     }
 
     impl ControlledProvider {
@@ -1218,6 +1444,7 @@ mod tests {
                     gate: Arc::new(Semaphore::new(0)),
                     active: AtomicU64::new(0),
                     max_active: AtomicU64::new(0),
+                    panic_next: AtomicBool::new(false),
                 }),
                 starts_rx,
             )
@@ -1272,6 +1499,7 @@ mod tests {
 
         async fn complete(&self, req: &InferenceRequest) -> Result<InferenceResponse> {
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            let _active = ActiveCall(&self.active);
             self.max_active.fetch_max(active, Ordering::SeqCst);
             self.starts.send((req.request_id, req.priority)).unwrap();
             let _permit = self
@@ -1280,11 +1508,12 @@ mod tests {
                 .acquire_owned()
                 .await
                 .expect("fixture gate remains open");
-            self.active.fetch_sub(1, Ordering::SeqCst);
             // Each request needs an explicit test release. Returning the
             // semaphore permit here would let completed work release its
             // successor and make this gate useless.
             std::mem::forget(_permit);
+            assert!(!self.panic_next.swap(false, Ordering::SeqCst),
+                "controlled provider panic after original dispatch");
             Ok(InferenceResponse {
                 content: "controlled fixture".into(),
                 stop_reason: "end_turn".into(),
@@ -1485,6 +1714,28 @@ mod tests {
             .unwrap();
         assert_eq!(observer.active_count(), 0);
 
+        // A fresh IM queued while one background generation runs wins its
+        // next finite boundary, even when ordinary submissions arrived first.
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1))).unwrap();
+        let (running, running_rx) = submit(&handle, InferencePriority::Low);
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, running);
+        let (background, background_rx) = submit(&handle, InferencePriority::Low);
+        tokio::task::yield_now().await;
+        let (interactive, interactive_rx) = submit(&handle, InferencePriority::Urgent);
+        provider.gate.add_permits(1);
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, interactive);
+        provider.gate.add_permits(1);
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, background,
+            "interactive priority preserves background progress");
+        provider.gate.add_permits(1);
+        for rx in [running_rx, interactive_rx, background_rx] {
+            assert_eq!(rx.await.unwrap().status, InferenceStatus::Success);
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap();
+
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
         let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2))).unwrap();
@@ -1533,8 +1784,60 @@ mod tests {
         );
         assert!(starts.try_recv().is_err());
         assert_eq!(handle.active_count(), 0);
-        run.abort();
-        let _ = run.await;
+        handle.request_stop();
+        let cancelled = tokio::time::timeout(Duration::from_secs(2), pending_rx).await.unwrap().unwrap();
+        assert_eq!(cancelled.status, InferenceStatus::Cancelled);
+        assert_eq!(cancelled.termination.kind, TerminationKind::NeverDispatched);
+        tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap();
+        assert!(starts.try_recv().is_err());
+        assert_eq!(handle.active_count(), 0);
+
+        // An owned provider future really panics after dispatch. Its original
+        // receipt must still reach Unknown, keep C charged and let the runner
+        // join, without admitting the pending request behind it.
+        let (provider, mut starts) = ControlledProvider::new();
+        provider.panic_next.store(true, Ordering::SeqCst);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1))).unwrap();
+        let request_id = EntityId::new();
+        let payload = InferencePayload {
+            system_prompt: String::new(),
+            messages: vec![InferenceMessage::text("user", "owned panic boundary")],
+            max_tokens: Some(16), tools: vec![], native_options: BTreeMap::new(),
+        };
+        let receipt = Arc::new(RecordingReceipt {
+            request_id, binding: handle.binding().clone(), payload: payload.clone(),
+            results: Mutex::new(Vec::new()),
+        });
+        let (result_tx, result_rx) = oneshot::channel();
+        handle.submit_recorded(InferenceRequest {
+            request_id, agent_id: EntityId::new(), conversation_id: EntityId::new(),
+            provider_binding: handle.binding().clone(), priority: InferencePriority::Subject,
+            epoch: ControllerEpoch(1), payload: payload.clone(), result_tx,
+        }, receipt.clone()).unwrap();
+        let (_, mut pending_rx) = submit(&handle, InferencePriority::Low);
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, request_id);
+        provider.gate.add_permits(1);
+        let unknown = tokio::time::timeout(Duration::from_secs(2), result_rx).await.unwrap().unwrap();
+        assert_eq!(unknown.request_id, request_id);
+        assert_eq!(unknown.status, InferenceStatus::Failed);
+        assert_eq!(unknown.termination.kind, TerminationKind::Unknown);
+        assert!(unknown.effective.matches_seal(handle.binding(), &payload));
+        assert_eq!(provider.active.load(Ordering::SeqCst), 0, "provider future must unwind its real local owner");
+        assert_eq!(handle.active_count(), 1, "panic does not release remote debt");
+        assert!(matches!(pending_rx.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
+        handle.request_stop();
+        let cancelled = tokio::time::timeout(Duration::from_secs(2), pending_rx).await.unwrap().unwrap();
+        assert_eq!(cancelled.status, InferenceStatus::Cancelled);
+        assert_eq!(cancelled.termination.kind, TerminationKind::NeverDispatched);
+        tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap();
+        assert_eq!(provider.active.load(Ordering::SeqCst), 0);
+        assert_eq!(handle.active_count(), 1);
+        assert!(starts.try_recv().is_err(), "no queued send or replay may follow the panic");
+        let recorded = receipt.results.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].request_id, request_id);
+        assert_eq!(recorded[0].termination.kind, TerminationKind::Unknown);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1590,6 +1893,8 @@ mod tests {
         let (broker, handle) =
             Broker::with_local_provider(provider, 1).expect("the local provider binds");
         let binding = handle.binding().clone();
+        let health = Arc::new(RecordingHealth::default());
+        handle.set_health_observer(health.clone());
         let payload = InferencePayload {
             system_prompt: "fixture system".into(),
             messages: vec![InferenceMessage::text("user", "fixture input")],
@@ -1637,6 +1942,7 @@ mod tests {
         assert_eq!(result.termination.max_tokens, Some(7));
         assert_eq!(result.termination.output_tokens, Some(7));
         assert!(result.termination.length);
+        assert_eq!(health.0.lock().unwrap()[0], (request_id, binding.clone(), crate::health::BindingUsability::Available));
 
         // A changed model is a different seal, never an in-place provider override.
         let mut mismatched = binding.clone();
@@ -1694,6 +2000,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(unknown.status, InferenceStatus::Failed);
+        assert_eq!(health.0.lock().unwrap().last().unwrap().2, crate::health::BindingUsability::Unknown);
         assert_eq!(unknown.termination.kind, TerminationKind::Unknown);
         assert!(unknown.effective.matches_seal(&binding, &unknown_payload));
         assert_eq!(handle.active_count(), 1);

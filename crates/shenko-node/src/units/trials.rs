@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use crate::Node;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -615,9 +615,7 @@ impl Node {
             "plan_digest": plan_digest.0,
             "started_at": started_at,
         });
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         tx.execute(
             "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
              VALUES(?1,?2,?3,?4,?5,'trial_open',?6,NULL,?7,?8,?9)",
@@ -696,9 +694,7 @@ impl Node {
             "finished_at": finished_at,
         });
         let owner_runtime = runtime_id(&self.conn)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         tx.execute(
             "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,0,?9,?10,?11)",
@@ -739,9 +735,7 @@ impl Node {
     fn retire_open_trials(&mut self) -> Result<u32> {
         let my_runtime = runtime_id(&self.conn)?;
         let my_pid = i64::from(std::process::id());
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let pending: Vec<(String, String, String, String, String, i64, String)> = tx
             .prepare(
                 "SELECT attempt_id,unit_id,revision,artifact_digest,environment_digest,owner_pid,owner_runtime FROM unit_attempts WHERE state='trial_open' ORDER BY started_at",

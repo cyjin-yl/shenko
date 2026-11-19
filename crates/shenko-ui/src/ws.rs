@@ -186,6 +186,8 @@ pub struct LiveStatus {
     last_outbox_unix: AtomicI64,
     /// Step number carried by the last observed outbox message; -1 = unknown.
     last_step: AtomicI64,
+    /// A direct supervisor observation, not inferred from silence or recency.
+    subject_blocked: std::sync::RwLock<Option<String>>,
 }
 
 impl LiveStatus {
@@ -195,6 +197,7 @@ impl LiveStatus {
             wired: AtomicBool::new(false),
             last_outbox_unix: AtomicI64::new(-1),
             last_step: AtomicI64::new(-1),
+            subject_blocked: std::sync::RwLock::new(None),
         }
     }
 
@@ -204,6 +207,14 @@ impl LiveStatus {
 
     pub fn is_wired(&self) -> bool {
         self.wired.load(Ordering::Relaxed)
+    }
+
+    pub fn set_subject_blocked(&self, reason: Option<String>) {
+        *self.subject_blocked.write().unwrap_or_else(std::sync::PoisonError::into_inner) = reason;
+    }
+
+    pub fn subject_blocked(&self) -> Option<String> {
+        self.subject_blocked.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     pub fn connection_added(self: &Arc<Self>) -> ConnectionGuard {

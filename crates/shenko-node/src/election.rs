@@ -24,7 +24,7 @@
 use super::{Event, Identity, Manifest, Node, ResultReceipt, digest, get, number, set, text};
 use crate::cognition::{CognitionComparison, CognitionOrigin};
 use anyhow::{Context as _, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::{ids::EntityId, object::Digest};
@@ -959,9 +959,7 @@ impl Node {
     /// self vote is a real quorum certificate. When the domain already has a
     /// configuration (pushed by an existing member) this never overwrites it.
     pub fn ensure_member_configuration(&mut self) -> Result<MemberConfiguration> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some(config) = Self::committed_config(&tx)? {
             tx.commit()?;
             return Ok(config);
@@ -1039,9 +1037,7 @@ impl Node {
             expected == config.digest,
             "pushed member configuration digest does not match its content"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let first = entries
             .first()
             .context("pushed control log must contain the full committed prefix")?;
@@ -1478,9 +1474,7 @@ impl Node {
 
     /// Start an election round for this node.
     pub fn campaign(&mut self) -> Result<Campaign> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; this node cannot campaign")?;
@@ -1550,9 +1544,7 @@ impl Node {
             request.schema == ELECTION_WIRE_SCHEMA,
             "unsupported election wire schema"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let current_term = state_number(&tx, "term")?;
         let mut term = current_term;
@@ -1728,9 +1720,7 @@ impl Node {
             response.request_id == request.request_id,
             "vote response does not answer this request"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let current_term = state_number(&tx, "term")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; votes cannot be counted")?;
@@ -1886,9 +1876,7 @@ impl Node {
     /// Count the recorded votes of a term and commit the primary when the
     /// committed configuration's quorum is satisfied.
     pub fn tally(&mut self, term: u64) -> Result<ElectionOutcome> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; votes cannot be counted")?;
@@ -2085,9 +2073,7 @@ impl Node {
             request.schema == ELECTION_WIRE_SCHEMA,
             "unsupported election wire schema"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         Self::stored_node_id(&tx)?.context("node not initialized")?;
         let commit_index = state_number(&tx, "commit_index")?;
         let node_term = state_number(&tx, "term")?;
@@ -2330,9 +2316,7 @@ impl Node {
             !request.reason.trim().is_empty(),
             "membership change requires a reason"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
@@ -2453,9 +2437,7 @@ impl Node {
         &mut self,
         joint: &MemberProposal,
     ) -> Result<MemberChangeRound> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
@@ -2540,9 +2522,7 @@ impl Node {
             proposal_digest(proposal)? == proposal.digest,
             "membership proposal digest does not match its content"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; membership is unknown")?;
@@ -2669,6 +2649,7 @@ impl Node {
     /// Record the election epoch an assignment was made under, so the
     /// resource end can refuse a result that a fenced writer produced.
     pub fn record_assignment_fence(&mut self, task: EntityId, epoch: &str) -> Result<()> {
+        let _permit = self.installation_permit()?;
         let claim = self.committed_primary_claim()?;
         let (term, election_epoch) = match claim {
             Some(claim) => (claim.term.to_string(), claim.epoch.to_string()),
@@ -2733,9 +2714,7 @@ impl Node {
             "an availability branch requires a reason"
         );
         let retained = self.experience_counts()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some(expected) = expected {
             let current = Self::authority_snapshot_conn(&tx)?;
             ensure!(
@@ -2849,9 +2828,7 @@ impl Node {
             "a branch merge requires a note saying what was merged"
         );
         let retained = self.experience_counts()?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let raw: Option<String> = tx
             .query_row(
                 "SELECT data FROM node_branches WHERE branch_id=?1",
@@ -2959,9 +2936,7 @@ impl Node {
             !request.reason.trim().is_empty(),
             "adoption requires a reason"
         );
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let current: Option<Identity> = get(&tx, "identity")?;
         ensure!(
             current.as_ref() != Some(&request.trusted_identity),
@@ -3059,9 +3034,7 @@ impl Node {
         let mut rejected = 0u64;
         let mut parallel = Vec::new();
         let mut effects = Vec::new();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         for event in &peer.events {
             if event.raw.schema != super::SCHEMA || digest(&event.raw)? != event.digest {
                 rejected += 1;

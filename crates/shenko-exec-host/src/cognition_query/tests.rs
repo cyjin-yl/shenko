@@ -107,6 +107,7 @@ impl Fixture {
             },
             input,
             child_tools: None,
+            cancellation: Default::default(),
         }
     }
 
@@ -129,13 +130,13 @@ impl Fixture {
         &self,
         handler: &dyn NativeTaskHandler,
         input: serde_json::Value,
-    ) -> OperationRecord {
+    ) -> Result<OperationRecord> {
         let input_ref = self.input_ref(&input);
-        let (task, invocation) = self.task(&handler.descriptor(), &input_ref);
-        handler.execute(self.native(task, invocation, input)).await.expect("native execution")
+        let (task, invocation) = self.task(&handler.descriptor()?, &input_ref);
+        Ok(handler.execute(self.native(task, invocation, input)).await.expect("native execution"))
     }
 
-    async fn write_unit(&self, unit_id: &str) -> String {
+    async fn write_unit(&self, unit_id: &str) -> Result<String> {
         let observed = Digest::blake3(b"durable query fixture provenance");
         self.store.cas.seal_object(
             b"durable query fixture provenance", "text/plain", "fixture", "observation", 1,
@@ -156,31 +157,32 @@ impl Fixture {
                 "reference": "query fixture provenance",
                 "digest": observed.0,
             },
-        })).await;
+        })).await?;
         let result = Self::result(&self.store, operation.operation_id);
         assert_eq!(operation.outcome, Some(OperationOutcome::Succeeded), "{result}");
-        result["artifact_digest"].as_str().expect("written artifact").to_string()
+        Ok(result["artifact_digest"].as_str().expect("written artifact").to_string())
     }
 
-    async fn observation(&self, unit_id: &str, bytes: &[u8]) {
-        let artifact = self.write_unit(unit_id).await;
+    async fn observation(&self, unit_id: &str, bytes: &[u8]) -> Result<()> {
+        let artifact = self.write_unit(unit_id).await?;
         self.catalog.register_observation(unit_id, "1", &Digest(artifact), "fixture-report", bytes)
             .expect("registered observation");
+        Ok(())
     }
 }
 
 #[tokio::test]
-async fn evidence_public_input_selects_the_units_retained_observation() {
+async fn evidence_public_input_selects_the_units_retained_observation() -> Result<()> {
     let fixture = Fixture::new();
     let expected = b"the target installation retained these exact bytes";
-    fixture.observation("awareness.query.target", expected).await;
-    fixture.observation("awareness.query.other", b"another unit's unrelated observation").await;
+    fixture.observation("awareness.query.target", expected).await?;
+    fixture.observation("awareness.query.other", b"another unit's unrelated observation").await?;
     let handler = CognitionQueryHandler::evidence(
         Arc::clone(&fixture.store), Arc::clone(&fixture.catalog),
     );
     let operation = fixture.execute(&handler, serde_json::json!({
         "unit_id": "awareness.query.target",
-    })).await;
+    })).await?;
     let result = Fixture::result(&fixture.store, operation.operation_id);
     assert_eq!(operation.outcome, Some(OperationOutcome::Succeeded), "{result}");
     assert_eq!(operation.effect_status, EffectStatus::None);
@@ -193,19 +195,20 @@ async fn evidence_public_input_selects_the_units_retained_observation() {
         entry["bytes_held"].as_bool().expect("held bytes"),
     )).collect();
     assert_eq!(facts, vec![(Digest::blake3(expected).0, "fixture-report".into(), expected.len() as u64, true)]);
+    Ok(())
 }
 
 #[tokio::test]
-async fn list_public_pages_cover_the_installation_and_refuse_a_stale_revision() {
+async fn list_public_pages_cover_the_installation_and_refuse_a_stale_revision() -> Result<()> {
     let fixture = Fixture::new();
     let expected = ["awareness.query.alpha", "awareness.query.beta", "awareness.query.gamma"];
     for unit_id in expected {
-        fixture.write_unit(unit_id).await;
+        fixture.write_unit(unit_id).await?;
     }
     let handler = CognitionQueryHandler::list(
         Arc::clone(&fixture.store), Arc::clone(&fixture.catalog),
     );
-    let first = fixture.execute(&handler, serde_json::json!({"start": 0, "count": 1})).await;
+    let first = fixture.execute(&handler, serde_json::json!({"start": 0, "count": 1})).await?;
     let mut page = Fixture::result(&fixture.store, first.operation_id);
     assert_eq!(first.outcome, Some(OperationOutcome::Succeeded), "{page}");
     let revision = page["catalog_revision"].as_u64().expect("installation revision");
@@ -224,30 +227,31 @@ async fn list_public_pages_cover_the_installation_and_refuse_a_stale_revision() 
         assert!(next_start > start, "pagination did not advance");
         let next = fixture.execute(&handler, serde_json::json!({
             "start": next_start, "count": 1, "catalog_revision": revision,
-        })).await;
+        })).await?;
         page = Fixture::result(&fixture.store, next.operation_id);
         assert_eq!(next.outcome, Some(OperationOutcome::Succeeded), "{page}");
     }
     observed.sort();
     assert_eq!(observed, expected);
 
-    fixture.write_unit("awareness.query.new-version").await;
+    fixture.write_unit("awareness.query.new-version").await?;
     let stale = fixture.execute(&handler, serde_json::json!({
         "start": 1, "count": 1, "catalog_revision": revision,
-    })).await;
+    })).await?;
     let result = Fixture::result(&fixture.store, stale.operation_id);
     assert_eq!(stale.outcome, Some(OperationOutcome::Failed));
     assert_eq!(stale.effect_status, EffectStatus::None);
     assert_eq!(result["error"]["code"], "catalog_query_failed");
     assert!(result["error"]["message"].as_str().expect("failure reason")
         .contains("installation revision moved"), "{result}");
+    Ok(())
 }
 
 #[tokio::test]
-async fn reopened_legacy_frozen_query_keeps_its_input_and_single_attempt() {
+async fn reopened_legacy_frozen_query_keeps_its_input_and_single_attempt() -> Result<()> {
     let fixture = Fixture::new();
     let expected = b"a retained observation survives the Store reopen";
-    fixture.observation("awareness.query.recovery", expected).await;
+    fixture.observation("awareness.query.recovery", expected).await?;
     let handler = CognitionQueryHandler::evidence(
         Arc::clone(&fixture.store), Arc::clone(&fixture.catalog),
     );
@@ -259,7 +263,7 @@ async fn reopened_legacy_frozen_query_keeps_its_input_and_single_attempt() {
     let frozen = handler.freeze(public).expect("public query");
     assert_eq!(handler.seal(&frozen, "cognition-query-frozen-input").expect("sealed query").digest,
         input_ref.digest);
-    let (task, invocation) = fixture.task(&handler.descriptor(), &input_ref);
+    let (task, invocation) = fixture.task(&handler.descriptor()?, &input_ref);
     let native = fixture.native(task.clone(), invocation, serde_json::Value::Null);
     let (mut operation, mut attempt) = handler.operation_parts(&native, input_ref.clone())
         .expect("durable query");
@@ -302,10 +306,11 @@ async fn reopened_legacy_frozen_query_keeps_its_input_and_single_attempt() {
     let repeated = store.external_operation_evidence(operation_id).expect("repeated evidence");
     assert_eq!(repeated.len(), 1);
     assert_eq!(repeated[0].receipt_id, receipt_id);
+    Ok(())
 }
 
 #[tokio::test]
-async fn invalid_public_shapes_do_not_arm_or_mutate_the_task() {
+async fn invalid_public_shapes_do_not_arm_or_mutate_the_task() -> Result<()> {
     let fixture = Fixture::new();
     for (kind, input) in [
         ("evidence", serde_json::json!({"op": "list", "unit_id": "awareness.query.target"})),
@@ -319,7 +324,7 @@ async fn invalid_public_shapes_do_not_arm_or_mutate_the_task() {
             CognitionQueryHandler::evidence(Arc::clone(&fixture.store), Arc::clone(&fixture.catalog))
         };
         let input_ref = fixture.input_ref(&input);
-        let (task, invocation) = fixture.task(&handler.descriptor(), &input_ref);
+        let (task, invocation) = fixture.task(&handler.descriptor()?, &input_ref);
         let task_id = task.task_id;
         let before = serde_json::to_value(fixture.store.external_task(task_id).expect("before task"))
             .expect("task JSON");
@@ -333,4 +338,5 @@ async fn invalid_public_shapes_do_not_arm_or_mutate_the_task() {
             .expect("task JSON");
         assert_eq!(after, before, "invalid input changed the running task");
     }
+    Ok(())
 }

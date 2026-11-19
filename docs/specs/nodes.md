@@ -727,3 +727,81 @@ U62 要求智能能力完全失效时仍保留可操作的确定性基础：只�
 OS 或整机无法启动时，允许由已授权环境提取磁盘镜像/存储副本，在其他节点恢复、读取和合并。恢复材料包括实际存储布局、schema/版本、对象和日志引用、迁移/读取工具及必要的解密凭据引用，不能只留下需要原在线服务解释的 opaque handle。新的、更强智能节点可以据此复活自我或导入经历；先核对事实、水位与效果状态，未知副作用不盲重放。软件可启动、数据可读、模型可用和历史已合并分别证明。缺失密钥、损坏介质、未写入或未复制的数据造成的缺口如实标出，磁盘镜像不承诺恢复物理上已丢失的数据。该能力复用存储、身份、导出与恢复插件，不要求固定不可改救援内核。
 
 <!-- /migrated-contract: SPEC:22.2 -->
+
+
+### Configured binding usability observations
+
+Runtime candidacy receives `ModelEligibility` shared with new-attempt admission.
+`runtime_model_health::initial_probe` reads the actual configured provider/model
+through its broker runtime without starting a generation. Empty configuration
+returns immediately and stays recovery-only. An exact valid `/v1/models` match
+is capability/reachability evidence, explicitly not successful inference. A
+complete model list that omits the configured model, or a typed attributable
+401/403/429/5xx metadata refusal, is unavailable. Incomplete/unsupported metadata,
+invalid conflicting metadata, transport failures and the 15-second probe timeout
+remain unknown; no error-string keyword decides health.
+
+An owned monitor probes every 30 seconds. Retained observations have a 15-minute
+validity window measured from the observation, never from a heartbeat. Ordinary
+broker completion also feeds the shared state after the original receipt is
+recorded and accounting locks are released. Only `Success + ProviderTerminal`
+provides generation-success evidence. Attributed provider rejections and a
+withdrawn runtime can count as unavailable; invalid prompts, local cancellation
+and unknown remote outcomes cannot. Temporary unavailability uses the Node's
+failure threshold and cooldown; generation authorization/route refusals withdraw
+eligibility immediately as described below. Unknown does not renew an old proof or shorten
+its original expiry. Long active requests are not cancelled by this observer.
+
+The profile digest remains the exact serialized `ModelProfile` digest used by
+component selection, and every retained observation also binds the full actual
+`ProviderBinding`; a different broker binding cannot inherit another endpoint's
+proof. Probe/results and their classification envelopes are retained in CAS
+before publishing eligibility. Failure to retain evidence leaves eligibility
+unrenewed and does not terminate deterministic recovery or factual ingress.
+
+
+### Metadata and generation health are distinct evidence
+
+A successful read-only model listing establishes only the configured model's
+metadata reachability. It cannot erase an actual generation refusal. An exact
+inference `401`, `403`, or `404` immediately withdraws that binding's eligibility;
+`429` and `5xx` use the existing two-failure hysteresis. Metadata success neither
+clears generation failure counts nor extends the earlier generation proof after
+a failure. Unknown observations remain unknown and keep the prior original expiry.
+Only a new successful generation or a genuinely changed configured binding can
+clear a generation refusal; no synthetic second failure is recorded.
+
+The installation retains its exact profile/provider/credential-fingerprint
+binding, observation references, eligibility projection and predecessor in a
+local CAS chain with an atomic SQLite head. Startup restores it before probing,
+so a restart plus a healthy `/models` response cannot erase a generation failure.
+These local credentials/capabilities are not replicated as another device's
+usable model. The reference graph retains the full original evidence and labels
+metadata success separately from generation success. No eligibility lock spans
+Store or Node writes; observer failures cannot turn a failed journal into fresh
+success proof.
+
+
+Temporary generation failures have a finite half-open path. Once the 30-second
+cooldown ends, a **new** successful metadata observation can admit at most a
+five-minute window for new work. This gives a request started near the beginning
+room for the ordinary 180-second deadline, without extending eligibility for a
+request started near the end. Its evidence remains `CapabilityProbe`, never generation
+success, and its generation-failure count remains intact. Additional metadata
+polls and Unknown observations cannot renew the window. A new explicit generation failure
+closes it immediately; a real successful generation restores normal eligibility.
+If no conclusive generation arrives, the window expires and a fresh observation
+after another 30-second cooldown is required for the next finite window. The
+hard authorization/model-route refusal barrier never takes this path.
+
+This is admission for new work under the existing broker reservations, quotas
+and authority checks. It creates no diagnostic generation and never replays an
+original request with Unknown outcome. Existing attempt owners still reconcile
+those exact requests independently. Recovery-window deadlines and counts are
+retained in the local health chain and survive reopening.
+
+Definitive capability and generation observations keep separate time watermarks.
+A later metadata response or Unknown observation cannot discard a delayed
+callback for an earlier explicit generation refusal. A genuinely newer successful
+generation can supersede an older refusal; stale metadata cannot undo that
+success. All original observations remain in the local evidence chain.

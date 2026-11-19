@@ -268,14 +268,14 @@ impl NapCatContactsHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:napcat-contacts-v1".into(),
             },
             symbol: "napcat.contacts.execute".into(),
             schema: SchemaRef {
                 name: "napcat-contacts-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("napcat-contacts-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -292,7 +292,7 @@ impl NapCatContactsHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -616,13 +616,13 @@ impl NapCatContactsHandler {
 
 #[async_trait]
 impl NativeTaskHandler for NapCatContactsHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "napcat.contacts".into(),
             definition_version: 1,
             implementation_ref: shenko_types::task::ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "napcat-contact-reader/1".into(),
@@ -640,7 +640,7 @@ impl NativeTaskHandler for NapCatContactsHandler {
                  绝不能把失败或没回答当成“没有联系人/不在群里”。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -724,7 +724,7 @@ mod tests {
     use std::time::Duration;
     use tokio_tungstenite::tungstenite::Message;
 
-    fn make_task(handler: &NapCatContactsHandler) -> (TaskRecord, TaskInvocation, EntityId) {
+    fn make_task(handler: &NapCatContactsHandler) -> Result<(TaskRecord, TaskInvocation, EntityId)> {
         let (task_id, agent_id, invocation_id, operation_id) = (
             EntityId::new(),
             EntityId::new(),
@@ -755,7 +755,7 @@ mod tests {
             background: false,
             kind: "napcat.contacts".into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref,
             state: TaskState::Running {
                 checkpoint_ref: None,
@@ -784,7 +784,7 @@ mod tests {
             worker_id: EntityId::new(),
             node_id: EntityId::new(),
         };
-        (task, invocation, operation_id)
+        Ok((task, invocation, operation_id))
     }
 
     fn invocation(
@@ -809,6 +809,7 @@ mod tests {
             },
             input,
             child_tools: None,
+            cancellation: Default::default(),
         }
     }
 
@@ -887,7 +888,7 @@ mod tests {
     /// answer is classified, paginated and sealed; rejected and foreign-account
     /// frames never become contact data.
     #[tokio::test]
-    async fn contacts_query_resolves_durable_result_with_bound_identity() {
+    async fn contacts_query_resolves_durable_result_with_bound_identity() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-contacts-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
@@ -947,7 +948,7 @@ mod tests {
 
         // 1. Paginated friend list: durable task → operation → evidence → result.
         let input = json!({"op":"friends","offset":1,"limit":1});
-        let (task, task_invocation, operation_id) = make_task(&handler);
+        let (task, task_invocation, operation_id) = make_task(&handler)?;
         let root_task = match &task.owner {
             TaskOwner::Task { id } => *id,
             _ => unreachable!("contacts task owner is always a task"),
@@ -1001,7 +1002,7 @@ mod tests {
 
         // 2. A frame answering for a different login identity — even with no
         // top-level self_id — is a real observation, never this bot's data.
-        let (task2, inv2, op2) = make_task(&handler);
+        let (task2, inv2, op2) = make_task(&handler)?;
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task2.clone());
         store.commit(batch).unwrap();
@@ -1026,13 +1027,14 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), connector)
             .await.unwrap().unwrap().unwrap();
         server.abort();
+        Ok(())
     }
 
     /// Provider-side answers that are not a real "ok"/retcode-0 answer — or a
     /// payload of the wrong shape — are classified as typed failures with the
     /// raw frame still sealed, never as empty contact data.
     #[tokio::test]
-    async fn contacts_query_typed_failures_are_classified() {
+    async fn contacts_query_typed_failures_are_classified() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-contacts-fail-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
@@ -1083,13 +1085,13 @@ mod tests {
         });
 
         let rejected_retcode =
-            run_failing_case(&store, &handler, json!({"op":"contact","user_id":7})).await;
+            run_failing_case(&store, &handler, json!({"op":"contact","user_id":7})).await?;
         assert_eq!(rejected_retcode["status"], "rejected");
         assert_eq!(rejected_retcode["retcode"], 1404);
 
         let rejected_status = run_failing_case(
             &store, &handler, json!({"op":"member","group_id":100,"user_id":7}),
-        ).await;
+        ).await?;
         assert_eq!(rejected_status["status"], "rejected");
         assert_eq!(rejected_status["retcode"], 0);
 
@@ -1097,6 +1099,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), connector)
             .await.unwrap().unwrap().unwrap();
         server.abort();
+        Ok(())
     }
 
     /// Drive one durable query expected to fail and return its normalized
@@ -1105,8 +1108,8 @@ mod tests {
         store: &Arc<Store>,
         handler: &NapCatContactsHandler,
         input: serde_json::Value,
-    ) -> serde_json::Value {
-        let (task, inv, op) = make_task(handler);
+    ) -> Result<serde_json::Value> {
+        let (task, inv, op) = make_task(handler)?;
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task.clone());
         store.commit(batch).unwrap();
@@ -1114,20 +1117,20 @@ mod tests {
         assert_eq!(operation.outcome, Some(OperationOutcome::Failed));
         let evidence = store.external_operation_evidence(op).unwrap();
         assert_eq!(evidence.len(), 1);
-        serde_json::from_slice::<serde_json::Value>(
+        Ok(serde_json::from_slice::<serde_json::Value>(
             &store
                 .cas
                 .read_object(&evidence[0].normalized_ref.as_ref().unwrap().digest)
                 .unwrap(),
         )
-        .unwrap()
+        .unwrap())
     }
 
     /// An armed operation whose controller vanished between T1 and the wire
     /// answer stays unresolved: recovery seals the gap as evidence and never
     /// replays a request that may already have been served.
     #[tokio::test]
-    async fn armed_contacts_query_recovers_without_replay() {
+    async fn armed_contacts_query_recovers_without_replay() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-contacts-recovery-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let (db, cas) = (dir.join("shenko.db"), dir.join("cas"));
@@ -1138,7 +1141,7 @@ mod tests {
         });
         let handler = NapCatContactsHandler::new(store.clone(), Arc::new(client));
         let input = json!({"op":"groups","limit":10});
-        let (task, task_invocation, operation_id) = make_task(&handler);
+        let (task, task_invocation, operation_id) = make_task(&handler)?;
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task.clone());
         store.commit(batch).unwrap();
@@ -1189,6 +1192,7 @@ mod tests {
         drop(recovered);
         drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 
 }

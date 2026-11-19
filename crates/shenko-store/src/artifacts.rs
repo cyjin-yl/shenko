@@ -319,7 +319,7 @@ impl Store {
             }
         }
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             if let Some(reader) = &reader {
@@ -683,7 +683,7 @@ impl Store {
             }
         };
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

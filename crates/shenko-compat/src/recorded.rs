@@ -79,7 +79,8 @@ impl RecordedCall {
         let digest = descriptor.implementation_ref.artifact_digest.clone();
         let version = VersionRef {
             artifact: ArtifactRef { digest: digest.clone(), locator: format!("builtin:{}:{}", descriptor.kind, descriptor.definition_version) },
-            symbol: descriptor.kind.clone(), schema: SchemaRef { name: "compat-receipt".into(), major: 1, digest: digest.clone() },
+            symbol: descriptor.kind.clone(), schema: SchemaRef { name: "compat-receipt".into(), major: 1,
+                digest: shenko_kernel::native_artifact::native_schema_digest("compat-receipt", 1) },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let operation = OperationRecord {
@@ -87,7 +88,9 @@ impl RecordedCall {
             task_id: invocation.task_invocation.task_id, logical_key: "native-handler".into(), operation_name: descriptor.kind.clone(),
             input_schema_version: 1, output_schema_version: 1, input_digest: input_ref.digest.clone(), final_input_ref: input_ref,
             contract_ref: OperationContractRef { plugin_id: descriptor.implementation_ref.plugin_id,
-                artifact_digest: digest.clone(), contract_digest: digest, receipt_reader_ref: version.clone() },
+                artifact_digest: digest, contract_digest: Digest::blake3(&serde_json::to_vec(&(
+                    "compat-native/v1", &descriptor.kind, descriptor.definition_version, acceptance, retry,
+                ))?), receipt_reader_ref: version.clone() },
             resource_bindings_ref: bindings, authority_ref: invocation.authority.clone(),
             acceptance_predicate_ref: seal(store, &acceptance, "compat-acceptance")?, retry_contract_ref: seal(store, &retry, "compat-retry")?,
             checkpoint_scope_ref: None, state: OperationState::InFlight, outcome: None, outcome_conflict: false,

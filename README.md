@@ -16,6 +16,8 @@ Shenko 是面向 personal agent 的最小框架：一条持续存在的主思考
 
 仓库需要 Rust 1.93 或更高版本与 Cargo，使用 Rust 2024 edition。1.93 是当前锁定的 Wasmtime/Wiggle 依赖声明的最低工具链要求；具体已验证工具链以运行证据为准。
 
+原生构建还需要 C/C++ 编译器、CMake、pkg-config、OpenSSL 开发文件与 libclang。SQLite preupdate 捕获通过 bindgen 生成绑定；Debian/Ubuntu 可安装 `cmake clang libclang-dev pkg-config libssl-dev`，非标准 LLVM 路径用 `LIBCLANG_PATH` 指向 libclang 所在目录。
+
 ```bash
 git clone https://github.com/cyjin-yl/shenko
 cd shenko

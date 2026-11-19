@@ -117,7 +117,12 @@ impl Store {
     /// exist and must hash to its digest, otherwise the snapshot is
     /// incomplete and cannot be claimed recoverable.
     pub fn export_cognition(&self, options: &CognitionSnapshotOptions) -> Result<CognitionExport> {
-        let collected = self.collect_snapshot(options, true)?;
+        self.export_cognition_under(options, None)
+    }
+
+    pub fn export_cognition_under(&self, options: &CognitionSnapshotOptions,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionExport> {
+        let collected = self.collect_snapshot(options, true, permit)?;
         let fingerprint = fingerprint_of(&collected);
         let source_snapshot_seq = collected
             .snapshot_seq
@@ -181,7 +186,7 @@ impl Store {
         &self,
         options: &CognitionSnapshotOptions,
     ) -> Result<(Digest, LedgerSeq)> {
-        let collected = self.collect_snapshot(options, false)?;
+        let collected = self.collect_snapshot(options, false, None)?;
         let fingerprint = fingerprint_of(&collected);
         let high_water = collected.high_water;
         self.store_local_fingerprint(&fingerprint, high_water)?;
@@ -192,9 +197,10 @@ impl Store {
         &self,
         options: &CognitionSnapshotOptions,
         allocate_order: bool,
+        permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<Collected> {
         let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
+            self.snapshot_rows(allocate_order, options.local_boundary_preserved, permit)?;
         let (roots, external) = self.cognition_object_roots(&rows);
         let (objects, missing) = self.collect_closure(&roots)?;
 
@@ -295,6 +301,7 @@ impl Store {
         &self,
         allocate_order: bool,
         local_boundary_preserved: bool,
+        borrowed: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<(
         Vec<CognitionRow>,
         Vec<CognitionDerivative>,
@@ -302,6 +309,12 @@ impl Store {
         LedgerSeq,
         Option<u64>,
     )> {
+        let owned = if allocate_order && borrowed.is_none() {
+            self.ledger.acquire_installation(false)?
+        } else { None };
+        if allocate_order && let Some((domain, _, _)) = &self.ledger.installation {
+            borrowed.or(owned.as_ref()).context("snapshot order requires an installation permit")?.validate(domain)?;
+        }
         let mut conn = self.ledger.conn.lock();
         let behavior = if allocate_order {
             TransactionBehavior::Immediate

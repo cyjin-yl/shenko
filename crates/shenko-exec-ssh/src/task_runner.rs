@@ -260,17 +260,18 @@ impl SshTaskRunner<'_> {
             !logical_key.is_empty() && logical_key.len() <= 128,
             "invalid logical key"
         );
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let input = self.seal(&frozen, "ssh-frozen-input")?;
         let resource = self.seal(&frozen.binding, "ssh-binding")?;
         let contract_digest = Digest::blake3(HELPER.as_bytes());
         let schema = SchemaRef {
             name: "ssh-receipt-v1".into(),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest("ssh-receipt-v1", 1),
         };
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:openssh-python3-v1".into(),
             },
             symbol: "receipt".into(),
@@ -298,7 +299,7 @@ impl SshTaskRunner<'_> {
             input_digest: input.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: EntityId::nil(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },

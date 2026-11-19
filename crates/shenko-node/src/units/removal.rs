@@ -5,7 +5,7 @@
 
 use anyhow::{Result, ensure};
 use crate::Node;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -143,9 +143,7 @@ impl Node {
             "an uninstall reason is required and bounded"
         );
         let removed_at = now();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let digests: Vec<String> = tx
             .prepare(
                 "SELECT artifact_digest FROM unit_versions \

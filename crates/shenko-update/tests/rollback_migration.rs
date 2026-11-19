@@ -321,3 +321,63 @@ fn a_rollback_import_refuses_a_diverged_fact_and_keeps_the_local_one() {
     drop(older);
     install.cleanup();
 }
+
+/// A detached data copy is not a software writer, but sharing an installation
+/// CAS still requires the original physical exclusion. Recheck the layout on
+/// every write: an already open data handle gets no lasting exemption when an
+/// actual root slot is created alongside it.
+#[test]
+fn data_only_copy_keeps_physical_exclusion_and_rechecks_installation_claim() {
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+    use shenko_types::installation::InstallationDomain;
+
+    let install = installation();
+    let newer = Arc::new(install.open_newer());
+    let domain = InstallationDomain::for_store(&install.newer, &install.cas)
+        .unwrap().expect("a shared CAS must retain its physical coordination domain");
+    let permit = domain.acquire().unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let worker_store = Arc::clone(&newer);
+    let agent = install.agent;
+    let worker = std::thread::spawn(move || {
+        entered_tx.send(()).unwrap();
+        let result = save(&worker_store, agent, "serialized detached write");
+        done_tx.send(()).unwrap();
+        result
+    });
+    let entered = entered_rx.recv_timeout(Duration::from_secs(5));
+    let while_reserved = done_rx.recv_timeout(Duration::from_millis(200));
+    // Always release and join before evaluating the observations, including a
+    // broken implementation that finished while the original permit was held.
+    drop(permit);
+    let completed = worker.join();
+    assert!(entered.is_ok(), "writer did not reach its admission attempt");
+    assert!(matches!(while_reserved, Err(mpsc::RecvTimeoutError::Timeout)),
+        "a detached Store write escaped the shared installation permit");
+    assert!(completed.is_ok(), "the original write failed after releasing the permit");
+    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    let root_store = Store::open(install.root.join("shenko.db"), install.cas.clone()).unwrap();
+    save(&root_store, agent, "the actual root slot still admits its own facts");
+    let refused_id = EntityId::new();
+    let record = MemoryIntentRecord::accepted(
+        refused_id, agent, "save", "personal", "must not enter a detached runtime",
+        None, Some(EntityId::new()),
+    );
+    let error = newer.admit_memory_intent(&record, None).unwrap_err();
+    assert!(shenko_types::authority::is_authority_fenced(&error), "{error:#}");
+    let read = rusqlite::Connection::open_with_flags(
+        &install.newer, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ).unwrap();
+    let count: i64 = read.query_row(
+        "SELECT count(*) FROM memory_intents WHERE intent_id=?1",
+        [refused_id.to_string()], |row| row.get(0),
+    ).unwrap();
+    assert_eq!(count, 0, "refusal must precede the original mutation");
+    drop(read);
+    drop(root_store);
+    drop(newer);
+    install.cleanup();
+}

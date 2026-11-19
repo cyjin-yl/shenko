@@ -36,6 +36,13 @@ provider 是可安装的运行时实现，不是封闭枚举。
   - 历史 `local` / `anthropic` / `stub` 绑定原样可读，旧封存历史不需要迁移。
 - 模型名不构成许可名单。`ProviderProfile::validate` 只检查结构（端点 scheme、凭据头名、采样能力自相矛盾等），不检查模型是否"已知"。
 
+模型 child 可用显式 `profile_id` 选择委派 S0 已封存的完整已安装 binding；省略时
+保留原通路，绝不按模型名称猜测供应商。`BrokerHandle::for_binding` 核对原 runtime，
+并解析该 binding 的物理资源域。共享队列的每个 submission、completion 与 Unknown
+账项都保留自己的 domain/KV owner；其他域满额不会阻塞本域可用请求，重新对账也
+不会释放调用方当前 handle 的错误资源域。新域的 KV 能力从未知开始，不继承另一
+后端的驻留能力。历史 binding 与 S0 的读取保持原语义，已安装目录不是自动安装机制。
+
 ### 本地 HTTP 观察期限
 
 `LocalModelProvider` 在创建时读取 `SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS`。
@@ -53,6 +60,31 @@ JSON 形状与 180 秒语义。换期限只影响新绑定，不能改写已经�
 HTTP timeout 记入所属主体的运行时错误日志，包含封存期限但不抄录凭据或 URL
 参数；原始终局回执仍独立保存。慢 CPU prefill 需要按实测配置明确期限，不能用
 删减产品上下文、放宽输出判定或假成功规避它。
+
+### 停机与本地观察所有权
+
+运行时停机先关闭 broker 新提交，随后通知主体等待点、有限 child 和 provider 的
+本地观察。主体从等待分支实际返回，释放本步 hook lease；不能 abort 外层
+supervisor 后声称它的内层 worker 已停止。尚未进入发送边界的排队请求可记为
+`Cancelled / NeverDispatched`；已经进入发送边界的 HTTP 请求关闭本地连接后
+仍为 `Unknown`，保留原 request、回执和容量欠账，不宣称远端 generation 停止。
+
+CLI 持有 broker runner，runner 持有实际 provider worker；接收者离开不撤销
+其回执所有权。当前 Local/Anthropic HTTP 实现支持结束自己拥有的本地 HTTP
+exchange。其他 `ProviderRuntime` 默认等待真实 worker 返回，不能用通用
+future drop 推断阻塞 guest 或远端效果已结束；这样的实现**没有有界停机保证**。
+worker、hook pump 和持久消费者都在所有者退出前真实 join，停机观察期限只
+产生日志，不作释放容量或脱离 worker 的依据。
+
+provider 的执行 future 若以 Rust unwind 结束，broker 将该原请求记为
+`Failed / Unknown`，再经原回执与完成队列结算本地 worker；不会因没有正常返回
+而永远保留虚假的运行计数，也不释放未知的远端占用。捕获范围仅是 provider
+执行 future，发送 fence、回执落盘和 broker 结算错误仍沿原错误路径处理。
+进程 abort，以及插件私自脱离生命周期的线程或任务，不在这个 join 证明之内。
+
+重启时先从主体原尝试及 child 原操作恢复 `Unknown` 物理欠账，再启动 broker
+接收任何新 dispatch。历史 conclusive 回执按原 binding/payload 对账，未知
+回执与原始 send marker 不能因换 runtime 而获得新的发送许可。
 
 ### 四个原生后端
 

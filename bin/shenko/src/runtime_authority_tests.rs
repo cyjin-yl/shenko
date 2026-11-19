@@ -1,12 +1,13 @@
 use super::*;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use shenko_store::{SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal};
 use shenko_types::{
     ids::{RecordRevision, TaskRevision},
     inbox::{InboxEvent, InboxEventKind},
     store::RawInboxEvent,
-    subject::SubjectStepState,
+    subject::{StepDecision, SubjectBranchHead, SubjectModelOutcome, SubjectStep, SubjectStepState},
     task::{AbortScope, DispatchEligibility, TaskOwner, TaskRecord, TaskState},
 };
 
@@ -51,8 +52,70 @@ impl Drop for Fixture {
     fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
 }
 
+/// Real read-only wire evidence qualifies the fixture's local binding. The
+/// finite HTTP owner is joined before returning; no generation, environment
+/// override or synthetic primary/control grant is involved.
+fn observe_fixture_model(path: &Path, store: &Store) -> Result<()> {
+    let probe = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let endpoint = format!("http://{}", listener.local_addr()?);
+        let (_broker, handle) = shenko_broker::broker::Broker::with_local_provider(
+            shenko_broker::local_provider::LocalModelProvider::new(endpoint, "authority-metadata-fixture".into()), 1)?;
+        let server = tokio::spawn(async move {
+            tokio::time::timeout(Duration::from_secs(5), async move {
+                for (route, status, body) in [
+                    ("/v1/models", "200 OK", r#"{"data":[{"id":"authority-metadata-fixture","max_model_len":65536}]}"#),
+                    ("/metrics", "404 Not Found", "metrics unavailable in this metadata-only fixture"),
+                ] {
+                    let (mut socket, _) = listener.accept().await?;
+                    let mut request = Vec::new();
+                    while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                        let mut chunk = [0_u8; 1024];
+                        let count = socket.read(&mut chunk).await?;
+                        anyhow::ensure!(count > 0, "metadata request closed before its headers");
+                        request.extend_from_slice(&chunk[..count]);
+                        anyhow::ensure!(request.len() <= 16 * 1024, "metadata request exceeds fixture bound");
+                    }
+                    let request = std::str::from_utf8(&request)?;
+                    anyhow::ensure!(request.starts_with(&format!("GET {route} HTTP/1.1\r\n")),
+                        "fixture received an unexpected request; only metadata GETs are permitted");
+                    socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
+                }
+                Ok::<(), anyhow::Error>(())
+            }).await.context("owned metadata fixture exceeded five seconds")?
+        });
+        let observed = tokio::time::timeout(Duration::from_secs(5), handle.probe_binding()).await;
+        // Join on probe failure too; a timeout never leaves a fixture server
+        // running behind the authority/crash journey it was meant to prepare.
+        let served = server.await.context("owned metadata fixture task failed")?;
+        served?;
+        observed.context("fixture model probe exceeded five seconds")?
+    })?;
+    assert_eq!(probe.usability, shenko_broker::BindingUsability::Available);
+    let profile = shenko_seed::ModelProfile {
+        provider: Some("local".into()), model: Some("authority-metadata-fixture".into()),
+        configured: true, capacity: shenko_seed::ModelCapacity::Unprobed,
+    };
+    let profile_digest = Digest::blake3(&serde_json::to_vec(&profile)?);
+    let original = store.cas.seal_object(&serde_json::to_vec(&probe)?, "application/json",
+        "authority-fixture", "model-capability-probe", 1)?.object;
+    let mut eligibility = shenko_node::ModelEligibility::default();
+    eligibility.observe(profile_digest.clone(), shenko_node::ModelUsabilityOutcome::Available,
+        shenko_node::ModelUsabilityEvidence {
+            evidence_digest: original.digest, source: shenko_node::ModelUsabilitySource::CapabilityProbe,
+            observed_at: probe.observed_at,
+            valid_until: probe.observed_at + chrono::Duration::minutes(15),
+        })?;
+    let runtime_id = EntityId::new();
+    let candidate = eligibility.candidate(runtime_id, &profile_digest, None)
+        .context("real fixture metadata did not establish an eligible binding")?;
+    crate::node_sync::open_node(path, store)?.advertise_component_runtime(runtime_id, Some(candidate))?;
+    Ok(())
+}
+
 fn runtime(path: &Path, store: &Arc<Store>) -> Result<Arc<RuntimeAuthority>> {
     let cancel = CancellationToken::new();
+    observe_fixture_model(path, store)?;
     crate::node_sync::establish_primary(path, store, &cancel)?.context("fixture singleton primary")?;
     let runtime = RuntimeAuthority::attach(path, store, cancel)?;
     runtime.recover_before_consumers()?;
@@ -114,6 +177,13 @@ impl CommitAuthorityProvider for PauseAuthority {
         if !self.before_acquire && grant.is_some() { self.pause()?; }
         Ok(guard)
     }
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        let guard = self.inner.acquire_installed(grant, permit)?;
+        if !self.before_acquire && grant.is_some() { self.pause()?; }
+        Ok(guard)
+    }
     fn action_unmaterialized(&self, grant: &CommitAuthorityGrant) { self.inner.action_unmaterialized(grant); }
 }
 fn pausing(store: &Store, runtime: Arc<RuntimeAuthority>, before_acquire: bool)
@@ -124,6 +194,57 @@ fn pausing(store: &Store, runtime: Arc<RuntimeAuthority>, before_acquire: bool)
     store.attach_commit_authority(Arc::new(PauseAuthority { inner: runtime, before_acquire,
         once: AtomicBool::new(true), reached, release: Mutex::new(proceed) }))?;
     Ok((observed, release))
+}
+
+/// Deterministic output goes through the real parser and S1 preparation. This
+/// supplies a frozen canonical result, without claiming a provider generation.
+fn prepared_fixture_step(store: &Arc<Store>, agent: EntityId)
+    -> Result<(SubjectBranchHead, SubjectStep, EntityId)>
+{
+    let (head, mut step) = store.load_subject(agent)?;
+    assert_eq!(step.state, SubjectStepState::Planned);
+    let raw = store.cas.seal_object(b"continue", "text/plain", "test", "raw", 1)?.object;
+    step.input_plan_ref = Some(crate::recovery_integration_tests::prepare_fixture_s0(store, &head, &step));
+    let prior = step.record_revision;
+    step.state = SubjectStepState::Preparing;
+    step.record_revision = prior.next();
+    store.upsert_step(&step, &head, prior)?;
+    let prior = step.record_revision;
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    step.record_revision = prior.next();
+    store.upsert_step(&step, &head, prior)?;
+    let prior = step.record_revision;
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(raw.clone());
+    step.model_outcome_ref = Some(store.cas.seal_object(&serde_json::to_vec(&SubjectModelOutcome {
+        schema_version: 2,
+        request_id: step.active_request_id.context("fixture request missing")?,
+        result_ref: raw.clone(),
+        stop_reason: "end_turn".into(),
+        raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+        usage: None,
+    })?, "application/json", "model_outcomes", "SubjectModelOutcome", 2)?.object);
+    step.record_revision = prior.next();
+    store.upsert_step(&step, &head, prior)?;
+    let identity = shenko_identity::IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
+    let output = shenko_subject::output::parse_output(step.step_id, raw.clone(), "continue", &identity,
+        &shenko_channel_napcat::qq_test_registry(), None)?;
+    let next = EntityId::new();
+    let decision = StepDecision {
+        schema_version: 8, step_id: step.step_id, output, identity_intent: None,
+        input_plan_ref: step.input_plan_ref.clone().context("fixture S0 missing")?,
+        model_result_ref: Some(raw), applied_steering_refs: vec![], event_dispositions: vec![],
+        delegated_task_intents: vec![], child_dialogue_intents: vec![], memory_intents: vec![],
+        policy_intents: vec![], publication_intents: vec![], pending_obligations: vec![],
+        unknown_acknowledgements: vec![], attention_policy: None, evidence_refs: vec![],
+        successor_step_id: next,
+    };
+    step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision)?,
+        "application/json", "test", "StepDecision", 8)?.object);
+    step.state = SubjectStepState::Committed;
+    step.record_revision = step.record_revision.next();
+    Ok((head, step, next))
 }
 
 #[test]
@@ -207,6 +328,11 @@ impl CommitAuthorityProvider for ExitAfterChosen {
     fn acquire(&self, grant: Option<&CommitAuthorityGrant>) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
         self.inner.acquire(grant)
     }
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        self.inner.acquire_installed(grant, permit)
+    }
 }
 
 #[test]
@@ -234,6 +360,7 @@ fn chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown()
     assert_eq!(status.code(), Some(71));
     let store = fixture.open()?;
     let cancel = CancellationToken::new();
+    observe_fixture_model(&fixture.0, &store)?;
     crate::node_sync::establish_primary(&fixture.0, &store, &cancel)?.context("selected primary")?;
     let runtime = RuntimeAuthority::attach(&fixture.0, &store, cancel)?;
     assert!(runtime.recover_before_consumers()?);
@@ -297,7 +424,7 @@ fn chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown()
     drop(revoked);
     assert!(runtime.recovery_required().is_some());
     let successor = fixture.open()?;
-    let _global = self::runtime(&fixture.0, &successor)?;
+    let global = self::runtime(&fixture.0, &successor)?;
     let selected = crate::node_sync::open_node(&fixture.0, &successor)?.reserve_authority()?;
     assert!(!selected.snapshot().is_current_availability());
     assert_eq!(selected.snapshot().identity.branch_id.0, head.branch_id.0);
@@ -312,5 +439,71 @@ fn chosen_unmaterialized_action_reopens_on_a_real_branch_with_original_unknown()
         .context("connected admission missing from its actual quorum log")?;
     assert_eq!(connected_grant.admission.branch_id, head.branch_id);
     assert!(successor.control_admission_applied_here(&connected_grant.admission)?);
+
+    // Lose model eligibility after a real quorum chose S1 but before its
+    // Store materialization. Recovery consumes only those original bytes;
+    // missing model configuration cannot convert a learned result into debt.
+    let (expected, committed, next) = prepared_fixture_step(&successor, agent)?;
+    let chosen_step = committed.step_id;
+    let (chosen, release) = pausing(&successor, global.clone(), true)?;
+    let committing = std::thread::spawn({
+        let store = successor.clone();
+        let expected = expected.clone();
+        move || store.commit_step_and_advance_head(&committed, &expected, next)
+    });
+    chosen.recv_timeout(Duration::from_secs(10))?;
+    let node = crate::node_sync::open_node(&fixture.0, &successor)?;
+    let grants = node.committed_admissions(0)?;
+    let grant = grants.last().context("chosen canonical S1 missing")?.clone();
+    let objects = node.admission_objects(&grant.admission.payload_ref)?;
+    let envelope: serde_json::Value = serde_json::from_slice(
+        &successor.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    assert_eq!(envelope["action"]["kind"], "subject.step_commit");
+    assert_eq!(envelope["action"]["step"]["step_id"], serde_json::to_value(chosen_step)?);
+    assert!(envelope["action"].get("transition_ref").is_some());
+    assert!(!successor.control_admission_applied_here(&grant.admission)?);
+    let health = tokio::runtime::Builder::new_current_thread().build()?.block_on(
+        crate::runtime_model_health::initial_probe(&shenko_seed::ModelProfile {
+            provider: None, model: None, configured: false, capacity: shenko_seed::ModelCapacity::Blocked,
+        }, successor.clone(), &CancellationToken::new()))?;
+    let runtime_id = EntityId::new();
+    assert!(!health.is_eligible(runtime_id));
+    global.bind_model_health(health, runtime_id);
+    release.send(())?;
+    let error = committing.join().map_err(|_| anyhow::anyhow!("canonical writer panicked"))?
+        .err().context("fresh S1 unexpectedly applied without model eligibility")?;
+    assert!(shenko_types::authority::is_authority_fenced(&error));
+    assert_eq!(successor.load_subject(agent)?.0.next_step_id, expected.next_step_id);
+    assert!(!successor.control_admission_applied_here(&grant.admission)?);
+    assert!(global.prepare(&grant.admission).is_err());
+    assert!(global.acquire(None).is_err());
+
+    // A replay request still reserves the real Node and verifies the exact
+    // stored descriptor. Neither a forged certificate identity nor another
+    // branch gains a materialization guard merely by setting replayed=true.
+    let mut replay = grant.clone();
+    replay.replayed = true;
+    let mut forged = replay.clone();
+    forged.grant_id.push_str("-forged");
+    let error = global.acquire(Some(&forged)).err().context("forged grant accepted")?;
+    assert!(!shenko_types::authority::is_authority_fenced(&error));
+    assert!(successor.recover_control_admission(&forged, &objects, false).is_err());
+    assert!(!successor.control_admission_applied_here(&grant.admission)?);
+    let mut foreign = replay.clone();
+    foreign.admission.branch_id = BranchId(EntityId::new().0);
+    let error = global.acquire(Some(&foreign)).err().context("foreign branch accepted")?;
+    assert!(!shenko_types::authority::is_authority_fenced(&error));
+    let reservation = global.acquire(Some(&replay))?;
+    assert!(reservation.stamp().is_none());
+    assert!(reservation.installation_permit().is_some());
+    drop(reservation);
+    assert_eq!(successor.recover_control_admission(&replay, &objects, false)?,
+        shenko_store::ControlRecoveryOutcome::RecoveredCanonical);
+    assert_eq!(successor.load_subject(agent)?.0.next_step_id, next);
+    assert!(successor.control_admission_applied_here(&replay.admission)?);
+    assert_eq!(successor.recover_control_admission(&replay, &objects, false)?,
+        shenko_store::ControlRecoveryOutcome::Applied);
+    assert!(successor.start_subject_dispatcher().is_err());
+    assert_eq!(crate::node_sync::open_node(&fixture.0, &successor)?.committed_admissions(0)?.len(), grants.len());
     Ok(())
 }

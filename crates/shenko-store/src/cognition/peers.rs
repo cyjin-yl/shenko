@@ -25,6 +25,7 @@ impl Store {
         peer_id: EntityId,
         receipt: &CognitionReceipt,
     ) -> Result<()> {
+        let _permit = self.ledger.acquire_installation(false)?;
         let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT INTO cognition_peers(peer_id,exported_fingerprint,exported_high_water,exported_at,created_at)
@@ -51,6 +52,7 @@ impl Store {
     /// never advances the acknowledgement: the peer stays unverified until it
     /// confirms the complete closure.
     pub fn record_cognition_ack(&self, ack: &CognitionAck) -> Result<()> {
+        let _permit = self.ledger.acquire_installation(false)?;
         let conn = self.ledger.conn.lock();
         let sent: Option<(Option<String>, Option<i64>)> = conn
             .query_row(
@@ -303,7 +305,9 @@ impl Store {
         updated: usize,
         unchanged: usize,
         conflicts: usize,
+        permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<()> {
+        self.ledger.with_maintenance_mutation_under(permit, || {
         let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT INTO cognition_receipts(peer_id,fingerprint,high_water,verified_objects,verified_files,inserted,updated,unchanged,conflicts,received_at)
@@ -331,9 +335,11 @@ impl Store {
             ],
         )?;
         Ok(())
+        }, super::storage_failure)
     }
 
     pub(super) fn store_local_fingerprint(&self, fingerprint: &Digest, high_water: LedgerSeq) -> Result<()> {
+        let _permit = self.ledger.acquire_installation(false)?;
         let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT INTO cognition_state(singleton,fingerprint,high_water,computed_at)

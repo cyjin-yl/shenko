@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use crate::Node;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -370,9 +370,7 @@ impl Node {
                 }));
             }
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         // Generations are append-only documents: the next number is one past
         // the highest recorded one, read inside this write transaction.
         let generation = latest_environment_generation(&tx)?.map_or(1, |latest| latest + 1);
@@ -423,9 +421,7 @@ impl Node {
         // append-only facts, so the verification above cannot be invalidated
         // by a concurrent import before this write. The compare-and-swap is
         // the linearization point of the activation itself.
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let updated_at = now();
         // The selector document is rewritten only when it still carries the
         // revision the caller read: read and write happen in one immediate

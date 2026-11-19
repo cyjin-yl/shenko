@@ -5,6 +5,7 @@ pub mod contribution;
 pub mod errors;
 pub mod hooks;
 pub mod lifecycle;
+pub mod native_artifact;
 pub mod plugin;
 pub mod runtime;
 pub mod services;

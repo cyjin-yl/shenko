@@ -20,7 +20,7 @@ use shenko_types::{
 };
 use std::sync::Arc;
 
-const CONTRACT: &[u8] = b"shenko.history.query/v1: immutable own-subject raw session reads; no external effects; bounded linear literal-match previews";
+const CONTRACT: &[u8] = b"shenko.history.query/v1: own-subject raw session and retained obligation reads; no external effects; bounded previews and keyset obligation pages";
 pub(crate) const MAX_QUERY_BYTES: usize = 4096;
 const MAX_FILTER_VALUES: usize = 8;
 const MAX_FILTER_VALUE_BYTES: usize = 64;
@@ -34,12 +34,16 @@ enum HistoryOp {
     Search,
     List,
     Read,
+    Obligations,
+    ReadObligation,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct HistoryInput {
     op: HistoryOp,
+    obligation_id: Option<EntityId>,
+    after: Option<shenko_store::subject_state::ObligationCursor>,
     query: Option<String>,
     event_id: Option<EntityId>,
     seq: Option<i64>,
@@ -69,6 +73,8 @@ enum FrozenQuery {
     ReadSeq {
         seq: i64,
     },
+    Obligations { agent_id: EntityId, after: Option<shenko_store::subject_state::ObligationCursor>, limit: usize },
+    ReadObligation { agent_id: EntityId, obligation_id: EntityId },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +122,8 @@ impl HistoryHandler {
     fn freeze(&self, value: serde_json::Value, session_id: EntityId) -> Result<FrozenInput> {
         let HistoryInput {
             op,
+            obligation_id,
+            after,
             query,
             event_id,
             seq,
@@ -152,7 +160,27 @@ impl HistoryHandler {
             event_types,
             roles,
         };
+        if !matches!(op, HistoryOp::Obligations | HistoryOp::ReadObligation) {
+            ensure!(obligation_id.is_none() && after.is_none(), "raw history queries do not accept obligation coordinates");
+        }
         let query = match op {
+            HistoryOp::Obligations | HistoryOp::ReadObligation => {
+                ensure!(query.is_none() && event_id.is_none() && seq.is_none() && from_seq == 0 && to_seq.is_none()
+                    && filter.event_types.is_empty() && filter.roles.is_empty(),
+                    "obligation reads do not accept raw history search filters");
+                let agent_id = self.store.raw_session(session_id)?.context("subject session has no owner")?.agent_id;
+                match op {
+                    HistoryOp::Obligations => {
+                        ensure!(obligation_id.is_none(), "obligations accepts after/limit; use read_obligation for one body");
+                        FrozenQuery::Obligations { agent_id, after, limit }
+                    }
+                    HistoryOp::ReadObligation => {
+                        ensure!(after.is_none() && !limit_was_specified, "read_obligation accepts only obligation_id");
+                        FrozenQuery::ReadObligation { agent_id, obligation_id: obligation_id.context("read_obligation requires obligation_id")? }
+                    }
+                    _ => unreachable!(),
+                }
+            }
             HistoryOp::Search => {
                 ensure!(
                     event_id.is_none() && seq.is_none(),
@@ -233,7 +261,7 @@ impl HistoryHandler {
             runtime_node: invocation.task_invocation.node_id.to_string(),
             mount_generation: 0,
             capability_level: "read_only_own_subject_history".into(),
-            extra: serde_json::json!({"session_id": session_id}),
+            extra: serde_json::json!({"session_id": session_id, "agent_id": invocation.task.agent_id}),
         };
         let resource = self.seal(&bindings, "history-query-binding")?;
         let acceptance = self.seal(
@@ -247,14 +275,14 @@ impl HistoryHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:history-query-v1".into(),
             },
             symbol: "history.query.execute".into(),
             schema: SchemaRef {
                 name: "history-query-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("history-query-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -271,7 +299,7 @@ impl HistoryHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -314,6 +342,31 @@ impl HistoryHandler {
 
     fn query(&self, frozen: &FrozenInput) -> Result<(serde_json::Value, OperationOutcome)> {
         match &frozen.query {
+            FrozenQuery::Obligations { agent_id, after, limit } => {
+                let page = self.store.subject_obligations_page(*agent_id, after.as_ref(), *limit)?;
+                // A page is a bounded directory; complete retained bodies
+                // have their exact read operation. Long commitments cannot
+                // make the default listing exceed native result delivery.
+                let summaries: Vec<_> = page.obligations.iter().map(|body| {
+                    let description: String = body.description.chars().take(200).collect();
+                    let resume: String = body.resume_condition.chars().take(100).collect();
+                    serde_json::json!({"obligation_id":body.obligation_id,
+                        "description_preview":description,"resume_condition_preview":resume,
+                        "truncated": description != body.description || resume != body.resume_condition,
+                        "due_at":body.due_at,"depends_on_task_id":body.depends_on_task_id})
+                }).collect();
+                Ok((serde_json::json!({"schema_version":1,"status":"ok","op":"obligations",
+                    "page":{"total_open":page.total_open,"obligations":summaries,"next":page.next}}), OperationOutcome::Succeeded))
+            }
+            FrozenQuery::ReadObligation { agent_id, obligation_id } => {
+                let body = self.store.subject_obligation(*agent_id, *obligation_id)?;
+                match body {
+                    Some((obligation, state)) => Ok((serde_json::json!({"schema_version":1,"status":"ok","op":"read_obligation",
+                        "obligation_id":obligation_id,"obligation":obligation,"state":state}), OperationOutcome::Succeeded)),
+                    None => Ok((serde_json::json!({"schema_version":1,"status":"not_found","op":"read_obligation",
+                        "obligation_id":obligation_id}), OperationOutcome::Failed)),
+                }
+            }
             FrozenQuery::Search { query, filter } => {
                 let events = self
                     .store
@@ -439,44 +492,45 @@ impl HistoryHandler {
 
 #[async_trait]
 impl NativeTaskHandler for HistoryHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "history.query".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-history-reader/1".into(),
-            authority_refs: vec!["store.session_events.read.own_subject/v1".into()],
+            authority_refs: vec!["store.session_events.read.own_subject/v1".into(), "store.subject_obligations.read.own_subject/v1".into()],
             prompt_section: Some(
-                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文；起点是原始 data 的 Unicode 标量位置，不是字节或 UTF-16 偏移。预览没显示某内容不证明原文没有；需要完整正文时使用 read。不得把尚未返回的回忆当成已核实事实。"
+                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文；起点是原始 data 的 Unicode 标量位置，不是字节或 UTF-16 偏移。预览没显示某内容不证明原文没有；需要完整正文时使用 read。义务全集分页：[delegate:history.query:1] {\"op\":\"obligations\",\"limit\":20}，每项为有界preview，按返回page.next原样作为after继续；全文与当前状态：[delegate:history.query:1] {\"op\":\"read_obligation\",\"obligation_id\":\"...\"}，返回的结构化义务引用会进入下一轮工作前沿。分页是实时读取，期间完成的旧项不会导致keyset漏项。不得把尚未返回的回忆当成已核实事实。"
                     .into(),
             ),
-        }
+        })
     }
 
     /// effect contract of `history.query.v1`.
     ///
-    /// The definition only reads the caller's own committed raw session. It
+    /// The definition only reads the caller's own committed raw session and obligations. It
     /// has no external effect, so none of the five actions applies: a read is
     /// not reset, restored, replayed, cancelled or compensated. The
     /// declaration says exactly that instead of borrowing another
     /// operation's guarantee.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             "history.query.v1",
             descriptor.definition_version,
         )
         .resource("store_raw_session", "own_subject", ResourceAccess::Read)
+        .resource("store_subject_obligations", "own_subject", ResourceAccess::Read)
         .idempotency(IdempotencyGuarantee::BestEffort)
         .checkpoint(CheckpointContract {
             capturable: Vec::new(),
-            excluded: vec!["committed session events".into()],
+            excluded: vec!["committed session events".into(), "retained obligations".into()],
             coordinated: false,
             consistency: "none".into(),
         })
@@ -487,7 +541,7 @@ impl NativeTaskHandler for HistoryHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     /// The capability this definition offers while it is installed.
@@ -495,7 +549,7 @@ impl NativeTaskHandler for HistoryHandler {
         vec![NativeCapabilityDeclaration {
             capability_id: "native.history.query".into(),
             version: "1".into(),
-            description: "Search, list and read the caller's own committed raw session events, with bounded previews".into(),
+            description: "Search/list/read own raw history and page/read retained obligations, with bounded projections".into(),
             usage: Some("delegate:history.query:1 {\"op\":\"search\",\"query\":\"...\",\"from_seq\":0,\"limit\":20}".into()),
         }]
     }
@@ -718,13 +772,20 @@ mod tests {
         assert_eq!(long["events"][0]["seq"], 4);
         assert_eq!(long["events"][0]["data_preview_match_visible"], false);
         assert_eq!(long["events"][0]["data_preview"].as_str().unwrap().chars().count(), MAX_PREVIEW_CHARS);
+        let obligations = query(serde_json::json!({"op":"obligations","limit":1}));
+        assert_eq!(obligations["page"]["total_open"], 0);
+        assert_eq!(obligations["page"]["obligations"], serde_json::json!([]));
+        let obligation_id = EntityId::new();
+        let obligation = query(serde_json::json!({"op":"read_obligation","obligation_id":obligation_id}));
+        assert_eq!(obligation["status"], "not_found");
+        assert_eq!(obligation["obligation_id"], serde_json::to_value(obligation_id).unwrap());
         drop(handler);
         drop(store);
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
-    async fn armed_history_query_recovers_on_original_attempt_without_duplicate_evidence() {
+    async fn armed_history_query_recovers_on_original_attempt_without_duplicate_evidence() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-history-recovery-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let (db, cas) = (dir.join("shenko.db"), dir.join("cas"));
@@ -755,7 +816,7 @@ mod tests {
             background: false,
             kind: "history.query".into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref: input_ref.clone(),
             state: TaskState::Running {
                 checkpoint_ref: None,
@@ -817,6 +878,7 @@ mod tests {
             },
             input: serde_json::Value::Null,
             child_tools: None,
+            cancellation: Default::default(),
         };
         let (mut operation, mut attempt) = handler
             .operation_parts(&invocation, session_id, input_ref)
@@ -899,5 +961,6 @@ mod tests {
         drop(recovered);
         drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 }

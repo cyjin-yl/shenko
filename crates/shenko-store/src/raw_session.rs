@@ -28,6 +28,34 @@ use shenko_types::subject::{
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
 use crate::store::{Store, checked_head, read_step, storage_error, validate_step_binding};
 
+/// One read-only input projection for both durable selection and volatile
+/// native-result wakes. Its time comes from the original T2 task fact, never
+/// from the current dispatcher/restart clock.
+fn inbox_projection(
+    conn: &Connection, agent_id: EntityId, event_id: EntityId,
+    kind: &str, source: &str, data: &str,
+) -> Result<shenko_types::inbox::InboxEvent, ShenkoError> {
+    use shenko_types::{inbox::{InboxEvent, InboxEventKind}, task::TaskResult};
+    if kind != "task_result" || source != "native-child" {
+        return serde_json::from_str(data).map_err(ShenkoError::from);
+    }
+    let result: TaskResult = serde_json::from_str(data)?;
+    if result.schema_version != 1 || result.result_id != event_id {
+        return Err(ShenkoError::conflict("native result original identity differs"));
+    }
+    let task = crate::child::read_task(conn, result.task_id).map_err(storage_error)?
+        .ok_or_else(|| ShenkoError::conflict("native result original task is absent"))?;
+    if task.agent_id != agent_id || task.task_id != result.task_id {
+        return Err(ShenkoError::conflict("native result original owner differs"));
+    }
+    let created_at = task.terminal_at
+        .ok_or_else(|| ShenkoError::conflict("native result has no original terminal time"))?;
+    Ok(InboxEvent {
+        event_id, kind: InboxEventKind::TaskResult, source: source.to_owned(),
+        created_at, payload: serde_json::to_value(result)?,
+    })
+}
+
 /// One structured runtime-error journal entry.
 ///
 /// A runtime error is a fact of the subject's own history, not a diagnostic
@@ -273,9 +301,15 @@ pub struct SubjectContextRef {
 /// The correction request the subject sends and the raw history must carry
 /// the same words, so the store owns the text and the loop reuses it.
 pub fn control_rejection_feedback(rejection: &ControlOutputRejection) -> String {
+    let continuation = if rejection.schema_version == 3 && rejection.correction.as_ref().is_some_and(|disposition|
+        matches!(disposition.replacement, shenko_types::subject::ControlOutputReplacement::ReselectInput { .. })) {
+        "固定输入的纠错已结束，下一步重新选择包括新交互在内的待处理输入；旧输入、原始输出和本反馈仍完整保留。请依据当前事实重新决定，任何动作都须重新明确提出。"
+    } else {
+        "请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。"
+    };
     format!(
-        "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。",
-        rejection.error.code, rejection.error.details
+        "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。{}",
+        rejection.error.code, rejection.error.details, continuation,
     )
 }
 
@@ -877,11 +911,62 @@ impl Store {
         Ok(())
     }
 
+    /// The first complete ingress projection, shared by volatile wake delivery
+    /// and durable recovery. Reading it never acknowledges the event.
+    pub fn inbox_event_original(
+        &self, agent_id: EntityId, event_id: EntityId,
+    ) -> Result<Option<shenko_types::inbox::InboxEvent>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let row: Option<(String, String, String)> = conn.query_row(
+            "SELECT kind,source,data FROM inbox_events WHERE agent_id=?1 AND event_id=?2",
+            params![agent_id.to_string(), event_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).optional().map_err(storage_error)?;
+        row.map(|(kind, source, data)| {
+            inbox_projection(&conn, agent_id, event_id, &kind, &source, &data)
+        }).transpose()
+    }
+
+    /// Persist a wake's original before it competes for the bounded attention
+    /// window. Native results have a durable result identity but their old
+    /// delivery projection used a fresh timestamp; preserve its FIRST timestamp
+    /// on redelivery while requiring the same source, kind and complete payload.
+    pub fn retain_inbox_event(
+        &self, agent_id: EntityId, event: &shenko_types::inbox::InboxEvent,
+    ) -> Result<shenko_types::inbox::InboxEvent, ShenkoError> {
+        if let Some(original) = self.inbox_event_original(agent_id, event.event_id)? {
+            let native_redelivery = event.kind == shenko_types::inbox::InboxEventKind::TaskResult
+                && original.kind == event.kind && original.source == event.source
+                && original.payload == event.payload;
+            if original != *event && !native_redelivery {
+                return Err(ShenkoError::conflict("inbox projection differs from its durable original"));
+            }
+            return Ok(original);
+        }
+        let value = serde_json::to_value(event)?;
+        let kind = value["kind"].as_str().ok_or_else(|| ShenkoError::conflict("inbox kind missing"))?;
+        if let Err(error) = self.admit_inbox_event(event.event_id, agent_id, kind, &event.source, &value) {
+            // Another ingress reader may have retained the same original
+            // between our read and admission. The durable bytes still win.
+            if let Some(original) = self.inbox_event_original(agent_id, event.event_id)?
+                && (original == *event || (event.kind == shenko_types::inbox::InboxEventKind::TaskResult
+                    && original.kind == event.kind && original.source == event.source
+                    && original.payload == event.payload))
+            {
+                return Ok(original);
+            }
+            return Err(match error.downcast::<ShenkoError>() {
+                Ok(error) => error,
+                Err(error) => ShenkoError::storage(format!("retain inbox original: {error:#}")),
+            });
+        }
+        Ok(event.clone())
+    }
+
     /// Bounded recovery of complete subject-input originals, read directly by
     /// the normal Planned loop when a volatile wake was lost or backpressured.
-    /// Web, Playground, media and the subject's own "subject" self-wake
-    /// ingress share this lane and its staging transaction; native-child
-    /// task_result rows retain their existing T2 delivery path.
+    /// Every typed ingress shares this queue; native results retain their
+    /// original T2 identity and independent settlement protocol.
     ///
     /// Each row carries its stable event identity next to the original bytes:
     /// a caller that cannot decode one admitted input must be able to name the
@@ -892,12 +977,10 @@ impl Store {
     /// disposition before LIMIT so acknowledged observations cannot starve
     /// newer input.
     ///
-    /// A deferred disposition is an honest RECORD that the subject did not
-    /// act on an input; it does not keep that input in the queue forever.
-    /// The queue advances so the subject can reach newer input, and the
-    /// disposition index keeps saying which inputs were left undecided
-    /// An input the subject's own attention decision holds
-    /// stays out of the window until the pause ends (AW14).
+    /// Fresh interactive input comes first. Deferred input rotates by its last
+    /// presentation commit, so an undecided old message cannot monopolize S0.
+    /// A source pause and an explicit review time are filtered before LIMIT;
+    /// their originals stay durable and become visible when the pause ends.
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
@@ -907,30 +990,57 @@ impl Store {
             .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT i.event_id, i.data FROM inbox_events i
+            "WITH attention AS (
+                 SELECT state,sources,review_after FROM subject_attention_policies
+                 WHERE agent_id=?1 ORDER BY created_seq DESC,intent_id DESC LIMIT 1
+             )
+             SELECT i.event_id, i.kind, i.source, i.data FROM inbox_events i
              LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
-             WHERE i.agent_id=?1 AND NOT EXISTS (
-               SELECT 1 FROM web_input_withdrawals w
-               WHERE w.agent_id=i.agent_id AND w.event_id=i.event_id
-                 AND w.result='\"withdrawn_before_presentation\"') AND (
-               (i.consumed=0 AND (i.source IN (?2, 'playground', 'subject', 'commit-authority-reconciliation') OR i.source LIKE 'media/%'))
-               OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
-                    OR json_extract(d.disposition,'$.disposition')='deferred')))
-             ORDER BY i.rowid LIMIT ?4",
+             WHERE i.agent_id=?1
+               AND NOT EXISTS (
+                   SELECT 1 FROM web_input_withdrawals w
+                   WHERE w.agent_id=i.agent_id AND w.event_id=i.event_id
+                     AND w.result='\"withdrawn_before_presentation\"')
+               AND (i.consumed=0 OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
+               AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
+               AND (json_extract(d.disposition,'$.review_after') IS NULL
+                    OR julianday(json_extract(d.disposition,'$.review_after'))<=julianday(?3))
+               AND NOT EXISTS (
+                   SELECT 1 FROM attention a WHERE a.state='\"off\"'
+                     AND (a.review_after IS NULL OR julianday(a.review_after)>julianday(?3))
+                     AND (json_array_length(a.sources)=0 OR EXISTS (
+                         SELECT 1 FROM json_each(a.sources) s WHERE s.value=i.source
+                     ))
+               )
+             ORDER BY CASE WHEN i.kind IN ('message','media_priority') AND d.disposition IS NULL THEN 0 ELSE 1 END,
+                      COALESCE(d.commit_seq,0), i.rowid LIMIT ?2",
         ).map_err(storage_error)?;
-        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE,
-            shenko_types::task::NATIVE_EVIDENCE_OBSERVATION_SOURCE, limit],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        let rows = stmt.query_map(params![agent_id.to_string(), limit, chrono::Utc::now().to_rfc3339()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, String>(3)?)))
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(storage_error)?;
         rows.into_iter()
-            .map(|(event_id, data)| {
+            .map(|(event_id, kind, source, data)| {
                 let event_id = event_id
                     .parse::<EntityId>()
                     .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                // Native T2 owns a bare TaskResult row, not an InboxEvent
+                // envelope. Project it read-only; never replace the evidence
+                // bytes or bypass the internal native admission lane. A row
+                // this reader cannot understand remains identifiable for the
+                // subject's per-row undecodable-fact journal.
+                let data = if kind == "task_result" && source == "native-child" {
+                    match inbox_projection(&conn, agent_id, event_id, &kind, &source, &data) {
+                        Ok(event) => serde_json::to_string(&event)?,
+                        Err(_) => data,
+                    }
+                } else { data };
                 Ok((event_id, data))
             })
             .collect()
@@ -1283,6 +1393,7 @@ impl Store {
             "request_id": rejection.request_id.to_string(),
             "model_result_ref": rejection.model_result_ref,
             "model_outcome_ref": rejection.model_outcome_ref,
+            "correction": rejection.correction,
             "rejection": {
                 "code": rejection.error.code,
                 "scope": rejection.error.scope,

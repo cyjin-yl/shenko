@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 use crate::Node;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
 use super::codec::{
@@ -143,9 +143,7 @@ impl Node {
         let imported_at = now();
         let resolutions: Vec<Vec<ResolvedDependency>>;
         {
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             // Bind the candidates and existing pins to the same write-locked
             // database snapshot. Supplied versions take precedence only for
             // new selections, never for an already pinned local selection.

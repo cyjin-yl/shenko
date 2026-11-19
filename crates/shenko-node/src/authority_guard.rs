@@ -64,9 +64,13 @@ impl NodeAuthoritySnapshot {
 pub struct NodeAuthorityGuard {
     node: Node,
     snapshot: NodeAuthoritySnapshot,
+    permit: Option<shenko_types::installation::InstallationPermit>,
 }
 
 impl NodeAuthorityGuard {
+    pub fn installation_permit(&self) -> Option<&shenko_types::installation::InstallationPermit> {
+        self.permit.as_ref()
+    }
     pub fn snapshot(&self) -> &NodeAuthoritySnapshot {
         &self.snapshot
     }
@@ -141,15 +145,46 @@ impl Drop for NodeAuthorityGuard {
     }
 }
 
+impl shenko_types::authority::AvailabilityForkAuthority for NodeAuthorityGuard {
+    fn validate_fork(&self, subject: EntityId, parent: &shenko_types::ids::BranchId,
+        origin: &shenko_types::object::Digest, child: &shenko_types::ids::BranchId)
+        -> Result<(), shenko_types::error::ShenkoError>
+    {
+        let identity = &self.snapshot.identity;
+        if identity.agent_id != subject || identity.branch_id.0 != parent.0
+            || &identity.origin_proof != origin || parent == child
+        {
+            return Err(shenko_types::authority::authority_fenced(
+                "availability fork differs from the reserved parent identity"));
+        }
+        self.validate_availability_branch(EntityId(child.0)).map_err(|error|
+            shenko_types::authority::authority_fenced(format!("availability fork is no longer current: {error:#}")))
+    }
+
+    fn installation_permit(&self) -> Option<&shenko_types::installation::InstallationPermit> {
+        self.permit.as_ref()
+    }
+}
+
 impl Node {
     /// Consume this connection so a caller cannot open a nested transaction or
     /// accidentally use its stale snapshot after releasing the reservation.
     pub fn reserve_authority(self) -> Result<NodeAuthorityGuard> {
+        let permit = self.installation_permit()?;
+        self.reserve_authority_under(permit)
+    }
+
+    pub fn reserve_authority_under(self,
+        permit: Option<shenko_types::installation::InstallationPermit>) -> Result<NodeAuthorityGuard> {
+        if let Some(domain) = &self.installation {
+            permit.as_ref().context("installed Node reservation requires a physical permit")?.validate(domain)?;
+        }
         self.conn.execute_batch("BEGIN IMMEDIATE")?;
         let snapshot = Self::authority_snapshot_conn(&self.conn)?;
         Ok(NodeAuthorityGuard {
             node: self,
             snapshot,
+            permit,
         })
     }
 

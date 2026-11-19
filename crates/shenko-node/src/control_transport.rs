@@ -6,7 +6,7 @@ use crate::{
     election::{control_kind_name, state_number},
 };
 use anyhow::{Context as _, ensure};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::CommitAdmissionObject,
@@ -476,9 +476,7 @@ impl Node {
             "control object chunk boundary mismatch"
         );
         i64::try_from(chunk.total).context("control object exceeds SQLite size range")?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let present: Option<u64> = tx
             .query_row(
                 "SELECT length(bytes) FROM objects WHERE digest=?1",
@@ -707,9 +705,7 @@ impl Node {
             let payload: crate::ControlAdmissionPayload =
                 serde_json::from_value(entry.payload.clone())?;
             if !payload.objects.is_empty() {
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 Self::store_admission_objects_tx(&tx, &payload.objects)?;
                 tx.commit()?;
             }
@@ -795,7 +791,7 @@ impl Node {
         ensure!(objects.len() <= NATIVE_EVIDENCE_CLOSURE_OBJECTS, "native E1 closure object budget exceeded");
         let bytes = objects.iter().try_fold(0u64, |total, object| total.checked_add(object.reference.bytes));
         ensure!(bytes.is_some_and(|bytes| bytes <= NATIVE_EVIDENCE_CLOSURE_BYTES), "native E1 closure byte budget exceeded");
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         Self::store_admission_objects_tx(&tx, objects)?;
         Self::verify_admission_closure_tx(&tx, root)?;
         tx.commit()?;
@@ -853,9 +849,7 @@ impl Node {
             }
             pending.extend(self.control_object_children(&reference)?);
         }
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         Self::verify_admission_closure_tx(&tx, root)?;
         tx.commit()?;
         Ok(())

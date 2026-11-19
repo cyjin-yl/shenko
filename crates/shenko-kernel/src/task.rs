@@ -20,6 +20,7 @@ use shenko_types::{
     task::{ImplementationRef, TaskInvocation, TaskRecord},
 };
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug, Clone)]
 pub struct NativeTaskDescriptor {
@@ -48,13 +49,17 @@ impl NativeTaskDescriptor {
             schema: shenko_types::object::SchemaRef {
                 name: format!("native-task/{}", self.kind),
                 major: self.definition_version,
-                digest: self.implementation_ref.artifact_digest.clone(),
+                digest: crate::native_artifact::native_schema_digest(
+                    &format!("native-task/{}", self.kind), self.definition_version),
             },
         }
     }
 }
 
 pub struct NativeTaskInvocation {
+    /// Stop this local execution lifetime. This is not evidence that a
+    /// provider stopped; original T1/E1 and Unknown remain on their ledger.
+    pub cancellation: CancellationToken,
     pub context: CallContext,
     pub task_invocation: TaskInvocation,
     pub task: TaskRecord,
@@ -113,12 +118,21 @@ pub trait ChildToolRuntime: Send + Sync + 'static {
         call: &ChildToolCall,
         parent: &TaskRecord,
         authority: &AuthorityRef,
+        cancellation: CancellationToken,
     ) -> anyhow::Result<ChildToolOutcome>;
 }
 
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
-    fn descriptor(&self) -> NativeTaskDescriptor;
+    fn descriptor(&self) -> Result<NativeTaskDescriptor>;
+
+    /// An executor owning work outside its async future (blocking guests,
+    /// threads, resident sessions), or nested executors, must opt in. It
+    /// propagates `invocation.cancellation` to that work and joins it before
+    /// returning, including when cancellation raced with completion.
+    /// Other handlers may stop their local future; this never proves that a
+    /// remote effect stopped or permits an Unknown attempt to be replayed.
+    fn joins_execution_on_cancel(&self) -> bool { false }
 
     /// The effect contract of this definition's operations.
     ///
@@ -127,8 +141,8 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// to run. A definition with no external effect may leave this empty; the
     /// runtime then publishes the definition without an effect contract
     /// instead of pretending one exists.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        Vec::new()
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        Ok(Vec::new())
     }
 
     /// The capabilities this definition offers while it is installed.
@@ -148,4 +162,22 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// new CallContext and must never arm another attempt.
     async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId)
     -> Result<OperationRecord>;
+}
+
+/// One runtime-owned lifetime for both delegated tasks and inline child tools.
+/// Cancellation cannot drop an opted-in executor while it still owns a guest
+/// or nested tool. Its final receipt remains eligible for evidence ingress.
+pub async fn execute_native_handler(
+    handler: &dyn NativeTaskHandler, invocation: NativeTaskInvocation,
+) -> Result<OperationRecord> {
+    let cancellation = invocation.cancellation.clone();
+    anyhow::ensure!(!cancellation.is_cancelled(), "native execution stopped before handler entry");
+    if handler.joins_execution_on_cancel() {
+        return handler.execute(invocation).await;
+    }
+    tokio::select! {
+        biased;
+        _result = handler.execute(invocation) => _result,
+        _ = cancellation.cancelled() => anyhow::bail!("native local wait stopped; reconcile the original operation"),
+    }
 }

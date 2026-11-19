@@ -25,14 +25,21 @@ pub(crate) fn adopt_identity(
 }
 
 
-/// Open the store of the live slot the durable pointer names. A data dir
-/// that has never published a slot is itself the live slot (first run).
-pub(crate) fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store> {
-    create_data_directory(data_dir)?;
+/// Resolve the database through the same installation route for every CLI.
+/// Checking the retired root database is not evidence that the selected slot
+/// exists, and opening that root after a handoff would write an obsolete copy.
+pub(crate) fn installation_db_path(data_dir: &Path) -> Result<std::path::PathBuf> {
     let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
         .unwrap_or_else(|| data_dir.to_path_buf());
+    Ok(live_slot.join(shenko_update::SLOT_DB_FILENAME))
+}
+
+/// Open the store of the selected live slot. A data dir that has never
+/// published a slot is itself the live slot (first run).
+pub(crate) fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store> {
+    create_data_directory(data_dir)?;
     Ok(shenko_store::store::Store::open(
-        live_slot.join(shenko_update::SLOT_DB_FILENAME),
+        installation_db_path(data_dir)?,
         // The content store is shared by every generation of an
         // installation and always lives at <data_dir>/cas.
         data_dir.join("cas"),
@@ -65,6 +72,33 @@ pub(crate) async fn create_data_directory_async(path: &Path) -> std::io::Result<
 mod data_directory_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn cli_mutations_follow_the_selected_slot_and_keep_the_shared_content_store() -> Result<()> {
+        use shenko_store::Store;
+        use shenko_types::store::WriteBatch;
+        let root = std::env::temp_dir().join(format!(
+            "shenko-cli-live-slot-{}", shenko_types::ids::EntityId::new()
+        ));
+        create_data_directory(&root)?;
+        let retired = open_installation_store(&root)?;
+        let retired_id = retired.ledger.ledger_id();
+        let selected = root.join("versions").join("selected");
+        create_data_directory(&selected)?;
+        let candidate = Store::open(selected.join("shenko.db"), root.join("cas"))?;
+        let selected_id = candidate.ledger.ledger_id();
+        assert_ne!(selected_id, retired_id);
+        drop(candidate);
+        shenko_update::slots::publish_current_slot(&root, &selected)?;
+        let opened = open_installation_store(&root)?;
+        let receipt = opened.ledger.commit(WriteBatch::new())?;
+        assert_eq!(receipt.commit_ref.ledger_id, selected_id);
+        assert_eq!(installation_db_path(&root)?, selected.canonicalize()?.join("shenko.db"));
+        drop(opened);
+        drop(retired);
+        std::fs::remove_dir_all(&root)?;
+        Ok(())
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn new_data_roots_are_private_without_chmod_of_existing_directories() -> Result<()> {

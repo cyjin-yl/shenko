@@ -196,14 +196,14 @@ impl CognitionQueryHandler {
         let contract_digest = Digest::blake3(self.contract);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: format!("builtin:{}-v1", self.kind.replace('.', "-")),
             },
             symbol: format!("{}.execute", self.kind),
             schema: SchemaRef {
                 name: "cognition-query-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("cognition-query-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -220,7 +220,7 @@ impl CognitionQueryHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -392,7 +392,7 @@ impl CognitionQueryHandler {
 
 #[async_trait]
 impl NativeTaskHandler for CognitionQueryHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         let prompt = if self.kind == "cognition.unit.list" {
             "cognition.unit.list/v1 分页读取已安装认知单元的能力卡目录：[delegate:cognition.unit.list:1] {\"start\":0,\"count\":16}。查询种类由任务名确定，参数不接受 op。目录里的卡片是入口，不是命令；正文仍要按需用 cognition.unit.read 读确切版本。若返回了 next_start，就从它继续读，不要跳过任何单元；若目录修订与你手上的一致性不符，就重新读目录。"
                 .to_string()
@@ -400,18 +400,18 @@ impl NativeTaskHandler for CognitionQueryHandler {
             "cognition.unit.evidence/v1 读取某个已安装单元在本机登记的证据：[delegate:cognition.unit.evidence:1] {\"unit_id\":\"...\"}。查询种类由任务名确定，参数不接受 op。返回注册过的观测与试验记录；这些是本机真正发生过的记录，判断时引用它们，不要凭空写证据。"
                 .to_string()
         };
-        NativeTaskDescriptor {
+        Ok(NativeTaskDescriptor {
             kind: self.kind.to_string(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: Digest::blake3(self.contract),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-cognition-query/1".into(),
             authority_refs: vec!["cognition_unit.query/v1".into()],
             prompt_section: Some(prompt),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

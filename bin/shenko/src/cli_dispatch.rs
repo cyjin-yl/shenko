@@ -43,15 +43,12 @@ pub(crate) async fn dispatch(
             // Real discovery, not a static list: the same installation path
             // the running agent uses is executed here, and the answer comes
             // from the live registry the plugins registered into.
-            let db_path = data_dir.join("shenko.db");
+            let db_path = crate::runtime_bootstrap::installation_db_path(&data_dir)?;
             anyhow::ensure!(
                 db_path.is_file(),
                 "no installed runtime in this data directory"
             );
-            let store = Arc::new(shenko_store::store::Store::open(
-                db_path,
-                data_dir.join("cas"),
-            )?);
+            let store = Arc::new(open_installation_store(&data_dir)?);
             let agent_id = store.get_existing_agent_id()?
                 .context("no initialized subject in this data directory")?;
             let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -154,8 +151,7 @@ pub(crate) async fn dispatch(
         Command::History { command } => obelisk::command(&data_dir, command).await?,
         Command::Admin { command } => {
             create_data_directory_async(&data_dir).await?;
-            let store =
-                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let store = open_installation_store(&data_dir)?;
             let agent_id = store
                 .get_existing_agent_id()?
                 .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
@@ -190,8 +186,7 @@ pub(crate) async fn dispatch(
         }
         Command::Contacts { command } => {
             create_data_directory_async(&data_dir).await?;
-            let store =
-                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let store = open_installation_store(&data_dir)?;
             let agent_id = store
                 .get_existing_agent_id()?
                 .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;

@@ -115,6 +115,10 @@ pub enum SlotError {
     MissingSlot(String),
     #[error("slot directory {0} already exists")]
     SlotExists(String),
+    #[error("copy source {0} is no longer the selected generation")]
+    SourceNotSelected(PathBuf),
+    #[error("source selection changed during private slot preparation; retained copy path: {0}")]
+    SourceChanged(PathBuf),
     #[error("could not create staging path {0}: {1}")]
     Staging(PathBuf, #[source] std::io::Error),
     #[error("could not prepare staging directory {0}: {1}")]
@@ -147,83 +151,130 @@ pub type Result<T, E = SlotError> = std::result::Result<T, E>;
 /// overwritten and a failed publication is left for inspection instead of
 /// being retried blindly.
 pub fn copy_slot(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGeneration) -> Result<AbSlot> {
-    if !source.slot_dir.is_dir() {
-        return Err(SlotError::MissingSlot(source.slot_dir.display().to_string()));
-    }
-    if !source.db_path.is_file() {
-        return Err(SlotError::MissingSlot(source.db_path.display().to_string()));
-    }
-    let slot_dir = target.slot_dir(generation);
-    if slot_dir.exists() {
-        return Err(SlotError::SlotExists(slot_dir.display().to_string()));
-    }
-    let staged = target
-        .data_dir
-        .join("versions")
-        .join(format!(".shenko-stage-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(staged.parent().unwrap_or(&target.data_dir)).map_err(|source| {
-        SlotError::Staging(staged.clone(), source)
-    })?;
-    fs::create_dir(&staged).map_err(|source| SlotError::Staging(staged.clone(), source))?;
+    prepare_slot_copy(source, target, generation)?.publish()
+}
 
-    let result = (|| -> Result<Option<u64>> {
+/// A complete but unadvertised candidate. It owns no installation permit, so
+/// filesystem copying and SQLite backup cannot stall live ingress or S1.
+/// Its original source selection is checked again at atomic publication.
+pub(crate) struct PreparedSlotCopy {
+    domain: shenko_types::installation::InstallationDomain,
+    source: AbSlot,
+    source_binding: CopySourceBinding,
+    staged: PathBuf,
+    slot: AbSlot,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct CopySourceBinding {
+    ledger_id: String,
+    selectors: Vec<String>,
+}
+
+pub(crate) fn prepare_slot_copy(source: &AbSlot, target: &SlotLayout,
+    generation: &RuntimeGeneration) -> Result<PreparedSlotCopy> {
+    let domain = shenko_types::installation::InstallationDomain::open(&target.data_dir)?;
+    let slot_dir = domain.root().join("versions").join(sanitize_generation(generation));
+    let staged = domain.root().join("versions").join(format!(".shenko-stage-{}", uuid::Uuid::new_v4()));
+    // Only installation/path admission and creation of an unadvertised staging
+    // directory are serialized here. No bulk file or database copy runs here.
+    let source_binding = {
+        let permit = domain.acquire()?;
+        let binding = copy_source_binding(source, domain.root())?;
+        if slot_dir.exists() { return Err(SlotError::SlotExists(slot_dir.display().to_string())); }
+        let versions = domain.root().join("versions");
+        fs::create_dir_all(&versions).map_err(|error| SlotError::Staging(staged.clone(), error))?;
+        if fs::symlink_metadata(&versions)?.file_type().is_symlink() || versions.canonicalize()? != versions {
+            return Err(SlotError::MissingSlot("generation directory does not belong to the physical installation".into()));
+        }
+        fs::create_dir(&staged).map_err(|error| SlotError::Staging(staged.clone(), error))?;
+        permit.validate(&domain)?;
+        binding
+    };
+    let result = (|| -> Result<()> {
         let source_dir = source.slot_dir.canonicalize()?;
         let db_canon = source.db_path.canonicalize()?;
-        let installation_root = target.data_dir.canonicalize()?;
-        copy_dir_tree(&source_dir, &staged, &db_canon, &installation_root)?;
+        copy_dir_tree(&source_dir, &staged, &db_canon, domain.root())?;
+        // SQLite's backup API supplies its own consistent transaction snapshot
+        // while the live WAL writer continues. The target is still private.
         backup_database(&source.db_path, &staged.join(SLOT_DB_FILENAME))?;
         let copied_through_seq = crate::migration::watermark_of(&staged.join(SLOT_DB_FILENAME))
             .map_err(|error| SlotError::MissingSlot(format!("backup watermark unreadable: {error}")))?
             .map(|commit| commit.seq.0);
-        // Copies preserve the subject/genesis/installation identity, but
-        // independent local commits cannot share (ledger_id, sequence).
-        // Historical source CommitRefs remain unchanged in copied rows.
         let copy = Connection::open(staged.join(SLOT_DB_FILENAME))?;
         copy.execute("UPDATE ledger_identity SET ledger_id=?1 WHERE singleton=1",
             [uuid::Uuid::new_v4().to_string()])?;
         copy.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
         drop(copy);
         fs::File::open(staged.join(SLOT_DB_FILENAME))?.sync_all()?;
+        let manifest = SlotManifest {
+            schema_version: SlotManifest::SCHEMA_VERSION, generation: generation.0.clone(),
+            cas_dir: domain.root().join("cas").to_string_lossy().into_owned(),
+            artifact_path: None, artifact_digest: None, copied_through_seq,
+            created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        };
+        // Publish the descriptor INSIDE the private tree before the tree itself
+        // is made visible. It is neither a selected slot nor an installed writer.
+        durable_replace(&staged, SLOT_MANIFEST_FILENAME, &serde_json::to_vec_pretty(&manifest)?)?;
         fs::File::open(&staged)?.sync_all()?;
-        Ok(copied_through_seq)
+        Ok(())
     })();
-
-    let copied_through_seq = result.map_err(|source| SlotError::Preparation(staged.clone(), Box::new(source)))?;
-
-    // Never retry or remove either path after an error: a rename can succeed
-    // on the server while the client sees an error.
-    rename_no_replace(&staged, &slot_dir).map_err(|source| SlotError::Publication {
-        staged: staged.clone(),
-        published: slot_dir.clone(),
-        source,
-    })?;
-    fs::File::open(slot_dir.parent().unwrap_or(&target.data_dir))?.sync_all()?;
-
-    let db_path = slot_dir.join(SLOT_DB_FILENAME);
-    let manifest = SlotManifest {
-        schema_version: SlotManifest::SCHEMA_VERSION,
-        generation: generation.0.clone(),
-        cas_dir: target
-            .data_dir
-            .join("cas")
-            .to_string_lossy()
-            .to_string(),
-        artifact_path: None,
-        artifact_digest: None,
-        copied_through_seq,
-        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-    };
-    write_slot_manifest(&slot_dir, &manifest)?;
-
-    Ok(AbSlot {
-        generation: generation.clone(),
-        slot_dir,
-        db_path,
-        cas_dir: target.data_dir.join("cas"),
-        artifact_path: None,
-        artifact_digest: None,
-        is_active: false,
+    result.map_err(|source| SlotError::Preparation(staged.clone(), Box::new(source)))?;
+    Ok(PreparedSlotCopy {
+        slot: AbSlot {
+            generation: generation.clone(), db_path: slot_dir.join(SLOT_DB_FILENAME),
+            slot_dir, cas_dir: domain.root().join("cas"), artifact_path: None,
+            artifact_digest: None, is_active: false,
+        },
+        domain, source: source.clone(), source_binding, staged,
     })
+}
+
+impl PreparedSlotCopy {
+    pub(crate) fn publish(self) -> Result<AbSlot> {
+        let permit = self.domain.acquire()?;
+        let binding = match copy_source_binding(&self.source, self.domain.root()) {
+            Err(SlotError::SourceNotSelected(_)) => return Err(SlotError::SourceChanged(self.staged)),
+            result => result?,
+        };
+        if binding != self.source_binding {
+            return Err(SlotError::SourceChanged(self.staged));
+        }
+        permit.validate(&self.domain)?;
+        // Never retry or remove either path after an uncertain publication.
+        // A competing preparation can publish first; NOREPLACE preserves it.
+        rename_no_replace(&self.staged, &self.slot.slot_dir).map_err(|source| SlotError::Publication {
+            staged: self.staged.clone(), published: self.slot.slot_dir.clone(), source,
+        })?;
+        fs::File::open(self.slot.slot_dir.parent().unwrap_or(self.domain.root()))?.sync_all()?;
+        Ok(self.slot)
+    }
+}
+
+fn copy_source_binding(source: &AbSlot, root: &Path) -> Result<CopySourceBinding> {
+    let slot = source.slot_dir.canonicalize()?;
+    let db = source.db_path.canonicalize()?;
+    if (slot != root && slot.parent() != Some(root.join("versions").as_path()))
+        || db != slot.join(SLOT_DB_FILENAME) || source.cas_dir.canonicalize()? != root.join("cas") {
+        return Err(SlotError::MissingSlot("copy source is outside the same physical installation".into()));
+    }
+    if source.is_active && resolve_live_slot(root)?.unwrap_or_else(|| root.to_path_buf()) != slot {
+        return Err(SlotError::SourceNotSelected(slot));
+    }
+    let connection = Connection::open_with_flags(&db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
+    let ledger_id = connection.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))?;
+    let mut statement = connection.prepare("SELECT data FROM activation_selectors ORDER BY agent_id")?;
+    let selectors = statement.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if source.is_active {
+        for raw in &selectors {
+            let selected: shenko_types::activation::ActivationSelector = serde_json::from_str(raw)?;
+            if selected.generation != source.generation {
+                return Err(SlotError::SourceNotSelected(slot));
+            }
+        }
+    }
+    Ok(CopySourceBinding { ledger_id, selectors })
 }
 
 /// Read the descriptor of a slot.
@@ -234,6 +285,18 @@ pub fn read_slot_manifest(slot_dir: &Path) -> Result<SlotManifest> {
 
 /// Write the descriptor of a slot.
 pub fn write_slot_manifest(slot_dir: &Path, manifest: &SlotManifest) -> Result<()> {
+    let domain = shenko_types::installation::InstallationDomain::for_store(
+        &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))?;
+    let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+    write_slot_manifest_under(slot_dir, manifest, permit.as_ref())
+}
+
+pub fn write_slot_manifest_under(slot_dir: &Path, manifest: &SlotManifest,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<()> {
+    if let Some(domain) = shenko_types::installation::InstallationDomain::for_store(
+        &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))? {
+        permit.ok_or_else(|| std::io::Error::other("slot descriptor requires an installation permit"))?.validate(&domain)?;
+    }
     let bytes = serde_json::to_vec_pretty(manifest)?;
     durable_replace(slot_dir, SLOT_MANIFEST_FILENAME, &bytes)?;
     Ok(())
@@ -286,6 +349,14 @@ fn durable_replace(directory: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 /// Point the launcher at a slot. This is a convenience pointer, published
 /// after the selector CAS; it never carries authority by itself.
 pub fn publish_current_slot(data_dir: &Path, slot_dir: &Path) -> Result<()> {
+    let domain = shenko_types::installation::InstallationDomain::open(data_dir)?;
+    let permit = domain.acquire()?;
+    publish_current_slot_under(data_dir, slot_dir, &permit)
+}
+
+pub fn publish_current_slot_under(data_dir: &Path, slot_dir: &Path,
+    permit: &shenko_types::installation::InstallationPermit) -> Result<()> {
+    permit.validate(&shenko_types::installation::InstallationDomain::open(data_dir)?)?;
     let pointer = SlotPointer { schema_version: 1, slot_dir: validate_slot_path(data_dir, slot_dir)? };
     durable_replace(data_dir, CURRENT_SLOT_FILENAME, &serde_json::to_vec(&pointer)?)?;
     Ok(())
@@ -293,7 +364,8 @@ pub fn publish_current_slot(data_dir: &Path, slot_dir: &Path) -> Result<()> {
 
 /// Copy the source database with the SQLite backup API into a new file.
 pub fn backup_database(src_db: &Path, dst_db: &Path) -> Result<()> {
-    let src = Connection::open(src_db)?;
+    let src = Connection::open_with_flags(src_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
     // A source artifact with this name must not be replaced by the backup.
     let new_db = fs::OpenOptions::new().write(true).create_new(true).open(dst_db)?;
     drop(new_db);
@@ -301,12 +373,13 @@ pub fn backup_database(src_db: &Path, dst_db: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Open a slot's database for reading.
+/// Open a slot's database for reading. Mutation goes through the installed
+/// Store/Node boundary; this inspection API cannot expose an unguarded writer.
 pub fn open_slot_db(slot: &AbSlot) -> Result<Connection> {
     Ok(Connection::open_with_flags(
         &slot.db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE
-            | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+            | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )?)
 }
 
@@ -316,7 +389,8 @@ fn copy_dir_tree(src: &Path, dst: &Path, skip_db: &Path, installation_root: &Pat
         let entry = entry?;
         let src_path = entry.path();
         if src == installation_root && matches!(entry.file_name().to_str(),
-            Some("versions" | "cas" | "node" | "current-slot" | "update-control.json")) {
+            Some("versions" | "cas" | "node" | "current-slot" | "update-control.json"
+                | shenko_types::installation::MUTATION_LOCK_FILENAME)) {
             continue;
         }
         if is_sqlite_file(&src_path, skip_db) {

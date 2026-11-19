@@ -33,6 +33,7 @@ pub struct RuntimeAuthority {
     cancel: CancellationToken,
     active: AtomicBool,
     recovery: Mutex<Option<String>>,
+    model_health: Mutex<Option<(Arc<crate::runtime_model_health::RuntimeModelHealth>, EntityId)>>,
 }
 
 #[derive(Debug)]
@@ -93,9 +94,29 @@ impl RuntimeAuthority {
             cancel,
             active: AtomicBool::new(false),
             recovery: Mutex::new(None),
+            model_health: Mutex::new(None),
         });
         store.attach_commit_authority(provider.clone())?;
         Ok(provider)
+    }
+
+    pub(crate) fn bind_model_health(
+        &self, health: Arc<crate::runtime_model_health::RuntimeModelHealth>, runtime: EntityId,
+    ) {
+        *self.model_health.lock() = Some((health, runtime));
+    }
+
+    fn model_is_eligible(&self) -> bool {
+        let binding = self.model_health.lock().clone();
+        binding.is_none_or(|(health, runtime)| health.is_eligible(runtime))
+    }
+
+    fn require_model_eligibility(&self) -> Result<(), ShenkoError> {
+        if !self.model_is_eligible() {
+            self.request_recovery("the configured binding lost fresh model usability evidence");
+            return Err(authority_fenced("model usability evidence is absent or expired"));
+        }
+        Ok(())
     }
 
     /// Run before constructing any branch-scoped consumer or changing its
@@ -214,7 +235,8 @@ impl RuntimeAuthority {
                 parent.branch_id.0 == snapshot.identity.branch_id.0,
                 "Store branch changed before selected-plan recovery"
             );
-            let fork = store.fork_subject_branch(&parent, BranchId(branch_id.0), &reason)?;
+            let fork = store.fork_subject_branch_under(&parent, BranchId(branch_id.0), &reason,
+                reservation.installation_permit())?;
             let head = store.load_subject(snapshot.identity.agent_id)?.0;
             reservation.project_subject_branch(&shenko_node::SubjectBranchProjection {
                 parent: snapshot.identity.clone(),
@@ -327,6 +349,10 @@ impl CommitAuthorityGuard for ReservedAuthority {
     fn stamp(&self) -> Option<&CommitAuthorityStamp> {
         self.stamp.as_ref()
     }
+
+    fn installation_permit(&self) -> Option<&shenko_types::installation::InstallationPermit> {
+        self._reservation.installation_permit()
+    }
 }
 
 fn is_availability(snapshot: &shenko_node::NodeAuthoritySnapshot) -> bool {
@@ -342,6 +368,7 @@ impl CommitAuthorityProvider for RuntimeAuthority {
         &self,
         admission: &CommitAdmission,
     ) -> Result<Option<CommitAuthorityGrant>, ShenkoError> {
+        self.require_model_eligibility()?;
         if self.active.load(Ordering::Acquire) && self.cancel.is_cancelled() {
             return Err(authority_fenced("runtime admission is canceled"));
         }
@@ -404,14 +431,47 @@ impl CommitAuthorityProvider for RuntimeAuthority {
         &self,
         grant: Option<&CommitAuthorityGrant>,
     ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
-        let reservation = Node::open(&self.data_dir.join("node"))
-            .and_then(Node::reserve_authority)
-            .map_err(|error| self.failure(error, 0))?;
+        self.acquire_reserved(grant, None)
+    }
+
+    fn acquire_installed(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: shenko_types::installation::InstallationPermit,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        self.acquire_reserved(grant, Some(permit))
+    }
+}
+
+impl RuntimeAuthority {
+    fn acquire_reserved(&self, grant: Option<&CommitAuthorityGrant>,
+        permit: Option<shenko_types::installation::InstallationPermit>,
+    ) -> Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        let replay_requested = grant.is_some_and(|grant| grant.replayed);
+        if !replay_requested {
+            self.require_model_eligibility()?;
+        }
+        let path = self.data_dir.join("node");
+        let reservation = match permit {
+            Some(permit) => Node::open_under(&path, Some(&permit))
+                .and_then(|node| node.reserve_authority_under(Some(permit))),
+            None => Node::open(&path).and_then(Node::reserve_authority),
+        }.map_err(|error| self.failure(error, 0))?;
         let snapshot = reservation.snapshot();
         if let Some(grant) = grant {
             reservation
                 .validate_admission_grant(grant)
                 .map_err(|error| self.failure(error, snapshot.term))?;
+        }
+        // The replay bit only requests verification of a historical action.
+        // The reserved Node connection above must prove its exact chosen value
+        // and actual branch before absent model evidence can be tolerated.
+        // A stamp-less guard permits only the Store's separately checked
+        // canonical materialization, never a fresh mutation or external send.
+        if replay_requested && !self.model_is_eligible() {
+            self.request_recovery("the configured binding lost fresh model usability evidence");
+            return Ok(Box::new(ReservedAuthority {
+                _reservation: reservation,
+                stamp: None,
+            }));
         }
         let source = if is_availability(snapshot) {
             let store = self
@@ -450,7 +510,7 @@ impl CommitAuthorityProvider for RuntimeAuthority {
                 })
             })
             .transpose()?;
-        if self.active.load(Ordering::Acquire) && !self.cancel.is_cancelled() {
+        if self.active.load(Ordering::Acquire) {
             let store = self
                 .store
                 .upgrade()
@@ -468,6 +528,15 @@ impl CommitAuthorityProvider for RuntimeAuthority {
             }
         }
         if self.active.load(Ordering::Acquire) && self.cancel.is_cancelled() {
+            // A consumer already inside a pass can reach this reservation
+            // after ordinary shutdown revoked fresh admissions. Preserve the
+            // same precise refusal as prepare(), rather than manufacturing
+            // an absent stamp that looks like loss of the Node authority.
+            // Actual source/binding changes above still request recovery;
+            // verified historical materialization keeps its stamp-less path.
+            if !replay_requested && self.recovery_required().is_none() {
+                return Err(authority_fenced("runtime admission is canceled"));
+            }
             stamp = None;
         }
         Ok(Box::new(ReservedAuthority {

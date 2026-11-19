@@ -109,7 +109,7 @@ impl Store {
         attempt: &SubjectRequestAttempt,
     ) -> Result<CommitRef, ShenkoError> {
         let authority = self.reserve_authority()?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_arm_subject_request(attempt, &authority),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -242,7 +242,7 @@ impl Store {
             attempt_id: Some(attempt.attempt_id), expected_steps: vec![step], ..Default::default()
         },
             &serde_json::json!({"kind": "subject.request_dispatch", "attempt": attempt}))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || self.try_transition_subject_request(
                 request_id,
                 SubjectRequestState::Armed,
@@ -262,7 +262,7 @@ impl Store {
         request_id: EntityId,
         terminal: &SubjectRequestTerminal,
     ) -> Result<CommitRef, ShenkoError> {
-        self.ledger.with_mutation(
+        self.ledger.with_factual_mutation(
             || {
                 self.try_transition_subject_request(
                     request_id,

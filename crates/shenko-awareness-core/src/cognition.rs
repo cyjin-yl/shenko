@@ -937,7 +937,14 @@ impl CognitionCatalog {
     /// [`MAX_INDEX_BYTES`], and the cards that did not fit are reached
     /// through the paginated index the last line names.
     pub fn disclosure(&self) -> Result<String> {
-        self.render_index(Some(CognitionCall::Delegate))
+        self.disclosure_at(0)
+    }
+
+    /// A bounded, reproducible rotation from the canonical catalogue. The
+    /// subject supplies its durable step number; retrying one step keeps the
+    /// same selection, while later steps eventually expose every card.
+    pub fn disclosure_at(&self, step: u64) -> Result<String> {
+        self.render_index_at(Some(CognitionCall::Delegate), step)
     }
 
     /// The same bounded index, rendered for one reader.
@@ -947,10 +954,15 @@ impl CognitionCatalog {
     /// is installed — main and children share every discoverable unit — but
     /// it does not advertise a call the reader cannot make.
     pub fn render_index(&self, call: Option<CognitionCall>) -> Result<String> {
+        self.render_index_at(call, 0)
+    }
+
+    pub fn render_index_at(&self, call: Option<CognitionCall>, rotation: u64) -> Result<String> {
         let facts = self.facts()?;
         let revision = revision_of(&facts)?;
         let cards = self.cards_from(&facts)?;
         let total = cards.len();
+        let start = if total == 0 { 0 } else { (rotation % total as u64) as usize };
         // The footer names the total, the revision and the exact next call.
         // Its size is bounded by construction, so reserving room for it keeps
         // the whole disclosure inside the bound.
@@ -959,7 +971,7 @@ impl CognitionCatalog {
         let now = chrono::Utc::now();
         let mut lines: Vec<String> = Vec::new();
         let mut used = 0_usize;
-        for card in &cards {
+        for card in cards.iter().cycle().skip(start).take(total) {
             let line = card_line(card, call, now);
             if used + line.len() + 1 > budget {
                 break;
@@ -971,14 +983,15 @@ impl CognitionCatalog {
         // footer only offers one when this reader can actually make the call.
         let footer = |shown: usize| -> String {
             if shown >= total {
-                return format!("（共 {total} 个单元，已全部显示；目录修订 {revision}）\n");
+                return format!("（共 {total} 个单元，已全部显示；目录修订 {revision}；轮转 {rotation}，起点 {start}）\n");
             }
-            match call.and_then(|call| list_op_for(call, shown, MAX_PAGE_CARDS, revision)) {
+            let next = if total == 0 { 0 } else { (start + shown) % total };
+            match call.and_then(|call| list_op_for(call, next, MAX_PAGE_CARDS, revision)) {
                 Some(op) => format!(
-                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余按需分页读取：{op}）\n"
+                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；轮转 {rotation}，起点 {start}；其余按规范序号分页读取：{op}）\n"
                 ),
                 None => format!(
-                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余本轮不可分页读取）\n"
+                    "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；轮转 {rotation}，起点 {start}；其余本轮不可分页读取）\n"
                 ),
             }
         };
@@ -1812,5 +1825,18 @@ mod tests {
         assert!(directory.contains("fixture card"), "{directory}");
         assert!(!directory.contains(READ_TOOL), "{directory}");
         assert!(!directory.contains(LIST_TOOL), "{directory}");
+        let root = std::env::temp_dir().join(format!("shenko-rotation-{}", uuid::Uuid::new_v4()));
+        for i in 0..24 {
+            catalog.install(&package(&format!("test.rotation.{i:02}"), UnitKind::Awareness), &root).unwrap();
+        }
+        let cards = catalog.cards().unwrap();
+        let last = &cards[cards.len() - 1].unit_id;
+        let first = catalog.disclosure_at(0).unwrap();
+        let rotated = catalog.disclosure_at((cards.len() - 1) as u64).unwrap();
+        assert!(first.len() <= MAX_INDEX_BYTES && rotated.len() <= MAX_INDEX_BYTES);
+        assert!(!first.contains(last), "fixture must exceed the first disclosure page");
+        assert!(rotated.contains(last), "rotation must expose the formerly hidden card");
+        assert_eq!(rotated, catalog.disclosure_at((cards.len() - 1) as u64).unwrap());
+        assert!(rotated.contains(&format!("起点 {}", cards.len() - 1)));
     }
 }

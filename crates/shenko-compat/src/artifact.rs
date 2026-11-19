@@ -22,7 +22,6 @@ pub const NAME: &str = "compat.artifact.read";
 pub const MAX_RANGE_BYTES: u64 = 128 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 const PRODUCER_CHUNK_BYTES: u64 = 1024 * 1024;
-const CONTRACT: &[u8] = b"shenko.compat.artifact/v1: read an installation CAS object in authenticated ranges; accepts a plain object up to 1 MiB or a compat-indexed-observation manifest; returns at most 131072 bytes per call; no remote effect";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -103,7 +102,7 @@ impl Runtime {
     async fn run(self: Arc<Self>, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         ensure!(invocation.task.kind == NAME && invocation.task.definition_version == 1, "artifact read task identity mismatch");
         let input: ArtifactReadInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
-        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor(), &input, serde_json::to_value(&input)?,
+        let mut call = RecordedCall::prepare(&self.store, &invocation, &descriptor()?, &input, serde_json::to_value(&input)?,
             "authenticated byte range of a sealed CAS object or explicit failure",
             "read the original object; never substitute different bytes")?;
         if let Some(existing) = call.arm(&self.store, &invocation)? { return Ok(existing); }
@@ -119,33 +118,35 @@ impl Runtime {
     }
 }
 
-fn descriptor() -> NativeTaskDescriptor {
-    NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
+const PROMPT: &str = "Read a sealed CAS object in bounded ranges. Input {digest,offset?,limit?}; limit<=131072 bytes, default whole object when small. Accepts a plain object <=1 MiB or a compat-indexed-observation manifest (e.g. from learning_source.digest); manifest ranges are authenticated per 1 MiB chunk. Follow next_offset until null. Read-only; no remote effect.";
+
+fn descriptor() -> anyhow::Result<NativeTaskDescriptor> {
+    Ok(NativeTaskDescriptor { kind: NAME.into(), definition_version: 1,
         implementation_ref: shenko_types::task::ImplementationRef {
             plugin_id: "2d9f3e7a-8b5c-4c1e-9f6a-0e2b4a1d8c6f".parse().expect("fixed artifact reader identity"),
-            artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?, registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.artifact/v1".into()],
-        prompt_section: Some("Read a sealed CAS object in bounded ranges. Input {digest,offset?,limit?}; limit<=131072 bytes, default whole object when small. Accepts a plain object <=1 MiB or a compat-indexed-observation manifest (e.g. from learning_source.digest); manifest ranges are authenticated per 1 MiB chunk. Follow next_offset until null. Read-only; no remote effect.".into()) }
+        prompt_section: Some(PROMPT.into()) })
 }
 
 struct Handler(Arc<Runtime>);
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor { descriptor() }
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> { descriptor() }
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
-        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: descriptor().prompt_section.unwrap(),
+        vec![NativeCapabilityDeclaration { capability_id: NAME.into(), version: "1".into(), description: PROMPT.into(),
             usage: Some("delegate:compat.artifact.read:1 {\"digest\":\"blake3:...\",\"offset\":0,\"limit\":131072}".into()) }]
     }
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = descriptor();
-        vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = descriptor()?;
+        Ok(vec![EffectContractBuilder::new(descriptor.implementation_ref.plugin_id, descriptor.implementation(), NAME, 1)
             .resource("installation_cas", "sealed_object", ResourceAccess::Read)
             .action(EffectActionKind::Cancel)
             .idempotency(IdempotencyGuarantee::Strict { key_namespace: "compat.artifact.digest".into(), max_age_secs: u64::MAX })
             .cancel(CancelContract { can_cancel_before_start: true, can_cancel_in_flight: false, cancel_confirms_stopped: false, may_have_partial_effect: false })
             .checkpoint(CheckpointContract { capturable: vec!["frozen digest and returned range".into()], excluded: vec![], coordinated: false, consistency: "local CAS read only".into() })
             .lifecycle(LifecycleContract { on_upgrade: "read objects by digest across versions".into(), on_uninstall: "withdraw native definition".into(), on_crash: "reconcile original receipt".into(), receipt_readable_after_removal: true })
-            .basis(GuaranteeBasis::ClaimOnly).build()]
+            .basis(GuaranteeBasis::ClaimOnly).build()])
     }
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         joined(self.0.workers.spawn(self.0.clone().run(invocation))?).await

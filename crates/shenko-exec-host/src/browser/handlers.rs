@@ -129,14 +129,14 @@ async fn drive(
     let contract_digest = Digest::blake3(CONTRACT);
     let version = VersionRef {
         artifact: ArtifactRef {
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             locator: format!("builtin:{operation_name}"),
         },
         symbol: format!("{operation_name}.execute"),
         schema: SchemaRef {
             name: "browser-observation-v1".into(),
             major: 1,
-            digest: contract_digest.clone(),
+            digest: shenko_kernel::native_artifact::native_schema_digest("browser-observation-v1", 1),
         },
     };
     let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -153,7 +153,7 @@ async fn drive(
         input_digest: input_ref.digest.clone(),
         contract_ref: OperationContractRef {
             plugin_id: browser_plugin_id(),
-            artifact_digest: contract_digest.clone(),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             contract_digest,
             receipt_reader_ref: version.clone(),
         },
@@ -275,19 +275,19 @@ fn browser_plugin_id() -> EntityId {
         .expect("fixed browser plugin UUID")
 }
 
-fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescriptor {
-    NativeTaskDescriptor {
+fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> Result<NativeTaskDescriptor> {
+    Ok(NativeTaskDescriptor {
         kind: kind.into(),
         definition_version: 1,
         implementation_ref: ImplementationRef {
             plugin_id: browser_plugin_id(),
-            artifact_digest: Digest::blake3(CONTRACT),
+            artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
             registry_revision: 0,
         },
         role_revision: "native-browser/1".into(),
         authority_refs: vec![authority.into()],
         prompt_section: Some(prompt.into()),
-    }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -872,7 +872,7 @@ impl BrowserIdentityHandler {
 
 #[async_trait]
 impl NativeTaskHandler for BrowserSessionHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for("browser.session", "browser.session.manage/v1", SESSION_PROMPT)
     }
 
@@ -887,7 +887,7 @@ impl NativeTaskHandler for BrowserSessionHandler {
 
 #[async_trait]
 impl NativeTaskHandler for BrowserPageHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for("browser.page", "browser.page.observe/v1", PAGE_PROMPT)
     }
 
@@ -902,7 +902,7 @@ impl NativeTaskHandler for BrowserPageHandler {
 
 #[async_trait]
 impl NativeTaskHandler for BrowserActionHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for("browser.action", "browser.action.perform/v1", ACTION_PROMPT)
     }
 
@@ -917,7 +917,7 @@ impl NativeTaskHandler for BrowserActionHandler {
 
 #[async_trait]
 impl NativeTaskHandler for BrowserControlHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for("browser.control", "browser.control.lease/v1", CONTROL_PROMPT)
     }
 
@@ -932,7 +932,7 @@ impl NativeTaskHandler for BrowserControlHandler {
 
 #[async_trait]
 impl NativeTaskHandler for BrowserIdentityHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
         descriptor_for("browser.identity", "browser.identity.manage/v1", IDENTITY_PROMPT)
     }
 

@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS subject_obligations(
  decision_ref TEXT NOT NULL, created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS subject_obligations_open
  ON subject_obligations(agent_id,state,created_seq,obligation_id);
+CREATE INDEX IF NOT EXISTS subject_obligations_due
+ ON subject_obligations(agent_id,julianday(due_at),obligation_id)
+ WHERE state='open' AND due_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS subject_attention_policies(
  intent_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, step_id TEXT NOT NULL,
  state TEXT NOT NULL, sources TEXT NOT NULL, reason TEXT NOT NULL,
@@ -37,7 +40,154 @@ CREATE TABLE IF NOT EXISTS subject_attention_policies(
  created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS subject_attention_agent
  ON subject_attention_policies(agent_id,created_seq,intent_id);
+-- Rebuildable execution invalidation index, never an execution authority.
+-- Only the newest revision per binding is retained; no duplicate event log.
+CREATE TABLE IF NOT EXISTS context_execution_clock(
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
+INSERT OR IGNORE INTO context_execution_clock(singleton,revision) VALUES(1,0);
+CREATE TABLE IF NOT EXISTS context_execution_revisions(
+ binding_id TEXT PRIMARY KEY NOT NULL, revision INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS context_execution_revision
+ ON context_execution_revisions(revision,binding_id);
+CREATE TRIGGER IF NOT EXISTS context_revision_subject_intents_insert AFTER INSERT ON subject_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_subject_intents_update AFTER UPDATE ON subject_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_subject_intents_delete AFTER DELETE ON subject_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT OLD.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND OLD.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_tasks_insert AFTER INSERT ON tasks BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.task_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_tasks_update AFTER UPDATE ON tasks BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.task_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_tasks_delete AFTER DELETE ON tasks BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT OLD.task_id,revision FROM context_execution_clock WHERE singleton=1 AND OLD.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_memory_intents_insert AFTER INSERT ON memory_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_memory_intents_update AFTER UPDATE ON memory_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_memory_intents_delete AFTER DELETE ON memory_intents BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT OLD.intent_id,revision FROM context_execution_clock WHERE singleton=1 AND OLD.intent_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_task_results_insert AFTER INSERT ON task_results BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.task_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_task_results_update AFTER UPDATE ON task_results BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.task_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_task_results_delete AFTER DELETE ON task_results BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT OLD.task_id,revision FROM context_execution_clock WHERE singleton=1 AND OLD.task_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_operations_insert AFTER INSERT ON operations BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.operation_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.operation_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT json_extract(NEW.data,'$.task_id'),revision FROM context_execution_clock WHERE singleton=1 AND json_extract(NEW.data,'$.task_id') IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_operations_update AFTER UPDATE ON operations BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT NEW.operation_id,revision FROM context_execution_clock WHERE singleton=1 AND NEW.operation_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT json_extract(NEW.data,'$.task_id'),revision FROM context_execution_clock WHERE singleton=1 AND json_extract(NEW.data,'$.task_id') IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
+CREATE TRIGGER IF NOT EXISTS context_revision_operations_delete AFTER DELETE ON operations BEGIN
+ UPDATE context_execution_clock SET revision=revision+1 WHERE singleton=1;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT OLD.operation_id,revision FROM context_execution_clock WHERE singleton=1 AND OLD.operation_id IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+ INSERT INTO context_execution_revisions(binding_id,revision)
+ SELECT json_extract(OLD.data,'$.task_id'),revision FROM context_execution_clock WHERE singleton=1 AND json_extract(OLD.data,'$.task_id') IS NOT NULL
+ ON CONFLICT(binding_id) DO UPDATE SET revision=excluded.revision;
+END;
 "#;
+
+fn normalize_trigger_sql(sql: &str) -> String {
+    let normalized = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = normalized.trim_end_matches(';').trim_end();
+    if let Some(rest) = trimmed.strip_prefix("CREATE TRIGGER IF NOT EXISTS ") {
+        format!("CREATE TRIGGER {rest}")
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+pub(crate) fn canonical_projection_trigger(name: &str, tbl_name: &str, sql: &str) -> bool {
+    let target = normalize_trigger_sql(sql);
+    SCHEMA.split("END;").any(|chunk| {
+        let Some(pos) = chunk.find("CREATE TRIGGER ") else {
+            return false;
+        };
+        let canonical = normalize_trigger_sql(&format!("{}END;", &chunk[pos..]));
+        let mut parts = canonical.split_whitespace();
+        matches!(
+            (
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+                parts.next(),
+            ),
+            (
+                Some("CREATE"),
+                Some("TRIGGER"),
+                Some(trig_name),
+                Some("AFTER"),
+                Some(_),
+                Some("ON"),
+            ) if trig_name == name && parts.next() == Some(tbl_name) && canonical == target
+        )
+    })
+}
 
 fn storage(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
@@ -47,7 +197,88 @@ fn parse_entity_id(value: &str) -> Result<EntityId, ShenkoError> {
     value.parse().map_err(storage)
 }
 
+/// Stable keyset coordinate for complete obligation retrieval.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ObligationCursor {
+    pub created_seq: u64,
+    pub obligation_id: EntityId,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ObligationPage {
+    pub total_open: u64,
+    pub obligations: Vec<PendingObligation>,
+    pub next: Option<ObligationCursor>,
+}
+
+/// A bounded local due scan keeps its initial row watermark, so newly
+/// created/imported promises cannot prevent this sweep from reaching its end.
+/// It is transient scan state, never a replicated fact or acknowledgement.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DueObligationCursor {
+    pub due_at: chrono::DateTime<chrono::Utc>,
+    pub obligation_id: EntityId,
+    pub through_rowid: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DueObligationPage {
+    pub obligations: Vec<PendingObligation>,
+    pub next: Option<DueObligationCursor>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObligationFrontier {
+    pub total_open: u64,
+    pub rotation_start: u64,
+    pub obligations: Vec<PendingObligation>,
+}
+
+type ObligationRow = (ObligationCursor, PendingObligation);
+
+fn obligation_rows(conn: &rusqlite::Connection, suffix: &str, params: impl rusqlite::Params)
+    -> Result<Vec<ObligationRow>, ShenkoError> {
+    let sql = format!("SELECT obligation_id,description,depends_on_task_id,resume_condition,origin_event_id,due_at,created_seq FROM subject_obligations {suffix}");
+    let mut statement = conn.prepare(&sql).map_err(storage)?;
+    let raw = statement.query_map(params, |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+        row.get::<_, Option<String>>(2)?, row.get::<_, String>(3)?, row.get::<_, Option<String>>(4)?,
+        row.get::<_, Option<String>>(5)?, row.get::<_, u64>(6)?)))
+        .map_err(storage)?.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?;
+    raw.into_iter().map(|(id, description, depends, resume_condition, origin, due, created_seq)| {
+        let obligation_id = parse_entity_id(&id)?;
+        Ok((ObligationCursor { created_seq, obligation_id }, PendingObligation {
+            obligation_id, description, resume_condition,
+            depends_on_task_id: depends.as_deref().map(parse_entity_id).transpose()?,
+            origin_event_id: origin.as_deref().map(parse_entity_id).transpose()?,
+            due_at: due.as_deref().map(parse_timestamp).transpose()?,
+        }))
+    }).collect()
+}
+
 impl Store {
+    /// A local invalidation watermark and the bindings changed since it.
+    /// This index follows actual SQLite writes (including imported/recovered
+    /// rows); callers still read authoritative execution facts for each hit.
+    /// `None` starts a fresh cache without scanning historical invalidations.
+    pub fn context_execution_changes(
+        &self,
+        since: Option<u64>,
+    ) -> Result<(u64, Vec<String>), ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let revision: u64 = conn.query_row(
+            "SELECT revision FROM context_execution_clock WHERE singleton=1", [], |row| row.get(0),
+        ).map_err(storage)?;
+        let Some(since) = since.filter(|since| *since <= revision) else {
+            return Ok((revision, Vec::new()));
+        };
+        let mut statement = conn.prepare(
+            "SELECT binding_id FROM context_execution_revisions WHERE revision>?1 AND revision<=?2 ORDER BY revision,binding_id"
+        ).map_err(storage)?;
+        let changed = statement.query_map(params![since, revision], |row| row.get(0))
+            .map_err(storage)?.collect::<rusqlite::Result<Vec<String>>>().map_err(storage)?;
+        Ok((revision, changed))
+    }
+
     /// The obligations this subject is still carrying. They are read back
     /// into every later S0 until a later committed step completes or
     /// cancels them.
@@ -98,6 +329,116 @@ impl Store {
                 },
             )
             .collect()
+    }
+
+    /// Complete, bounded live read. A cursor is a keyset coordinate, so
+    /// completing an earlier obligation cannot make the next page skip one.
+    pub fn subject_obligations_page(&self, agent_id: EntityId, after: Option<&ObligationCursor>, limit: usize)
+        -> Result<ObligationPage, ShenkoError> {
+        let limit = limit.clamp(1, 50);
+        let conn = self.ledger.conn.lock();
+        let total_open = conn.query_row("SELECT COUNT(*) FROM subject_obligations WHERE agent_id=?1 AND state='open'",
+            [agent_id.to_string()], |row| row.get(0)).map_err(storage)?;
+        let mut rows = obligation_rows(&conn,
+            "WHERE agent_id=?1 AND state='open' AND (?2 IS NULL OR created_seq>?2 OR (created_seq=?2 AND obligation_id>?3)) ORDER BY created_seq,obligation_id LIMIT ?4",
+            params![agent_id.to_string(), after.map(|cursor| cursor.created_seq),
+                after.map(|cursor| cursor.obligation_id.to_string()), (limit + 1) as i64])?;
+        let next = (rows.len() > limit).then(|| rows[limit - 1].0.clone());
+        rows.truncate(limit);
+        Ok(ObligationPage { total_open, obligations: rows.into_iter().map(|(_, item)| item).collect(), next })
+    }
+
+    /// Only due, open obligations reach the bounded page. The partial date
+    /// index avoids loading every undated/future promise on dispatcher ticks;
+    /// a keyset range avoids rescanning the earlier pages of a long sweep.
+    pub fn due_subject_obligations_page(&self, agent_id: EntityId,
+        now: chrono::DateTime<chrono::Utc>, after: Option<&DueObligationCursor>, limit: usize)
+        -> Result<DueObligationPage, ShenkoError> {
+        let limit = limit.clamp(1, 50);
+        let conn = self.ledger.conn.lock();
+        let through = match after {
+            Some(cursor) => cursor.through_rowid,
+            None => conn.query_row("SELECT COALESCE(MAX(rowid),0) FROM subject_obligations", [],
+                |row| row.get::<_, i64>(0)).map_err(storage)?,
+        };
+        let rows = match after {
+            Some(cursor) => {
+                // SQLite does not turn an expression tuple comparison into
+                // the full index lower bound. Split the equal-instant suffix
+                // and later-instant range so even many identical due times
+                // seek past earlier pages instead of scanning them again.
+                let mut rows = obligation_rows(&conn,
+                    "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                       AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                       AND julianday(due_at)=julianday(?4) AND obligation_id>?5
+                     ORDER BY obligation_id LIMIT ?6",
+                    params![agent_id.to_string(), now.to_rfc3339(), through,
+                        cursor.due_at.to_rfc3339(), cursor.obligation_id.to_string(), limit as i64])?;
+                let remaining = limit - rows.len();
+                if remaining > 0 {
+                    rows.extend(obligation_rows(&conn,
+                        "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                           AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                           AND julianday(due_at)>julianday(?4)
+                         ORDER BY julianday(due_at),obligation_id LIMIT ?5",
+                        params![agent_id.to_string(), now.to_rfc3339(), through,
+                            cursor.due_at.to_rfc3339(), remaining as i64])?);
+                }
+                rows
+            },
+            None => obligation_rows(&conn,
+                "WHERE agent_id=?1 AND state='open' AND due_at IS NOT NULL
+                   AND julianday(due_at)<=julianday(?2) AND rowid<=?3
+                 ORDER BY julianday(due_at),obligation_id LIMIT ?4",
+                params![agent_id.to_string(), now.to_rfc3339(), through, limit as i64])?,
+        };
+        let next = if rows.len() == limit {
+            let body = &rows[limit - 1].1;
+            Some(DueObligationCursor { due_at: body.due_at
+                .ok_or_else(|| ShenkoError::conflict("due query returned an undated obligation"))?,
+                obligation_id: body.obligation_id, through_rowid: through })
+        } else { None };
+        Ok(DueObligationPage { obligations: rows.into_iter().map(|(_, body)| body).collect(), next })
+    }
+
+    /// Full retained body and state, including completed/cancelled records.
+    pub fn subject_obligation(&self, agent_id: EntityId, id: EntityId)
+        -> Result<Option<(PendingObligation, String)>, ShenkoError> {
+        Ok(read_obligation(&self.ledger.conn.lock(), id)?
+            .filter(|(owner, _, _)| *owner == agent_id).map(|(_, body, state)| (body, state)))
+    }
+
+    /// A bounded working frontier. Explicit references get at most one
+    /// quarter of the slots; the durable turn rotates the remaining slots.
+    /// Every body stays intact in storage and available through keyset reads.
+    pub fn subject_obligation_frontier(&self, agent_id: EntityId, turn: u64,
+        preferred: &[EntityId], limit: usize) -> Result<ObligationFrontier, ShenkoError> {
+        let limit = limit.clamp(1, 50);
+        let conn = self.ledger.conn.lock();
+        let total_open: u64 = conn.query_row("SELECT COUNT(*) FROM subject_obligations WHERE agent_id=?1 AND state='open'",
+            [agent_id.to_string()], |row| row.get(0)).map_err(storage)?;
+        let rotation_start = if total_open == 0 { 0 } else { turn % total_open };
+        let mut obligations = Vec::new();
+        let mut seen = HashSet::new();
+        for id in preferred.iter().take((limit / 4).max(1)) {
+            if let Some((owner, body, state)) = read_obligation(&conn, *id)?
+                && owner == agent_id && state == "open" && seen.insert(*id) {
+                obligations.push(body);
+            }
+        }
+        let mut rows = obligation_rows(&conn,
+            "WHERE agent_id=?1 AND state='open' ORDER BY created_seq,obligation_id LIMIT ?2 OFFSET ?3",
+            params![agent_id.to_string(), limit as i64, rotation_start])?;
+        if rows.len() < limit && rotation_start > 0 {
+            rows.extend(obligation_rows(&conn,
+                "WHERE agent_id=?1 AND state='open' ORDER BY created_seq,obligation_id LIMIT ?2",
+                params![agent_id.to_string(), (limit - rows.len()) as i64])?);
+        }
+        for (_, body) in rows {
+            if obligations.len() == limit { break; }
+            if seen.insert(body.obligation_id) { obligations.push(body); }
+        }
+        Ok(ObligationFrontier { total_open, rotation_start, obligations })
     }
 
     /// The attention (免打扰) decision currently in force. The newest

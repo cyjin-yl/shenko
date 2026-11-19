@@ -200,14 +200,14 @@ impl SelfKnowledgeHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:self-knowledge-v1".into(),
             },
             symbol: "self.knowledge.query.execute".into(),
             schema: SchemaRef {
                 name: "self-knowledge-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("self-knowledge-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -224,7 +224,7 @@ impl SelfKnowledgeHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -385,13 +385,13 @@ impl SelfKnowledgeHandler {
 
 #[async_trait]
 impl NativeTaskHandler for SelfKnowledgeHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "self.knowledge.query".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-self-knowledge-reader/1".into(),
@@ -400,7 +400,7 @@ impl NativeTaskHandler for SelfKnowledgeHandler {
                 "self.knowledge.query/v1 是已安装的只读自解释 child。搜索：[delegate:self.knowledge.query:1] {\"op\":\"search\",\"query\":\"能力\"}；列出资料用 op=list（可选 kind: runtime/docs/source/design）；按 URI 取正文用 op=get 且只给一个 self:// URI。结果经后续真实 task_result 返回；search/list 只有有界 content_preview 与截断标志，正文用 get 读取。这些是安装的自身资料，回答以实际安装与来源为准；没命中的能力不凭印象宣称存在。"
                     .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -559,7 +559,7 @@ mod tests {
     /// T1 arms the original attempt; reconcile re-observes the frozen query on
     /// the same attempt and records exactly one piece of evidence.
     #[tokio::test]
-    async fn armed_self_knowledge_query_recovers_on_original_attempt() {
+    async fn armed_self_knowledge_query_recovers_on_original_attempt() -> Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-self-knowledge-recovery-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let (db, cas) = (dir.join("shenko.db"), dir.join("cas"));
@@ -588,7 +588,7 @@ mod tests {
             background: false,
             kind: "self.knowledge.query".into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref: input_ref.clone(),
             state: TaskState::Running {
                 checkpoint_ref: None,
@@ -636,6 +636,7 @@ mod tests {
             },
             input: serde_json::Value::Null,
             child_tools: None,
+            cancellation: Default::default(),
         };
         let (mut operation, mut attempt) =
             handler.operation_parts(&invocation, input_ref).unwrap();
@@ -704,5 +705,6 @@ mod tests {
         drop(recovered);
         drop(reopened);
         let _ = std::fs::remove_dir_all(dir);
+        Ok(())
     }
 }

@@ -254,18 +254,8 @@ pub(super) async fn install(input: NapCatInstall<'_>) -> Result<Option<cordis_co
                     let Some(inbox_ev) = napcat_inbox_event(
                         &event_store, agent_id, &event_spool, &plugin, ev,
                     ).await? else { continue; };
-                    tokio::select! { biased;
-                        _ = cancel_events.cancelled() => break,
-                        sent = inbox_tx.send(inbox_ev) => {
-                            if let Err(error) = sent {
-                                // The spool retains the event, but a
-                                // lost live receiver is still a fault.
-                                if cancel_events.is_cancelled() { break; }
-                                return Err(anyhow::Error::new(error)
-                                    .context("subject channel inbox closed before shutdown"));
-                            }
-                        }
-                    }
+                    let inbox_ev = event_store.retain_inbox_event(agent_id, &inbox_ev)?;
+                    let _ = inbox_tx.try_send(inbox_ev);
                 }
                 Ok(())
             }.await;
@@ -352,6 +342,12 @@ pub(crate) async fn napcat_inbox_event(
     if let Some(commit) = store.event_disposition_commit(agent_id, event_id)? {
         spool.ack(event_id, &commit.to_string())?;
         return Ok(None);
+    }
+    if let Some(original) = store.inbox_event_original(agent_id, event_id)? {
+        anyhow::ensure!(original.source == shenko_channel_napcat::QQ_SOURCE
+            && original.kind == shenko_types::inbox::InboxEventKind::Message,
+            "retained NapCat input owner mismatch");
+        return Ok(Some(original));
     }
     if let Some(staged) = store.first_subject_input(agent_id, event_id)? {
         let mut data: serde_json::Value = serde_json::from_str(&staged.data)?;

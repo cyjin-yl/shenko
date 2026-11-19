@@ -13,6 +13,7 @@
 //! uncovered source into a refusal, while the forward delta keeps the same
 //! observation visible without changing its retry behaviour.
 use std::path::Path;
+use anyhow::{Context, ensure};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use shenko_store::{Store, cognition::{CognitionImportOptions, CognitionSnapshotOptions}};
@@ -82,7 +83,14 @@ enum SourceCoverage {
 /// retains them, and current owners explicitly hand resources over later.
 /// Conflicts are retained by Store, never overwritten as a generic row merge.
 pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Result<ImportReport, MigrationError> {
-    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::Observed)
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::Observed, None)
+}
+
+/// The final forward catch-up shares the original cutover permit and must
+/// cover the complete source, exactly like rollback.
+pub fn import_delta_under(source_db: &Path, target_db: &Path, cas_dir: &Path,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<ImportReport, MigrationError> {
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, permit)
 }
 
 /// Import a verified Store archive into the generation a rollback is about to
@@ -96,7 +104,12 @@ pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Resul
 /// working generation instead of switching to a copy that silently lost those
 /// facts. A retry takes a new snapshot; nothing is replayed or overwritten.
 pub fn import_rollback_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Result<ImportReport, MigrationError> {
-    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination)
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, None)
+}
+
+pub fn import_rollback_delta_under(source_db: &Path, target_db: &Path, cas_dir: &Path,
+    permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<ImportReport, MigrationError> {
+    import_delta_inner(source_db, target_db, cas_dir, SourceCoverage::SelectedDestination, permit)
 }
 
 fn import_delta_inner(
@@ -104,9 +117,15 @@ fn import_delta_inner(
     target_db: &Path,
     cas_dir: &Path,
     coverage: SourceCoverage,
+    permit: Option<&shenko_types::installation::InstallationPermit>,
 ) -> Result<ImportReport, MigrationError> {
-    let source = Store::open(source_db.to_owned(), cas_dir.to_owned()).map_err(anyhow::Error::from)?;
-    let target = Store::open(target_db.to_owned(), cas_dir.to_owned()).map_err(anyhow::Error::from)?;
+    let open = |path: &Path| if permit.is_some() {
+        Store::open_under(path.to_owned(), cas_dir.to_owned(), permit)
+    } else {
+        Store::open(path.to_owned(), cas_dir.to_owned())
+    };
+    let source = open(source_db)?;
+    let target = open(target_db)?;
     // A generation hand-over migrates one subject between two copies of
     // itself. Two provably different local subjects are two installations;
     // importing one into the other would graft a foreign closure onto the
@@ -136,7 +155,7 @@ fn import_delta_inner(
         SourceCoverage::Observed => Ok(watermark_of(db).ok().flatten()),
     };
     let source_before = observe(source_db)?;
-    let export = source.export_cognition(&CognitionSnapshotOptions {
+    let export = source.export_cognition_under(&CognitionSnapshotOptions {
         memory_root: source_memory.is_dir().then_some(source_memory),
         workspace_roots: Vec::new(), include_git_history: true,
         // This is the same-installation handover, not a peer replication:
@@ -145,7 +164,8 @@ fn import_delta_inner(
         // the complete paused boundary at the destination before the
         // archive is applied.
         local_boundary_preserved: true,
-    })?;
+    }, permit)?;
+    let source_control = CatchupSourceControl::from_snapshot(&export.manifest, source_subject)?;
     let archive_name = format!("activation-import-{}.shka", EntityId::new());
     let complete_path = target_root.join(&archive_name);
     // The bytes are written under a staging name and only promoted once the
@@ -159,14 +179,9 @@ fn import_delta_inner(
         stage.sync_all()?;
         receipt
     };
-    let archive_path = if receipt.complete {
-        std::fs::rename(&stage_path, &complete_path)?;
-        std::fs::File::open(target_root)?.sync_all()?;
-        complete_path
-    } else {
-        stage_path
-    };
-    let retained = Some(archive_path.to_string_lossy().into_owned());
+    // The immutable export no longer needs to retain every historical row
+    // while the receiver parses those same bytes into its prepared import.
+    drop(export);
     let mut blocked_units: Vec<String> = Vec::new();
     let uncovered_before = uncovered(receipt.high_water, source_before);
     blocked_units.extend(snapshot_coverage_refusal(coverage, source_before, receipt.high_water));
@@ -176,12 +191,10 @@ fn import_delta_inner(
         return Ok(ImportReport { tables: Vec::new(), commits_imported: 0,
             watermark: Some(CommitRef::new(source.ledger.ledger_id(), receipt.high_water)),
             source_watermark_before: source_before, source_watermark_after: source_before,
-            uncovered_source_commits: uncovered_before, archive_path: retained, blocked_units });
+            uncovered_source_commits: uncovered_before,
+            archive_path: Some(stage_path.to_string_lossy().into_owned()), blocked_units });
     }
-    if let Some(agent) = source_subject {
-        target.copy_paused_activation_boundary(&source, agent).map_err(anyhow::Error::from)?;
-    }
-    let outcome = target.import_cognition_archive(std::fs::File::open(&archive_path)?, &CognitionImportOptions {
+    let prepared = target.prepare_cognition_import(std::fs::File::open(&stage_path)?, &CognitionImportOptions {
         memory_root: target_memory.is_dir().then_some(target_memory), workspace_root: None,
         // Stable source identity binds Store's baselines and exact repeated
         // imports; retries never create a fresh replication relationship.
@@ -191,6 +204,24 @@ fn import_delta_inner(
         // request). A peer import cannot.
         local_control_handover: true,
     })?;
+    // An initial catch-up does its archive I/O and verification without the
+    // installation reservation. Only actual boundary/file/Git/row publication
+    // is serialized. Final *_under calls retain their original cutover permit
+    // across the entire strict snapshot and subsequent selector/head swap.
+    let domain = shenko_types::installation::InstallationDomain::for_store(source_db, cas_dir)?;
+    let owned = if permit.is_none() { domain.as_ref().map(|domain| domain.acquire()).transpose()? } else { None };
+    let publication = permit.or(owned.as_ref());
+    if permit.is_none() {
+        source_control.verify(&source, source_db, target_db, publication)
+            .with_context(|| format!("catch-up source changed before publication; retained archive: {}", stage_path.display()))?;
+    }
+    std::fs::rename(&stage_path, &complete_path)?;
+    std::fs::File::open(target_root)?.sync_all()?;
+    let retained = Some(complete_path.to_string_lossy().into_owned());
+    if let Some(agent) = source_subject {
+        target.copy_paused_activation_boundary_under(&source, agent, publication).map_err(anyhow::Error::from)?;
+    }
+    let outcome = target.apply_prepared_cognition_import_under(prepared, publication)?;
     blocked_units.extend(outcome.gaps.iter().filter(|gap| gap.blocking)
         .map(|gap| format!("{}: {}", gap.kind, gap.detail)));
     blocked_units.extend(outcome.conflicts.iter().map(|conflict| format!("typed recovery conflict: {conflict:?}")));
@@ -219,6 +250,63 @@ fn import_delta_inner(
         archive_path: retained,
         blocked_units,
     })
+}
+
+/// Only source control identity is frozen here. Ordinary live facts may grow
+/// during an initial catch-up and remain visible in its uncovered-watermark
+/// report; a changed selection or paused boundary must never be grafted onto
+/// an archive captured before that change.
+struct CatchupSourceControl {
+    ledger_id: EntityId,
+    selectors: Vec<(String, String)>,
+    head: Option<shenko_types::subject::SubjectBranchHead>,
+}
+
+impl CatchupSourceControl {
+    fn from_snapshot(manifest: &shenko_store::cognition_archive::CognitionManifest,
+        subject: Option<EntityId>) -> anyhow::Result<Self> {
+        let mut selectors = manifest.rows.iter().filter(|row| row.table == "activation_selectors")
+            .map(|row| Ok((row.key.clone(), row.value("data").context("snapshot selector body missing")?.to_owned())))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        selectors.sort();
+        let head = subject.map(|agent| -> anyhow::Result<shenko_types::subject::SubjectBranchHead> {
+            let row = manifest.rows.iter().find(|row| row.table == "subject_branch_heads" && row.key == agent.to_string())
+                .context("snapshot source head missing")?;
+            Ok(serde_json::from_str(row.value("data").context("snapshot head body missing")?)?)
+        }).transpose()?;
+        Ok(Self { ledger_id: manifest.source_ledger_id, selectors, head })
+    }
+
+    fn verify(&self, source: &Store, source_db: &Path, target_db: &Path,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> anyhow::Result<()> {
+        ensure!(source_db.canonicalize()? != target_db.canonicalize()?, "catch-up destination is the source itself");
+        let connection = Connection::open_with_flags(source_db,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
+        let ledger: String = connection.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))?;
+        ensure!(ledger == self.ledger_id.to_string(), "catch-up source ledger changed");
+        let selectors = {
+            let mut statement = connection.prepare("SELECT agent_id,data FROM activation_selectors ORDER BY agent_id")?;
+            statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        ensure!(selectors == self.selectors, "catch-up source selection changed");
+        if !self.selectors.is_empty() && let Some(permit) = permit {
+            source.validate_installation_permit(permit)?;
+        }
+        if let Some(original) = &self.head {
+            let current = source.load_subject(original.agent_id)?.0;
+            ensure!(current.branch_id == original.branch_id
+                && current.controller_epoch == original.controller_epoch
+                && current.software_generation == original.software_generation
+                && current.mode == original.mode,
+                "catch-up source control boundary changed");
+            if current.mode == shenko_types::subject::SubjectMode::Paused {
+                ensure!(serde_json::to_value(&current)? == serde_json::to_value(original)?,
+                    "catch-up paused boundary changed after its snapshot");
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn read_watermark(conn: &Connection) -> Result<Option<CommitRef>, MigrationError> {

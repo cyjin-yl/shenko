@@ -40,6 +40,10 @@ struct FrozenStepInput {
     step_no: u64,
     events: Vec<InboxEvent>,
     provider_binding: Option<shenko_broker::request::ProviderBinding>,
+    /// Schema 15 freezes installed routes for explicit child profile selection.
+    /// Absence in older S0 keeps its original-transport-only interpretation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    child_provider_bindings: Option<Vec<shenko_broker::request::ProviderBinding>>,
     payload: shenko_broker::request::InferencePayload,
     context: FrozenContextInput,
     semantic_wait: Option<SemanticWait>,
@@ -165,7 +169,7 @@ fn frozen_input(
     // sealed request; it simply carried no case the subject could accept, so
     // an acknowledgement naming a case at 12 is refused (old
     // bytes keep their old meaning).
-    if !matches!(input.schema_version, 12..=14)
+    if !matches!(input.schema_version, 12..=15)
         || input.step_id != step.step_id
         || input.step_no != step.step_no
     {
@@ -173,9 +177,9 @@ fn frozen_input(
             "recovery_blocked: frozen input identity mismatch",
         ));
     }
-    if input.schema_version == 14 {
+    if input.schema_version >= 14 {
         if object.store_namespace != "input_plans" || object.codec.name != "subject_step_input"
-            || object.codec.major != 14
+            || object.codec.major != input.schema_version
         {
             return Err(ShenkoError::conflict("recovery_blocked: schema-14 frozen input codec mismatch"));
         }
@@ -184,6 +188,12 @@ fn frozen_input(
             .partitions(&input.payload)?;
     } else if input.context.payload_layout.is_some() || input.context.correction_observation.is_some() {
         return Err(ShenkoError::conflict("recovery_blocked: legacy input cannot interpret schema-14 projection metadata"));
+    }
+    match (input.schema_version, input.child_provider_bindings.as_deref()) {
+        (15, Some(bindings)) => crate::model_child::validate_child_provider_bindings(bindings)
+            .map_err(|error| ShenkoError::conflict(format!("recovery_blocked: invalid frozen child routes: {error}")))?,
+        (12..=14, None) => {},
+        _ => return Err(ShenkoError::conflict("recovery_blocked: child routes do not match S0 schema")),
     }
     if input.context.capabilities.as_ref().is_some_and(|capabilities|
         input.provider_binding.as_ref() != Some(&capabilities.binding))
@@ -240,6 +250,37 @@ fn validate_resume(
     frozen_input(store, step).map(Some)
 }
 
+/// Rebuild original main-request debt before any child or subject dispatch.
+/// Reopening an AwaitingModel step later is too late: children already share
+/// the newly started broker's physical capacity at that point.
+pub fn restore_inference_accounting(store: &Arc<shenko_store::Store>, agent_id: EntityId,
+    broker: &shenko_broker::broker::BrokerHandle) -> Result<(), ShenkoError>
+{
+    let (_, step) = store.load_subject(agent_id)?;
+    for attempt in store.subject_request_attempts_for_step(agent_id, step.step_id)? {
+        // The original durable send marker never passed. No unknown physical
+        // occupancy can be inferred from this queued/pre-dispatch request.
+        if attempt.state == SubjectRequestState::Armed { continue; }
+        let mut original = step.clone();
+        original.input_plan_ref = Some(attempt.input_plan_ref.clone());
+        let input = frozen_input(store, &original)?;
+        let binding = input.provider_binding.clone()
+            .ok_or_else(|| ShenkoError::conflict("original request has no frozen provider binding"))?;
+        if Digest::blake3(&serde_json::to_vec(&input.payload)?) != attempt.payload_digest
+            || Digest::blake3(&serde_json::to_vec(&input.provider_binding)?) != attempt.provider_binding_digest
+        {
+            return Err(ShenkoError::conflict("original request debt differs from its sealed S0"));
+        }
+        broker.register_recovered(Arc::new(crate::subject_receipt::SubjectReceiptSink {
+            store: Arc::clone(store), agent_id, step_id: step.step_id,
+            request_id: attempt.request_id, input_plan_ref: attempt.input_plan_ref,
+            payload_digest: attempt.payload_digest, provider_binding_digest: attempt.provider_binding_digest,
+            binding, payload: input.payload,
+        })).map_err(|error| ShenkoError::conflict(format!("original request accounting recovery failed: {error:#}")))?;
+    }
+    Ok(())
+}
+
 /// The bounded pacing of one new attempt of a retry-pending step.
 ///
 ///
@@ -279,8 +320,8 @@ fn dispositions_for_events(
                 .remove(&event.event_id)
                 .unwrap_or(EventDisposition {
                     event_id: event.event_id.clone(),
-                    disposition: Disposition::Ignored,
-                    reason: Some("主体未在本轮处置".to_string()),
+                    disposition: Disposition::Deferred,
+                    reason: Some("本轮未明确处置；系统保留待复查，未推定主体决定忽略".to_string()),
                     priority: None,
                     review_after: None,
                 })
@@ -326,23 +367,12 @@ fn hold_paused_sources(
             .is_some_and(|sources| sources.is_empty() || sources.iter().any(|held| held == source))
     };
 
-    // Release what the pause no longer covers.
-    let mut released = Vec::new();
-    let mut still_held = Vec::new();
-    for event in std::mem::take(&mut state.held_inputs) {
-        if is_paused(&event.source) {
-            still_held.push(event);
-        } else {
-            released.push(event);
-        }
-    }
-    state.held_inputs = still_held;
-
-    let mut kept = Vec::with_capacity(events.len() + released.len());
-    kept.extend(released);
+    let mut kept = Vec::with_capacity(events.len());
     for event in events {
         if is_paused(&event.source) {
-            state.held_inputs.push(event);
+            // The durable queue is the only hold. A stopped incarnation or a
+            // long pause must not lose inputs or grow an unbounded side buffer.
+            state.store.retain_inbox_event(state.agent_id, &event)?;
         } else {
             kept.push(event);
         }
@@ -451,6 +481,8 @@ fn retry_continuation(
     Ok(RetryDecision::Continue(Some((pacing, attempts))))
 }
 
+pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4096;
+
 pub struct SubjectLoopState {
     pub agent_id: EntityId,
     pub head: SubjectBranchHead,
@@ -473,6 +505,7 @@ pub struct SubjectLoopState {
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
     pub(super) context_preparer: Option<ContextPreparer>,
+    pub(super) context_history_cache: Arc<shenko_context_policy::HistoryProjectionCache>,
     /// Pinned for one step, after replaying all accepted S0 usage into this
     /// service instance. A hot replacement must replay before collection.
     pub(super) contribution_registry: Option<Arc<shenko_context_policy::ContributionRegistry>>,
@@ -496,9 +529,6 @@ pub struct SubjectLoopState {
     pub(super) stream_journal: Option<Arc<dyn shenko_broker::stream::StreamJournalSink>>,
     /// The reader surface of a provider stream, when one is installed.
     pub(super) stream_public: Option<Arc<dyn shenko_broker::stream::PublicStreamSink>>,
-    /// Inputs the subject's own attention decision holds out of the current
-    /// window. They are released again when the pause ends.
-    pub(super) held_inputs: Vec<InboxEvent>,
     /// The cognition catalogue available to this subject. It is a READ MODEL
     /// over the Node's unit store: the Node stays the sole install, version,
     /// enable, supersession and provenance authority. The catalogue only
@@ -585,13 +615,14 @@ impl SubjectLoopState {
             store,
             broker: None,
             hooks: None,
-            max_tokens: 4096,
+            max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
             previous_input_tokens,
             previous_input_binding,
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
             context_preparer: None,
+            context_history_cache: Arc::new(shenko_context_policy::HistoryProjectionCache::default()),
             contribution_registry: None,
             native_capability_sections: vec![],
             goals: vec![],
@@ -603,7 +634,6 @@ impl SubjectLoopState {
             identity_service,
             stream_journal: None,
             stream_public: None,
-            held_inputs: Vec::new(),
             awareness: None,
             quota_strategies,
             pending_reminder: None,
@@ -792,8 +822,26 @@ impl SubjectLoopState {
 /// - S1: commit as Committed, record next_step_id
 /// - Semantic wait: max 600s, same model, same thought stream
 pub async fn run_subject_loop(
+    state: SubjectLoopState,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<(), ShenkoError> {
+    run_subject_loop_owned(state, cancel, false).await
+}
+
+/// A resident runtime owns ingress independently of a failed model instance.
+/// Its supervisor keeps receiving durable facts while this serial incarnation
+/// waits for reconciliation; only the runtime closes the shared inbox.
+pub async fn run_subject_loop_retaining_inbox(
+    state: SubjectLoopState,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<(), ShenkoError> {
+    run_subject_loop_owned(state, cancel, true).await
+}
+
+async fn run_subject_loop_owned(
     mut state: SubjectLoopState,
     cancel: tokio_util::sync::CancellationToken,
+    retain_inbox: bool,
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
     // Admitted inputs this process could not decode. They stay durable and
@@ -868,9 +916,15 @@ pub async fn run_subject_loop(
         // Drain durable input without sending into this consumer's own bounded
         // channel. A backlog larger than inbox capacity must not block recovery.
         if state.step.state == SubjectStepState::Planned {
-            // At most 64 events are selected into one step; the durable
-            // drain only fills the remainder after the live batch.
-            let drain_limit = budget.max_events_per_step.saturating_sub(events.len());
+            // A wake is a projection, never the only copy. Persist before
+            // selecting so an IM may displace background progress without
+            // losing that progress. Durable ingress also bypasses a full wake
+            // buffer, so a result burst cannot keep a new message behind it.
+            let retained = events.iter().map(|event| state.store.retain_inbox_event(state.agent_id, event))
+                .collect::<Result<Vec<_>, _>>();
+            events = match retained { Ok(events) => events, Err(error) => break Err(error) };
+            events.clear();
+            let drain_limit = budget.max_events_per_step;
             // Rows this process already proved undecodable keep their position
             // in the bounded page; ask past them so they cannot starve readable
             // inputs. The bound keeps one pathological queue from widening the
@@ -892,9 +946,6 @@ pub async fn run_subject_loop(
                     for (event_id, data) in rows {
                         // The widened read exists to see past undecodable rows;
                         // the selection budget itself is unchanged.
-                        if events.len() >= budget.max_events_per_step {
-                            break;
-                        }
                         // One admitted row this binary cannot decode — a newer
                         // event kind after a downgrade, or a damaged payload —
                         // is an undecodable FACT, not a licence to stop the
@@ -939,6 +990,10 @@ pub async fn run_subject_loop(
                 }
                 Err(error) => break Err(error),
             }
+            // Stable within each class: ingress kind is trusted classification,
+            // not a priority claim inside external message text. The durable
+            // query rotates deferred inputs by their last presentation commit.
+            events.truncate(budget.max_events_per_step);
         }
         // An ingress replay may already be queued when ResultRecorded resumes S1.
         // Recheck L at consumption time so that stable IDs are never executed twice.
@@ -1061,7 +1116,7 @@ pub async fn run_subject_loop(
         journal_subject_loop_error(&state, error, retry_state_error.as_ref());
     }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
-    state.inbox.close().await;
+    if !retain_inbox { state.inbox.close().await; }
     info!("subject loop terminated");
     result
 }
@@ -1369,7 +1424,7 @@ fn sealed_previous_projection(
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
     if !matches!(
         input.get("schema_version").and_then(serde_json::Value::as_u64),
-        Some(12..=14)
+        Some(12..=15)
     ) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
@@ -1451,6 +1506,10 @@ async fn execute_step(
         // dispatch still compares the sealed binding with the live broker
         // binding, so a post-seal change is refused instead of applied.
         let input_binding = state.broker.as_ref().map(|broker| broker.binding().clone());
+        let child_provider_bindings = state.broker.as_ref()
+            .map(|broker| broker.installed_bindings()).unwrap_or_default();
+        crate::model_child::validate_child_provider_bindings(&child_provider_bindings)
+            .map_err(|error| ShenkoError::conflict(format!("invalid installed child routes: {error}")))?;
         let input_provider_selection = provider_selection(input_binding.as_ref());
         // Durable obligations and the attention decision travel with the
         // request: a commitment the subject already took is part of what it
@@ -1478,11 +1537,12 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 14,
+            schema_version: 15,
             step_id,
             step_no: seq,
             events: prepared.events,
             provider_binding: input_binding,
+            child_provider_bindings: Some(child_provider_bindings),
             payload: prepared.payload,
             context: prepared.context,
             semantic_wait: prepared.semantic_wait,
@@ -1505,7 +1565,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            14,
+            15,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -1644,8 +1704,9 @@ async fn execute_step(
                 }
             }
         }
-        // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
-        // fact is sufficient to resume. After dispatch, keep waiting for real evidence.
+        // Before dispatch, the frozen Preparing/RetryPending fact is sufficient
+        // to resume. After dispatch, the broker owns the original receipt and
+        // local transport lifetime independently of this decision-loop waiter.
         if cancel.is_cancelled() {
             return Ok(None);
         }
@@ -1715,7 +1776,11 @@ async fn execute_step(
             agent_id: state.agent_id,
             conversation_id: state.agent_id,
             provider_binding: broker.binding().clone(),
-            priority: shenko_broker::request::InferencePriority::Subject,
+            priority: if input.events.iter().any(InboxEvent::is_interactive) {
+                shenko_broker::request::InferencePriority::Urgent
+            } else {
+                shenko_broker::request::InferencePriority::Subject
+            },
             epoch: state.head.controller_epoch,
             payload: input.payload.clone(),
             result_tx: tx,
@@ -1811,9 +1876,17 @@ async fn execute_step(
                 "retry_record_error": retry_record.err().map(|error| format!("{error:#}")),
             })).into());
         }
-        let result = rx
-            .await
-            .map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?;
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => {
+                // Release this step's leased hook snapshot by actually leaving
+                // execute_step. The durable AwaitingModel and original sink
+                // survive; cancelling this waiter proves no remote outcome.
+                return Ok(None);
+            }
+            _result = rx => _result
+                .map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?,
+        };
         if result.request_id != request_id {
             return Err(ShenkoError::conflict(
                 "model result request identity mismatch",
@@ -1983,6 +2056,7 @@ async fn execute_step(
                         .ok_or_else(|| anyhow::anyhow!("model child requires a sealed provider transport"))
                         .and_then(|binding| crate::model_child::prepare_model_delegation(
                             control.action_id, step_id, spec.as_ref(), binding,
+                            input.child_provider_bindings.as_deref(),
                             &step.software_generation,
                         ));
                     Some(prepared.map_err(|error| ShenkoError::Protocol(
@@ -1996,6 +2070,10 @@ async fn execute_step(
             };
             if let Some(intent) = intent { delegations.push(intent); }
         }
+        crate::model_child::check_continuation_allocations(&store, &delegations)
+            .map_err(|error| ShenkoError::Protocol(ProtocolError::new(
+                "CONTROL_PROTOCOL_INVALID", ErrorScope::Request, RetryStrategy::NewRevision,
+            ).with_details(serde_json::json!({"reason":error.to_string()}))))?;
         Ok((output, delegations))
     });
     let (output, decision_delegation_intents) = match parsed {
@@ -2404,7 +2482,8 @@ async fn execute_step(
 }
 
 /// A protocol rejection is conclusive, unlike an unknown provider outcome.
-/// R0 records it and freezes a new correction request before adopting memory.
+/// R0 records it before another correction or a fresh input-selection boundary.
+/// Neither path admits any part of the rejected decision.
 async fn replace_rejected_output(
     state: &mut SubjectLoopState,
     mut input: FrozenStepInput,
@@ -2412,16 +2491,18 @@ async fn replace_rejected_output(
     error: shenko_types::error::ProtocolError,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(), ShenkoError> {
-    use shenko_types::subject::ControlOutputRejection;
+    use shenko_types::subject::{ControlOutputRejection, ControlOutputReplacement};
     let store = Arc::clone(&state.store);
     let mut retired = state.step.clone();
     let raw_ref = retired
         .model_result_ref
         .clone()
         .ok_or_else(|| ShenkoError::conflict("rejection missing recorded result"))?;
+    let correction = store.control_output_correction(&state.head, &retired)?;
+    let reselect = matches!(correction.replacement, ControlOutputReplacement::ReselectInput { .. });
     let replacement_id = EntityId::new();
     let rejection = ControlOutputRejection {
-        schema_version: 2,
+        schema_version: 3,
         supersedes_step_id: retired.step_id,
         replacement_step_id: replacement_id,
         request_id: retired
@@ -2437,29 +2518,38 @@ async fn replace_rejected_output(
             .clone()
             .ok_or_else(|| ShenkoError::conflict("rejection missing terminal outcome"))?,
         error,
+        correction: Some(correction),
     };
-    let parent_ref = retired.input_plan_ref.as_ref()
-        .ok_or_else(|| ShenkoError::conflict("rejection missing original input seal"))?;
-    let observed = observed_input_tokens(&store.recorded_model_outcome(&retired)?, input.provider_binding.as_ref());
-    let prepared = match prepare_corrected_context(state, CorrectionInput {
-        parent_ref, parent_payload: &input.payload, parent_context: &input.context,
-        contribution_tokens: input.contribution_tokens, observed_input_tokens: observed,
-        raw_output, feedback: shenko_store::control_rejection_feedback(&rejection),
-    }) {
-        Ok(Some(prepared)) => prepared,
-        Ok(None) => {
-            wait_for_context_preparer(state, cancel).await;
-            return Ok(());
-        }
-        Err(ShenkoError::ResnapshotRequired { reason }) => {
-            tracing::debug!(%reason, "correction source changed; original result retained");
-            return Ok(());
-        }
-        Err(error) => return Err(error),
-    };
+    if !reselect {
+        let parent_ref = retired.input_plan_ref.as_ref()
+            .ok_or_else(|| ShenkoError::conflict("rejection missing original input seal"))?;
+        let observed = observed_input_tokens(&store.recorded_model_outcome(&retired)?, input.provider_binding.as_ref());
+        let prepared = match prepare_corrected_context(state, CorrectionInput {
+            parent_ref, parent_payload: &input.payload, parent_context: &input.context,
+            contribution_tokens: input.contribution_tokens, observed_input_tokens: observed,
+            raw_output, feedback: shenko_store::control_rejection_feedback(&rejection),
+        }) {
+            Ok(Some(prepared)) => prepared,
+            Ok(None) => {
+                // Revisit durable interactive ingress while the owned worker is
+                // still preparing. Dropping this wait never publishes its result
+                // or loses ownership of the worker retained on state.
+                tokio::select! {
+                    _ = wait_for_context_preparer(state, cancel) => {},
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
+                }
+                return Ok(());
+            }
+            Err(ShenkoError::ResnapshotRequired { reason }) => {
+                tracing::debug!(%reason, "correction source changed; original result retained");
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        input.payload = prepared.0;
+        input.context = prepared.1;
+    }
     if cancel.is_cancelled() { return Ok(()); }
-    input.payload = prepared.0;
-    input.context = prepared.1;
     let reason_ref = seal_step_object(
         &store,
         retired.step_no,
@@ -2467,34 +2557,29 @@ async fn replace_rejected_output(
         "application/json",
         "control_rejections",
         "ControlOutputRejection",
-        2,
+        3,
     )?;
-    // Preserve the selected events and pinned persona/provider. This is a new
-    // step/request seal with explicit feedback, not replay of the invalid wire.
-    input.step_id = replacement_id;
-    // The correction is a NEW request identity: the rejected attempt's
-    // identity is spent and is never re-used.
-    input.request_id = EntityId::new();
     let mut replacement = retired.clone();
     replacement.step_id = replacement_id;
-    replacement.state = SubjectStepState::Preparing;
-    replacement.input_plan_ref = Some(seal_step_object(
-        &store,
-        retired.step_no,
-        &serde_json::to_vec(&input)?,
-        "application/json",
-        "input_plans",
-        "subject_step_input",
-        input.schema_version,
-    )?);
-    replacement.context_revision = Some(
-        retired
-            .context_revision
+    if reselect {
+        // R0 has conclusive invalid output, not an in-flight effect. Opening
+        // the selection boundary lets the ordinary S0 include fresh IM while
+        // every old event/output/feedback remains durable and unacknowledged.
+        replacement.state = SubjectStepState::Planned;
+        replacement.input_plan_ref = None;
+        replacement.context_revision = None;
+    } else {
+        input.step_id = replacement_id;
+        input.request_id = EntityId::new();
+        replacement.state = SubjectStepState::Preparing;
+        replacement.input_plan_ref = Some(seal_step_object(
+            &store, retired.step_no, &serde_json::to_vec(&input)?, "application/json",
+            "input_plans", "subject_step_input", input.schema_version,
+        )?);
+        replacement.context_revision = Some(retired.context_revision
             .and_then(|revision| revision.checked_add(1))
-            .ok_or_else(|| {
-                ShenkoError::conflict("correction context revision exhausted/missing")
-            })?,
-    );
+            .ok_or_else(|| ShenkoError::conflict("correction context revision exhausted/missing"))?);
+    }
     replacement.active_request_id = None;
     replacement.active_attempt_id = None;
     replacement.model_result_ref = None;
@@ -2517,14 +2602,18 @@ async fn replace_rejected_output(
     let (head, step) = store.load_subject(state.agent_id)?;
     state.head = head;
     state.step = step;
-    if let Some(registry) = &state.contribution_registry {
+    if reselect {
+        // The abandoned worker cannot publish after its input boundary ended.
+        state.context_preparer.take();
+    } else if let Some(registry) = &state.contribution_registry {
         let seal = state.step.input_plan_ref.as_ref().expect("correction S0 committed");
         if let Some(usage) = contribution_usage(&input, seal)? {
             registry.record_usage(usage).map_err(|error| ShenkoError::conflict(error.to_string()))?;
         }
     }
     warn!(step_id=%retired.step_id, replacement_step_id=%replacement_id,
-        commit=%receipt.commit_ref, error=%rejection.error, "control result rejected; correction registered");
+        commit=%receipt.commit_ref, error=%rejection.error, reselect,
+        "control result rejected; replacement boundary registered");
     Ok(())
 }
 

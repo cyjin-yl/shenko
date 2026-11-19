@@ -11,12 +11,14 @@ shenko-types = { path = "../shenko-types" }
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+futures = { workspace = true }
 # Standard base64 for image parts on both provider wires.
 base64 = { workspace = true }
 # "stream" is required for the provider event stream: a buffered body is not a

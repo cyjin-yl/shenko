@@ -24,6 +24,7 @@ pub use selection::*;
 mod election;
 pub use election::*;
 mod authority_guard;
+mod installation;
 pub use authority_guard::*;
 mod component;
 pub use component::*;
@@ -321,6 +322,7 @@ pub enum Request {
 pub struct Node {
     conn: Connection,
     failed: bool,
+    installation: Option<shenko_types::installation::InstallationDomain>,
 }
 impl Node {
     /// Read-only inspection of an existing installation: opens the node
@@ -362,10 +364,24 @@ impl Node {
         Ok(Some(Self {
             conn,
             failed: false,
+            installation: shenko_types::installation::InstallationDomain::for_node(dir)?,
         }))
     }
 
     pub fn open(dir: &Path) -> Result<Self> {
+        if !dir.exists() {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+        }
+        let domain = shenko_types::installation::InstallationDomain::for_node(dir)?;
+        let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
+        Self::open_under(dir, permit.as_ref())
+    }
+
+    /// The installation reservation precedes all initialization and Node SQL.
+    /// This opener borrows the Store/update caller's original descriptor.
+    pub fn open_under(dir: &Path,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<Self> {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         if !dir.exists() {
             std::fs::DirBuilder::new()
@@ -380,6 +396,10 @@ impl Node {
                 && metadata.permissions().mode() & 0o077 == 0,
             "private nonsymlink data directory required"
         );
+        let installation = shenko_types::installation::InstallationDomain::for_node(dir)?;
+        if let Some(domain) = &installation {
+            permit.context("installed Node open requires a physical permit")?.validate(domain)?;
+        }
         // Serialize cooperating openers across inspection, preflight,
         // original recovery and migration; an unknown directory gains no
         // lock file from this.
@@ -441,6 +461,7 @@ impl Node {
             return Ok(Self {
                 conn,
                 failed: false,
+                installation,
             });
         }
         {
@@ -460,6 +481,7 @@ impl Node {
                     return Ok(Self {
                         conn,
                         failed: false,
+                        installation,
                     });
                 }
                 locked
@@ -516,6 +538,7 @@ impl Node {
         Ok(Self {
             conn,
             failed: false,
+            installation,
         })
     }
     pub fn handle(&mut self, request: Request) -> Result<Value> {
@@ -548,9 +571,7 @@ impl Node {
             Request::CommitComponent { certificate } => Ok(serde_json::to_value(self.commit_component(&certificate)?)?),
             Request::Units { request } => self.handle_unit_request(request),
             Request::Initialize { node_id, identity } => {
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 if let Some(old) = meta(&tx, "node")? {
                     ensure!(old == text(&node_id)?, "node identity conflict");
                     // Opening an existing installation is not rebirth/reset.
@@ -571,9 +592,7 @@ impl Node {
             } => {
                 let actual = running_manifest()?;
                 let seal = digest(&(expected_node, &identity, &manifest))?;
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 if let Some((old, result)) = tx
                     .query_row(
                         "SELECT seal,result FROM commands WHERE id=?1",
@@ -639,9 +658,7 @@ impl Node {
                     "invalid target ID"
                 );
                 let value = json!({"node_id":node_id,"target_id":target_id,"binding_digest":binding_digest});
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 let _: Identity = identity(&tx)?;
                 let old: Option<String> = tx
                     .query_row(
@@ -667,9 +684,7 @@ impl Node {
                 input,
             } => {
                 ensure!(input.len() <= 65536, "task input exceeds 64KiB");
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 let object = seal(&tx, &input, "application/octet-stream", "bytes")?;
                 member(&tx, node_id)?;
                 let own = identity(&tx)?;
@@ -731,9 +746,7 @@ impl Node {
                 expected_epoch,
                 to_node,
             } => {
-                let tx = self
-                    .conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
                 member(&tx, to_node)?;
                 let own = identity(&tx)?;
                 let mut t = task(&tx, task_id)?.context("task missing")?;
@@ -967,9 +980,7 @@ impl Node {
         number(&lease.task_revision)?;
         let seal = digest(&lease)?;
         {
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             ensure!(
                 get::<EntityId>(&tx, "node")? == lease.node_id && identity(&tx)? == lease.identity,
                 "ticket for wrong joined node/identity"
@@ -1012,9 +1023,7 @@ impl Node {
         }
         // The only handler: finite deterministic computation, no external effect.
         let output_digest = Digest::blake3(&input);
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let seq: i64 = tx.query_row("SELECT coalesce(max(seq),0)+1 FROM events", [], |r| {
             r.get(0)
         })?;
@@ -1051,9 +1060,7 @@ impl Node {
         Ok(json!({"state":"completed","receipt":receipt}))
     }
     fn accept(&mut self, from: EntityId, receipt: ResultReceipt) -> Result<Value> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         member(&tx, from)?;
         let own = identity(&tx)?;
         let ev = &receipt.event;
@@ -1097,9 +1104,7 @@ impl Node {
         }
         tx.commit()?;
 
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         // A fork may have committed between E1 and this T2 transaction. Read
         // its current identity again; the original receipt remains durable.
         let own = identity(&tx)?;
@@ -1371,7 +1376,7 @@ fn readonly_uri(db: &Path) -> Result<String> {
         .collect();
     Ok(format!("file:{encoded}?immutable=1"))
 }
-fn evidence_only(tx: Transaction<'_>, seq: i64, status: &str, reason: &str) -> Result<Value> {
+fn evidence_only(tx: crate::installation::InstalledTransaction<'_>, seq: i64, status: &str, reason: &str) -> Result<Value> {
     tx.execute(
         "UPDATE receipts SET status=?2,reason=?3 WHERE seq=?1",
         params![seq, status, reason],

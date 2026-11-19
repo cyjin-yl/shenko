@@ -147,6 +147,7 @@ impl MediaIdentifyHandler {
         agent_id: EntityId,
         input_ref: ObjectRef,
     ) -> Result<(OperationRecord, AttemptRecord)> {
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
         let bindings = ResourceBindings {
             provider: "store.media.v1".into(),
             account_identity: String::new(),
@@ -167,14 +168,14 @@ impl MediaIdentifyHandler {
         let contract_digest = Digest::blake3(MEDIA_IDENTIFY_CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: artifact_digest.clone(),
                 locator: "builtin:media-identify-v1".into(),
             },
             symbol: "media.identify.execute".into(),
             schema: SchemaRef {
                 name: "media-identify-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("media-identify-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -191,7 +192,7 @@ impl MediaIdentifyHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -469,13 +470,13 @@ impl MediaIdentifyHandler {
 
 #[async_trait]
 impl NativeTaskHandler for MediaIdentifyHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "media.identify".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(MEDIA_IDENTIFY_CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-media-identifier/1".into(),
@@ -489,12 +490,12 @@ impl NativeTaskHandler for MediaIdentifyHandler {
                  不伪造 claim。"
                     .into(),
             ),
-        }
+        })
     }
 
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> anyhow::Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             "media.identify.v1",
@@ -522,7 +523,7 @@ impl NativeTaskHandler for MediaIdentifyHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
@@ -849,7 +850,7 @@ mod tests {
             background: false,
             kind: "media.identify".into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor().unwrap().implementation_ref,
             input_ref: input_ref.clone(),
             state: TaskState::Running {
                 checkpoint_ref: None,
@@ -897,6 +898,7 @@ mod tests {
             },
             input: serde_json::Value::Null,
             child_tools: None,
+            cancellation: Default::default(),
         };
         let (mut operation, mut attempt) =
             handler
@@ -1413,7 +1415,7 @@ mod tests {
         let f = fixture(None);
         let handler =
             MediaIdentifyHandler::new(Arc::clone(&f.store), Arc::clone(&f.runtime));
-        let descriptor = handler.descriptor();
+        let descriptor = handler.descriptor().unwrap();
         assert_eq!(descriptor.kind, "media.identify");
         assert_eq!(descriptor.definition_version, 1);
         assert!(
@@ -1423,7 +1425,7 @@ mod tests {
                 .unwrap()
                 .contains("[delegate:media.identify:1]")
         );
-        let contracts = handler.effect_contracts();
+        let contracts = handler.effect_contracts().unwrap();
         assert_eq!(contracts.len(), 1);
         let contract = &contracts[0];
         assert_eq!(contract.operation_name, "media.identify.v1");

@@ -428,6 +428,28 @@ impl std::fmt::Display for BeforeReplExecution {
 
 impl std::error::Error for BeforeReplExecution {}
 
+struct CancelExecutionOnDrop(crate::session::ExecutionControl);
+
+impl Drop for CancelExecutionOnDrop {
+    fn drop(&mut self) { self.0.cancel(); }
+}
+
+fn lock_session<'a>(session: &'a std::sync::Mutex<crate::session::WasiReplSession>,
+    execution: &crate::session::ExecutionControl)
+    -> Result<std::sync::MutexGuard<'a, crate::session::WasiReplSession>>
+{
+    loop {
+        execution.check()?;
+        match session.try_lock() {
+            Ok(session) => return Ok(session),
+            Err(std::sync::TryLockError::Poisoned(_)) =>
+                anyhow::bail!("REPL_SESSION_INVALID: session lock poisoned"),
+            Err(std::sync::TryLockError::WouldBlock) =>
+                std::thread::sleep(std::time::Duration::from_millis(10)),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct SessionResult {
     session_id: Option<EntityId>,
@@ -735,7 +757,7 @@ impl HandlerCore {
         resource: ObjectRef,
         acceptance: ObjectRef,
         retry: ObjectRef,
-    ) -> (OperationRecord, AttemptRecord) {
+    ) -> Result<(OperationRecord, AttemptRecord)> {
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let contract_digest = Digest::blake3(self.contract);
         let operation = OperationRecord {
@@ -751,9 +773,9 @@ impl HandlerCore {
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
-                receipt_reader_ref: self.version_ref(),
+                receipt_reader_ref: self.version_ref()?,
             },
             resource_bindings_ref: resource,
             authority_ref: invocation.authority.clone(),
@@ -779,7 +801,7 @@ impl HandlerCore {
             worker_id: invocation.task_invocation.worker_id,
             node_id: invocation.task_invocation.node_id,
             epoch: invocation.task_invocation.epoch,
-            implementation_ref: self.version_ref(),
+            implementation_ref: self.version_ref()?,
             dispatch_stage: AttemptDispatchStage::Armed,
             armed_commit: zero,
             provider_handle: None,
@@ -789,23 +811,22 @@ impl HandlerCore {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        (operation, attempt)
+        Ok((operation, attempt))
     }
 
-    fn version_ref(&self) -> VersionRef {
-        let contract_digest = Digest::blake3(self.contract);
-        VersionRef {
+    fn version_ref(&self) -> Result<VersionRef> {
+        Ok(VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: format!("builtin:{}", self.kind),
             },
             symbol: format!("{}.execute", self.kind),
             schema: SchemaRef {
                 name: format!("{}-observation-v1", self.kind.replace('.', "-")),
                 major: 1,
-                digest: contract_digest,
+                digest: shenko_kernel::native_artifact::native_schema_digest(&format!("{}-observation-v1", self.kind.replace('.', "-")), 1),
             },
-        }
+        })
     }
 
     fn evidence(
@@ -890,19 +911,19 @@ impl HandlerCore {
         Ok(operation)
     }
 
-    fn descriptor(&self, prompt_section: String) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self, prompt_section: String) -> anyhow::Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: self.kind.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: self.plugin_id,
-                artifact_digest: Digest::blake3(self.contract),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: self.role_revision.into(),
             authority_refs: vec![self.authority_ref.into()],
             prompt_section: Some(prompt_section),
-        }
+        })
     }
 }
 
@@ -1047,7 +1068,7 @@ impl ReplSessionHandler {
                 &"an armed session op without a conclusive observation remains unknown; no automatic replay",
                 "repl-session-retry",
             )?;
-            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(&invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1059,10 +1080,22 @@ impl ReplSessionHandler {
         let sessions = Arc::clone(&self.sessions);
         let task_id = invocation.task_invocation.task_id;
         let worker_id = invocation.task_invocation.worker_id;
-        let observed = tokio::task::spawn_blocking(move || {
+        let execution = crate::session::ExecutionControl::default();
+        let _cancel_on_drop = CancelExecutionOnDrop(execution.clone());
+        if invocation.cancellation.is_cancelled() { execution.cancel(); }
+        let worker_execution = execution.clone();
+        let mut worker = tokio::task::spawn_blocking(move || {
+            worker_execution.check().map_err(BeforeReplExecution)?;
             prepared.verify(&sessions).map_err(BeforeReplExecution)?;
-            run_session_op(&sessions, &prepared, task_id, worker_id)
-        }).await?;
+            run_session_op(&sessions, &prepared, task_id, worker_id, &worker_execution)
+        });
+        let observed = tokio::select! {
+            _result = &mut worker => _result?,
+            _ = invocation.cancellation.cancelled() => {
+                execution.cancel();
+                worker.await?
+            }
+        };
         let (binding, value, decoded, outcome, effect, event_key) = match observed {
             Ok(observed) => observed,
             Err(error) if error.is::<BeforeReplExecution>() => {
@@ -1099,7 +1132,7 @@ impl ReplSessionHandler {
             let resource = self.core.seal(&bindings, "repl-session-binding")?;
             let acceptance = self.core.seal(&"explicit resolution refusal", "repl-session-acceptance")?;
             let retry = self.core.seal(&"no execution attempted", "repl-session-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1136,7 +1169,9 @@ fn run_session_op(
     prepared: &SessionPreparation,
     task_id: EntityId,
     worker_id: EntityId,
+    execution: &crate::session::ExecutionControl,
 ) -> Result<SessionOpOutcome> {
+    execution.check().map_err(BeforeReplExecution)?;
     let payload = &prepared.payload;
     let input = &prepared.input;
     match input.op {
@@ -1307,11 +1342,10 @@ fn run_session_op(
             let frozen = SessionObservedBinding { op: input.op.wire_name().into(),
                 kernel_id: None, entry: None, module: None, module_digest: None,
                 session_id: Some(session_id), limits: None };
-            let mut session = handle.lock()
-                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
+            let mut session = lock_session(&handle, execution)?;
             session.verify_native_binding(prepared.session_binding.as_ref()
                 .context("REPL_SESSION_INVALID: no frozen session binding")?)?;
-            match input.op {
+            let observed = session.with_execution_control(execution.clone(), |session| match input.op {
                 SessionOp::Inspect => {
                     let info = session.inspect()?;
                     let value = serde_json::to_value(SessionResult {
@@ -1412,8 +1446,6 @@ fn run_session_op(
                 }
                 SessionOp::Dispose => {
                     session.dispose()?;
-                    drop(session);
-                    sessions.remove(session_id);
                     let value = serde_json::to_value(SessionResult {
                         session_id: Some(session_id),
                         outcome: Some("disposed".into()),
@@ -1459,7 +1491,12 @@ fn run_session_op(
                 }
                 SessionOp::ListKernels | SessionOp::ListSessions | SessionOp::Create
                 | SessionOp::InstallKernel | SessionOp::Cancel => unreachable!("routed above"),
+            })?;
+            if input.op == SessionOp::Dispose {
+                drop(session);
+                sessions.remove(session_id);
             }
+            Ok(observed)
         }
     }
 }
@@ -1522,7 +1559,9 @@ fn resolve_entry(sessions: &SessionStore, entry: &str)
 
 #[async_trait]
 impl NativeTaskHandler for ReplSessionHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
         self.core.descriptor(
             "repl.session/v1 管理真实长生命周期 REPL 会话（WASI 或原生解释器进程，变量在进程存活期间保留）：\
              先看已安装的 kernel 绑定与具名目标 {\"op\":\"list_kernels\"}（targets = 本构建能绑定/不能绑定的运行时，\
@@ -1641,7 +1680,7 @@ impl ReplCellHandler {
             &"an armed cell without a conclusive observation remains unknown; no automatic replay",
             "repl-cell-retry",
         )?;
-        Ok(self.core.new_operation(invocation, input_ref, resource, acceptance, retry))
+        self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
     }
 
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1668,32 +1707,45 @@ impl ReplCellHandler {
         let store = Arc::clone(&self.core.store);
         let session_id = frozen.session_id;
         let task_label = invocation.task_invocation.task_id;
-        let prepared: Result<(
-            crate::contract::CellResult,
-            crate::contract::CellOutcome,
-            (ObjectRef, Vec<u8>, bool),
-            (ObjectRef, Vec<u8>, bool),
-        )> = tokio::task::spawn_blocking(move || {
+        let execution = crate::session::ExecutionControl::default();
+        let _cancel_on_drop = CancelExecutionOnDrop(execution.clone());
+        if invocation.cancellation.is_cancelled() { execution.cancel(); }
+        let worker_execution = execution.clone();
+        let mut worker = tokio::task::spawn_blocking(move || {
+            worker_execution.check().map_err(BeforeReplExecution)?;
             frozen.session_binding.verify_manifest(&sessions.session_dir(session_id))
                 .map_err(BeforeReplExecution)?;
             let handle = sessions.open(session_id)?;
-            let mut session = handle.lock()
-                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
+            let mut session = lock_session(&handle, &worker_execution)?;
             // Opening can already heal a manifest or finish a reset. Any
             // later refusal therefore keeps this original attempt unknown;
             // it cannot prove that no session mutation happened.
-            session.check_native_cell(&frozen.session_binding)?;
-            let result = session.execute_identified(crate::contract::CellRequest {
-                source,
-                cell_kind: cell_kind_contract,
-                labels: BTreeMap::from([("task".into(), task_label.to_string())]),
-            }, frozen.cell)?;
+            let result = session.with_execution_control(worker_execution, |session| {
+                session.check_native_cell(&frozen.session_binding)?;
+                session.execute_identified(crate::contract::CellRequest {
+                    source,
+                    cell_kind: cell_kind_contract,
+                    labels: BTreeMap::from([("task".into(), task_label.to_string())]),
+                }, frozen.cell)
+            })?;
             let dir = session.session_dir().to_path_buf();
             let outcome = result.record.outcome.clone();
             let stdout = seal_stream(&store, &dir, &result.record.stdout_path)?;
             let stderr = seal_stream(&store, &dir, &result.record.stderr_path)?;
             Ok((result, outcome, stdout, stderr))
-        }).await?;
+        });
+        let prepared: Result<(
+            crate::contract::CellResult,
+            crate::contract::CellOutcome,
+            (ObjectRef, Vec<u8>, bool),
+            (ObjectRef, Vec<u8>, bool),
+        )> = tokio::select! {
+            _result = &mut worker => _result?,
+            _ = invocation.cancellation.cancelled() => {
+                execution.cancel();
+                worker.await?
+            }
+        };
 
         let (cell, outcome, stdout_evidence, stderr_evidence) = match prepared {
             Ok(parts) => parts,
@@ -1761,7 +1813,7 @@ impl ReplCellHandler {
             let resource = self.core.seal(&bindings, "repl-cell-binding")?;
             let acceptance = self.core.seal(&"explicit resolution refusal", "repl-cell-acceptance")?;
             let retry = self.core.seal(&"no cell executed", "repl-cell-retry")?;
-            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)
+            self.core.new_operation(invocation, input_ref, resource, acceptance, retry)?
         };
         if let Some(existing) = store.arm_external_operation(
             &invocation.task_invocation, &mut operation, &mut attempt,
@@ -1797,7 +1849,9 @@ impl ReplCellHandler {
 
 #[async_trait]
 impl NativeTaskHandler for ReplCellHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
+    fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
         self.core.descriptor(
             "repl.cell/v1 在一个已创建的 REPL 会话上执行一个 cell（真实解释器进程内，变量跨 cell 保留；WASI 会话经帧协议，原生会话同名协议）：\
              [delegate:repl.cell:1] {\"op\":\"execute\",\"session_id\":\"...\",\"source_b64\":\"...\",\"cell_kind\":\"pure|declared_effect|unknown\"}。\
@@ -1930,7 +1984,7 @@ mod tests {
             background: false,
             kind: kind.into(),
             definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref,
             state: TaskState::Running {
                 checkpoint_ref: None,
@@ -1980,6 +2034,7 @@ mod tests {
             },
             input,
             child_tools: None,
+            cancellation: Default::default(),
         })
     }
 
@@ -1990,6 +2045,7 @@ mod tests {
             task: invocation.task.clone(), operation_id: invocation.operation_id,
             authority: invocation.authority.clone(), input: invocation.input.clone(),
             child_tools: None,
+            cancellation: invocation.cancellation.clone(),
         }
     }
 
@@ -2293,6 +2349,60 @@ mod tests {
         assert_eq!(op.state, OperationState::Resolved);
         assert_eq!(op.outcome, Some(OperationOutcome::Failed));
         assert_eq!(harness.normalized(&op)?["outcome"], "refused");
+
+        // The same resident session now owns a real cell that never writes a
+        // report. Cancelling a restore queued behind it must retire only that
+        // invocation, and cancelling the cell must close/join its blocked
+        // stdin interpreter before reporting a stopped cell.
+        let cells = Arc::new(ReplCellHandler::new(harness.store.clone(), harness.handler.sessions()));
+        let running = registered_invocation(&harness.store, &cells.core, cells.as_ref(),
+            "repl.cell", "repl-cell-request", serde_json::json!({
+                "op": "execute", "session_id": session_id,
+                "source_b64": B64.encode(b"resident fixture waits for cancellation"),
+                "cell_kind": "unknown",
+            }))?;
+        let running_stop = running.cancellation.clone();
+        let running = tokio::spawn(async move { cells.execute(running).await });
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                let slot = harness.handler.sessions.cancellations.lock().get(&session_id).cloned();
+                if slot.is_some_and(|slot| slot.lock().is_some()) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        }).await.context("resident cell did not acquire its guest")?;
+        let waiting = registered_invocation(&harness.store, &harness.handler.core, &harness.handler,
+            "repl.session", "repl-session-request", serde_json::json!({
+                "op": "restore", "session_id": session_id,
+            }))?;
+        let waiting_id = waiting.operation_id;
+        let waiting_stop = waiting.cancellation.clone();
+        let (waiting_result, running_was_owned, guest_was_cancelled) = {
+            let waiting = harness.handler.execute(waiting);
+            tokio::pin!(waiting);
+            tokio::select! {
+                _result = &mut waiting => panic!("restore bypassed the executing cell: {_result:?}"),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(40)) => {},
+            }
+            waiting_stop.cancel();
+            let waiting_result = tokio::time::timeout(std::time::Duration::from_secs(2), &mut waiting).await;
+            let running_was_owned = !running.is_finished();
+            let guest_was_cancelled = harness.handler.sessions.cancellations.lock().get(&session_id)
+                .is_some_and(|slot| slot.lock().as_ref().is_some_and(shenko_wasm::WasiCancellation::is_cancelled));
+            (waiting_result, running_was_owned, guest_was_cancelled)
+        };
+        running_stop.cancel();
+        let cancelled = tokio::time::timeout(std::time::Duration::from_secs(3), running).await
+            .context("cancelled resident interpreter was not joined")???;
+        let waiting_error = waiting_result.context("queued restore did not observe cancellation")?
+            .expect_err("queued restore must retain its already armed uncertain attempt");
+        assert!(waiting_error.to_string().contains("REPL_EXECUTION_CANCELLED"), "{waiting_error:#}");
+        assert!(running_was_owned && !guest_was_cancelled,
+            "cancelling a queued operation must not cancel the current interpreter");
+        assert_eq!(harness.store.external_operation(waiting_id)?.effect_status, EffectStatus::Unknown);
+        assert_eq!(cancelled.outcome, Some(OperationOutcome::Cancelled));
+        let session = harness.handler.sessions.open(session_id)?;
+        let info = session.lock().map_err(|_| anyhow::anyhow!("test session poisoned"))?.inspect()?;
+        assert!(!info.live_process_running, "Cancelled is published only after the actual interpreter join");
 
         drop(harness);
         fs::remove_dir_all(root).ok();

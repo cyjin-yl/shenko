@@ -67,6 +67,7 @@ mod admission;
 mod closure;
 mod files;
 mod import;
+pub use import::PreparedCognitionImport;
 mod memory;
 mod peers;
 mod reconcile;

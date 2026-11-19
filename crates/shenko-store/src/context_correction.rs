@@ -1,11 +1,13 @@
 //! Admission checks for a correction's new projection observation. The parent
 //! seal remains its own immutable observation; a newer window never relabels it.
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
 use shenko_types::{
     error::ShenkoError,
     object::{Digest, ObjectRef},
-    subject::{ControlOutputRejection, SubjectBranchHead, SubjectStep},
+    ids::EntityId,
+    subject::{ControlCorrectionDisposition, ControlInputReselection, ControlOutputRejection,
+        ControlOutputReplacement, MAX_PINNED_CONTROL_CORRECTIONS, SubjectBranchHead, SubjectStep},
 };
 
 use crate::{Store, SubjectContextRef, store::storage_error};
@@ -64,6 +66,89 @@ fn sealed_json(store: &Store, reference: &ObjectRef) -> Result<Value, ShenkoErro
 }
 
 impl Store {
+    /// Plan R0 using durable input and exact parent-seal provenance. The
+    /// atomic replacement validates this observation again under its lock.
+    pub fn control_output_correction(&self, head: &SubjectBranchHead, previous: &SubjectStep)
+        -> Result<ControlCorrectionDisposition, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        crate::store::checked_head(&conn, head)?;
+        self.control_output_correction_at(&conn, head, previous)
+    }
+
+    fn control_output_correction_at(&self, conn: &Connection, head: &SubjectBranchHead,
+        previous: &SubjectStep) -> Result<ControlCorrectionDisposition, ShenkoError> {
+        if !self.recorded_model_outcome(previous)?.permits_control_correction() {
+            return Err(invalid("unknown/nonterminal model outcome cannot replace its step"));
+        }
+        let parent_ref = previous.input_plan_ref.as_ref().ok_or_else(|| invalid("parent seal missing"))?;
+        let parent = sealed_json(self, parent_ref)?;
+        let current_format = matches!(parent["schema_version"].as_u64(), Some(14 | 15));
+        let mut observed = parent.clone();
+        let mut prior_pinned_corrections = 0;
+        while prior_pinned_corrections < MAX_PINNED_CONTROL_CORRECTIONS {
+            let Some(reference) = observed.pointer("/context/correction_observation/parent_input_ref") else { break; };
+            let reference: ObjectRef = serde_json::from_value(reference.clone())?;
+            observed = sealed_json(self, &reference)?;
+            prior_pinned_corrections += 1;
+        }
+        let selected: Vec<EntityId> = parent.get("events").and_then(Value::as_array)
+            .ok_or_else(|| invalid("selected input identities missing"))?.iter()
+            .map(|event| serde_json::from_value(event["event_id"].clone()).map_err(ShenkoError::from))
+            .collect::<Result<_, _>>()?;
+        // Kind/source columns are bound to complete ingress at admission.
+        // Respect the same source pause and settled-event boundary as S0;
+        // message text itself never gets to claim interactive priority.
+        let fresh: Option<String> = conn.query_row(
+            "WITH attention AS (
+                 SELECT state,sources,review_after FROM subject_attention_policies
+                 WHERE agent_id=?1 ORDER BY created_seq DESC,intent_id DESC LIMIT 1
+             )
+             SELECT i.event_id FROM inbox_events i
+             WHERE i.agent_id=?1 AND i.consumed=0 AND i.kind IN ('message','media_priority')
+               AND NOT EXISTS (SELECT 1 FROM subject_event_dispositions d
+                   WHERE d.branch_id=?2 AND d.event_id=i.event_id)
+               AND NOT EXISTS (SELECT 1 FROM json_each(?3) selected WHERE selected.value=i.event_id)
+               AND NOT EXISTS (SELECT 1 FROM attention a WHERE a.state='\"off\"'
+                   AND (a.review_after IS NULL OR julianday(a.review_after)>julianday(?4))
+                   AND (json_array_length(a.sources)=0 OR EXISTS (
+                       SELECT 1 FROM json_each(a.sources) source WHERE source.value=i.source)))
+             ORDER BY i.rowid LIMIT 1",
+            params![head.agent_id.to_string(), head.branch_id.0.to_string(),
+                serde_json::to_string(&selected)?, chrono::Utc::now().to_rfc3339()],
+            |row| row.get(0)).optional().map_err(storage_error)?;
+        let replacement = if let Some(id) = fresh {
+            ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::FreshInteractive {
+                event_id: id.parse().map_err(storage_error)?,
+            } }
+        } else if prior_pinned_corrections >= MAX_PINNED_CONTROL_CORRECTIONS {
+            ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::CorrectionLimit }
+        } else if !current_format {
+            ControlOutputReplacement::ReselectInput { cause: ControlInputReselection::LegacyProjection }
+        } else { ControlOutputReplacement::PinnedCorrection };
+        Ok(ControlCorrectionDisposition { prior_pinned_corrections, replacement })
+    }
+
+    pub(crate) fn requeue_rejected_inputs(&self, tx: &Transaction<'_>,
+        head: &SubjectBranchHead, previous: &SubjectStep) -> Result<(), ShenkoError> {
+        let parent = sealed_json(self, previous.input_plan_ref.as_ref()
+            .ok_or_else(|| invalid("reselected parent seal missing"))?)?;
+        let selected = parent.get("events").and_then(Value::as_array)
+            .ok_or_else(|| invalid("reselected event identities missing"))?;
+        // Staging's consumed flag is only a delivery checkpoint, never an
+        // acknowledgement. Re-open it atomically when its owner is retired;
+        // already terminal dispositions remain terminal and raw is unchanged.
+        tx.execute("UPDATE inbox_events SET consumed=0
+            WHERE agent_id=?1 AND event_id IN (
+                SELECT json_extract(value,'$.event_id') FROM json_each(?3))
+              AND NOT EXISTS (SELECT 1 FROM subject_event_dispositions d
+                WHERE d.branch_id=?2 AND d.event_id=inbox_events.event_id
+                  AND d.disposition!='\"deferred\"'
+                  AND COALESCE(json_extract(d.disposition,'$.disposition'),'')!='deferred')",
+            params![head.agent_id.to_string(), head.branch_id.0.to_string(), serde_json::to_string(selected)?])
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
     pub(crate) fn validate_correction_projection(
         &self,
         tx: &Transaction<'_>,
@@ -72,6 +157,20 @@ impl Store {
         replacement: &SubjectStep,
         rejection: &ControlOutputRejection,
     ) -> Result<(), ShenkoError> {
+        if rejection.schema_version == 3 {
+            let observed = self.control_output_correction_at(tx, head, previous)?;
+            if rejection.correction.as_ref() != Some(&observed) {
+                return Err(ShenkoError::ResnapshotRequired {
+                    reason: "control correction input/attempt observation changed".into(),
+                });
+            }
+            if matches!(observed.replacement, ControlOutputReplacement::ReselectInput { .. }) {
+                // No new S0 exists yet. The old raw/input/outcome remains
+                // immutable, and the ordinary Planned path will select it
+                // together with newly admitted input under a new request.
+                return Ok(());
+            }
+        }
         let next_ref = replacement
             .input_plan_ref
             .as_ref()
@@ -90,13 +189,13 @@ impl Store {
                 "correction cannot downgrade or reinterpret its parent's schema",
             ));
         }
-        if version != Some(14) {
+        if !matches!(version, Some(14 | 15)) {
             return Ok(());
         }
         if [next_ref, parent_ref].iter().any(|reference| {
             reference.store_namespace != "input_plans"
                 || reference.codec.name != "subject_step_input"
-                || reference.codec.major != 14
+                || Some(u64::from(reference.codec.major)) != version
         }) || next.get("step_id") != Some(&serde_json::to_value(replacement.step_id)?)
             || next.get("step_no").and_then(Value::as_u64) != Some(replacement.step_no)
             || next.get("request_id") == parent.get("request_id")
@@ -136,6 +235,7 @@ impl Store {
         for field in [
             "events",
             "provider_binding",
+            "child_provider_bindings",
             "provider_selection",
             "identity",
             "identity_provider_revision",

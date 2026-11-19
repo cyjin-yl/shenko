@@ -255,7 +255,7 @@ fn armed(
         .context("test fixture must be available")?;
     let task_id = EntityId::new();
     let invocation_id = EntityId::new();
-    let descriptor = handler.descriptor();
+    let descriptor = handler.descriptor()?;
     let mut task = TaskRecord::subject_root(task_id, agent, input_ref.clone(), head.committed_at);
     task.owner = TaskOwner::Task {
         id: head.subject_root_task_id,
@@ -297,6 +297,7 @@ fn armed(
         },
         input,
         child_tools: None,
+        cancellation: Default::default(),
     };
     let (mut operation, mut attempt) = handler
         .operation_parts(&invocation, input_ref)

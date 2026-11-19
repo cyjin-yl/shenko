@@ -462,7 +462,10 @@ impl Store {
     /// same committed selector and activation, with the original source fenced.
     /// A peer import or rekeyed candidate at another slot cannot supply this
     /// proof. Missing retained source evidence is an explicit recovery error.
-    pub(crate) fn recover_legacy_successor_identity(&self, cas_dir: &std::path::Path) -> Result<(), ShenkoError> {
+    /// Borrow Store opening's physical permit through the final witness write;
+    /// reacquiring it here would block behind the same open's reservation.
+    pub(crate) fn recover_legacy_successor_identity(&self, cas_dir: &std::path::Path,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<(), ShenkoError> {
         use shenko_types::activation::{ActivationOrigin, RouteAuthority};
         use std::path::{Path, PathBuf};
 
@@ -605,7 +608,7 @@ impl Store {
             if self.installation_id_for_subject(head.agent_id)? != source_installation {
                 return Err(ShenkoError::conflict("legacy successor and retired source belong to different installations"));
             }
-            self.ledger.with_mutation(|| {
+            self.ledger.with_mutation_under(permit, || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
                 let (current, _) = crate::store::read_subject(&tx, head.agent_id)?;
@@ -694,6 +697,11 @@ impl Store {
     /// local paused boundary is installed; the declared archive importer
     /// subsequently verifies/applies all remaining typed fact closures.
     pub fn copy_paused_activation_boundary(&self, source: &Store, agent: EntityId) -> Result<(), ShenkoError> {
+        self.copy_paused_activation_boundary_under(source, agent, None)
+    }
+
+    pub fn copy_paused_activation_boundary_under(&self, source: &Store, agent: EntityId,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<(), ShenkoError> {
         let (head, step, requests, selector, activations) = {
             let conn = source.ledger.conn.lock();
             let raw: String = conn.query_row("SELECT data FROM subject_branch_heads WHERE agent_id=?1", [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
@@ -720,7 +728,7 @@ impl Store {
             let activations = list_activation_records(&conn, agent)?;
             (head, step, requests, selector, activations)
         };
-        self.ledger.with_mutation(|| {
+        self.ledger.with_maintenance_mutation_under(permit, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let raw: String = tx.query_row("SELECT data FROM subject_branch_heads WHERE agent_id=?1", [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
@@ -844,7 +852,16 @@ impl Store {
         &self,
         record: &ActivationRecord,
     ) -> Result<ActivationRecord, ShenkoError> {
-        self.ledger.with_mutation(
+        let permit = self.ledger.acquire_installation(true)?;
+        self.create_activation_record_under(record, permit.as_ref())
+    }
+
+    /// Installation handoff may create the same rollback fact in a retained
+    /// slot while holding its original physical cutover reservation.
+    pub fn create_activation_record_under(&self, record: &ActivationRecord,
+        permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<ActivationRecord, ShenkoError> {
+        self.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
@@ -876,7 +893,13 @@ impl Store {
         record: &ActivationRecord,
         expected: RecordRevision,
     ) -> Result<ActivationRecord, ShenkoError> {
-        self.ledger.with_mutation(
+        self.update_activation_record_under(record, expected, None)
+    }
+
+    pub fn update_activation_record_under(&self, record: &ActivationRecord,
+        expected: RecordRevision, permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<ActivationRecord, ShenkoError> {
+        self.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
@@ -913,7 +936,14 @@ impl Store {
         next: &ActivationSelector,
         activated: &ActivationRecord,
     ) -> Result<(ActivationSelector, ActivationRecord, CommitRef), ShenkoError> {
-        self.swap_activation_selector_inner(expected_revision, next, activated, false)
+        self.swap_activation_selector_under(expected_revision, next, activated, None)
+    }
+
+    pub fn swap_activation_selector_under(&self, expected_revision: u64,
+        next: &ActivationSelector, activated: &ActivationRecord,
+        permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<(ActivationSelector, ActivationRecord, CommitRef), ShenkoError> {
+        self.swap_activation_selector_inner(expected_revision, next, activated, false, permit)
     }
 
     /// Candidate-only commit: selector and the single clean successor step
@@ -925,7 +955,14 @@ impl Store {
         next: &ActivationSelector,
         activated: &ActivationRecord,
     ) -> Result<(ActivationSelector, ActivationRecord, CommitRef), ShenkoError> {
-        self.swap_activation_selector_inner(expected_revision, next, activated, true)
+        self.activate_successor_under(expected_revision, next, activated, None)
+    }
+
+    pub fn activate_successor_under(&self, expected_revision: u64,
+        next: &ActivationSelector, activated: &ActivationRecord,
+        permit: Option<&shenko_types::installation::InstallationPermit>)
+        -> Result<(ActivationSelector, ActivationRecord, CommitRef), ShenkoError> {
+        self.swap_activation_selector_inner(expected_revision, next, activated, true, permit)
     }
 
     fn swap_activation_selector_inner(
@@ -934,8 +971,9 @@ impl Store {
         next: &ActivationSelector,
         activated: &ActivationRecord,
         successor: bool,
+        permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<(ActivationSelector, ActivationRecord, CommitRef), ShenkoError> {
-        self.ledger.with_mutation(
+        self.ledger.with_maintenance_mutation_under(permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

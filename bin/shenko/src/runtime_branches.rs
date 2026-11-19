@@ -32,7 +32,7 @@ pub fn repair_pending_projection(data_dir: &Path, store: &Store) -> Result<()> {
         return Ok(());
     }
     let guard = node.reserve_authority()?;
-    // Re-read after the Node reservation in Node → Store lock order.
+    // Re-read under installation → Node → Store order.
     let (current, _) = store.load_subject(binding.agent_id)?;
     ensure!(
         current.branch_id == head.branch_id && current.branch_origin == head.branch_origin,
@@ -90,7 +90,8 @@ pub fn fork_availability_branch(
     if identity.branch_id == branch_id {
         return Ok(());
     }
-    let fork = store.fork_subject_branch(&head, BranchId(branch_id.0), reason)?;
+    let fork = store.fork_availability_subject_branch(&head, BranchId(branch_id.0), reason,
+        &identity.origin_proof, &guard, &std::env::current_exe()?)?;
     let (head, _) = store.load_subject(identity.agent_id)?;
     guard.project_subject_branch(&SubjectBranchProjection {
         parent: identity,
@@ -516,6 +517,19 @@ mod tests {
         let right = root.store("right")?;
         let agent = genesis(&left)?;
         let (parent, parent_step) = left.load_subject(agent)?;
+        let reference = left.get_subject_genesis(agent)?.context("genesis missing")?.seed_manifest_ref;
+        let selector = shenko_types::activation::ActivationSelector {
+            agent_id: agent, selector_revision: 0, active_epoch: parent.controller_epoch.0,
+            generation: parent.software_generation.clone(), state_ref: reference.clone(),
+            origin: shenko_types::activation::ActivationOrigin::Genesis {
+                genesis_ref: parent.genesis_ref.clone(),
+            },
+            route_authority_ref: reference,
+        };
+        let mut source = rusqlite::Connection::open(root.0.join("left.db"))?;
+        let tx = source.transaction()?;
+        shenko_store::activation::write_initial_selector(&tx, &selector, parent.committed_at)?;
+        tx.commit()?;
         let common = event(&left, agent, "shared before partition")?;
         let (original, staged) = stage_web_input(&left, &parent, &parent_step)?;
         left.append_context_note(
@@ -532,11 +546,47 @@ mod tests {
         let right_branch = BranchId::new();
         left.fork_subject_branch(&parent, left_branch.clone(), "left partition")?;
         right.fork_subject_branch(&parent, right_branch.clone(), "right partition")?;
+        // Model a coherent foreign takeover boundary without starting a
+        // runtime: both source head/step and its real selector CAS advance.
+        // The receiving branch must retain its own head AND selector.
+        let (mut foreign_head, mut foreign_step) = left.load_subject(agent)?;
+        foreign_head.controller_epoch = ControllerEpoch(2);
+        foreign_head.record_revision = foreign_head.record_revision.next();
+        foreign_step.controller_epoch = foreign_head.controller_epoch;
+        foreign_step.record_revision = foreign_step.record_revision.next();
+        let mut foreign_selector = selector.clone();
+        foreign_selector.selector_revision = 1;
+        foreign_selector.active_epoch = foreign_head.controller_epoch.0;
+        let tx = source.transaction()?;
+        shenko_store::activation::cas_selector(&tx, selector.selector_revision, &foreign_selector)?;
+        tx.execute("UPDATE subject_branch_heads SET record_revision=?2,data=?3 WHERE agent_id=?1",
+            rusqlite::params![agent.to_string(), foreign_head.record_revision.0 as i64,
+                serde_json::to_string(&foreign_head)?])?;
+        tx.execute("UPDATE subject_steps SET record_revision=?2,data=?3 WHERE step_id=?1",
+            rusqlite::params![foreign_step.step_id.to_string(), foreign_step.record_revision.0 as i64,
+                serde_json::to_string(&foreign_step)?])?;
+        tx.commit()?;
+        let launch = EntityId::new();
+        left.record_activation_launch(launch, &foreign_selector,
+            &serde_json::json!({"fixture": "parallel source launch"}))?;
         let left_event = event(&left, agent, "left continued")?;
         let right_event = event(&right, agent, "right continued")?;
         let before = serde_json::to_value(right.load_subject(agent)?.0)?;
-        right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
+        let local_selector = right.activation_selector(agent)?.context("local selector missing")?;
+        assert_eq!(local_selector, selector);
+        assert!(foreign_selector.selector_revision > local_selector.selector_revision);
+        let imported = right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
         assert_eq!(serde_json::to_value(right.load_subject(agent)?.0)?, before);
+        assert_eq!(right.activation_selector(agent)?, Some(local_selector.clone()));
+        assert!(right.activation_launch(launch)?.is_none());
+        assert!(imported.conflicts.iter().any(|conflict| conflict.table == "activation_selectors"));
+        assert!(imported.conflicts.iter().any(|conflict| conflict.table == "activation_launch_receipts"));
+        let historical_data = serde_json::to_string(&foreign_head)?;
+        let receiving = rusqlite::Connection::open(root.0.join("right.db"))?;
+        let retained: String = receiving.query_row(
+            "SELECT data FROM subject_head_history WHERE snapshot_id=?1",
+            [Digest::blake3(historical_data.as_bytes()).0], |row| row.get(0))?;
+        assert_eq!(retained, historical_data);
         assert_eq!(
             right.branch_history_range(EntityId(left_branch.0), 0, i64::MAX)?,
             vec![common.clone(), staged.clone(), left_event]
@@ -569,6 +619,8 @@ mod tests {
         let frozen = right.branch_history_range(EntityId(next_branch.0), 0, i64::MAX)?;
         let late = event(&left, agent, "parent peer continued after child fork")?;
         right.import_cognition_archive(&archive(&left)?[..], &CognitionImportOptions::default())?;
+        assert_eq!(right.activation_selector(agent)?, Some(local_selector));
+        assert!(right.activation_launch(launch)?.is_none());
         assert_eq!(
             right.branch_history_range(EntityId(next_branch.0), 0, i64::MAX)?,
             frozen

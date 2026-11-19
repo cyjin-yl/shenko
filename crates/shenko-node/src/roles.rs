@@ -1,7 +1,7 @@
 //! Runtime roles are mutable facts of one Node, never device subclasses.
 use super::{Node, digest, get, number, text};
 use anyhow::{Context as _, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -103,9 +103,7 @@ impl Node {
         request.roles.sort();
         request.roles.dedup();
         let seal = digest(&request)?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         if let Some((old, result)) = tx
             .query_row(
                 "SELECT seal,result FROM commands WHERE id=?1",
@@ -186,9 +184,7 @@ impl Node {
         }
         roles.sort();
         roles.dedup();
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let observation = RuntimeRoleObservation {
             observation_id: EntityId::new(),
             node_id: get(&tx, "node")?,

@@ -367,9 +367,9 @@ impl NetProbeHandler {
         )?;
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
-            artifact: ArtifactRef { digest: contract_digest.clone(), locator: "builtin:net-probe-v1".into() },
+            artifact: ArtifactRef { digest: shenko_kernel::native_artifact::native_artifact_digest()?, locator: "builtin:net-probe-v1".into() },
             symbol: "net.probe.execute".into(),
-            schema: SchemaRef { name: "net-probe-observation-v1".into(), major: 1, digest: contract_digest.clone() },
+            schema: SchemaRef { name: "net-probe-observation-v1".into(), major: 1, digest: shenko_kernel::native_artifact::native_schema_digest("net-probe-observation-v1", 1) },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let operation = OperationRecord {
@@ -385,7 +385,7 @@ impl NetProbeHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -491,13 +491,15 @@ impl NetProbeHandler {
 
 #[async_trait]
 impl NativeTaskHandler for NetProbeHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn joins_execution_on_cancel(&self) -> bool { true }
+
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: KIND.into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-net-probe/1".into(),
@@ -506,15 +508,15 @@ impl NativeTaskHandler for NetProbeHandler {
                 "net.probe/v1 观察本节点此刻到某个端点的通路是否真的可用：输入 {\"url\":\"http://host:port/path\",\"timeout_ms\":2000}。只做 DNS、TCP 连接，http 再读一行状态码；不读响应体、不跟随重定向、不带任何凭据或 Cookie，也不保留连接。结果是这一次尝试的测量（reachable、dns/connect/http 的阶段耗时、error_kind），不是对过去或未来的保证。症状与假设冲突时先观察，再解释；不要用早先的成功代替此刻的检查。"
                     .into(),
             ),
-        }
+        })
     }
 
     /// A probe touches the network but leaves nothing behind. It is not reset,
     /// restore, replay, cancel or compensation: the declaration says the
     /// attempt may be repeated (a new observation) and has no durable effect.
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
-        vec![EffectContractBuilder::new(
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
+        Ok(vec![EffectContractBuilder::new(
             descriptor.implementation_ref.plugin_id,
             descriptor.implementation(),
             "net.probe.v1",
@@ -542,7 +544,7 @@ impl NativeTaskHandler for NetProbeHandler {
             receipt_readable_after_removal: true,
         })
         .basis(GuaranteeBasis::ClaimOnly)
-        .build()]
+        .build()])
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {

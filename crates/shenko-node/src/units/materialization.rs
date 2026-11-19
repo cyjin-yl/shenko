@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, ensure};
 use crate::Node;
-use rusqlite::{TransactionBehavior, params};
+use rusqlite::{params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -273,9 +273,7 @@ impl Node {
             // node records where they are; it does not claim a local copy
             // and it does not call the unit ready because of it.
             let detail = format!("{}:{}", external.store, external.locator);
-            let tx = self
-                .conn
-                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
             tx.execute(
                 "INSERT INTO unit_materializations(unit_id,revision,artifact_digest,root,path,state,detail,updated_at) VALUES(?1,?2,?3,?4,'',?5,?6,?7) ON CONFLICT(unit_id,revision,artifact_digest) DO UPDATE SET root=excluded.root,path='',state=excluded.state,detail=excluded.detail,updated_at=excluded.updated_at",
                 params![unit.unit_id, unit.revision, unit.artifact_digest.0, root, "external", detail, now()],
@@ -306,9 +304,7 @@ impl Node {
             Ok(path) => ("materialized", path.clone(), String::new()),
             Err(e) => ("failed", String::new(), format!("{e:#}")),
         };
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         tx.execute(
             "INSERT INTO unit_materializations(unit_id,revision,artifact_digest,root,path,state,detail,updated_at) \
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8) \

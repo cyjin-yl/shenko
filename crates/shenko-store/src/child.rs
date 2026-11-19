@@ -34,6 +34,7 @@ pub const NATIVE_RECOVERY: &str = "native_recovery";
 pub const NATIVE_PARK: &str = "native_park";
 pub const NATIVE_COMPLETION: &str = "native_completion";
 pub const NATIVE_ASSIGNMENT: &str = "native_execution_assignment";
+pub const NATIVE_IMPLEMENTATION_ARTIFACT: &str = "native_implementation_artifact";
 pub const NATIVE_SETTLEMENT_ONLY: &str = "native_settlement_only";
 pub const NATIVE_DISPATCH: &str = "native_dispatch_committed";
 pub const COGNITION_IMPORTED: &str = "cognition_imported";
@@ -238,6 +239,23 @@ pub fn park_reason(task: &TaskRecord) -> Option<&str> {
 }
 
 impl Store {
+    /// Native installation seals the actual executable before registration.
+    /// Freeze its typed CAS root with the claim; legacy/external providers
+    /// without a local object retain their existing explicit identity only.
+    pub(crate) fn retained_native_implementation(
+        &self, implementation: &ImplementationRef,
+    ) -> Result<Option<ObjectRef>> {
+        let Some(bytes) = self.cas.object_size(&implementation.artifact_digest) else { return Ok(None); };
+        Ok(Some(ObjectRef {
+            digest: implementation.artifact_digest.clone(), bytes,
+            media_type: "application/octet-stream".into(),
+            store_namespace: "native-implementation".into(),
+            locator: format!("native:executable/{}", implementation.artifact_digest),
+            codec: shenko_types::object::SchemaRef { name: "native-executable".into(), major: 1,
+                digest: Digest::blake3(b"native-executable") },
+        }))
+    }
+
     /// The messages delivered to this endpoint that it has not taken yet.
     /// They are durable facts on the task row, not an in-memory queue.
     pub fn pending_child_dialogue(&self, task_id: EntityId) -> Result<Vec<DialogueDelivery>> {
@@ -331,7 +349,49 @@ impl Store {
             return Ok(done);
         }
         ensure!(ctx.task_id == message.sender_task_id, "peer message invocation task mismatch");
-        self.ledger.with_mutation(
+        let (positions, recipient_snapshot, key) = {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction()?;
+            let sender = read_task(&tx, message.sender_task_id)?
+                .context("peer message sender does not exist")?;
+            ensure!(self.native_invocation_current_tx(&tx, &sender, ctx)?,
+                "stale peer message invocation");
+            ensure!(!memo_flag(&sender, NATIVE_SETTLEMENT_ONLY),
+                "settlement invocation cannot send a peer message");
+            ensure!(!message.message.trim().is_empty(), "empty peer message");
+            let mut positions = vec![self.task_admission_position_tx(&tx, &sender, String::new())?];
+            let recipient = message.recipient_task_id
+                .map(|id| read_task(&tx, id)).transpose()?.flatten();
+            if let Some(recipient) = &recipient
+                && message.message.len() <= MAX_CHILD_DIALOGUE_BYTES
+                && recipient.agent_id == sender.agent_id
+                && recipient.abort_request.is_none() && !recipient.is_terminal()
+            {
+                // Inbox publication consumes the recipient revision too. Its
+                // owner need not be executing merely to receive a message.
+                positions.push(self.task_recovery_position_tx(&tx, recipient, String::new())?);
+            } else if let Some(recipient) = &recipient
+                && recipient.agent_id == sender.agent_id
+            {
+                positions[0].1.reads.push(crate::authority::task_revision_position(recipient));
+                positions[0].1.expected_tasks.push(recipient.clone());
+            }
+            let key = format!("task/{}/peer-send/{}/{}", sender.task_id,
+                message.message_id, sender.record_revision.0);
+            (positions, serde_json::to_value(&recipient)?, key)
+        };
+        let authority = self.reserve_task_batch_admission(positions, key, &serde_json::json!({
+            "kind":"native.peer_send", "invocation":ctx,
+            "message": {
+                "message_id":message.message_id, "sender_task_id":message.sender_task_id,
+                "sender_name":message.sender_name, "sender_operation_id":message.sender_operation_id,
+                "step_index":message.step_index, "to":message.to,
+                "recipient_task_id":message.recipient_task_id,
+                "unresolved_reason":message.unresolved_reason, "message":message.message,
+            },
+            "recipient":recipient_snapshot,
+        }))?;
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -353,11 +413,16 @@ impl Store {
                 {
                     return Ok(done.clone());
                 }
+                authority.check(&tx, self.capabilities.incarnation, Some(sender.agent_id))?;
                 ensure!(self.native_invocation_current_tx(&tx, &sender, ctx)?,
                     "stale peer message invocation");
                 ensure!(!memo_flag(&sender, NATIVE_SETTLEMENT_ONLY),
                     "settlement invocation cannot send a peer message");
                 ensure!(!message.message.trim().is_empty(), "empty peer message");
+                let recipient = message.recipient_task_id
+                    .map(|id| read_task(&tx, id)).transpose()?.flatten();
+                ensure!(serde_json::to_value(&recipient)? == recipient_snapshot,
+                    "peer message recipient changed after its authority plan was frozen");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let undelivered = |reason: &str| PeerSend {
@@ -379,7 +444,7 @@ impl Store {
                             .as_deref()
                             .unwrap_or("unknown_name"),
                     ),
-                    Some(recipient_id) => match read_task(&tx, recipient_id)? {
+                    Some(_) => match recipient {
                         None => undelivered("missing"),
                         Some(recipient) if recipient.agent_id != sender.agent_id => {
                             undelivered("foreign")
@@ -446,8 +511,10 @@ impl Store {
                 sender.record_revision = sender.record_revision.next();
                 sender.updated_commit = commit;
                 write_task(&tx, &sender)?;
+                authority.record_admission(&tx, commit)?;
                 child_log(&tx, self, commit, 1)?;
                 tx.commit()?;
+                authority.materialized();
                 Ok(outcome)
             },
             storage_failure,
@@ -499,7 +566,7 @@ impl Store {
         let authority = self.reserve_task_control(task_id, "dialogue-consume", &serde_json::json!({
             "kind":"native.dialogue_consume", "task_id":task_id, "intent_ids":intent_ids,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -556,7 +623,7 @@ impl Store {
         let authority = self.reserve_task_batch_admission(positions, key, &serde_json::json!({
             "kind":"native.recover_batch", "snapshot":frozen,
         }))?;
-        self.ledger.with_mutation(|| -> Result<usize> {
+        authority.with_mutation(&self.ledger, || -> Result<usize> {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             authority.check(&tx, self.capabilities.incarnation, None)?;
@@ -681,7 +748,7 @@ impl Store {
             "kind":"native.park", "task_id":task_id, "expected_revision":expected_revision,
             "reason":reason, "detail":detail, "retryable":retryable,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -779,7 +846,7 @@ impl Store {
             "kind":"native.claim", "task_id":task_id, "implementation":implementation,
             "settlement_only":settlement_only,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -900,6 +967,9 @@ impl Store {
         task.updated_commit = commit;
         task.first_run_at.get_or_insert_with(chrono::Utc::now);
         task.implementation_ref = bound_implementation.clone();
+        if let Some(artifact) = self.retained_native_implementation(&bound_implementation)? {
+            task.memos.insert(NATIVE_IMPLEMENTATION_ARTIFACT.into(), serde_json::to_value(artifact)?);
+        }
         task.dispatch_eligibility = DispatchEligibility::Ready;
         task.memos.insert(NATIVE_CHILD.into(), true.into());
         task.memos.insert(
@@ -962,25 +1032,35 @@ impl Store {
         implementation: ImplementationRef,
     ) -> Result<Option<NativeTaskClaim>> {
         if self.get_task(tool_task_id)?.is_some() { return Ok(None); }
+        if parent.kind == crate::external::MODEL_CHILD_KIND
+            && let Some(refusal) = self.model_child_tool_refusal(parent.task_id, tool_task_id)?
+        {
+            return Err(refusal.into());
+        }
         let (head, mut position) = self.task_admission_position(parent.task_id,
             format!("task/{tool_task_id}/create"))?;
         let current_parent = position.expected_tasks.first().context("tool parent missing")?;
         ensure!(current_parent.task_revision == parent.task_revision
             && current_parent.record_revision == parent.record_revision
             && current_parent.abort_request.is_none() && !current_parent.is_terminal(), "stale_child_tool_parent");
-        position.reads.append(&mut position.aliases);
+        // Tool admission spends its model parent's balance, so it consumes
+        // that parent's revision at the authority source as well as locally.
+        // Siblings cannot both reserve against the same pre-spend revision.
+        if parent.kind != crate::external::MODEL_CHILD_KIND {
+            position.reads.append(&mut position.aliases);
+        }
         let authority = self.reserve_admission(&head, position, &serde_json::json!({
             "kind":"native.child_tool_claim", "parent":parent, "task_id":tool_task_id,
             "task_kind":kind, "definition_version":definition_version,
             "input_ref":input_ref, "implementation":implementation,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 authority.check(&tx, self.capabilities.incarnation, None)?;
                 self.check_dispatch_owner(&tx)?;
-                let Some(current_parent) = read_task(&tx, parent.task_id)? else {
+                let Some(mut current_parent) = read_task(&tx, parent.task_id)? else {
                     return Ok(None);
                 };
                 ensure!(
@@ -1002,6 +1082,31 @@ impl Store {
                 ensure_owner_active(&tx, &current_parent, &head)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                if current_parent.kind == crate::external::MODEL_CHILD_KIND {
+                    let budget = self.model_child_budget(&current_parent)?;
+                    let mut usage = self.model_child_budget_usage_tx(&tx, &current_parent)?;
+                    let (tokens, calls) = self.model_child_tool_charge(kind, &input_ref)?;
+                    let refusal = usage.charge(&budget, tokens, calls).err();
+                    current_parent.record_revision = RecordRevision(current_parent.record_revision.0 + 1);
+                    current_parent.updated_commit = commit;
+                    current_parent.memos.insert(crate::model_child_budget::BUDGET_USAGE.into(), serde_json::to_value(&usage)?);
+                    if let Some(refusal) = &refusal {
+                        let refusals = current_parent.memos.entry(crate::model_child_budget::TOOL_REFUSALS)
+                            .or_insert_with(|| serde_json::json!({}));
+                        refusals.as_object_mut().context("invalid model child tool refusals")?
+                            .insert(tool_task_id.to_string(), serde_json::to_value(refusal)?);
+                    }
+                    write_task(&tx, &current_parent)?;
+                    if let Some(refusal) = refusal {
+                        // Refusal is durable feedback for this exact call; a
+                        // restart neither dispatches it nor calls it Unknown.
+                        child_log(&tx, self, commit, 1)?;
+                        authority.record_admission(&tx, commit)?;
+                        tx.commit()?;
+                        authority.materialized();
+                        return Err(refusal.into());
+                    }
+                }
                 let task = TaskRecord {
                     record_schema_version: 1,
                     task_id: tool_task_id,
@@ -1136,7 +1241,7 @@ impl Store {
             "kind":input_event.kind, "source":input_event.source, "payload_json":input_event.payload_json,
             "received_at_ms":input_event.received_at_ms,
         }}))?;
-        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event, &authority), storage_failure)
+        authority.with_mutation(&self.ledger, || self.try_admit_native_task(task, input_event, &authority), storage_failure)
     }
 
     fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent,
@@ -1240,7 +1345,7 @@ impl Store {
             "kind":"native.cancel", "task_id":task_id, "cancel_id":cancel_id,
             "decision_ref":decision_ref, "reason":reason, "scope":scope, "selected":selected,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1327,7 +1432,7 @@ impl Store {
             format!("attempt/{attempt_id}/dispatch"), operation_id, attempt_id,
             &serde_json::json!({"kind": "native.dispatch", "invocation": ctx,
                 "operation": operation, "attempt": attempt}))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1416,7 +1521,7 @@ impl Store {
             "kind":"native.complete", "task_id":claim.task.task_id,
             "invocation":claim.invocation, "completion":completion,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1487,7 +1592,7 @@ impl Store {
         let authority = self.reserve_task_control(task_id, "finish", &serde_json::json!({
             "kind":"native.finish", "task_id":task_id,
         }))?;
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;

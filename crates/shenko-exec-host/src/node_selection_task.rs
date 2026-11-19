@@ -127,14 +127,14 @@ impl NodeSelectionHandler {
         let contract_digest = Digest::blake3(CONTRACT);
         let version = VersionRef {
             artifact: ArtifactRef {
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 locator: "builtin:node-selection-record-v1".into(),
             },
             symbol: "node.selection.record.execute".into(),
             schema: SchemaRef {
                 name: "node-selection-record-observation-v1".into(),
                 major: 1,
-                digest: contract_digest.clone(),
+                digest: shenko_kernel::native_artifact::native_schema_digest("node-selection-record-observation-v1", 1),
             },
         };
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -151,7 +151,7 @@ impl NodeSelectionHandler {
             final_input_ref: input_ref,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: contract_digest.clone(),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 contract_digest,
                 receipt_reader_ref: version.clone(),
             },
@@ -339,13 +339,13 @@ impl NodeSelectionHandler {
 
 #[async_trait]
 impl NativeTaskHandler for NodeSelectionHandler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: "node.selection.record".into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: Digest::blake3(CONTRACT),
+                artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-node-selection-recorder/1".into(),
@@ -354,7 +354,7 @@ impl NativeTaskHandler for NodeSelectionHandler {
                 "node.selection.record/v1 是已安装的显式节点选择记录 child。先依据实际观测自行判断，再用 [delegate:node.selection.record:1] {\"node_id\":\"节点 UUID\",\"observed_profile_digest\":\"观测返回的完整 blake3 摘要\",\"reason\":\"选择理由\"} 记录这一选择；reason 为 1..4096 UTF-8 字节。不要自行计算或猜测摘要，不传 decision_id、路径、权限或 SSH 命令。decision_id 由真实操作生成。receipt 的 recorded 仅说明选择已写入本地 journal，不是节点仍可用、资源预约、权限授予或执行完成；unavailable 返回当时不匹配的事实，由主体决定是否重新观察或另作选择，不自动换节点。恢复只查询原回执；unknown 保持未知，不能据此重复同一效果。此能力不执行 SSH，目标执行仍须独立验证真实 target/resource 权限。"
                 .into(),
             ),
-        }
+        })
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -443,7 +443,7 @@ mod tests {
 
     fn arm(
         handler: &NodeSelectionHandler, store: &Store, subject: &Identity, value: serde_json::Value,
-    ) -> (TaskRecord, EntityId, EntityId, FrozenInput) {
+    ) -> Result<(TaskRecord, EntityId, EntityId, FrozenInput)> {
         let (task_id, operation_id, invocation_id) = (EntityId::new(), EntityId::new(), EntityId::new());
         let frozen = handler.freeze(value, subject.clone(), operation_id).unwrap();
         let input_ref = handler.seal(&frozen, "node-selection-record-frozen-input").unwrap();
@@ -455,7 +455,7 @@ mod tests {
             agent_id: subject.agent_id, conversation_id: subject.agent_id,
             owner: TaskOwner::Task { id: EntityId::new() }, background: false,
             kind: "node.selection.record".into(), definition_version: 1,
-            implementation_ref: handler.descriptor().implementation_ref,
+            implementation_ref: handler.descriptor()?.implementation_ref,
             input_ref: input_ref.clone(),
             state: TaskState::Running { checkpoint_ref: None, invocation_id, mode: RunMode::Run, epoch },
             abort_request: None, memos: serde_json::Map::new(), residual_case_ids: vec![],
@@ -479,10 +479,11 @@ mod tests {
             },
             input: serde_json::Value::Null,
             child_tools: None,
+            cancellation: Default::default(),
         };
         let (mut operation, mut attempt) = handler.operation_parts(&invocation, &frozen, input_ref).unwrap();
         assert!(store.arm_external_operation(&task_invocation, &mut operation, &mut attempt).unwrap().is_none());
-        (task, operation_id, attempt.attempt_id, frozen)
+        Ok((task, operation_id, attempt.attempt_id, frozen))
     }
 
     #[test]
@@ -513,9 +514,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn committed_choice_recovers_original_receipt_without_refresh_or_rearm() {
+    async fn committed_choice_recovers_original_receipt_without_refresh_or_rearm() -> Result<()> {
         let (dir, store, handler, subject) = fixture();
-        let (task, operation_id, attempt_id, frozen) = arm(&handler, &store, &subject, choice(&handler));
+        let (task, operation_id, attempt_id, frozen) = arm(&handler, &store, &subject, choice(&handler))?;
         let original = handler.record(&frozen).unwrap();
         assert!(matches!(original.outcome, NodeSelectionOutcome::Recorded));
         assert!(store.external_operation_evidence(operation_id).unwrap().is_empty());
@@ -544,12 +545,13 @@ mod tests {
         assert_eq!(store.external_operation_attempt(operation_id).unwrap().attempt_id, attempt_id);
         drop(recovered); drop(store);
         std::fs::remove_dir_all(dir).unwrap();
+        Ok(())
     }
 
     #[tokio::test]
     async fn absent_choice_stays_unknown_until_original_receipt_arrives_without_replay() -> Result<()> {
         let (dir, store, handler, subject) = fixture();
-        let (task, operation_id, attempt_id, frozen) = arm(&handler, &store, &subject, choice(&handler));
+        let (task, operation_id, attempt_id, frozen) = arm(&handler, &store, &subject, choice(&handler))?;
         drop(handler);
         let recovered = NodeSelectionHandler::new(store.clone(), Node::open(&dir.join("node"))?);
         let unknown = recovered.reconcile(&task, operation_id).await?;

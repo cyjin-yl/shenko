@@ -403,6 +403,29 @@ impl ProviderRuntime for LocalModelProvider {
         LocalModelProvider::stream(self, request, publisher).await
     }
 
+    async fn complete_cancellable(&self, request: &InferenceRequest,
+        stop: &tokio_util::sync::CancellationToken) -> Result<InferenceResponse>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        tokio::select! {
+            biased;
+            _result = Self::complete(self, request) => _result,
+            _ = stop.cancelled() => Err(crate::execution::LocalObservationStopped.into()),
+        }
+    }
+
+    async fn stream_cancellable(&self, request: &InferenceRequest,
+        publisher: &BoundedStreamPublisher, stop: &tokio_util::sync::CancellationToken)
+        -> Result<StreamOutcome>
+    {
+        if stop.is_cancelled() { return Err(crate::execution::LocalObservationStopped.into()); }
+        tokio::select! {
+            biased;
+            _result = Self::stream(self, request, publisher) => _result,
+            _ = stop.cancelled() => Err(crate::execution::LocalObservationStopped.into()),
+        }
+    }
+
     async fn count_tokens(&self, request: &InferenceRequest) -> Result<TokenCount> {
         self.validate_binding(request)?;
         // The OpenAI-compatible surface has no token counting entry point. The
@@ -425,7 +448,8 @@ impl ProviderRuntime for LocalModelProvider {
                 }
             }
             Ok(response) => {
-                evidence.push(serde_json::json!({ "probe_error": format!("HTTP {}", response.status()) }));
+                evidence.push(serde_json::json!({ "probe_error": format!("HTTP {}", response.status()),
+                    "probe_endpoint": "/v1/models", "probe_http_status": response.status().as_u16() }));
             }
             Err(error) => {
                 evidence.push(serde_json::json!({ "probe_error": error.to_string() }));

@@ -31,6 +31,24 @@ or rollback proofs were executed during this source phase.
 
 ## Interfaces and authority
 
+### Background execution and IM priority — 2026-11-17
+
+The author's current [Issue #326](https://github.com/cyjin-yl/shenko/issues/326)
+requirement is that self-modification runs in the background and incoming IM
+receives timely priority. Preparation, coding, builds, tests and candidate
+inspection keep their finite child ownership while the active subject serves
+messages. Only the actual generation handoff uses the existing quiescence and
+activation boundary. The installation mutation permit spans the final
+transactions, not the build, model generation or a whole WASI/SSH execution.
+Inputs accepted during the boundary remain durable for the successor.
+
+Cancellation is a request to the actual worker. A local stop barrier returns
+only after that worker joins; uninterruptible host work remains visible until
+it really ends. Provider-side Unknown remains original evidence and charged
+capacity, irrespective of local task cleanup. See the
+[subject ingress contract](subject-runtime.md#background-self-modification-and-interactive-ingress--2026-11-17)
+for priority, fairness and recovery semantics.
+
 `shenko-update` owns `BuildProvider`, immutable candidate descriptions,
 `UpdateService`, `ActivationRecord`/`ActivationSelector` integration, and the
 `update.control` native handler. The binary owns installation control transport
@@ -186,6 +204,21 @@ message/tool/plugin/global-concurrency qualification; integrated runtime smoke
 must supply that evidence rather than treating process startup as full success.
 
 ## Live control and the final writer boundary
+
+Physical exclusion and selected software authority are separate checks. A
+standard `shenko.db` data copy sharing `cas` retains the installation mutation
+permit even when its directory is outside the root and `versions/` layout.
+Ordinary data writes there require both an unclaimed layout (no root database,
+`versions`, or `current-slot`, including dangling entries) and absence of local
+runtime bindings in the copy. These conditions are rechecked under that same
+permit on each mutation; path/metadata errors are not treated as absence.
+A copied selector, subject, activation or provisioning record cannot become
+new dispatch authority by moving the database to another directory. Once a
+real slot is created, an already open detached handle loses ordinary admission.
+Actual root/version slots retain the existing current-route and head checks;
+late factual receipts and typed maintenance retain their separate admission.
+This is not a proof of arbitrary filename/hard-link aliases, hostile filesystem
+replacement, all CAS writers, or the complete installation-wide fence.
 
 The optional CLI `start --pause-at-start <request-UUID>` applies the existing
 subject-only boundary after runtime authority activation and before consumers

@@ -276,6 +276,7 @@ fn launch_context_preparer(
     scope_id: EntityId,
     caps: ModelCaps,
     source: PreparationSource,
+    cache: Arc<shenko_context_policy::HistoryProjectionCache>,
 ) -> ContextPreparer {
     let registry = Arc::clone(registry);
     let used_tokens = source.used_tokens;
@@ -286,7 +287,13 @@ fn launch_context_preparer(
             ))
         };
         let before = store.current_commit_seq().map_err(policy_error)?;
-        let history = StoreHistory::new(Arc::clone(&store), scope_id, Arc::new(estimate_tokens));
+        let history = StoreHistory::with_cache(Arc::clone(&store), scope_id, Arc::new(estimate_tokens), cache);
+        // Build the call metadata in the owned background worker before the
+        // first adoption needs it on S0. Later workers advance only its tail.
+        if let Some(leaf) = source.leaf {
+            history.call_items(leaf).map_err(|error| PreparationFailure::Policy(
+                shenko_context_policy::PrepareError::Storage(error)))?;
+        }
         let observed = RecordingHistory {
             history: BoundedHistory {
                 history: &history,
@@ -342,6 +349,13 @@ struct BoundedHistory<'a> {
 }
 
 impl HistorySource for BoundedHistory<'_> {
+    fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        match self.leaf {
+            Some(leaf) => self.history.call_items(through.min(leaf)),
+            None => Ok(Vec::new()),
+        }
+    }
+
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
         Ok(self.leaf)
     }
@@ -403,6 +417,11 @@ impl RecordingHistory<'_> {
 }
 
 impl HistorySource for RecordingHistory<'_> {
+    fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        let items = self.history.call_items(through)?;
+        for item in &items { self.observe(item)?; }
+        Ok(items)
+    }
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
         self.history.leaf_seq()
     }
@@ -453,6 +472,11 @@ impl AdoptionHistory<'_, '_> {
 }
 
 impl HistorySource for AdoptionHistory<'_, '_> {
+    fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+        let mut items = self.history.call_items(through)?;
+        for item in &mut items { self.restore(item)?; }
+        Ok(items)
+    }
     fn leaf_seq(&self) -> Result<Option<u64>, StorageError> {
         self.history.leaf_seq()
     }
@@ -1225,6 +1249,7 @@ fn select_context_window(
                             registry.ledger().scope_id(),
                             preparation_caps.clone(),
                             preparation_source,
+                            Arc::clone(&state.context_history_cache),
                         ));
                     }
                     ContextSelection::Preparing {
@@ -1623,6 +1648,64 @@ pub(super) fn prepare_corrected_context(
     Ok(Some((payload, context)))
 }
 
+const OBLIGATION_FRONTIER_ITEMS: usize = 12;
+const OBLIGATION_FRONTIER_BYTES: usize = 8 * 1024;
+
+/// Structured references only affect presentation of already-owned facts.
+/// They neither execute an action nor grant authority. Native task results
+/// have already been authenticated against T2 by stage_input above.
+fn obligation_references(events: &[InboxEvent]) -> Vec<EntityId> {
+    let mut ids = Vec::new();
+    for event in events {
+        let id = match (&event.kind, event.source.as_str()) {
+            (InboxEventKind::SelfWake, shenko_types::inbox::SUBJECT_WAKE_SOURCE) =>
+                event.payload.get("obligation_id").cloned(),
+            (InboxEventKind::TaskResult, "native-child") => TaskResult::deserialize(&event.payload).ok()
+                .and_then(|result| result.result).and_then(|result| result.get("obligation_id").cloned()),
+            _ => None,
+        };
+        if let Some(id) = id.and_then(|id| serde_json::from_value::<EntityId>(id).ok())
+            && !ids.contains(&id) { ids.push(id); }
+    }
+    ids
+}
+
+/// The seal retains each selected original body. The model receives bounded
+/// previews with exact identities/digests and can retrieve the whole record;
+/// an omitted record is never reported as completed or forgotten.
+fn obligation_frontier_text(frontier: &shenko_store::subject_state::ObligationFrontier)
+    -> Result<String, ShenkoError> {
+    let mut text = format!("\n\n持久义务工作前沿：开放总数 {}，本轮 {}，轮转起点 {}。以下为预览；完整原文仍保留，未展示不表示完成或遗忘。全集：[delegate:history.query:1] {{\"op\":\"obligations\",\"limit\":20}}；按返回page.next作为after续页。全文：[delegate:history.query:1] {{\"op\":\"read_obligation\",\"obligation_id\":\"...\"}}。完成/取消仍需显式终态和理由。\n",
+        frontier.total_open, frontier.obligations.len(), frontier.rotation_start);
+    let budget = OBLIGATION_FRONTIER_BYTES.saturating_sub(text.len() + frontier.obligations.len())
+        / frontier.obligations.len().max(1);
+    for obligation in &frontier.obligations {
+        let body = serde_json::to_vec(obligation)?;
+        let mut description: String = obligation.description.chars().take(128).collect();
+        let mut resume: String = obligation.resume_condition.chars().take(64).collect();
+        loop {
+            let preview = serde_json::to_string(&serde_json::json!({
+                "obligation_id": obligation.obligation_id,
+                "body_digest": Digest::blake3(&body),
+                "description_preview": description,
+                "resume_condition_preview": resume,
+                "truncated": description != obligation.description || resume != obligation.resume_condition,
+                "depends_on_task_id": obligation.depends_on_task_id,
+                "due_at": obligation.due_at,
+            }))?;
+            if preview.len() <= budget {
+                text.push_str(&preview);
+                text.push('\n');
+                break;
+            }
+            if description.len() >= resume.len() && !description.is_empty() { description.pop(); }
+            else if !resume.is_empty() { resume.pop(); }
+            else { return Err(ShenkoError::conflict("obligation frontier identity exceeds its projection budget")); }
+        }
+    }
+    Ok(text)
+}
+
 pub(super) fn prepare_context(
     state: &mut SubjectLoopState,
     events: &[InboxEvent],
@@ -1673,7 +1756,7 @@ pub(super) fn prepare_context(
         input_raw_event_ids.push(record.event_id);
     }
     // Cognition units are installed material, not a keyword lookup: the model
-    // receives every unit's short card (bounded) and decides what, if
+    // receives a bounded, step-rotated page of cards and decides what, if
     // anything, it means here. A word-matching gate would withhold the unit
     // precisely when the message names a symptom instead of the concept.
     // Unit bodies never travel whole; the model reads the body it actually
@@ -1681,23 +1764,43 @@ pub(super) fn prepare_context(
     let awareness: Vec<String> = state
         .awareness
         .as_ref()
-        .map(|catalog| catalog.disclosure().map(|text| vec![text]))
+        .map(|catalog| catalog.disclosure_at(state.step.step_no).map(|text| vec![text]))
         .transpose()
         .map_err(|error| {
             ShenkoError::storage(format!("cognition disclosure failed: {error:#}"))
         })?
         .unwrap_or_default();
-    let obligations = state.store.open_subject_obligations(state.agent_id)?;
+    let mut frontier = state.store.subject_obligation_frontier(state.agent_id, state.step.step_no,
+        &obligation_references(&recovered), OBLIGATION_FRONTIER_ITEMS)?;
     // The once-per-window reminder is READ here and answered by the commit of
     // the request that carries it. Reading it twice is idempotent.
     state.pending_reminder = state.context_registry.pending_rollover_reminder();
-    let system_prompt = build_system_prompt(state, &awareness, &obligations);
+    let mut system_prompt = build_system_prompt(state, &awareness, &[]);
+    // Leave three quarters of the remaining known input budget to raw input,
+    // recovery controls and working history. The normal final budget check
+    // still accounts for the whole payload, including this frontier.
+    let frontier_tokens = state.model_capabilities.as_deref()
+        .and_then(|capabilities| u32::try_from(state.max_tokens).ok()
+            .and_then(|reserved| input_model_caps(capabilities, reserved)))
+        .map(|caps| caps.max_context.saturating_sub(estimate_tokens(&system_prompt)) / 4);
+    let mut obligation_text = obligation_frontier_text(&frontier)?;
+    while frontier_tokens.is_some_and(|budget| estimate_tokens(&obligation_text) > budget)
+        && !frontier.obligations.is_empty() {
+        frontier.obligations.pop();
+        obligation_text = obligation_frontier_text(&frontier)?;
+    }
+    if frontier_tokens.is_some_and(|budget| estimate_tokens(&obligation_text) > budget) {
+        obligation_text = format!("\n义务开放 {}；本轮预算只容纳查询指针，完整记录仍可用 history.query 的 obligations/read_obligation 读取。\n", frontier.total_open);
+    }
+    let obligations = frontier.obligations;
+    system_prompt.push_str(&obligation_text);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());
     let profile_digest = bind_context_profile(state)?;
     let model_generation = registry.ledger().model_generation().map_err(storage)?;
     let scope_id = EntityId(state.head.branch_id.0);
-    let source = StoreHistory::new(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens));
+    let source = StoreHistory::with_cache(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens),
+        Arc::clone(&state.context_history_cache));
     let history = BoundedHistory { leaf: source.leaf_seq().map_err(storage)?, history: &source };
     let reserved_output_tokens = u32::try_from(state.max_tokens)
         .map_err(|_| ShenkoError::conflict("output reservation exceeds token budget type"))?;

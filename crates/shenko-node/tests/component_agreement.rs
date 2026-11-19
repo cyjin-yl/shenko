@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, ensure};
 use shenko_node::{
     ComponentCandidate, ComponentCertificate, ComponentObservation, ComponentProposal, Identity,
-    MemberChangeRequest, Node, Request,
+    MemberChangeRequest, ModelEligibility, ModelUsabilityEvidence, ModelUsabilityOutcome,
+    ModelUsabilitySource, Node, Request,
 };
 use shenko_types::{ids::EntityId, object::Digest};
 
@@ -109,6 +110,83 @@ fn observed(node: &Node, proposal: &ComponentProposal) -> Result<ComponentObserv
 
 #[test]
 fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() -> Result<()> {
+    let now = chrono::Utc::now();
+    let profile = Digest::blake3(b"binding-specific eligibility fixture");
+    let runtime = EntityId::new();
+    let evidence = ModelUsabilityEvidence {
+        evidence_digest: Digest::blake3(b"retained fixture capability observation"),
+        source: ModelUsabilitySource::CapabilityProbe,
+        observed_at: now,
+        valid_until: now + chrono::Duration::minutes(5),
+    };
+    let mut health = ModelEligibility::default();
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unknown, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_some());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_some());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now).is_none());
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_some());
+    assert!(health.candidate_at(runtime, &profile, None, evidence.valid_until).is_none());
+    // The metadata endpoint may stay healthy while generation is forbidden.
+    // Persist/restore preserves that distinction across runtime recreation.
+    let mut generation = evidence.clone();
+    generation.source = ModelUsabilitySource::Inference { request_id: EntityId::new() };
+    generation.observed_at = now + chrono::Duration::seconds(1);
+    let mut newer_metadata = evidence.clone();
+    newer_metadata.observed_at = now + chrono::Duration::seconds(2);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, newer_metadata.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::BindingRejected, generation.clone())?;
+    health = serde_json::from_slice(&serde_json::to_vec(&health)?)?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, newer_metadata)?;
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_none(),
+        "a later GET must not mask the earlier generation refusal's delayed callback");
+    let mut unknown_generation = generation.clone();
+    unknown_generation.observed_at = now + chrono::Duration::seconds(3);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unknown, unknown_generation)?;
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_none());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, generation.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_some());
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, generation.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, generation.clone())?;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, now + chrono::Duration::seconds(31)).is_none(),
+        "cooldown alone does not invent a new observation");
+    let recovery_at = now + chrono::Duration::seconds(31);
+    let mut recovery_probe = evidence.clone();
+    recovery_probe.observed_at = recovery_at;
+    recovery_probe.valid_until = recovery_at + chrono::Duration::minutes(15);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, recovery_probe.clone())?;
+    let provisional = health.candidate_at(runtime, &profile, None, recovery_at).expect("finite half-open recovery");
+    let proof = provisional.usability.unwrap();
+    assert!(matches!(proof.source, ModelUsabilitySource::CapabilityProbe));
+    assert_eq!(proof.valid_until, recovery_at + chrono::Duration::minutes(5));
+    health = serde_json::from_slice(&serde_json::to_vec(&health)?)?;
+    recovery_probe.observed_at = recovery_at + chrono::Duration::seconds(1);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, recovery_probe.clone())?;
+    assert_eq!(health.candidate_at(runtime, &profile, None, recovery_probe.observed_at).unwrap()
+        .usability.unwrap().valid_until, proof.valid_until, "metadata cannot extend the recovery window");
+    assert!(health.candidate_at(runtime, &profile, None, proof.valid_until).is_none());
+    recovery_probe.observed_at = proof.valid_until + chrono::Duration::seconds(1);
+    recovery_probe.valid_until = recovery_probe.observed_at + chrono::Duration::minutes(15);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, recovery_probe.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, recovery_probe.observed_at).is_none());
+    recovery_probe.observed_at = proof.valid_until + chrono::Duration::seconds(31);
+    health.observe(profile.clone(), ModelUsabilityOutcome::Available, recovery_probe.clone())?;
+    assert!(health.candidate_at(runtime, &profile, None, recovery_probe.observed_at).is_some());
+    generation.observed_at = recovery_probe.observed_at;
+    generation.valid_until = recovery_probe.valid_until;
+    health.observe(profile.clone(), ModelUsabilityOutcome::Unavailable, generation)?;
+    assert!(health.candidate_at(runtime, &profile, None, recovery_probe.observed_at).is_none(),
+        "a real new failure closes half-open immediately");
+    let rebound = Digest::blake3(b"changed exact provider/credential revision");
+    health.observe(rebound.clone(), ModelUsabilityOutcome::Available, evidence.clone())?;
+    assert!(health.candidate_at(runtime, &rebound, None, now).is_some());
     let root = tempfile::tempdir()?;
     let identity = Identity {
         agent_id: EntityId::new(),
@@ -167,6 +245,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
                 runtime_id,
                 profile_digest: Digest::blake3(b"configured fixture model, not inference evidence"),
                 preference: None,
+                usability: Some(evidence.clone()),
             }),
         )?;
     }

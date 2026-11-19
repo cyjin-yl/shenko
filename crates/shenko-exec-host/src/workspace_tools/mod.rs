@@ -27,6 +27,8 @@ use shenko_types::{
 };
 use std::{path::PathBuf, sync::Arc};
 
+const CONTRACT: &[u8] = b"shenko.workspace-tools/v1: UTF-8 relative regular files; bounded read/search observations; absent-only create; exact unique replace or anchored hashline edits with snapshot digest preconditions; original receipt recovery without replay";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceToolsConfig {
@@ -34,19 +36,10 @@ pub struct WorkspaceToolsConfig {
     pub editor: EditorMode,
 }
 
-/// Source identity for installation manifests. The running descriptor also
-/// binds the canonical root and editor, because these change the read contract.
-pub fn implementation_digest() -> Digest {
-    let mut bytes = Vec::new();
-    for source in [
-        include_bytes!("mod.rs").as_slice(),
-        include_bytes!("io.rs").as_slice(),
-        include_bytes!("edit.rs").as_slice(),
-    ] {
-        bytes.extend_from_slice(&(source.len() as u64).to_le_bytes());
-        bytes.extend_from_slice(source);
-    }
-    Digest::blake3(&bytes)
+/// Identity of the executable containing these native workspace handlers.
+/// Root and editor are recorded separately in the frozen resource bindings.
+pub fn implementation_digest() -> Result<Digest> {
+    shenko_kernel::native_artifact::native_artifact_digest()
 }
 
 pub struct WorkspaceTools {
@@ -57,22 +50,17 @@ struct Shared {
     store: Arc<Store>,
     fs: io::WorkspaceFs,
     config: WorkspaceToolsConfig,
-    identity: Digest,
 }
 
 impl WorkspaceTools {
     pub fn new(store: Arc<Store>, mut config: WorkspaceToolsConfig) -> Result<Self> {
         let fs = io::WorkspaceFs::new(config.root.clone())?;
         config.root = fs.root.clone();
-        let identity = Digest::blake3(&serde_json::to_vec(
-            &json!({"source":implementation_digest(),"config":config}),
-        )?);
         Ok(Self {
             shared: Arc::new(Shared {
                 store,
                 fs,
                 config,
-                identity,
             }),
         })
     }
@@ -196,12 +184,12 @@ impl Handler {
             mount_generation: 0,
             capability_level: "cooperative_local_workspace".into(),
             extra: json!({"root":self.shared.config.root,"editor":self.shared.config.editor,
-                "implementation":self.shared.identity,"external_writer_exclusion":false}),
+                "implementation":implementation_digest()?,"external_writer_exclusion":false}),
         };
         let resource = self.seal(&bindings, "workspace-binding")?;
         let acceptance = self.seal(&"read: complete bounded observation; write: all preconditions pass, target bytes equal planned result on immediate readback; does not prove semantic task correctness or power-loss durability", "workspace-acceptance")?;
         let retry = self.seal(&"never replay an armed operation; reconcile original receipts, retain unknown without conclusive evidence", "workspace-retry")?;
-        let version = self.descriptor().implementation();
+        let version = self.descriptor()?.implementation();
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
         let operation = OperationRecord {
             record_schema_version: 1,
@@ -216,8 +204,8 @@ impl Handler {
             input_digest: input_ref.digest,
             contract_ref: OperationContractRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: self.shared.identity.clone(),
-                contract_digest: self.shared.identity.clone(),
+                artifact_digest: implementation_digest()?,
+                contract_digest: Digest::blake3(CONTRACT),
                 receipt_reader_ref: version.clone(),
             },
             resource_bindings_ref: resource,
@@ -325,23 +313,23 @@ impl Handler {
 
 #[async_trait]
 impl NativeTaskHandler for Handler {
-    fn descriptor(&self) -> NativeTaskDescriptor {
-        NativeTaskDescriptor {
+    fn descriptor(&self) -> Result<NativeTaskDescriptor> {
+        Ok(NativeTaskDescriptor {
             kind: self.kind().into(),
             definition_version: 1,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
-                artifact_digest: self.shared.identity.clone(),
+                artifact_digest: implementation_digest()?,
                 registry_revision: 0,
             },
             role_revision: "native-child/1".into(),
             authority_refs: vec!["workspace.tools/v1".into()],
             prompt_section: Some(self.help()),
-        }
+        })
     }
 
-    fn effect_contracts(&self) -> Vec<EffectContract> {
-        let descriptor = self.descriptor();
+    fn effect_contracts(&self) -> Result<Vec<EffectContract>> {
+        let descriptor = self.descriptor()?;
         let mut builder = EffectContractBuilder::new(Self::plugin_id(), descriptor.implementation(), format!("{}.v1", self.kind()), 1)
             .resource("local_workspace", self.shared.config.root.display().to_string(),
                 if self.action.writes() { ResourceAccess::ReadWrite } else { ResourceAccess::Read })
@@ -351,7 +339,7 @@ impl NativeTaskHandler for Handler {
             .checkpoint(CheckpointContract { capturable: vec!["frozen input and committed receipts".into()],
                 excluded: vec!["workspace filesystem and other writers".into()], coordinated: false, consistency: "receipt evidence only".into() })
             .lifecycle(LifecycleContract {
-                on_upgrade: "withdraw old handlers; new startup binds root/editor/source identity; never replay old writes".into(),
+                on_upgrade: "withdraw old handlers; new startup freezes configured root/editor bindings and executable identity; never replay old writes".into(),
                 on_uninstall: "withdraw new calls; existing receipts remain queryable".into(),
                 on_crash: "reconcile original receipts; an armed operation without conclusive evidence remains unknown".into(),
                 receipt_readable_after_removal: true,
@@ -361,7 +349,7 @@ impl NativeTaskHandler for Handler {
                 description: "writes same-directory staging files and publishes one target; edit uses a final digest check and rename, create uses absent-only hard-link publication. External writers, ACL/xattr retention and power-loss durability are not guaranteed".into(),
                 reversible: false, compensation_possible: false });
         }
-        vec![builder.build()]
+        Ok(vec![builder.build()])
     }
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
@@ -455,7 +443,7 @@ mod tests {
                 handler.kind(),
                 1,
                 input_ref,
-                handler.descriptor().implementation_ref,
+                handler.descriptor().unwrap().implementation_ref,
             )
             .unwrap()
             .unwrap();
@@ -464,6 +452,7 @@ mod tests {
         context.invocation_id = Some(claim.invocation.invocation_id);
         context.controller_epoch = claim.invocation.epoch;
         NativeTaskInvocation {
+            cancellation: Default::default(),
             context,
             task_invocation: claim.invocation,
             task: claim.task,

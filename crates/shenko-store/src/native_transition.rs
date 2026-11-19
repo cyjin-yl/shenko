@@ -627,7 +627,7 @@ impl Store {
             position.expected_tasks.clone(),
             position.expected_steps.clone(),
         );
-        self.ledger.with_mutation(|| {
+        authority.with_mutation(&self.ledger, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
@@ -637,7 +637,7 @@ impl Store {
             // the shared read set. A follower never copies dispatcher ownership.
             let (mut rows, result) = self.capture_row_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
+            }, evidence_fact.as_ref().map(|_| &plan.task), |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
             if evidence_fact.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = NativeT2Transition { rows, plan: plan.clone(), result, evidence_fact: evidence_fact.clone() };
             let result_commit = transition.rows.result_commit;
@@ -816,7 +816,7 @@ impl Store {
         {
             return Err(invalid("T2 action differs from its admitted envelope"));
         }
-        self.ledger.with_mutation(
+        authority.with_mutation(&self.ledger,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
