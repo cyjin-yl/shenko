@@ -1,4 +1,4 @@
-//! Named WASM tool and environment commands over the Node installation authority.
+//! Workspace profiles, named WASM tools and environments over the Node authority.
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -131,7 +131,7 @@ fn parse_network_target(spec: &str) -> Result<shenko_node::NetworkTarget> {
     })
 }
 
-/// `shenko tool …` — inspect and manage the seed's named WASM tool store.
+/// `shenko tool …` — manage workspace profiles and the named WASM tool store.
 /// Install and exec go through the node's installation-unit inventory — the
 /// same authority node_sync replicates — while list is a pure read of that
 /// inventory. `<data>/tools` is only where the unit authority materializes
@@ -146,6 +146,7 @@ pub(crate) fn tool_command(data_dir: &Path, command: ToolCommand) -> Result<()> 
 
     let tools_root = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
     match command {
+        ToolCommand::Profile { command } => crate::workspace_tools::command(data_dir, command)?,
         ToolCommand::List => {
             // Pure read: never creates or migrates storage, never writes a
             // registry file. An installation that has no node DB simply has

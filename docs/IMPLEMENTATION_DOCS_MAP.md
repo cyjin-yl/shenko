@@ -149,6 +149,10 @@
 
 ## 执行环境
 
+- **工作区文件工具与编辑 profile（shenko-exec-host / CLI）** — 本轮新增读取、搜索、创建及 replace / hashline 互斥装配；持久配置复用 Node Code unit `tools.workspace`，`shenko tool profile inspect/configure/enable/disable` 的改变在下次 runtime start 生效。
+  - [工作区工具合同](specs/workspace-tools.md)与[默认选择及可运行诊断](development/workspace-tool-defaults.md)。默认 replace 为推理选取；[首次小模型诊断](evidence/workspace-tools-diagnostic-20261117.json)在主体控制协议阶段失败，尚未到达编辑器成效比较。
+  - 工具仍须由 child 作者显式授予；复用既有 WASI、REPL、SSH，不把本轮接线记成新的 code mode tools callback 桥或 patch 实现。
+
 - **WASM 运行时与家园（shenko-wasm：WasmRuntime、MountSpec、BoundedOutputPipe）** — 已接线（`wasi.exec` 处理器在受管 mount 下执行已安装工具；home manifest 由 seed 准备）
   - `bin/shenko/tests/ssh_wasi_client.rs` 保留单一真实 OpenSSH 旅程，经 CLI 无模型 bootstrap、`tool install` 分块工件、具名 `tool exec` 执行；编译不等于该候选已运行，不替代 native `wasi.exec` T1/E1/T2 验收。运行说明见 [SSH WASI 配方](../crates/shenko-wasm/ports/ssh-wasi/README.md#verification)。
   - [§8](specs/wasm-home.md#spec-8)、[§9](specs/self-update.md#spec-9)、[§10](specs/durable-state.md#spec-10)
@@ -428,6 +432,7 @@
 | [wasm-home](specs/wasm-home.md) | ArchWasmHome | 分域规范、接口、Why、错误与恢复 |
 | [wasm-tools](specs/wasm-tools.md) | ArchWasmTools | 分域规范、接口、Why、错误与恢复 |
 | [web-interface](specs/web-interface.md) | ArchWeb | 分域规范、接口、Why、错误与恢复 |
+| [workspace-tools](specs/workspace-tools.md) | ArchExecHost | 工作区读取、搜索、创建、编辑方言、安装配置与默认选择理由 |
 
 ## Why 按领域阅读
 
@@ -444,6 +449,7 @@
 - [为什么界面从一个主体开始](specs/web-interface.md#why-10)
 - [为什么开发规范采用高自主、强证据](specs/documentation.md#why-11)
 - [为什么这些规矩也能演进](specs/documentation.md#why-12)
+- [为什么工作区工具保留可配置方言](specs/workspace-tools.md#来源与-why)
 
 ## 章节迁移导航
 

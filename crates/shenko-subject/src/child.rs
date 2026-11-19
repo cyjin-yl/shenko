@@ -795,7 +795,7 @@ impl NativeChildService {
             if result.is_none() && existing.abort_request.is_none() {
                 if let Some(operation_id) = memo_uuid(&existing, NATIVE_OPERATION_ID) {
                     if let Some(operation) = self.store.get_operation(operation_id)? {
-                        return self.unsettled_tool_outcome(call, &operation);
+                        return Self::unsettled_tool_outcome(&self.store, call, &operation);
                     }
                 }
             }
@@ -917,7 +917,7 @@ impl NativeChildService {
             // that hides its original evidence or encourages a new attempt.
             park_managed(&self.store, &claim.task, "reconciling",
                 "armed tool operation is unresolved; query original evidence without replay", true);
-            return self.unsettled_tool_outcome(call, &operation);
+            return Self::unsettled_tool_outcome(&self.store, call, &operation);
         }
         let outcome = match operation.outcome {
             Some(OperationOutcome::Succeeded) => "succeeded",
@@ -942,17 +942,23 @@ impl NativeChildService {
     /// An unresolved operation can have genuine E1 without an accepted T2.
     /// Return its original observation on both first delivery and later reads;
     /// never imply that missing T2 means no request ran or no evidence exists.
-    fn unsettled_tool_outcome(&self, call: &ChildToolCall, operation: &OperationRecord) -> Result<ChildToolOutcome> {
+    /// This read needs only the durable Store, not an installed handler or a
+    /// live runtime, so transcript reconstruction cannot replay an effect.
+    pub(crate) fn unsettled_tool_outcome(
+        store: &Store,
+        call: &ChildToolCall,
+        operation: &OperationRecord,
+    ) -> Result<ChildToolOutcome> {
         ensure!(operation.task_id == call.task_id, "unresolved tool operation belongs to another task");
-        let attempt = self.store.external_operation_attempt(operation.operation_id)?;
-        let evidence = attempt.final_receipt_id.map(|id| self.store.external_evidence(id)).transpose()?;
+        let attempt = store.external_operation_attempt(operation.operation_id)?;
+        let evidence = attempt.final_receipt_id.map(|id| store.external_evidence(id)).transpose()?;
         if let Some(evidence) = &evidence {
             ensure!(evidence.operation_id == Some(operation.operation_id) && evidence.attempt_id == Some(attempt.attempt_id),
                 "unresolved tool receipt belongs to another operation/attempt");
         }
         let result = match evidence.as_ref().and_then(|receipt| receipt.normalized_ref.as_ref()) {
             Some(object) if object.bytes <= 512 * 1024 => {
-                let bytes = self.store.cas.read_object(&object.digest)?;
+                let bytes = store.cas.read_object(&object.digest)?;
                 ensure!(bytes.len() as u64 == object.bytes && Digest::blake3(&bytes) == object.digest,
                     "unresolved native evidence identity mismatch");
                 Some(serde_json::from_slice(&bytes)?)

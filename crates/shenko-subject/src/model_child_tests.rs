@@ -2129,3 +2129,217 @@ async fn team_members_talk_directly_and_share_one_prompt_prefix() {
     server.abort();
     let _ = server.await;
 }
+
+/// An unresolved native observation is still evidence the next model step
+/// must read. The scripted provider exercises the real parser, native T1/E1
+/// and next HTTP payload without claiming a real-model behavior result.
+#[tokio::test]
+async fn unresolved_tool_e1_reaches_the_next_child_wire_without_t2_or_replay() -> anyhow::Result<()> {
+    use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+    use shenko_store::child::{NATIVE_OPERATION_ID, memo_uuid};
+    use shenko_types::{
+        commit::CommitRef,
+        evidence::{DecodeStatus, EvidenceReceipt},
+        object::Digest,
+        operation::*,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const MESSAGE: &str = "The acknowledgement was lost; the effect may have occurred. Reconcile the original attempt before retrying.";
+    struct UnsettledTool {
+        store: Arc<Store>,
+        plugin_id: EntityId,
+        executions: AtomicUsize,
+    }
+    #[async_trait::async_trait]
+    impl NativeTaskHandler for UnsettledTool {
+        fn descriptor(&self) -> anyhow::Result<NativeTaskDescriptor> {
+            Ok(NativeTaskDescriptor {
+                kind: "fixture.unsettled".into(),
+                definition_version: 1,
+                implementation_ref: ImplementationRef {
+                    plugin_id: self.plugin_id,
+                    artifact_digest: shenko_kernel::native_artifact::native_artifact_digest()?,
+                    registry_revision: 0,
+                },
+                role_revision: "native-child/1".into(),
+                authority_refs: vec!["fixture.unsettled/1".into()],
+                prompt_section: Some("Return one original unresolved observation.".into()),
+            })
+        }
+
+        async fn execute(&self, invocation: NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
+            let descriptor = self.descriptor()?;
+            let version = descriptor.implementation();
+            let input = invocation.task.input_ref.clone();
+            let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
+            let mut operation = OperationRecord {
+                record_schema_version: 1,
+                operation_id: invocation.operation_id,
+                record_revision: RecordRevision(0),
+                task_id: invocation.task.task_id,
+                logical_key: "native-handler".into(),
+                operation_name: "fixture.unsettled.v1".into(),
+                input_schema_version: 1,
+                output_schema_version: 1,
+                final_input_ref: input.clone(),
+                input_digest: input.digest.clone(),
+                contract_ref: OperationContractRef {
+                    plugin_id: self.plugin_id,
+                    artifact_digest: descriptor.implementation_ref.artifact_digest.clone(),
+                    contract_digest: Digest::blake3(b"unsettled-tool-evidence-fixture/1"),
+                    receipt_reader_ref: version.clone(),
+                },
+                resource_bindings_ref: input.clone(),
+                authority_ref: invocation.authority,
+                acceptance_predicate_ref: input.clone(),
+                retry_contract_ref: input,
+                checkpoint_scope_ref: None,
+                state: OperationState::InFlight,
+                outcome: None,
+                outcome_conflict: false,
+                effect_status: EffectStatus::Unknown,
+                retry_of: None,
+                compensates: None,
+                possible_duplicate_of: vec![],
+                prepared_commit: zero,
+                evidence_through: None,
+            };
+            let mut attempt = AttemptRecord {
+                record_schema_version: 1,
+                attempt_id: EntityId::new(),
+                operation_id: operation.operation_id,
+                attempt_no: 1,
+                invocation_id: invocation.task_invocation.invocation_id,
+                worker_id: invocation.task_invocation.worker_id,
+                node_id: invocation.task_invocation.node_id,
+                epoch: invocation.task_invocation.epoch,
+                implementation_ref: version.clone(),
+                dispatch_stage: AttemptDispatchStage::Armed,
+                armed_commit: zero,
+                provider_handle: None,
+                provider_idempotency: None,
+                transport_ref: None,
+                started_at: None,
+                last_observed_at: None,
+                final_receipt_id: None,
+            };
+            if let Some(original) = self.store.arm_native_operation_for_dispatch(
+                &invocation.task_invocation, &mut operation, &mut attempt,
+            )? {
+                return Ok(original);
+            }
+            self.executions.fetch_add(1, Ordering::SeqCst);
+            let raw = self.store.cas.seal_object(
+                &serde_json::to_vec(&serde_json::json!({"acknowledgement":"lost","request":invocation.input}))?,
+                "application/json", "fixture", "unsettled-raw", 1,
+            )?.object;
+            // The normalized payload deliberately has no raw reference: the
+            // runtime must project the receipt's own reference alongside it.
+            let normalized = self.store.cas.seal_object(
+                &serde_json::to_vec(&serde_json::json!({"status":"unknown","code":"effect_unresolved","message":MESSAGE}))?,
+                "application/json", "fixture", "unsettled-normalized", 1,
+            )?.object;
+            self.store.record_external_evidence(operation.operation_id, attempt.attempt_id, EvidenceReceipt {
+                record_schema_version: 1,
+                receipt_id: EntityId::new(),
+                operation_id: Some(operation.operation_id),
+                attempt_id: Some(attempt.attempt_id),
+                source_id: "fixture.unsettled".into(),
+                source_instance_id: attempt.node_id.to_string(),
+                source_event_key: None,
+                producer_epoch: Some(attempt.epoch.0),
+                producer_schema_version: Some("1".into()),
+                raw_ref: raw,
+                decoder_ref: Some(version),
+                decode_status: DecodeStatus::Decoded,
+                observation_level: None,
+                normalized_ref: Some(normalized),
+                observed_at: Some(chrono::Utc::now()),
+                received_commit: operation.prepared_commit,
+            }, None, EffectStatus::Unknown)
+        }
+
+        async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> anyhow::Result<OperationRecord> {
+            let original = self.store.external_operation(operation_id)?;
+            anyhow::ensure!(original.task_id == task.task_id, "wrong fixture operation");
+            Ok(original)
+        }
+    }
+
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher()?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        for text in ["[tool:fixture.unsettled:1] {\"payload\":\"one attempt\"}", "The original effect remains unknown."] {
+            let (mut socket, wire) = read_wire(&listener).await;
+            wires_tx.send(wire)?;
+            let raw = serde_json::json!({
+                "choices":[{"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
+                "usage":{"prompt_tokens":12,"completion_tokens":7},
+            }).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await?;
+            socket.shutdown().await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1)?;
+    let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &format!("[delegate] {}", serde_json::json!({
+        "goal":"Report the original tool observation.","system_prompt":"Keep unresolved effects unknown.",
+        "model":"evidence-child","max_tokens":64,
+        "budget":{"max_steps":3,"max_total_tokens":192,"max_tool_calls":3},
+        "tools":[{"kind":"fixture.unsettled","definition_version":1}]
+    }))).await;
+    let task = store.native_task_candidates_after(None, 8)?.pop()
+        .context("the subject admitted the finite child")?.1;
+    let native = service(&store, handle, subject.head.software_generation.clone());
+    let tool = Arc::new(UnsettledTool { store: store.clone(), plugin_id: EntityId::new(), executions: AtomicUsize::new(0) });
+    native.install(tool.clone())?;
+    let run = tokio::spawn(broker.run());
+    drive_until(&native,
+        || matches!(store.external_task(task.task_id).unwrap().state, TaskState::Completing { .. }),
+        || format!("child={:?}", store.external_task(task.task_id).map(|task| task.state)),
+    ).await;
+    server.await??;
+    let first = wires_rx.recv().await.context("the first child request reached the provider")?;
+    assert!(first["messages"][0]["content"].as_str().unwrap()
+        .contains("- fixture.unsettled v1：Return one original unresolved observation."));
+    let second = wires_rx.recv().await.context("the next child request reached the provider")?;
+    let feedback = second["messages"].as_array().context("the second wire has messages")?
+        .iter().filter_map(|message| message["content"].as_str())
+        .find(|text| text.starts_with("[tool_result:fixture.unsettled:1]"))
+        .context("the next model input contains the tool observation")?;
+    assert!(feedback.contains(MESSAGE), "the next model step lost the original E1 diagnostic: {feedback}");
+    let projected: serde_json::Value = serde_json::from_str(feedback
+        .strip_prefix("[tool_result:fixture.unsettled:1] unknown ")
+        .context("an observation without T2 must remain unknown")?)?;
+    let tool_task = store.native_task_candidates_after(None, 8)?.into_iter()
+        .find(|(_, task)| task.kind == "fixture.unsettled")
+        .context("the original unresolved tool subtask remains durable")?.1;
+    let operation_id = memo_uuid(&tool_task, NATIVE_OPERATION_ID).context("the subtask binds its original operation")?;
+    let operation = store.external_operation(operation_id)?;
+    let attempt = store.external_operation_attempt(operation_id)?;
+    let receipt = store.external_evidence(attempt.final_receipt_id.context("the attempt retained its E1")?)?;
+    assert_eq!(projected["operation_id"], serde_json::json!(operation_id));
+    assert_eq!(projected["evidence_ref"], serde_json::to_value(&receipt.raw_ref)?);
+    assert_eq!(projected["result"]["code"], "effect_unresolved");
+    assert_eq!(projected["result"]["message"], MESSAGE);
+    assert_eq!(operation.state, OperationState::Reconciling);
+    assert_eq!(operation.outcome, None);
+    assert_eq!(operation.effect_status, EffectStatus::Unknown);
+    assert!(store.native_task_result(tool_task.task_id)?.is_none());
+    assert!(store.native_task_result(task.task_id)?.is_none(), "the unresolved owned tool still prevents parent T2");
+    assert_eq!(tool.executions.load(Ordering::SeqCst), 1);
+    assert_eq!(store.external_operation_attempts(operation_id)?.len(), 1);
+    assert_eq!(store.external_operation_evidence(operation_id)?.len(), 1);
+    let next_step = child_step(&store, task.task_id);
+    let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&next_step.final_input_ref.digest)?)?;
+    assert_eq!(frozen["step_index"], 1);
+    assert!(frozen["payload"]["messages"].to_string().contains(MESSAGE), "the sent E1 projection is sealed with the next step");
+    native.close_and_join(0).await;
+    run.abort(); let _ = run.await;
+    Ok(())
+}
