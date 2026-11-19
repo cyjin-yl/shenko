@@ -13,10 +13,24 @@ fn recovery_fingerprint(store: &Store, agent: EntityId) -> Result<Vec<u8>, Shenk
 }
 
 fn original_ready(store: &Store, agent: EntityId) -> Result<bool, ShenkoError> {
-    use shenko_types::subject::SubjectStepState;
+    use shenko_types::subject::{InferenceRetryFact, SubjectRetryEvidence, SubjectStepState};
     let (_, step) = store.load_subject(agent)?;
-    if matches!(step.state, SubjectStepState::ResultRecorded | SubjectStepState::RetryPending) {
+    if step.state == SubjectStepState::ResultRecorded {
         return Ok(true);
+    }
+    if step.state == SubjectStepState::RetryPending {
+        let object = step.retry_reason_ref.as_ref()
+            .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing retry evidence"))?;
+        let evidence: SubjectRetryEvidence = serde_json::from_slice(
+            &store.cas.read_object(&object.digest)?,
+        )?;
+        // Match the live loop's resource-wait classification. DispatchLost
+        // retains uncertain debt; reopening it is not original-result recovery.
+        return Ok(matches!(
+            evidence.fact,
+            InferenceRetryFact::NeverDispatched
+                | InferenceRetryFact::ProviderRejected { http_status: 429 }
+        ));
     }
     let Some(request) = step.active_request_id else { return Ok(false); };
     let Some(attempt) = store.subject_request_attempt(request)? else { return Ok(false); };

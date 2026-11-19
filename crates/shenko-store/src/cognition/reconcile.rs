@@ -423,7 +423,7 @@ fn unit_key_for<'a>(
     row: &'a CognitionRow,
     question_seats: &HashMap<&'a str, String>,
 ) -> Option<String> {
-    let key = match row.table.as_str() {
+    match row.table.as_str() {
         "research_epochs" => Some(format!("epoch/{}", row.key)),
         "research_candidates" | "intervention_bank_entries" | "intervention_reminders" => {
             row.value("epoch_id").map(|epoch| format!("epoch/{epoch}"))
@@ -509,8 +509,7 @@ fn unit_key_for<'a>(
             row.value("logical_key").unwrap_or_default()
         )),
         _ => None,
-    };
-    key
+    }
 }
 
 /// True when the row's table participates in a semantic conflict unit.

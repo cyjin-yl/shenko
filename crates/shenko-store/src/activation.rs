@@ -517,9 +517,9 @@ impl Store {
                             AND json_extract(q.data,'$.closed_at.ledger_id')=?1
                             AND json_extract(q.data,'$.closed_at.seq')=s.updated_commit_seq)")
                 .map_err(storage_error)?;
-            let rows = query.query_map([self.ledger.ledger_id().to_string()], |row| row.get::<_, String>(0)).map_err(storage_error)?
-                .collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
-            rows
+            let matches = query.query_map([self.ledger.ledger_id().to_string()], |row| row.get::<_, String>(0))
+                .map_err(storage_error)?;
+            matches.collect::<Result<Vec<_>, _>>().map_err(storage_error)?
         };
         for raw in candidates {
             let selected: ActivationSelector = serde_json::from_str(&raw).map_err(storage_error)?;
