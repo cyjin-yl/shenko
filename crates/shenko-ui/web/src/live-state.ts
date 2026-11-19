@@ -48,6 +48,7 @@ export function initialState(): UiState {
     timeline: [],
     submissions: storedSubmissions(),
     draft: storageGet(DRAFT_KEY),
+    attachments: [],
     config_error: false,
     config_entries: undefined,
     config_entries_error: false,

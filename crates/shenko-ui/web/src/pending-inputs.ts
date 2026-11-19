@@ -1,5 +1,5 @@
 import { message as m } from './messages';
-import type { ActionReceiptView, Submission } from './projection';
+import type { ActionReceiptView, Submission, WebAttachmentRef } from './projection';
 import { isObject, validRevision } from './live-validation';
 
 const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
@@ -12,12 +12,16 @@ function submissionKey(submissionId: string): string {
 // overwrite one another's unconfirmed IDs — the UI outbox is a per-submission
 // recovery record, never an authoritative whole-array ledger.
 export function saveSubmission(submission: Submission): boolean {
+  // A replacement disposition retired this source's recovery identity. Late
+  // source receipts still update the ledger row, but cannot recreate its key.
+  if (submission.edit?.state === 'retired') return true;
   try {
     localStorage.setItem(submissionKey(submission.payload.submission_id), JSON.stringify({
       payload: submission.payload,
       created_at: submission.created_at,
       receipt: submission.receipt,
       send_epoch: submission.send_epoch,
+      ...(submission.edit ? { edit: submission.edit } : {}),
     }));
     return true;
   } catch {
@@ -25,17 +29,45 @@ export function saveSubmission(submission: Submission): boolean {
   }
 }
 
-export function retireSubmission(submission: Submission): void {
+export function retireSubmission(submission: Submission, editSource?: Submission): void {
+  // Keep the source/replacement link until replacement disposition. Otherwise
+  // a reopen could forget the recovery gate or restore a text-only copy.
+  if (submission.edit && ['pending', 'ready', 'editing'].includes(submission.edit.state)) {
+    saveSubmission(submission);
+    return;
+  }
+  if (submission.edit?.state === 'finished') {
+    try {
+      if (localStorage.getItem(submissionKey(submission.edit.submission_id)) !== null) {
+        saveSubmission(submission);
+        return;
+      }
+    } catch {
+      // Unreadable storage cannot prove the replacement recovery is retired.
+      return;
+    }
+  }
   // Only a committed disposition retires the persisted pending payload: it is
   // the sole fact whose truth is already durable in the Store ledger. Every
   // non-committed row keeps ID+payload until an explicit retry (same-key
   // overwrite) or a real durable admission — an unrelated newer draft must
   // never strand the only copy of a rejected/conflicting/absent input.
   try {
+    if (editSource?.edit && ['finished', 'retired'].includes(editSource.edit.state)
+      && editSource.edit.submission_id === submission.payload.submission_id) {
+      localStorage.removeItem(submissionKey(editSource.payload.submission_id));
+      editSource.edit.state = 'retired';
+    }
     localStorage.removeItem(submissionKey(submission.payload.submission_id));
   } catch {
     // Storage is optional; the in-memory row retires regardless.
   }
+}
+
+function isAttachmentRef(value: unknown): value is WebAttachmentRef {
+  return isObject(value) && typeof value.digest === 'string' && /^blake3:[0-9a-f]{64}$/.test(value.digest)
+    && typeof value.name === 'string' && typeof value.media_type === 'string'
+    && typeof value.bytes === 'number' && Number.isSafeInteger(value.bytes) && value.bytes >= 0;
 }
 
 export function storedSubmissions(): Submission[] {
@@ -48,20 +80,38 @@ export function storedSubmissions(): Submission[] {
       if (!isObject(saved) || !isObject(saved.payload)) continue;
       const payload = saved.payload;
       if (
-        payload.schema_version !== 2 || payload.type !== 'submit' || payload.mode !== 'append' ||
+        payload.schema_version !== 2 || payload.type !== 'submit' || (payload.mode !== 'append' && payload.mode !== 'steer') ||
         typeof payload.submission_id !== 'string' || !payload.submission_id ||
         payload.submission_id !== key.slice(SUBMISSION_KEY_PREFIX.length) ||
         typeof payload.message_id !== 'string' || !payload.message_id ||
         typeof payload.subject_id !== 'string' || !payload.subject_id ||
-        typeof payload.content !== 'string' || !payload.content.trim() ||
-        !Array.isArray(payload.attachment_refs) || payload.attachment_refs.length !== 0 ||
+        typeof payload.content !== 'string' ||
+        !Array.isArray(payload.attachment_refs) || !payload.attachment_refs.every(isAttachmentRef) ||
+        (!payload.content.trim() && payload.attachment_refs.length === 0) ||
         typeof saved.created_at !== 'string' || !Number.isFinite(Date.parse(saved.created_at))
       ) continue;
+      const edit = saved.edit;
+      const restoredEdit: Submission['edit'] = isObject(edit)
+        && typeof edit.cancel_id === 'string' && Boolean(edit.cancel_id)
+        && typeof edit.submission_id === 'string' && Boolean(edit.submission_id)
+        && edit.submission_id !== payload.submission_id
+        && typeof edit.message_id === 'string' && Boolean(edit.message_id)
+        && ['pending', 'ready', 'editing', 'finished', 'closed', 'retired'].includes(String(edit.state))
+        && isObject(edit.draft) && typeof edit.draft.content === 'string'
+        && Array.isArray(edit.draft.attachment_refs) && edit.draft.attachment_refs.every(isAttachmentRef)
+        ? {
+          cancel_id: edit.cancel_id, submission_id: edit.submission_id, message_id: edit.message_id,
+          // A reopen must query authenticated Store facts before restoring.
+          state: edit.state === 'finished' || edit.state === 'closed' || edit.state === 'retired'
+            ? edit.state : 'pending',
+          draft: { content: edit.draft.content, attachment_refs: edit.draft.attachment_refs },
+        } : undefined;
       restored.push({
         payload: {
-          schema_version: 2, type: 'submit', mode: 'append',
+          schema_version: 2, type: 'submit', mode: payload.mode,
           submission_id: payload.submission_id, message_id: payload.message_id,
-          subject_id: payload.subject_id, content: payload.content, attachment_refs: [],
+          subject_id: payload.subject_id, content: payload.content,
+          attachment_refs: (payload.attachment_refs as WebAttachmentRef[]).map(({ digest, name, media_type, bytes }) => ({ digest, name, media_type, bytes })),
           ...(typeof payload.observed_step_id === 'string'
             ? { observed_step_id: payload.observed_step_id } : {}),
         },
@@ -74,6 +124,7 @@ export function storedSubmissions(): Submission[] {
           ? m('restore.rejected')
           : m('restore.submission'),
         send_epoch: validRevision(saved.send_epoch) ? saved.send_epoch : 0,
+        ...(restoredEdit ? { edit: restoredEdit } : {}),
       });
     }
   } catch {

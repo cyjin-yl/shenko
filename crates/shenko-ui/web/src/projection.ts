@@ -93,6 +93,12 @@ export type TaskSummary = {
   created_by_step_id?: string | null;
   created_at: string;
   terminal_at?: string | null;
+  /** The name the delegator gave a delegated task, from its frozen input. */
+  name?: string | null;
+  /** Its team: tasks one decision started with the same team are peers. */
+  team?: string | null;
+  /** The first line of a delegated task's goal, from its frozen input. */
+  goal?: string | null;
 };
 
 // Durable admission stages: accepted/selected/committed are
@@ -191,8 +197,29 @@ export interface SubmissionPayload {
   subject_id: string;
   mode: 'append' | 'steer';
   content: string;
-  attachment_refs: [];
+  attachment_refs: WebAttachmentRef[];
   observed_step_id?: string;
+}
+
+/** A file the server sealed for the owner; a submission may name it. */
+export interface WebAttachmentRef {
+  digest: string;
+  name: string;
+  media_type: string;
+  bytes: number;
+}
+
+/** A file in the composer: uploading, sealed and ready, or failed. */
+export interface PendingAttachment {
+  local_id: string;
+  name: string;
+  media_type: string;
+  bytes: number;
+  status: 'uploading' | 'ready' | 'failed';
+  ref?: WebAttachmentRef;
+  /** A local object URL for an image preview; never sent anywhere. */
+  preview?: string;
+  error?: string;
 }
 
 /** Where an admitted input is actually handled (placement). */
@@ -221,6 +248,15 @@ export interface Submission {
   committed_at?: string;
   placement?: SubmissionPlacement;
   withdrawal?: WithdrawalView;
+  /** Browser recovery only; never included in the submit/withdraw wire. */
+  edit?: {
+    cancel_id: string;
+    /** closed: queued cancellation or cleared draft; retired: replacement disposed. */
+    state: 'pending' | 'ready' | 'editing' | 'finished' | 'closed' | 'retired';
+    submission_id: string;
+    message_id: string;
+    draft: { content: string; attachment_refs: WebAttachmentRef[] };
+  };
   // Correlation between this client's send attempts and the query_replies:
   // a view for an older attempt must not undo a newer send's restored ACK.
   send_epoch: number;
@@ -434,6 +470,8 @@ export interface UiState {
   submissions: Submission[];
   submission_history?: SubmissionHistoryState;
   draft: string;
+  /** Files in the composer, in the order the owner added them. */
+  attachments: PendingAttachment[];
   config?: ConfigView;
   config_error: boolean;
   /// Registered configuration keys with their saved/adopted/running facts.
@@ -620,7 +658,10 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
     const refs: string[] = [];
     let retryAction: string | undefined;
     let withdrawAction: string | undefined;
-    if (submission.receipt === 'rejected' || submission.receipt === 'unknown') {
+    const hasReplacement = submission.edit && state.submissions.some(
+      (row) => row.payload.submission_id === submission.edit?.submission_id);
+    if ((!submission.edit || !hasReplacement && submission.edit.state === 'pending' && !submission.withdrawal)
+      && (submission.receipt === 'rejected' || submission.receipt === 'unknown')) {
       retryAction = addAction(
         actions,
         `submission.retry.${submission.payload.submission_id}`,
@@ -632,7 +673,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       refs.push(retryAction);
     }
     const withdrawable = ['sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)
-      && !submission.withdrawal;
+      && !submission.withdrawal && !submission.edit;
     if (withdrawable && state.capabilities.withdraw) {
       withdrawAction = addAction(
         actions,
@@ -644,10 +685,28 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       );
       refs.push(withdrawAction);
     }
+    // Pending edits retry the same cancel, never the original submit. Ready
+    // edits remain recoverable when another draft occupies the composer.
+    let editAction: string | undefined;
+    const recoverableEdit = submission.edit && !hasReplacement && ['pending', 'ready'].includes(submission.edit.state)
+      && (!submission.withdrawal || submission.withdrawal.cancel_id === submission.edit.cancel_id
+        && submission.withdrawal.result === 'withdrawn_before_presentation');
+    if (recoverableEdit || !submission.edit && ['sent', 'accepted'].includes(submission.receipt)
+      && !submission.withdrawal && state.capabilities.withdraw) {
+      editAction = addAction(
+        actions,
+        `submission.edit.${submission.payload.submission_id}`,
+        'submission.edit',
+        `edit:${submission.payload.submission_id}:${submission.edit?.state ?? 'new'}:${semanticHash(submission.payload.content)}`,
+        submission.edit?.state === 'ready' || state.connection === 'online' && state.capabilities.withdraw,
+        { submission_id: submission.payload.submission_id },
+      );
+      refs.push(editAction);
+    }
     return node(
       `submission.${submission.payload.submission_id}`,
       'user_submission',
-      { submission, retry_action: retryAction, withdraw_action: withdrawAction },
+      { submission, retry_action: retryAction, withdraw_action: withdrawAction, edit_action: editAction },
       [],
       { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
     );
@@ -861,14 +920,21 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     state.append_available &&
     state.durable_receipts &&
     Boolean(state.subject_id) &&
-    draft.trim().length > 0;
+    // Every file must be sealed before the message can name it; a failed
+    // upload stays until the owner removes or retries it.
+    state.attachments.every((item) => item.status === 'ready') &&
+    (draft.trim().length > 0 || state.attachments.length > 0);
+  const attachmentKey = state.attachments.map((item) => item.ref?.digest ?? item.local_id).join(',');
   const appendAction = addAction(
     actions,
     'composer.append',
     'composer.append',
-    `append:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}`,
+    `append:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}:${semanticHash(attachmentKey)}`,
     canAppend,
   );
+  const canAttach = state.source === 'live' && state.connection === 'online' && state.capabilities.attachments;
+  const attachAction = addAction(actions, 'composer.attach', 'composer.attach', 'display-v1', canAttach);
+  const detachAction = addAction(actions, 'composer.detach', 'composer.detach', 'display-v1', true);
   const canSteer = canAppend && state.capabilities.steer;
   const steerAction = addAction(
     actions,
@@ -892,12 +958,16 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       steer_action: steerAction,
       steer_enabled: canSteer,
       steer_available: state.source === 'live' && state.capabilities.steer,
+      attachments: state.attachments,
+      attach_action: attachAction,
+      attach_enabled: canAttach,
+      detach_action: detachAction,
       append_offered: state.append_available && state.durable_receipts,
       streaming: state.streaming,
     },
     [],
     {
-      action_refs: [draftAction, appendAction, steerAction],
+      action_refs: [draftAction, appendAction, steerAction, attachAction, detachAction],
       a11y: { label: m('composer.appendLabel') },
       layout: { hidden: false },
     },

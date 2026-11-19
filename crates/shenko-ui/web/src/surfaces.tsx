@@ -10,6 +10,7 @@ import type {
   UiProjection,
 } from './projection';
 import { ConfigEntries } from './config-panel';
+import { taskStateLabel } from './threads';
 import {
   readContentRevisionDisclosure,
   readRevisionDisclosure,
@@ -88,7 +89,7 @@ export function TasksSurface({ node }: { node?: UiNode }) {
                   <span className="row-title">{String(task.kind ?? '—')}</span>
                   <code className="row-sub">{String(task.task_id ?? '—')}</code>
                 </span>
-                <span className="row-state" data-state={String(task.state ?? 'unknown')}>{String(task.state ?? t('common.unknown'))}</span>
+                <span className="row-state" data-state={String(task.state ?? 'unknown')}>{taskStateLabel(task.state)}</span>
                 <time className="row-time">{formatStamp(task.created_at)}</time>
               </li>
             ))}</ul>}

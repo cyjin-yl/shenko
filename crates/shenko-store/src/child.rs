@@ -44,6 +44,8 @@ pub const COGNITION_IMPORTED: &str = "cognition_imported";
 pub const CHILD_DIALOGUE_CONTRACT: &str = "shenko.child/dialogue/1";
 /// The task memo that holds the messages delivered to this endpoint.
 pub const DIALOGUE_INBOX: &str = "child_dialogue_inbox";
+/// The largest dialogue body a finite child can read without truncation.
+pub const MAX_CHILD_DIALOGUE_BYTES: usize = 64 * 1024;
 
 /// One delivered message, bound to the endpoint it was delivered to.
 ///
@@ -67,6 +69,57 @@ pub struct DialogueDelivery {
     /// The authority the endpoint ran under.
     pub authority_delegation_id: Option<EntityId>,
     pub delivered_at: chrono::DateTime<chrono::Utc>,
+    /// The peer child that wrote the message. `None` is the subject: the
+    /// message came from a subject step (`sender_step_id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_task_id: Option<EntityId>,
+    /// The name the sender goes by in its team, when it is a peer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
+}
+
+/// The task memo where a child records what became of each message it sent
+/// to a peer. It is written in the same transaction as the delivery, so a
+/// retried send after a crash finds its own earlier outcome and never
+/// delivers the same message twice.
+pub const PEER_OUTBOX: &str = "child_peer_outbox";
+
+/// What became of one message a child sent to a peer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeerSend {
+    pub message_id: EntityId,
+    /// The sender step that wrote the message.
+    pub step_index: u32,
+    /// The peer name the sender used.
+    pub to: String,
+    /// The recipient task, when the name resolved to one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient_task_id: Option<EntityId>,
+    /// `delivered`, or `undelivered` with a reason code: `unknown_name`,
+    /// `ambiguous_name` (from the runtime's resolution), `missing`,
+    /// `foreign`, `cancelled`, `finished` or `message_too_large`. Codes, not
+    /// prose: the reader renders them in its own words.
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// One message a child addresses to a peer, as the runtime hands it to the
+/// store. The recipient is already resolved by the child runtime, which
+/// owns what a team is; the store owns only the atomic, idempotent write.
+#[derive(Debug, Clone)]
+pub struct PeerMessage {
+    pub message_id: EntityId,
+    pub sender_task_id: EntityId,
+    pub sender_name: String,
+    /// The sender's step operation that wrote the message.
+    pub sender_operation_id: EntityId,
+    pub step_index: u32,
+    pub to: String,
+    pub recipient_task_id: Option<EntityId>,
+    /// Why the name resolved to no recipient, as a reason code.
+    pub unresolved_reason: Option<String>,
+    pub message: String,
 }
 
 /// Atomic send-boundary transition recorded in the task ledger itself.
@@ -193,6 +246,242 @@ impl Store {
             return Ok(vec![]);
         };
         Ok(serde_json::from_value(value.clone())?)
+    }
+
+    /// The frozen input a native task runs with, read from where its
+    /// admission put it: inside the subject decision that delegated it, or as
+    /// the task's own sealed object. The store wrote that encoding, so the
+    /// store reads it; the runtime, the trajectory view and a child reading
+    /// its team peers all use this one reader.
+    pub fn native_task_input(&self, task: &TaskRecord) -> Result<serde_json::Value> {
+        let bytes = self.cas.read_object(&task.input_ref.digest)?;
+        ensure!(
+            bytes.len() as u64 == task.input_ref.bytes
+                && Digest::blake3(&bytes) == task.input_ref.digest,
+            "native_input_object_mismatch"
+        );
+        match task
+            .memos
+            .get(NATIVE_INPUT)
+            .and_then(|value| value.as_str())
+        {
+            Some("subject_decision") => {
+                let decision: shenko_types::subject::StepDecision = serde_json::from_slice(&bytes)?;
+                // Existing finite children can still hold an immutable schema-4
+                // S1 decision. Waits use schema 6, model children schema 7,
+                // versioned publication targets schema 8 and reconciliation
+                // acknowledgements schema 9; all bind the same native
+                // delegation field without rewriting the historical CAS object.
+                ensure!(
+                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
+                    "unsupported_decision_schema"
+                );
+                let intent = decision
+                    .delegated_task_intents
+                    .iter()
+                    .find(|intent| intent.intent_id == task.task_id)
+                    .context("native_delegation_missing_from_frozen_decision")?;
+                let definition = intent
+                    .definition
+                    .as_ref()
+                    .context("missing_explicit_native_definition")?;
+                ensure!(
+                    definition.kind == task.kind
+                        && definition.definition_version == task.definition_version,
+                    "native_definition_identity_mismatch"
+                );
+                Ok(definition.input.clone())
+            }
+            Some("object") => Ok(serde_json::from_slice(&bytes)?),
+            _ => anyhow::bail!("unknown_native_input_encoding"),
+        }
+    }
+
+    /// What became of the messages this child sent to its peers.
+    pub fn peer_outbox(&self, task_id: EntityId) -> Result<Vec<PeerSend>> {
+        let task = self.external_task(task_id)?;
+        Ok(task
+            .memos
+            .get(PEER_OUTBOX)
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()?
+            .unwrap_or_default())
+    }
+
+    /// Deliver one message from a child to a peer, and record its outcome on
+    /// the sender, in one transaction.
+    ///
+    /// The sender's outbox is the idempotency record: a message id that is
+    /// already there returns its recorded outcome, so a retry after a crash
+    /// never delivers twice even when the recipient has since read and
+    /// removed it. A recipient that is missing, belongs to another subject,
+    /// was cancelled or already finished is an honest `undelivered` fact; the
+    /// message is never handed to a newer authority. Delivering wakes a
+    /// recipient parked on its discussion. Recorded outcomes remain readable
+    /// after cancellation, dispatcher replacement or writer closure; only a
+    /// fresh send requires the sender's current invocation and authority.
+    pub fn deliver_peer_dialogue(
+        &self,
+        ctx: &TaskInvocation,
+        message: &PeerMessage,
+    ) -> Result<PeerSend> {
+        if let Some(done) = self.peer_outbox(message.sender_task_id)?
+            .into_iter().find(|sent| sent.message_id == message.message_id)
+        {
+            return Ok(done);
+        }
+        ensure!(ctx.task_id == message.sender_task_id, "peer message invocation task mismatch");
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let Some(mut sender) = read_task(&tx, message.sender_task_id)? else {
+                    anyhow::bail!(
+                        "peer message sender {} does not exist",
+                        message.sender_task_id
+                    );
+                };
+                let mut outbox: Vec<PeerSend> = sender
+                    .memos
+                    .get(PEER_OUTBOX)
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?
+                    .unwrap_or_default();
+                if let Some(done) = outbox
+                    .iter()
+                    .find(|sent| sent.message_id == message.message_id)
+                {
+                    return Ok(done.clone());
+                }
+                ensure!(self.native_invocation_current_tx(&tx, &sender, ctx)?,
+                    "stale peer message invocation");
+                ensure!(!memo_flag(&sender, NATIVE_SETTLEMENT_ONLY),
+                    "settlement invocation cannot send a peer message");
+                ensure!(!message.message.trim().is_empty(), "empty peer message");
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                let undelivered = |reason: &str| PeerSend {
+                    message_id: message.message_id,
+                    step_index: message.step_index,
+                    to: message.to.clone(),
+                    recipient_task_id: message.recipient_task_id,
+                    state: "undelivered".into(),
+                    reason: Some(reason.into()),
+                };
+                // Refuse oversized bodies before publishing a peer inbox entry.
+                let outcome = match message.recipient_task_id {
+                    _ if message.message.len() > MAX_CHILD_DIALOGUE_BYTES => {
+                        undelivered("message_too_large")
+                    }
+                    None => undelivered(
+                        message
+                            .unresolved_reason
+                            .as_deref()
+                            .unwrap_or("unknown_name"),
+                    ),
+                    Some(recipient_id) => match read_task(&tx, recipient_id)? {
+                        None => undelivered("missing"),
+                        Some(recipient) if recipient.agent_id != sender.agent_id => {
+                            undelivered("foreign")
+                        }
+                        Some(recipient) if recipient.abort_request.is_some() => {
+                            undelivered("cancelled")
+                        }
+                        Some(recipient) if recipient.is_terminal() => undelivered("finished"),
+                        Some(mut recipient) => {
+                            let mut inbox: Vec<DialogueDelivery> = recipient
+                                .memos
+                                .get(DIALOGUE_INBOX)
+                                .map(|value| serde_json::from_value(value.clone()))
+                                .transpose()?
+                                .unwrap_or_default();
+                            inbox.push(DialogueDelivery {
+                                intent_id: message.message_id,
+                                target_task_id: recipient.task_id,
+                                message: message.message.clone(),
+                                in_reply_to: None,
+                                sender_step_id: message.sender_operation_id,
+                                target_revision: recipient.record_revision.0,
+                                target_invocation_id: match &recipient.state {
+                                    TaskState::Running { invocation_id, .. } => {
+                                        Some(*invocation_id)
+                                    }
+                                    _ => None,
+                                },
+                                authority_delegation_id: Some(match &recipient.owner {
+                                    TaskOwner::Task { id } => *id,
+                                    TaskOwner::Conversation { id } => *id,
+                                }),
+                                delivered_at: chrono::Utc::now(),
+                                sender_task_id: Some(message.sender_task_id),
+                                sender_name: Some(message.sender_name.clone()),
+                            });
+                            recipient
+                                .memos
+                                .insert(DIALOGUE_INBOX.into(), serde_json::to_value(&inbox)?);
+                            if matches!(
+                                recipient.dispatch_eligibility,
+                                DispatchEligibility::Parked { .. }
+                            ) {
+                                recipient.dispatch_eligibility = DispatchEligibility::Ready;
+                            }
+                            recipient.record_revision = recipient.record_revision.next();
+                            recipient.updated_commit = commit;
+                            write_task(&tx, &recipient)?;
+                            PeerSend {
+                                message_id: message.message_id,
+                                step_index: message.step_index,
+                                to: message.to.clone(),
+                                recipient_task_id: Some(recipient.task_id),
+                                state: "delivered".into(),
+                                reason: None,
+                            }
+                        }
+                    },
+                };
+                outbox.push(outcome.clone());
+                sender
+                    .memos
+                    .insert(PEER_OUTBOX.into(), serde_json::to_value(&outbox)?);
+                sender.record_revision = sender.record_revision.next();
+                sender.updated_commit = commit;
+                write_task(&tx, &sender)?;
+                child_log(&tx, self, commit, 1)?;
+                tx.commit()?;
+                Ok(outcome)
+            },
+            storage_failure,
+        )
+    }
+
+    /// The other tasks one decision started for the same owner: the
+    /// candidates for a child's team. Which of them are peers is the child
+    /// runtime's call (it reads their frozen contracts); this is only the
+    /// structural neighbourhood, oldest first.
+    pub fn sibling_tasks(&self, task_id: EntityId) -> Result<Vec<TaskRecord>> {
+        let task = self.external_task(task_id)?;
+        let Some(step) = task.created_by_step_id else {
+            return Ok(vec![]);
+        };
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT data FROM tasks \
+             WHERE json_extract(data,'$.created_by_step_id') = ?1 AND task_id != ?2 \
+             ORDER BY created_at, task_id",
+        )?;
+        let rows = stmt
+            .query_map(params![step.to_string(), task_id.to_string()], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut out = Vec::new();
+        for data in rows {
+            let sibling: TaskRecord = serde_json::from_str(&data)?;
+            if sibling.owner == task.owner && sibling.kind == task.kind {
+                out.push(sibling);
+            }
+        }
+        Ok(out)
     }
 
     /// The endpoint took the delivered messages. The intent rows become

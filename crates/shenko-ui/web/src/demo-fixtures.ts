@@ -1,3 +1,4 @@
+import type { FileEntry, FileRoot, FileSource } from './files-view';
 import type { ConversationRow, DemoThreadData, TrajectoryResponse } from './threads';
 
 const demoConversations: ConversationRow[] = (() => {
@@ -15,7 +16,37 @@ const demoConversations: ConversationRow[] = (() => {
 
 /// The simulated projection's one delegation, so `?demo=1` can show a group
 /// thread; it is never used for a live subject.
+export const DEMO_TEAM = { step: 'demo-step-43', team: '核对组', members: [
+  { task_id: '7c1e0b22-demo-team-a', name: '甲', goal: '检查 alpha 数据集的缺失值。' },
+  { task_id: '9d4f3a17-demo-team-b', name: '乙', goal: '复核甲的检查结果。' },
+] } as const;
+
+function demoTeamTrajectory(member: (typeof DEMO_TEAM.members)[number]): TrajectoryResponse {
+  const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString();
+  const step = (index: number, seconds: number, record: Record<string, unknown>) => ({
+    operation_id: `${member.task_id}-step-${index}`, operation_name: 'model.child.generate.v1', logical_key: `step/${index}`,
+    state: 'resolved', outcome: 'succeeded', attempts: 1, record_status: 'sealed', observed_at: ago(seconds),
+    record: { schema_version: 1, step_index: index, ...record },
+  });
+  const operations = member.name === '甲'
+    ? [
+      step(0, 300, { text: '先扫一遍每列的缺失率。', tells: [{ to: '乙', message: 'alpha 第 3 列缺失 12%，其余都在 1% 以下。' }], wait: '乙的复核' }),
+      step(1, 150, { text: '乙复核一致。结论：补齐第 3 列后再进下一步。' }),
+    ]
+    : [
+      step(0, 320, { text: '', wait: '甲的检查结果' }),
+      step(1, 200, { text: '我抽样复算了第 3 列。', tells: [{ to: '甲', message: '复核一致：第 3 列 12%，建议按中位数补齐。' }] }),
+    ];
+  return {
+    task: { task_id: member.task_id, kind: 'model.child', role: 'delegation', state: 'terminal', created_at: ago(330),
+      created_by_step_id: DEMO_TEAM.step, name: member.name, team: DEMO_TEAM.team },
+    input: null, brief: member.goal, children: [], operations,
+  };
+}
+
 export function demoTrajectory(taskId: string): TrajectoryResponse {
+  const member = DEMO_TEAM.members.find((item) => item.task_id === taskId);
+  if (member) return demoTeamTrajectory(member);
   const at = new Date(Date.now() - 60_000).toISOString();
   const goal = '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。';
   const step = (index: number, record: Record<string, unknown>) => ({
@@ -24,7 +55,7 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
     record: { schema_version: 1, step_index: index, ...record },
   });
   return {
-    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at },
+    task: { task_id: taskId, kind: 'model.child', role: 'delegation', state: 'running', created_at: at, name: taskId.startsWith('3f2a') ? '整理员' : null },
     input: { goal }, brief: goal,
     children: [{ task_id: `${taskId}-tool`, kind: 'memory.recall', role: 'tool', state: 'succeeded', created_at: at }],
     operations: [
@@ -34,4 +65,39 @@ export function demoTrajectory(taskId: string): TrajectoryResponse {
   };
 }
 
-export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory };
+const secondsAgo = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString();
+const DEMO_ROOTS: FileRoot[] = [
+  { id: 'mount:/home', label: 'home', kind: 'home', protocol: 'wasm_home', guest_path: '/home', mode: 'read_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/memory', label: 'memory', kind: 'mount', protocol: 'local', guest_path: '/memory', mode: 'read_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/nas', label: 'nas', kind: 'mount', protocol: 'smb', guest_path: '/nas', mode: 'read_only', writable: false, browsable: true, note: null },
+  { id: 'mount:/lab', label: 'lab', kind: 'mount', protocol: 'sshfs', guest_path: '/lab', mode: 'copy_on_write', writable: true, browsable: true, note: null },
+  { id: 'mount:/mac', label: 'mac', kind: 'mount', protocol: 'shared_folder', guest_path: '/mac', mode: 'read_only', writable: false, browsable: true, note: null },
+  { id: 'node:1cat', label: '1cat · home', kind: 'node', protocol: 'ssh', guest_path: '/srv/shenko/home', mode: null, writable: false, browsable: false, note: '示例节点：浏览其他节点的文件尚未接通' },
+];
+const DEMO_TREE: Record<string, Array<Omit<FileEntry, 'id'>>> = {
+  'mount:/home:': [
+    { name: 'notes', kind: 'dir', bytes: 0, modified: secondsAgo(3600) },
+    { name: 'projects', kind: 'dir', bytes: 0, modified: secondsAgo(7200) },
+    { name: 'startup-order.md', kind: 'file', bytes: 2148, modified: secondsAgo(600) },
+    { name: 'merge-plan.json', kind: 'file', bytes: 734, modified: secondsAgo(320) },
+  ],
+  'mount:/home:6e6f746573': [
+    { name: '2026-11-12-deploy.md', kind: 'file', bytes: 5120, modified: secondsAgo(86400 * 7) },
+    { name: 'cold-cache.md', kind: 'file', bytes: 911, modified: secondsAgo(1800) },
+  ],
+  'mount:/memory:': [{ name: 'observations', kind: 'dir', bytes: 0, modified: secondsAgo(400) }],
+  'mount:/nas:': [{ name: 'papers', kind: 'dir', bytes: 0, modified: secondsAgo(86400 * 30) }, { name: 'qwen3.8-27b.gguf', kind: 'file', bytes: 17_400_000_000, modified: secondsAgo(86400 * 20) }],
+  'mount:/lab:': [{ name: 'runs', kind: 'dir', bytes: 0, modified: secondsAgo(5000) }],
+  'mount:/mac:': [{ name: 'Desktop', kind: 'dir', bytes: 0, modified: secondsAgo(9000) }],
+};
+const demoFiles: FileSource = {
+  async roots() { return { available: true, roots: DEMO_ROOTS, nodes_known: true }; },
+  async list(root, path) {
+    const entries = (DEMO_TREE[`${root}:${path}`] ?? []).map((entry) => ({
+      ...entry, id: Array.from(new TextEncoder().encode(entry.name), (byte) => byte.toString(16).padStart(2, '0')).join(''),
+    }));
+    return { available: true, entries, truncated: false };
+  },
+};
+
+export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory, files: demoFiles };

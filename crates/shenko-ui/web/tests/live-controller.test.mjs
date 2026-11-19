@@ -819,3 +819,415 @@ test('history pages sharing one import commit retain every ID in SQLite binary o
   assert.equal([...storage.keys()].some((key) => key.startsWith('shenko.submission.v2.')), false);
   assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
 });
+
+const editAttachment = {
+  digest: `blake3:${'a'.repeat(64)}`, name: 'admitted.txt', media_type: 'text/plain', bytes: 7,
+};
+
+async function editableFixture(t, history) {
+  const env = environment(t);
+  if (history) {
+    const fetch = globalThis.fetch;
+    globalThis.fetch = async (path, options) => String(path).startsWith('/api/submissions?')
+      ? new Response(JSON.stringify({ available: true, subject_id: 'fixture-subject',
+        total: history.length, items: history, has_older: false, next_before: null }))
+      : fetch(path, options);
+  }
+  const original = { schema_version: 2, type: 'submit', mode: 'append',
+    submission_id: 'edit-original', message_id: 'edit-message', subject_id: 'fixture-subject',
+    content: 'Original admitted input', attachment_refs: [editAttachment] };
+  env.storage.set(`shenko.submission.v2.${original.submission_id}`, JSON.stringify({
+    payload: original, created_at: '2026-11-19T00:00:00Z', receipt: 'accepted', send_epoch: 1,
+  }));
+  const controller = createLiveController();
+  t.after(() => controller.dispose());
+  await setImmediate();
+  const socket = env.sockets[0];
+  openEditable(socket);
+  view(socket, original, 'accepted');
+  return { ...env, controller, socket, original };
+}
+
+function openEditable(socket) {
+  socket.open();
+  socket.receive({ schema_version: 2, type: 'hello', capabilities: {
+    append: true, withdraw: true, attachments: true, durable_input_receipts: true, committed_replay: true,
+  } });
+}
+
+function editRow(controller) {
+  return timelineNode(controller).children.find((row) => row.node_id === 'submission.edit-original');
+}
+
+function chooseEdit(controller) {
+  const row = editRow(controller);
+  intent(controller, row.node_id, row.props.edit_action);
+}
+
+function composer(controller) {
+  return controller.projection().nodes.find((node) => node.node_id === 'composer').props;
+}
+
+test('queued edit leaves the prior state intact when the socket is unavailable', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  intent(controller, 'composer', 'composer.draft', { value: 'Another draft' });
+  // The action was projected online, but the real socket closed before dispatch.
+  socket.readyState = 3;
+  chooseEdit(controller);
+  assert.equal(composer(controller).draft, 'Another draft');
+  assert.equal(editRow(controller).props.submission.edit, undefined);
+  assert.deepEqual(editRow(controller).props.submission.payload, original);
+  assert.equal(socket.sent.some((message) => message.type === 'withdraw' || message.type === 'submit'), false);
+  assert.deepEqual(JSON.parse(storage.get('shenko.submission.v2.edit-original')).payload, original);
+  socket.readyState = 1;
+  const setItem = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('storage refused'); };
+  chooseEdit(controller);
+  localStorage.setItem = setItem;
+  assert.equal(editRow(controller).props.submission.edit, undefined);
+  assert.equal(composer(controller).draft, 'Another draft');
+  assert.equal(socket.sent.some((message) => message.type === 'withdraw' || message.type === 'submit'), false);
+});
+
+test('queued edit retains one cancel through transport failure refusal and queued selection', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  const send = socket.send.bind(socket);
+  socket.send = (text) => {
+    if (JSON.parse(text).type === 'withdraw') throw new Error('lost withdrawal transport');
+    send(text);
+  };
+  chooseEdit(controller);
+  const cancelId = JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.cancel_id;
+  assert.equal(composer(controller).draft, '');
+  for (const result of ['temporarily_unavailable', 'invalid', 'not_admitted']) {
+    socket.receive({ schema_version: 2, type: 'submission_view', result,
+      submission_id: original.submission_id });
+    assert.equal(composer(controller).draft, '', result);
+    assert.deepEqual(editRow(controller).props.submission.payload, original);
+    assert.ok(editRow(controller).props.edit_action, `${result} retains same-cancel Edit`);
+  }
+  socket.send = send;
+  chooseEdit(controller);
+  assert.equal(socket.sent.filter((message) => message.type === 'withdraw').at(-1).cancel_id, cancelId);
+  const withdrawal = { cancel_id: cancelId, commit_ref: 'ledger/4', result: 'withdrawal_queued' };
+  view(socket, original, 'selected', { selected_step_id: 'already-selected', withdrawal });
+  view(socket, original, 'selected', { selected_step_id: 'already-selected', withdrawal });
+  assert.equal(composer(controller).draft, '');
+  assert.deepEqual(composer(controller).attachments, []);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
+  assert.equal(editRow(controller).props.edit_action, undefined, 'queued cancellation cannot safely edit');
+  assert.deepEqual(JSON.parse(storage.get('shenko.submission.v2.edit-original')).payload, original);
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'closed');
+  view(socket, original, 'committed', { committed_at: 'ledger/6', withdrawal });
+  assert.equal(storage.has('shenko.submission.v2.edit-original'), false);
+  const queries = socket.sent.filter((message) => message.type === 'query_submission').length;
+  t.mock.timers.tick(6000);
+  assert.equal(socket.sent.filter((message) => message.type === 'query_submission').length, queries,
+    'a queued edit stops querying after original disposition');
+});
+
+test('queued edit restores exact attachments only after its durable cancel and ignores replay', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  for (const withdrawal of [
+    { cancel_id: cancel.cancel_id, result: 'withdrawn_before_presentation' },
+    { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'unknown' },
+    { cancel_id: 'different-cancel', commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' },
+  ]) {
+    view(socket, original, 'accepted', { withdrawal });
+    assert.equal(composer(controller).draft, '');
+    assert.deepEqual(composer(controller).attachments, []);
+  }
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  assert.equal(composer(controller).draft, original.content);
+  assert.deepEqual(composer(controller).attachments.map((item) => item.ref), original.attachment_refs);
+  assert.deepEqual(editRow(controller).props.submission.payload, original);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
+  intent(controller, 'composer', 'composer.draft', { value: 'Edited content' });
+  view(socket, original, 'accepted', { withdrawal });
+  assert.equal(composer(controller).draft, 'Edited content');
+  const saved = JSON.parse(storage.get('shenko.submission.v2.edit-original'));
+  assert.equal(saved.edit.draft.content, 'Edited content');
+  intent(controller, 'composer', 'composer.append');
+  intent(controller, 'composer', 'composer.append');
+  const replacements = socket.sent.filter((message) => message.type === 'submit');
+  assert.equal(replacements.length, 1);
+  assert.equal(replacements[0].submission_id, saved.edit.submission_id);
+  assert.notEqual(replacements[0].submission_id, original.submission_id);
+  assert.equal(replacements[0].content, 'Edited content');
+  assert.deepEqual(replacements[0].attachment_refs, original.attachment_refs);
+  view(socket, original, 'accepted', { withdrawal });
+  assert.equal(composer(controller).draft, '');
+});
+
+test('queued edit reopens by original identity and preserves an occupied composer until recovery', async (t) => {
+  const { controller: first, sockets, socket, original, storage } = await editableFixture(t);
+  chooseEdit(first);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  first.dispose();
+  const reopened = createLiveController();
+  t.after(() => reopened.dispose());
+  await setImmediate();
+  const next = sockets[1];
+  openEditable(next);
+  assert.ok(next.sent.some((message) => message.type === 'query_submission'
+    && message.submission_id === original.submission_id));
+  assert.equal(next.sent.some((message) => message.type === 'submit' || message.type === 'withdraw'), false);
+  intent(reopened, 'composer', 'composer.draft', { value: 'Keep this draft' });
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(next, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  assert.equal(composer(reopened).draft, 'Keep this draft');
+  assert.deepEqual(composer(reopened).attachments, []);
+  assert.ok(editRow(reopened).props.edit_action);
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'ready');
+  intent(reopened, 'composer', 'composer.draft', { value: '' });
+  chooseEdit(reopened);
+  assert.equal(composer(reopened).draft, original.content);
+  assert.deepEqual(composer(reopened).attachments.map((item) => item.ref), original.attachment_refs);
+  intent(reopened, 'composer', 'composer.draft', { value: 'Survives another reopen' });
+  reopened.dispose();
+  const again = createLiveController();
+  t.after(() => again.dispose());
+  await setImmediate();
+  const last = sockets[2];
+  openEditable(last);
+  assert.equal(composer(again).draft, '');
+  view(last, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  assert.equal(composer(again).draft, 'Survives another reopen');
+  assert.deepEqual(composer(again).attachments.map((item) => item.ref), original.attachment_refs);
+  assert.equal(last.sent.some((message) => message.type === 'submit'), false);
+});
+
+test('queued edit replacement transport failure retains one ID and exact attachment retry', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  view(socket, original, 'accepted', { withdrawal: { cancel_id: cancel.cancel_id,
+    commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' } });
+  const reservedId = JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.submission_id;
+  const send = socket.send.bind(socket);
+  socket.send = (text) => {
+    if (JSON.parse(text).type === 'submit') throw new Error('lost replacement transport');
+    send(text);
+  };
+  intent(controller, 'composer', 'composer.append');
+  assert.equal(composer(controller).draft, '');
+  const saved = JSON.parse(storage.get(`shenko.submission.v2.${reservedId}`));
+  assert.equal(saved.payload.submission_id, reservedId);
+  assert.deepEqual(saved.payload.attachment_refs, original.attachment_refs);
+  socket.send = send;
+  const row = timelineNode(controller).children.find((entry) => entry.node_id === `submission.${reservedId}`);
+  intent(controller, row.node_id, row.props.retry_action);
+  assert.deepEqual(socket.sent.filter((message) => message.type === 'submit'), [saved.payload]);
+});
+
+test('queued edit freezes a saved replacement across failed finish save retry and reopen', async (t) => {
+  const { controller, socket, sockets, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  const id = JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.submission_id;
+  const key = `shenko.submission.v2.${id}`;
+  const browserStorage = localStorage;
+  const setItem = browserStorage.setItem;
+  browserStorage.setItem = (recordKey, value) => {
+    if (recordKey === 'shenko.submission.v2.edit-original' && JSON.parse(value).edit?.state === 'finished') {
+      throw new Error('original finish save refused');
+    }
+    setItem(recordKey, value);
+  };
+  t.after(() => { browserStorage.setItem = setItem; });
+  intent(controller, 'composer', 'composer.append');
+  const frozen = JSON.parse(storage.get(key)).payload;
+  assert.deepEqual(frozen.attachment_refs, original.attachment_refs);
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'editing');
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
+  assert.equal(composer(controller).draft, '');
+  assert.equal(editRow(controller).props.edit_action, undefined);
+  assert.equal(editRow(controller).props.retry_action, undefined);
+  intent(controller, 'composer', 'composer.draft', { value: 'Independent later draft' });
+  const retry = (target) => {
+    const row = timelineNode(target).children.find((entry) => entry.node_id === `submission.${id}`);
+    intent(target, row.node_id, row.props.retry_action);
+  };
+  retry(controller);
+  assert.deepEqual(JSON.parse(storage.get(key)).payload, frozen);
+  assert.equal(socket.sent.some((message) => message.type === 'submit'), false);
+  controller.dispose();
+  const reopened = createLiveController();
+  t.after(() => reopened.dispose());
+  await setImmediate();
+  const next = sockets[1];
+  openEditable(next);
+  assert.equal(editRow(reopened).props.edit_action, undefined);
+  view(next, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  next.receive({ schema_version: 2, type: 'submission_view', result: 'not_admitted', submission_id: id });
+  assert.equal(composer(reopened).draft, 'Independent later draft');
+  retry(reopened);
+  assert.equal(next.sent.some((message) => message.type === 'submit'), false);
+  assert.deepEqual(JSON.parse(storage.get(key)).payload, frozen);
+  localStorage.setItem = setItem;
+  retry(reopened);
+  assert.deepEqual(next.sent.filter((message) => message.type === 'submit'), [frozen]);
+  assert.equal(composer(reopened).draft, 'Independent later draft');
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'finished');
+  view(next, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  assert.ok(storage.has('shenko.submission.v2.edit-original'), 'source link survives original disposition');
+  view(next, { submission_id: id }, 'committed', { committed_at: 'ledger/9' });
+  assert.equal(storage.has(key), false);
+  assert.equal(storage.has('shenko.submission.v2.edit-original'), false);
+  view(next, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  assert.equal(storage.has('shenko.submission.v2.edit-original'), false, 'source replay does not resurrect recovery');
+});
+
+test('queued edit replacement absence rejected and conflict never restore a second draft', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  intent(controller, 'composer', 'composer.append');
+  const replacement = socket.sent.find((message) => message.type === 'submit');
+  view(socket, original, 'committed', { withdrawal, committed_at: 'ledger/5' });
+  assert.ok(storage.has('shenko.submission.v2.edit-original'));
+  socket.receive({ schema_version: 2, type: 'submission_view', result: 'not_admitted',
+    submission_id: replacement.submission_id });
+  assert.equal(composer(controller).draft, '');
+  for (const stage of ['rejected', 'conflict']) {
+    socket.receive({ schema_version: 2, type: 'receipt', stage, submission_id: replacement.submission_id });
+    assert.equal(composer(controller).draft, '', stage);
+    assert.deepEqual(composer(controller).attachments, []);
+    assert.deepEqual(JSON.parse(storage.get(`shenko.submission.v2.${replacement.submission_id}`)).payload, replacement);
+  }
+});
+
+test('queued edit accepted source stays withdrawn after replacement disposition and late receipts', async (t) => {
+  const { controller, socket, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  intent(controller, 'composer', 'composer.append');
+  const replacement = socket.sent.find((message) => message.type === 'submit');
+  view(socket, replacement, 'committed', { committed_at: 'ledger/9' });
+  assert.equal(storage.has('shenko.submission.v2.edit-original'), false);
+  assert.equal(storage.has(`shenko.submission.v2.${replacement.submission_id}`), false);
+  view(socket, original, 'accepted', { withdrawal });
+  socket.receive({ schema_version: 2, type: 'receipt', stage: 'accepted',
+    submission_id: original.submission_id, event_id: 'durable-event', accepted_commit: 'ledger/1' });
+  const row = editRow(controller).props.submission;
+  assert.equal(row.receipt, 'accepted', 'withdrawal never invents original disposition');
+  assert.deepEqual(row.withdrawal, withdrawal);
+  assert.deepEqual(row.payload, original);
+  assert.equal(storage.has('shenko.submission.v2.edit-original'), false);
+  const queries = socket.sent.filter((message) => message.type === 'query_submission').length;
+  t.mock.timers.tick(6000);
+  assert.equal(socket.sent.filter((message) => message.type === 'query_submission').length, queries);
+  assert.equal(editRow(controller).props.edit_action, undefined);
+});
+
+test('queued edit clearing releases its durable owner for another saved edit and reopen', async (t) => {
+  const second = historicalInput(80);
+  second.view.stage = 'accepted';
+  delete second.view.selected_step_id;
+  delete second.view.committed_at;
+  const { controller, socket, sockets, original, storage } = await editableFixture(t, [second]);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  await setImmediate();
+  const secondRow = () => timelineNode(controller).children.find((row) => row.node_id === `submission.${second.payload.submission_id}`);
+  assert.equal(secondRow().props.edit_action, `submission.edit.${second.payload.submission_id}`);
+  intent(controller, secondRow().node_id, secondRow().props.edit_action);
+  const secondCancel = socket.sent.filter((message) => message.type === 'withdraw').at(-1);
+  assert.equal(secondCancel.submission_id, second.payload.submission_id,
+    'the second row Edit uses its live socket and exact withdrawal identity');
+  const secondWithdrawal = { cancel_id: secondCancel.cancel_id, commit_ref: 'ledger/81', result: 'withdrawn_before_presentation' };
+  view(socket, second.payload, 'accepted', { withdrawal: secondWithdrawal });
+  assert.equal(composer(controller).draft, original.content, 'another saved edit waits for the composer');
+  intent(controller, 'composer', 'composer.draft', { value: '' });
+  const attachment = composer(controller).attachments[0];
+  const setItem = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('clear save refused'); };
+  intent(controller, 'composer', 'composer.detach', { local_id: attachment.local_id });
+  assert.equal(composer(controller).attachments.length, 1, 'failed clear retains visible ownership and attachment');
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'editing');
+  localStorage.setItem = setItem;
+  intent(controller, 'composer', 'composer.detach', { local_id: attachment.local_id });
+  assert.equal(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.state, 'closed');
+  assert.equal(composer(controller).attachments.length, 0);
+  assert.equal(controller.projection().actions[secondRow().props.edit_action].enabled, true);
+  intent(controller, secondRow().node_id, secondRow().props.edit_action);
+  assert.equal(composer(controller).draft, second.payload.content, 'clearing released the first owner');
+  controller.dispose();
+  const reopened = createLiveController();
+  t.after(() => reopened.dispose());
+  await setImmediate();
+  const next = sockets[1];
+  openEditable(next);
+  view(next, original, 'accepted', { withdrawal });
+  assert.equal(composer(reopened).draft, '', 'cleared empty edit cannot resurrect');
+  view(next, second.payload, 'accepted', { withdrawal: secondWithdrawal });
+  assert.equal(composer(reopened).draft, second.payload.content);
+  assert.equal(next.sent.some((message) => message.type === 'submit'), false);
+});
+
+test('queued edit attachment snapshot refusal preserves visible refs and later complete text saves', async (t) => {
+  const { controller, socket, sockets, original, storage } = await editableFixture(t);
+  chooseEdit(controller);
+  const cancel = socket.sent.find((message) => message.type === 'withdraw');
+  const withdrawal = { cancel_id: cancel.cancel_id, commit_ref: 'ledger/4', result: 'withdrawn_before_presentation' };
+  view(socket, original, 'accepted', { withdrawal });
+  const setItem = localStorage.setItem;
+  localStorage.setItem = () => { throw new Error('attachment save refused'); };
+  const attached = composer(controller).attachments[0];
+  intent(controller, 'composer', 'composer.detach', { local_id: attached.local_id });
+  assert.deepEqual(composer(controller).attachments.map((item) => item.ref), original.attachment_refs);
+  localStorage.setItem = setItem;
+  intent(controller, 'composer', 'composer.detach', { local_id: attached.local_id });
+  const uploaded = { ...editAttachment, digest: `blake3:${'b'.repeat(64)}`, name: 'uploaded.txt' };
+  const fetch = globalThis.fetch;
+  globalThis.fetch = async (path, options) => String(path).startsWith('/api/attachments?')
+    ? new Response(JSON.stringify({ accepted: true, attachment: uploaded }))
+    : fetch(path, options);
+  // A successful seal followed by local storage refusal must not claim Ready.
+  localStorage.setItem = () => { throw new Error('sealed snapshot refused'); };
+  intent(controller, 'composer', 'composer.attach', { files: [new File(['payload'], 'uploaded.txt', { type: 'text/plain' })] });
+  await setImmediate();
+  assert.equal(composer(controller).attachments[0].status, 'failed');
+  assert.equal(composer(controller).attachments[0].ref, undefined);
+  assert.match(composer(controller).attachments[0].error, /could not be saved/);
+  localStorage.setItem = setItem;
+  intent(controller, 'composer', 'composer.draft', { value: 'Text after failed upload' });
+  assert.deepEqual(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.draft,
+    { content: 'Text after failed upload', attachment_refs: [] });
+  intent(controller, 'composer', 'composer.detach', { local_id: composer(controller).attachments[0].local_id });
+  intent(controller, 'composer', 'composer.attach', { files: [new File(['payload'], 'uploaded.txt', { type: 'text/plain' })] });
+  await setImmediate();
+  assert.equal(composer(controller).attachments[0].status, 'ready');
+  localStorage.setItem = () => { throw new Error('complete text snapshot refused'); };
+  intent(controller, 'composer', 'composer.draft', { value: 'Unsaved text must not appear saved' });
+  assert.equal(composer(controller).draft, 'Text after failed upload');
+  assert.deepEqual(composer(controller).attachments.map((item) => item.ref), [uploaded]);
+  assert.deepEqual(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.draft,
+    { content: 'Text after failed upload', attachment_refs: [uploaded] });
+  localStorage.setItem = setItem;
+  intent(controller, 'composer', 'composer.draft', { value: 'Text with the sealed upload' });
+  assert.deepEqual(JSON.parse(storage.get('shenko.submission.v2.edit-original')).edit.draft,
+    { content: 'Text with the sealed upload', attachment_refs: [uploaded] });
+  controller.dispose();
+  const reopened = createLiveController();
+  t.after(() => reopened.dispose());
+  await setImmediate();
+  const next = sockets[1];
+  openEditable(next);
+  assert.equal(composer(reopened).subject_bound, true, 'reopen receives the real fixture self identity');
+  view(next, original, 'accepted', { withdrawal });
+  assert.equal(composer(reopened).draft, 'Text with the sealed upload');
+  assert.deepEqual(composer(reopened).attachments.map((item) => item.ref), [uploaded]);
+  assert.equal(next.sent.some((message) => message.type === 'submit'), false);
+});

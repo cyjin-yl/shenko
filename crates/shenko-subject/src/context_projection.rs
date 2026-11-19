@@ -568,11 +568,20 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
             "user"
         }
         _ => {
-            data["text"] = serde_json::Value::String(staged_message_text(
-                &event.payload,
-                &event.source,
-                &state.channels,
-            ));
+            let web = event.source == shenko_store::web_input::WEB_INPUT_SOURCE;
+            let attachments_only = web
+                && event.payload.get("content").and_then(serde_json::Value::as_str).is_some_and(|content| content.trim().is_empty());
+            // An attachment-only message has no body to quote; the generic
+            // fallback would otherwise paste the raw payload.
+            let mut text = if attachments_only {
+                format!("[{}]", event.source)
+            } else {
+                staged_message_text(&event.payload, &event.source, &state.channels)
+            };
+            if web {
+                text.push_str(&web_attachments_text(&state.store, &event.payload)?);
+            }
+            data["text"] = serde_json::Value::String(text);
             // Untrusted ingress kinds never acquire system/assistant authority.
             "user"
         }
@@ -583,6 +592,54 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
     let text = data["text"].as_str().unwrap_or_default().to_owned();
     data["text"] = serde_json::Value::String(format!("[event {}] {text}", event.event_id));
     Ok(SubjectHistoryInput { event_id: event.event_id, event_type: event_type.into(), data })
+}
+
+/// Bytes of one text attachment shown inline; the rest is reported, not shown.
+const INLINE_ATTACHMENT_BYTES: usize = 24 * 1024;
+
+/// What the subject sees of a browser submission's attachments: each one's
+/// name, type, size and digest, a text attachment's leading text, and for an
+/// image the fact that this inference path carries no image input. Nothing is
+/// described that was not read: an image's content is not guessed.
+pub fn web_attachments_text(store: &shenko_store::store::Store, payload: &serde_json::Value) -> Result<String, ShenkoError> {
+    use shenko_store::web_attachment::WebAttachment;
+    let Some(references) = payload.get("attachment_refs").and_then(serde_json::Value::as_array) else {
+        return Ok(String::new());
+    };
+    let mut text = String::new();
+    for (index, reference) in references.iter().enumerate() {
+        let attachment: WebAttachment = serde_json::from_value(reference.clone()).map_err(ShenkoError::Serde)?;
+        text.push_str(&format!(
+            "\n[附件 {}] {} · {} · {} 字节 · {}",
+            index + 1,
+            attachment.name,
+            attachment.media_type,
+            attachment.bytes,
+            attachment.digest.0
+        ));
+        if attachment.is_text() {
+            let prefix = store.web_attachment_prefix(&attachment, INLINE_ATTACHMENT_BYTES)?;
+            let shown = match std::str::from_utf8(&prefix) {
+                Ok(all) => all,
+                // A cut inside a multi-byte character keeps the valid part.
+                Err(error) if error.error_len().is_none() => std::str::from_utf8(&prefix[..error.valid_up_to()]).unwrap_or(""),
+                Err(_) => {
+                    text.push_str("\n（声明为文本，但内容不是 UTF-8，未内联）");
+                    continue;
+                }
+            };
+            text.push_str(&format!("\n```\n{shown}\n```"));
+            let rest = attachment.bytes.saturating_sub(shown.len() as u64);
+            if rest > 0 {
+                text.push_str(&format!("\n（其后还有 {rest} 字节未内联）"));
+            }
+        } else if attachment.is_image() {
+            text.push_str("\n（图片；当前推理路径不传递图像输入，看不到画面）");
+        } else {
+            text.push_str("\n（非文本文件，内容未内联）");
+        }
+    }
+    Ok(text)
 }
 
 /// The visible text one durable media ingress event contributes to the model
