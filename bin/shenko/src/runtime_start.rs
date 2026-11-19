@@ -262,8 +262,15 @@ pub(crate) async fn start(
             owner_grant,
         );
         println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
-        let runtime_result =
-            run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state, file_mounts).await;
+        let ui = shenko_ui::server::UiServer::new(port)
+            .with_native(native_child)
+            .with_store(store)
+            .with_file_mounts(file_mounts)
+            .with_file_peers(file_peers(&data_dir).ok())
+            .with_data_dir(data_dir)
+            .with_owner(owner_state)
+            .with_inference_status(model_profile.model, model_profile.configured);
+        let runtime_result = run_deterministic_ui(ui, cancel).await;
         consumers.stop(&authority_runtime).await?;
         return runtime_result;
     }
@@ -457,23 +464,9 @@ pub(crate) async fn start(
 /// health endpoints available without constructing a broker or a fake thought
 /// loop. No inbox/outbox is wired, so browsers cannot mistake it for thinking.
 async fn run_deterministic_ui(
-    port: u16,
-    store: Arc<shenko_store::store::Store>,
-    data_dir: PathBuf,
-    model_profile: shenko_seed::ModelProfile,
+    ui: shenko_ui::server::UiServer,
     failure: tokio_util::sync::CancellationToken,
-    native: Arc<shenko_subject::NativeChildService>,
-    owner: shenko_ui::owner::OwnerState,
-    file_mounts: Arc<shenko_ui::files::FileMounts>,
 ) -> Result<()> {
-    let ui = shenko_ui::server::UiServer::new(port)
-        .with_native(native)
-        .with_store(store)
-        .with_file_mounts(file_mounts)
-        .with_file_peers(file_peers(&data_dir).ok())
-        .with_data_dir(data_dir)
-        .with_owner(owner)
-        .with_inference_status(model_profile.model, model_profile.configured);
     println!("Shenko UI: http://{}", ui.bind);
     println!("  Subject loop: not started (model_binding needed)");
     println!("  Inference: not_connected; capacity blocked");

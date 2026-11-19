@@ -232,7 +232,7 @@ fn native_name(id: &str) -> Result<OsString, &'static str> {
     #[cfg(unix)]
     let name = {
         use std::os::unix::ffi::OsStringExt;
-        if id.len() % 2 != 0 { return Err("文件名称标识无效"); }
+        if !id.len().is_multiple_of(2) { return Err("文件名称标识无效"); }
         let bytes: Result<Vec<_>, _> = (0..id.len()).step_by(2)
             .map(|index| u8::from_str_radix(&id[index..index + 2], 16)).collect();
         let bytes = bytes.map_err(|_| "文件名称标识无效")?;

@@ -512,7 +512,7 @@ async fn withdrawal_after_delivery_before_staging_excludes_original_through_s1_a
     assert_eq!(retained.event_id, original.event_id);
     assert_eq!(retained.payload, accepted.payload);
     assert_eq!(retained.accepted_commit, accepted.accepted_commit);
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[original.clone()])
+    let prepared = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
         .unwrap().expect("fixture projection must fit");
     assert!(prepared.events.is_empty(), "replayed canceled input stays excluded after reopen");
     assert!(store.first_subject_input(agent, original.event_id).unwrap().is_none());
@@ -526,7 +526,7 @@ async fn staging_before_withdrawal_queues_control_and_retains_original_on_reopen
     let mut subject = state(store.clone(), agent).unwrap();
     let original = admit_withdrawal_fixture(&store, agent, "stage-first-original");
     // Exercise the real projection consumer while the step is still Planned.
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[original.clone()])
+    let prepared = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
         .unwrap().expect("fixture projection must fit");
     assert_eq!(prepared.events, vec![original.clone()]);
     let raw_ids = prepared.context.source.input_raw_event_ids;
@@ -591,7 +591,7 @@ fn racing_withdrawal_and_staging_agree_across_store_connections() {
     }
     assert!(store.event_disposition_commit(agent, event_id).unwrap().is_none());
     let mut subject = state(store.clone(), agent).unwrap();
-    let recovered = crate::context_projection::prepare_context(&mut subject, &[original.clone()])
+    let recovered = crate::context_projection::prepare_context(&mut subject, std::slice::from_ref(&original))
         .unwrap().expect("fixture projection must fit");
     assert_eq!(recovered.events,
         if withdrawal.result == WebWithdrawResultKind::WithdrawalQueued { vec![original] } else { vec![] });
