@@ -49,18 +49,11 @@ pub(super) fn validate_existing(db: &Path) -> Result<()> {
     ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
         "node main must be one private regular file with one link");
     let journal = sidecar(db, "-journal");
-    let journal_meta = sidecar_meta(&journal)?;
-    if let Some(meta) = &journal_meta {
-        ensure!(meta.is_file() && meta.nlink() == 1 && !meta.file_type().is_symlink(),
-            "node journal must be one private regular file with one link");
-    }
     // Any sidecar requires the confined staged preflight even when the main
-    // image happens to validate: ordinary rollback could otherwise follow a
-    // crafted super-journal name outside this directory. A concurrent commit
-    // may legitimately remove the journal; re-sample tolerantly instead of
-    // rejecting the healthy installation.
-    if journal_meta.is_some() || sidecar_meta(&sidecar(db, "-wal"))?.is_some()
-        || sidecar_meta(&sidecar(db, "-shm"))?.is_some()
+    // image happens to validate. Inspect the journal after excluding writers:
+    // an unlocked sample can race with a commit deleting its journal.
+    if sidecar_present(&journal)? || sidecar_present(&sidecar(db, "-wal"))?
+        || sidecar_present(&sidecar(db, "-shm"))?
     {
         return recover_private(db)
             .with_context(|| "node sidecar admission failed");
@@ -424,6 +417,32 @@ unsafe extern "C" fn stage_no_extension(vfs: *mut ffi::sqlite3_vfs, _name: *cons
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn journal_shape_admission_waits_for_writer_exclusion() -> Result<()> {
+        let fixture = tempfile::tempdir()?;
+        let node_dir = fixture.path().join("node");
+        drop(super::super::Node::open(&node_dir)?);
+        let db = node_dir.join("node.sqlite3");
+        let mut writer = Connection::open(&db)?;
+        let transaction = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let unrelated = fixture.path().join("unrelated");
+        std::fs::write(&unrelated, b"unrelated fixture bytes")?;
+        let journal = sidecar(&db, "-journal");
+        std::fs::hard_link(&unrelated, &journal)?;
+
+        let busy = super::super::Node::open(&node_dir).err().context("admitted a contended source")?;
+        assert!(format!("{busy:#}").contains("node recovery source is busy"), "{busy:#}");
+        transaction.rollback()?;
+        drop(writer);
+
+        let invalid = super::super::Node::open(&node_dir).err().context("admitted a multiply linked journal")?;
+        assert!(format!("{invalid:#}").contains("recovery journal must be a separate single-link regular file"), "{invalid:#}");
+        assert_eq!(std::fs::read(&unrelated)?, b"unrelated fixture bytes");
+        std::fs::rename(journal, fixture.path().join("retained-journal-link"))?;
+        drop(super::super::Node::open(&node_dir)?);
+        Ok(())
+    }
 
     #[test]
     fn private_sqlite_recovery_cannot_mutate_an_outside_database() -> Result<()> {
