@@ -30,9 +30,18 @@ export function ImView({
   demo: boolean;
 }) {
   const thread = threads.find((item) => item.id === selected) ?? threads[0];
+  // On a phone the list and the open thread are two screens, as in Messages;
+  // wider layouts show both and ignore this.
+  const [pane, setPane] = React.useState<'list' | 'thread'>(
+    () => new URLSearchParams(location.search).has('thread') ? 'thread' : 'list',
+  );
   return (
-    <div className="im" data-thread-kind={thread?.kind}>
-      <nav className="im-list" aria-label={t('conversation.label')}>
+    <div className="im" data-thread-kind={thread?.kind} data-pane={pane}>
+      <nav
+        className="im-list"
+        aria-label={t('conversation.label')}
+        onClick={(event) => { if ((event.target as Element).closest('.im-row')) setPane('thread'); }}
+      >
         <ToggleGroupRoot
           className="im-list-group"
           a11yLabel={t('conversation.label')}
@@ -68,6 +77,7 @@ export function ImView({
           onOpenInspect={onOpenInspect}
           historyControl={historyControl}
           demo={demo}
+          onBack={() => setPane('list')}
         />
         : <div className="im-empty">{t('conversation.empty')}</div>}
     </div>
@@ -106,7 +116,8 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo }: {
+function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo, onBack }: {
+  onBack: () => void;
   thread: Thread;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
@@ -130,6 +141,9 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
   return (
     <section className="im-thread" aria-label={thread.title}>
       <header className="im-head">
+        <button type="button" className="im-back" onClick={onBack} aria-label={t('conversation.back')}>
+          <Icon name="chevron" size={22} />
+        </button>
         <Avatar participants={thread.participants} audience={thread.audience} size={28} />
         <span className="im-head-text">
           <span className="im-head-title">{thread.title}</span>

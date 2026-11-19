@@ -156,7 +156,7 @@ registerThreadSource({
       if (quiet === 0) return;
       messages.push({
         key: `quiet-${quietKey}`, from: subject, kind: 'system',
-        text: historyIncomplete ? t('delegation.quietIncomplete', { count: quiet }) : t('delegation.quiet', { name: subject.name, count: quiet }),
+        text: historyIncomplete ? t('delegation.quietIncomplete', { count: quiet }) : quiet === 1 ? t('delegation.quietOne', { name: subject.name }) : t('delegation.quiet', { name: subject.name, count: quiet }),
         link: { label: t('delegation.inspect'), target: 'inspect' },
       });
       quiet = 0;

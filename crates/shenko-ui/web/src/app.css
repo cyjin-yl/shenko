@@ -662,11 +662,13 @@ code.row-sub, code.row-title { font-size: 12px; }
   .topbar-actions .sk-toggle, .topbar-actions [data-pui-style~="shenko-status-chip"] { display: none; }
   .lensbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; justify-self: stretch;
-    padding: 6px 10px calc(6px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--canvas);
+    padding: 4px 8px calc(2px + env(safe-area-inset-bottom)); border-top: 0.5px solid var(--line);
+    background: color-mix(in oklch, var(--canvas) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
   }
   .lens-switch { display: flex; width: 100%; justify-content: space-between; }
   .lensbar > * { width: 100%; }
-  .lens-item { flex: 1; justify-content: center; height: 36px; }
+  .lens-item { flex: 1; justify-content: center; height: 44px; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 500; }
   .lens { bottom: calc(49px + env(safe-area-inset-bottom)); }
   .timeline-column { padding: 16px 14px 28px; }
   .entries { padding-left: 22px; }
@@ -788,6 +790,7 @@ code.row-sub, code.row-title { font-size: 12px; }
 .im-head-text { display: grid; min-width: 0; }
 .im-head-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .im-head-sub { font-size: 12px; color: var(--muted); }
+.im-back { display: none; }
 .im-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; }
 .im-messages { max-width: 760px; margin: 0 auto; padding: 16px 20px 20px; display: flex; flex-direction: column; }
 .im-note { margin: 0 auto 12px; padding: 6px 12px; border-radius: 12px; background: var(--sunken); font-size: 12px; color: var(--muted); text-align: center; }
@@ -832,10 +835,48 @@ code.row-sub, code.row-title { font-size: 12px; }
 [data-pui-style~="shenko-bubble"] .bubble-tag { display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; opacity: 0.8; margin-bottom: 1px; }
 [data-pui-style~="shenko-bubble"] .md { font-size: 15px; line-height: 1.42; }
 [data-pui-style~="shenko-bubble"] .md > * + * { margin-top: 0.5em; }
-[data-pui-style~="shenko-bubble"] .code { background: rgb(0 0 0 / 0.06); border-color: rgb(0 0 0 / 0.08); }
 [data-pui-style~="shenko-bubble-self"] .md-code { background: rgb(255 255 255 / 0.18); color: inherit; }
 [data-pui-style~="shenko-bubble"] .md a { color: inherit; text-decoration: underline; }
 .im-msg .doc { max-width: 100%; }
+
+/* A choice in a chat is a message from the other side followed by reply
+   suggestions, as Messages draws them: the question is a bubble, each option
+   a blue-outlined pill the owner taps; the receipt sits under the pill. */
+.im .doc { border: 0; background: transparent; padding: 0; }
+.im .doc-summary {
+  display: inline-block; margin: 0; padding: 7px 12px; border-radius: 18px;
+  background: var(--im-gray); color: var(--im-gray-ink); font-size: 15px; line-height: 1.38;
+}
+.im .doc-options { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.im .doc-options > li { display: grid; justify-items: start; gap: 2px; }
+.im .doc-option {
+  width: auto; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 34px; padding: 6px 14px; border-radius: 17px;
+  border: 1px solid color-mix(in oklch, var(--im-blue) 45%, transparent);
+  background: transparent; color: var(--im-blue); font-weight: 500;
+  transition: background-color 120ms ease-out, transform 120ms ease-out;
+}
+.im .doc-option:hover:not(:disabled) { background: color-mix(in oklch, var(--im-blue) 8%, transparent); }
+.im .doc-option:active:not(:disabled) { background: color-mix(in oklch, var(--im-blue) 14%, transparent); transform: scale(0.97); }
+.im .doc-option:disabled { color: var(--muted); border-color: var(--line); }
+.im .doc-option-index { display: none; }
+.im .doc-option-label { font-size: 15px; }
+.im .doc-option-receipt { font-size: 11px; font-weight: 500; padding-left: 14px; }
+
+/* Code inside a bubble is a tinted block of the bubble itself: no panel,
+   no header bar; the language is a quiet label and copy is one icon. */
+[data-pui-style~="shenko-bubble"] .code {
+  border: 0; border-radius: 12px; position: relative;
+  background: color-mix(in oklch, currentColor 7%, transparent);
+}
+[data-pui-style~="shenko-bubble"] .code-head {
+  height: auto; padding: 6px 6px 0 12px; border: 0; background: transparent;
+}
+[data-pui-style~="shenko-bubble"] .code-lang { font-size: 11px; opacity: 0.6; color: inherit; }
+[data-pui-style~="shenko-bubble"] .code-copy { height: 22px; padding: 0 5px; color: inherit; opacity: 0.55; }
+[data-pui-style~="shenko-bubble"] .code-copy span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+[data-pui-style~="shenko-bubble"] .code-copy:hover { opacity: 1; background: color-mix(in oklch, currentColor 10%, transparent); }
+[data-pui-style~="shenko-bubble"] .code pre { padding: 4px 12px 10px; font-size: 12.5px; line-height: 1.55; color: inherit; }
 .im .attachment::before { display: none; }
 .im .entry.attachment { margin-top: 0; }
 
@@ -892,22 +933,50 @@ code.row-sub, code.row-title { font-size: 12px; }
   .tabs { position: static; transform: none; flex: none; }
   .presence { flex: 1 1 0; }
   .attention { display: none; }
-  .im { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .im-list { border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; overflow-x: auto; overflow-y: hidden; }
-  .im-list-group { flex-direction: row; }
-  .im-row { width: auto; min-height: 0; padding: 4px; }
-  /* Avatar in im.tsx supplies inline desktop dimensions. Override only the
-     conversation-list avatar at this breakpoint, keeping header sizes intact. */
-  .im-row .avatar { width: 36px !important; height: 36px !important; }
-  /* A strip of look-alike monograms cannot be told apart: each keeps a
-     short name under it, as a contact strip does. */
-  .im-row { flex-direction: column; gap: 3px; width: 60px; }
+  /* Two screens, as in Messages: the list, then the open conversation
+     pushed over it with its own navigation bar and no tab bar. */
+  .im { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  .im[data-pane="list"] .im-thread, .im[data-pane="thread"] .im-list { display: none; }
+  .im-list { border-right: 0; padding: 4px 0; }
+  .im-row { border-radius: 0; padding: 10px 16px; gap: 12px; min-height: 76px; justify-content: flex-start; }
+  .im-row .avatar { width: 52px !important; height: 52px !important; }
   .im-row-text {
-    position: static; width: 100%; height: auto; margin: 0; overflow: hidden; clip: auto;
+    position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; white-space: normal;
+    align-self: stretch; padding-bottom: 10px; box-shadow: inset 0 -0.5px 0 var(--line);
   }
-  .im-row-time, .im-row-preview { display: none; }
-  .im-row-title { font-size: 10.5px; font-weight: 500; text-align: center; }
-  .im-thread { grid-template-rows: 44px minmax(0, 1fr) auto; }
+  .im-row-title { font-size: 16px; }
+  .im-row-preview { font-size: 15px; }
+  .im-row[data-active] { background: transparent; color: inherit; }
+  .im-row[data-active] .im-row-preview, .im-row[data-active] .im-row-time { color: var(--muted); }
+  .im-row:active { background: var(--hover); }
+  .im-row { --avatar-ring: var(--canvas); }
+  .shell:has(.im[data-pane="thread"]) { grid-template-rows: minmax(0, 1fr); }
+  .shell:has(.im[data-pane="thread"]) .topbar,
+  .shell:has(.im[data-pane="thread"]) .lensbar { display: none; }
+  .shell:has(.im[data-pane="thread"]) .body { padding-bottom: 0; }
+  .im-head {
+    display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; justify-items: center; align-items: center;
+    gap: 0; padding: 4px 4px 6px; height: auto;
+    background: color-mix(in oklch, var(--im-bg) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 0.5px solid var(--line);
+  }
+  .im-back {
+    display: inline-grid; place-items: center; grid-row: 1 / span 2; width: 44px; height: 44px;
+    appearance: none; border: 0; background: transparent; color: var(--im-blue); padding: 0;
+  }
+  .im-back svg { transform: scaleX(-1); }
+  .im-head .avatar { grid-column: 2; grid-row: 1; width: 40px !important; height: 40px !important; }
+  .im-head-text { grid-column: 2; grid-row: 2; justify-items: center; text-align: center; max-width: 100%; }
+  .im-head-title { font-size: 12px; font-weight: 500; }
+  .im-head-sub { display: none; }
+  .im-thread { grid-template-rows: auto minmax(0, 1fr) auto; }
+  /* The lens bar is the tab bar: icon over a short label, the open one in
+     the accent colour rather than a filled pill. */
+  .lens-label { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; }
+  .lens-switch { background: transparent; border: 0; box-shadow: none; padding: 0; gap: 0; }
+  .lens-item { padding: 0; color: var(--muted); }
+  .lens-item[data-active] { color: var(--im-blue); background: transparent; box-shadow: none; }
   .im-messages { padding: 10px 12px 14px; }
   .im-line { max-width: 82%; }
   .composer-im { padding: 4px 8px 8px; }
