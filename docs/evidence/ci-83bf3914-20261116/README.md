@@ -94,13 +94,14 @@ preserve those limits.
 
 ## Read-only investigation of the capture failures
 
-[capture-readonly-review](capture-readonly-review/README.md) preserves the
-exact source files, scripts, stdout/stderr, commands, and inventories from
-the bounded investigation of this source. The original first diagnostic
-failures remain present; later observations do not overwrite them. The
-directory's initial 21-file inventory is preserved as an earlier snapshot,
-and its final inventory covers the additional rollback/handle observations.
-The outer [file index](file-index.json) hashes every copied diagnostic file.
+The original capture-readonly review is bound to commit
+`0d68e010098ab83ba07bb5f6413ce11e0ccb55e7`. Read the source files, scripts,
+stdout/stderr, commands, and inventories from that tree. Its initial 21-file
+inventory records the first snapshot. Its final inventory covers the
+additional rollback and handle observations. The outer file index hashes
+every copied diagnostic file in that tree.
+[Frozen investigation](https://github.com/cyjin-yl/shenko/tree/0d68e010098ab83ba07bb5f6413ce11e0ccb55e7/docs/evidence/ci-83bf3914-20261116/capture-readonly-review)
+· [Frozen file index](https://github.com/cyjin-yl/shenko/blob/0d68e010098ab83ba07bb5f6413ce11e0ccb55e7/docs/evidence/ci-83bf3914-20261116/file-index.json)
 
 The local successful C API observations used the installed system SQLite
 **3.46.1**, not the project's pinned **3.46.0** binary. The retained official
