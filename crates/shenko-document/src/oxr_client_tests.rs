@@ -713,7 +713,6 @@ fn credential_echo_is_withheld_from_original_response_archive() -> anyhow::Resul
         })
 }
 
-/// Port of R71's explicit-index cases through main's observed-response API.
 #[tokio::test]
 async fn invalid_explicit_page_identity_never_becomes_array_position() {
     for invalid in [
@@ -812,11 +811,12 @@ async fn invalid_explicit_page_identity_never_becomes_array_position() {
     server.abort();
 }
 
-/// Port of R71's phase-aware refusal journey, retaining main's response shape.
 #[tokio::test]
 async fn conclusive_remote_failure_retains_body_without_becoming_unknown() {
     let raw = json!({"code":0,"data":{"task_id":"original-failed","status":"failed",
-        "error":"upstream failed"}})
+        "error":"upstream failed","result":{"outputs":{"json":{"pages":[
+            {"page_num":null},{"page_num":-1}
+        ]}}}}})
     .to_string();
     let refusal = json!({"code":1133,"message":"upstream refused"}).to_string();
     let mut missing_success: serde_json::Value =
