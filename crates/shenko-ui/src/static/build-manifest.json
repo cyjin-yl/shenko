@@ -29,6 +29,59 @@
     "separator",
     "toggle"
   ],
+  "realisation": {
+    "compiled": [
+      "transport-badge",
+      "message-bubble"
+    ],
+    "adapter": [
+      {
+        "family": "button",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "textarea",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "scroll-area",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "collapsible",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "drawer",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "toggle-group",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "input",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "separator",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "toggle",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      }
+    ]
+  },
   "adoption": {
     "runtime": "createReactAdapter({ ...React, createPortal })",
     "why": "Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.",
@@ -137,7 +190,7 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-19T06:24:03.628Z",
+  "built_at": "2026-11-19T06:26:22.738Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,

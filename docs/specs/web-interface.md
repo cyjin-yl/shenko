@@ -1087,3 +1087,18 @@ subscriber list), adapter regressions, website density repairs and release
 documentation. The public closure was rebuilt at this commit and the bundle
 regenerated through `web/build.mjs`; `tsc` and the web tests pass, and the
 demo IM loads in Chromium with no page errors.
+
+## Compiled and adapter parts, 2026-11-19
+
+The build manifest's `realisation` field says how each part of the UI is realised:
+
+- **Compiled at build time.** Shenko's own Prototypes (`message-bubble`, `transport-badge`).
+- **Runtime adapter.** Each adopted upstream family, until the pinned compiler accepts it.
+
+At pin `af43d613` the compiler accepts none of the nine adopted families. It stops at three layers:
+
+1. the base package declares no `proto` source exports;
+2. the shadcn style-scope context and per-family constant tables are rejected as top-level runtime bindings (PUI1004);
+3. drawer needs Axis Input lowering, which the compiler does not implement.
+
+[shenko#335](https://github.com/cyjin-yl/shenko/issues/335) records the exact locations. Shenko does not force a compile with `sourceImports` overrides or edits to the upstream checkout, because that would hide the gap rather than close it. New Shenko-owned surfaces are authored as compiled Prototypes where the compiler accepts them.
