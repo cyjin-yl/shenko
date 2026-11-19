@@ -191,6 +191,7 @@
 | [repl](repl.md) | 参考插件 | 5、7 |
 | [wasm-home](wasm-home.md) | 参考插件 | 5、7、8 |
 | [wasm-tools](wasm-tools.md) | 参考插件 | 7、8 |
+| [workspace-tools](workspace-tools.md) | 参考插件：文件工具与可配置编辑方言 | 5、7、8、9 |
 | [ecosystem-adapters](ecosystem-adapters.md) | 可选参考插件 | 6、7、8 |
 | [network-observation](network-observation.md) | 参考插件：一个感知单元及其执行 | 7、8、9 |
 | [web-interface](web-interface.md) | 参考插件 | 3、7 |
