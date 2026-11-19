@@ -291,6 +291,26 @@ into the previous copy; conflicts and unreadable formats are retained/refused,
 not treated as successful import. The previous executable is smoke-launched
 again against that copy. The rollback record names its original activation and
 captures the **current** scoped authority, not an obsolete earlier incarnation.
+A successful rollback advances both ledgers from `Activated` to `Observing`
+through the same revision-checked convergence as forward activation, retaining
+the rollback's sealed recovery bindings. Retired-source completion can finish
+an interrupted phase projection; repeating completion after reopening both
+ledgers leaves the exact records and their revisions unchanged.
+A selected destination also records a nonreplicated local successor
+materialization in the selector/head/step CAS transaction. It binds the real
+destination writer and original commit to its selector, branch and genesis;
+the subject's historical `committed_at` is unchanged. Identity is therefore
+available before the first S1 and remains readable after retirement, without
+granting dispatch authority. Staged copies rekey the writer, so a copied
+witness is invalid, and ordinary peer archives do not carry this local fact.
+For older committed selections without a witness, reopening the slot selected
+by the installation launcher requires the sealed route to name that slot, a
+distinct retained source slot in the same installation, and agreement between
+both ledgers on the original selector and activation facts. The source
+must already be fenced with the same branch/genesis/history boundary. The
+recovery witness retains the original destination CAS commit/incarnation;
+its own metadata commit changes no selector, activation record or head.
+Missing or conflicting retained evidence refuses this legacy recovery.
 A helper error re-reads committed selection before restoring the previous
 closure. New facts, revocations, tombstones and external debt cannot disappear
 because a workspace or software pointer moves backwards.

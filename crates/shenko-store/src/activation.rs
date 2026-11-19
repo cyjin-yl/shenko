@@ -51,11 +51,101 @@ CREATE TABLE IF NOT EXISTS activation_selectors (
     updated_commit_seq INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Physical successor materialization, never a replicated cognition fact.
+-- A staged backup keeps history but rekeys its writer, invalidating this row.
+CREATE TABLE IF NOT EXISTS local_successor_materializations (
+    agent_id TEXT PRIMARY KEY,
+    ledger_id TEXT NOT NULL,
+    writer_incarnation TEXT NOT NULL,
+    branch_id TEXT NOT NULL,
+    genesis_ledger_id TEXT NOT NULL,
+    genesis_id TEXT NOT NULL,
+    selector_data TEXT NOT NULL,
+    selected_commit_seq INTEGER NOT NULL
+);
 "#;
 
 /// Create the activation tables if they do not exist yet.
 pub fn ensure_activation_schema(conn: &Connection) -> Result<(), ShenkoError> {
     conn.execute_batch(SCHEMA).map_err(storage_error)
+}
+
+fn write_local_successor_materialization(
+    tx: &Transaction<'_>,
+    selector: &ActivationSelector,
+    head: &SubjectBranchHead,
+    commit: CommitRef,
+    incarnation: EntityId,
+) -> Result<(), ShenkoError> {
+    tx.execute(
+        "INSERT INTO local_successor_materializations VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+         ON CONFLICT(agent_id) DO UPDATE SET ledger_id=excluded.ledger_id,
+         writer_incarnation=excluded.writer_incarnation,branch_id=excluded.branch_id,
+         genesis_ledger_id=excluded.genesis_ledger_id,genesis_id=excluded.genesis_id,
+         selector_data=excluded.selector_data,selected_commit_seq=excluded.selected_commit_seq",
+        params![head.agent_id.to_string(), commit.ledger_id.to_string(), incarnation.to_string(),
+            head.branch_id.0.to_string(), head.genesis_ref.ledger_id.to_string(),
+            head.genesis_ref.genesis_id.to_string(), serde_json::to_string(selector).map_err(storage_error)?,
+            commit.seq.0 as i64],
+    ).map_err(storage_error)?;
+    Ok(())
+}
+
+/// A local CAS witness establishes identity before the successor's first S1.
+/// It grants no primary/dispatch authority and cannot survive a writer rekey.
+pub(crate) fn locally_materialized_successor(
+    conn: &Connection,
+    ledger: EntityId,
+    head: &SubjectBranchHead,
+) -> Result<bool, ShenkoError> {
+    let row: Option<(String, String, String, String, String, i64)> = conn.query_row(
+        "SELECT branch_id,genesis_ledger_id,genesis_id,writer_incarnation,selector_data,selected_commit_seq
+         FROM local_successor_materializations WHERE agent_id=?1 AND ledger_id=?2",
+        params![head.agent_id.to_string(), ledger.to_string()],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).optional().map_err(storage_error)?;
+    let Some((branch, genesis_ledger, genesis, incarnation, raw, seq)) = row else { return Ok(false); };
+    let original: ActivationSelector = serde_json::from_str(&raw).map_err(storage_error)?;
+    let Some(selected) = read_selector(conn, head.agent_id)? else { return Ok(false); };
+    let (revision, epoch): (u64, u64) = conn.query_row(
+        "SELECT selector_revision,active_epoch FROM activation_selectors WHERE agent_id=?1",
+        [head.agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(storage_error)?;
+    if revision != selected.selector_revision || epoch != selected.active_epoch {
+        return Err(ShenkoError::conflict("local successor selector columns disagree with their binding"));
+    }
+    let shenko_types::activation::ActivationOrigin::Activation { activation_id } = &original.origin
+        else { return Err(ShenkoError::conflict("local successor witness has no activation origin")); };
+    let record = read_activation_record(conn, *activation_id)?
+        .ok_or_else(|| ShenkoError::conflict("local successor witness activation missing"))?;
+    let committed: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM commit_log WHERE ledger_id=?1 AND seq=?2 AND incarnation=?3)",
+        params![ledger.to_string(), seq, incarnation], |row| row.get(0),
+    ).map_err(storage_error)?;
+    let selection_bound = match head.mode {
+        // Identity survives retirement just as locally committed birth/S1
+        // identity does. This historical witness never revives the old writer.
+        SubjectMode::Handoff => selected.selector_revision > original.selector_revision,
+        _ => selected.generation == original.generation && selected.origin == original.origin
+            && selected.state_ref == original.state_ref
+            && selected.route_authority_ref == original.route_authority_ref,
+    };
+    Ok(committed && seq > 0
+        && branch == head.branch_id.0.to_string()
+        && genesis_ledger == head.genesis_ref.ledger_id.to_string()
+        && genesis == head.genesis_ref.genesis_id.to_string()
+        && original.agent_id == head.agent_id && selected.agent_id == head.agent_id
+        && original.generation == head.software_generation
+        && selection_bound
+        && selected.selector_revision >= original.selector_revision
+        && selected.active_epoch >= original.active_epoch
+        && selected.active_epoch == head.controller_epoch.0
+        && record.agent_id == head.agent_id && record.to_generation == original.generation
+        && record.to_state_ref == original.state_ref
+        && record.expected_selector_revision.checked_add(1) == Some(original.selector_revision)
+        && record.target_epoch == original.active_epoch
+        && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing | ActivationPhase::Retired))
 }
 
 impl crate::store::GenesisExtension for ActivationSelector {
@@ -367,6 +457,188 @@ pub fn read_activation_phase(
 }
 
 impl Store {
+    /// Repair identity metadata omitted by an older successor CAS. This never
+    /// chooses a generation: both physical ledgers must already retain the
+    /// same committed selector and activation, with the original source fenced.
+    /// A peer import or rekeyed candidate at another slot cannot supply this
+    /// proof. Missing retained source evidence is an explicit recovery error.
+    pub(crate) fn recover_legacy_successor_identity(&self, cas_dir: &std::path::Path) -> Result<(), ShenkoError> {
+        use shenko_types::activation::{ActivationOrigin, RouteAuthority};
+        use std::path::{Path, PathBuf};
+
+        let (db_path, candidates) = {
+            let conn = self.ledger.conn.lock();
+            if crate::store::read_local_subject_id(&conn, self.ledger.ledger_id())?.is_some() {
+                return Ok(());
+            }
+            let db = conn.path().ok_or_else(|| ShenkoError::conflict("successor identity requires a physical database"))?;
+            let mut query = conn.prepare("SELECT s.data FROM activation_selectors s JOIN subject_branch_heads h ON h.agent_id=s.agent_id")
+                .map_err(storage_error)?;
+            let rows = query.query_map([], |row| row.get::<_, String>(0)).map_err(storage_error)?
+                .collect::<Result<Vec<_>, _>>().map_err(storage_error)?;
+            (PathBuf::from(db), rows)
+        };
+        if candidates.is_empty() || cas_dir.file_name().and_then(|name| name.to_str()) != Some("cas") {
+            return Ok(());
+        }
+        let Some(root) = cas_dir.canonicalize().map_err(storage_error)?.parent().map(Path::to_owned) else {
+            return Ok(());
+        };
+        let physical = db_path.canonicalize().map_err(storage_error)?;
+        let Some(slot) = physical.parent() else { return Ok(()); };
+        if slot != root && slot.parent() != Some(root.join("versions").as_path()) {
+            return Ok(());
+        }
+        // Use the launcher pointer only to scope recovery. The original
+        // committed selector, sealed route and physical pair still prove it.
+        let pointer = match std::fs::read(root.join("current-slot")) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(storage_error(error)),
+        };
+        let pointer: serde_json::Value = serde_json::from_slice(&pointer).map_err(storage_error)?;
+        let points_here = pointer.get("schema_version").and_then(|value| value.as_u64()) == Some(1)
+            && pointer.get("slot_dir").and_then(|value| value.as_str())
+                .and_then(|path| Path::new(path).canonicalize().ok()).as_deref() == Some(slot);
+        if !points_here { return Ok(()); }
+
+        for raw in candidates {
+            let selected: ActivationSelector = serde_json::from_str(&raw).map_err(storage_error)?;
+            let ActivationOrigin::Activation { activation_id } = selected.origin else { continue; };
+            let (head, step) = self.load_subject(selected.agent_id)?;
+            if !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+                || head.software_generation != selected.generation
+                || head.controller_epoch.0 != selected.active_epoch { continue; }
+            let route_path = self.cas.verified_object_path(&selected.route_authority_ref).map_err(storage_error)?;
+            let route: RouteAuthority = serde_json::from_slice(&std::fs::read(route_path).map_err(storage_error)?)
+                .map_err(storage_error)?;
+            // A route copied from another physical slot is history, not local
+            // identity. Do not open its source or manufacture a witness here.
+            let Ok(route_slot) = Path::new(&route.slot_dir).canonicalize() else { continue; };
+            if route_slot != slot { continue; }
+            if Path::new(&route.data_dir).canonicalize().map_err(storage_error)? != root
+                || route.schema_version != RouteAuthority::SCHEMA_VERSION
+                || route.agent_id != selected.agent_id || route.generation != selected.generation
+                || route.activation_id != Some(activation_id)
+                || route.selector_revision != selected.selector_revision || route.active_epoch != selected.active_epoch {
+                return Err(ShenkoError::conflict("legacy successor route does not bind the original local selector CAS"));
+            }
+            let record = self.activation_record(activation_id)?
+                .ok_or_else(|| ShenkoError::conflict("legacy selected activation missing"))?;
+            if record.agent_id != head.agent_id || record.to_generation != selected.generation
+                || record.to_state_ref != selected.state_ref
+                || record.expected_selector_revision.checked_add(1) != Some(selected.selector_revision)
+                || record.target_epoch != selected.active_epoch
+                || !matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
+                || head.mode_reason_ref.as_ref() != Some(&selected.route_authority_ref) {
+                return Err(ShenkoError::conflict("legacy successor activation/head identity disagrees"));
+            }
+            crate::store::validate_step_binding(&head, &step)?;
+            let destination_path = self.cas.verified_object_path(&record.to_state_ref).map_err(storage_error)?;
+            let destination: serde_json::Value = serde_json::from_slice(&std::fs::read(destination_path).map_err(storage_error)?)
+                .map_err(storage_error)?;
+            let destination_slot = Path::new(destination.get("slot_dir").and_then(|value| value.as_str())
+                .ok_or_else(|| ShenkoError::conflict("legacy destination state has no slot"))?)
+                .canonicalize().map_err(storage_error)?;
+            let destination_db = Path::new(destination.get("db_path").and_then(|value| value.as_str())
+                .ok_or_else(|| ShenkoError::conflict("legacy destination state has no database"))?)
+                .canonicalize().map_err(storage_error)?;
+            if destination_slot != slot || destination_db != physical {
+                return Err(ShenkoError::conflict("legacy destination state does not name this physical slot/database"));
+            }
+            let state_path = self.cas.verified_object_path(&record.from_state_ref).map_err(storage_error)?;
+            let state: serde_json::Value = serde_json::from_slice(&std::fs::read(state_path).map_err(storage_error)?)
+                .map_err(storage_error)?;
+            let source_slot = Path::new(state.get("slot_dir").and_then(|value| value.as_str())
+                .ok_or_else(|| ShenkoError::conflict("legacy source state has no slot"))?)
+                .canonicalize().map_err(storage_error)?;
+            if source_slot == slot || !(source_slot == root || source_slot.parent() == Some(root.join("versions").as_path())) {
+                return Err(ShenkoError::conflict("legacy source slot is not a distinct retained installation slot"));
+            }
+            let source_db = Path::new(state.get("db_path").and_then(|value| value.as_str())
+                .ok_or_else(|| ShenkoError::conflict("legacy source state has no database"))?)
+                .canonicalize().map_err(storage_error)?;
+            if source_db.parent() != Some(source_slot.as_path()) || source_db.file_name() != physical.file_name() {
+                return Err(ShenkoError::conflict("legacy source database does not bind its retained slot"));
+            }
+            let mut source = Connection::open_with_flags(&source_db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(storage_error)?;
+            let source_tx = source.transaction().map_err(storage_error)?;
+            let source_ledger: String = source_tx.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))
+                .map_err(storage_error)?;
+            let source_record = read_activation_record(&source_tx, activation_id)?
+                .ok_or_else(|| ShenkoError::conflict("legacy retired activation missing"))?;
+            let (retired, retired_step) = crate::store::read_subject(&source_tx, head.agent_id)?;
+            crate::store::validate_step_binding(&retired, &retired_step)?;
+            // Live rollback legitimately replaces recovery_closure_ref with
+            // its frozen request and updates resource receipts on the selected
+            // record. Those later facts are retained, not used as birth or
+            // selection authority. Compare the original activation identity.
+            let same_activation = source_record.activation_id == record.activation_id
+                && source_record.agent_id == record.agent_id
+                && source_record.from_generation == record.from_generation
+                && source_record.to_generation == record.to_generation
+                && source_record.from_state_ref == record.from_state_ref
+                && source_record.to_state_ref == record.to_state_ref
+                && source_record.migrator_ref == record.migrator_ref
+                && source_record.contract_revision == record.contract_revision
+                && source_record.w0 == record.w0 && source_record.w1 == record.w1
+                && source_record.imported_through == record.imported_through
+                && source_record.ingress_cursors_ref == record.ingress_cursors_ref
+                && source_record.evidence_cursors_ref == record.evidence_cursors_ref
+                && source_record.expected_selector_revision == record.expected_selector_revision
+                && source_record.target_epoch == record.target_epoch
+                && source_record.smoke_evidence_ref == record.smoke_evidence_ref
+                && source_record.rollback_plan_ref == record.rollback_plan_ref
+                && source_record.expected_primary_claim == record.expected_primary_claim
+                && matches!(source_record.phase, ActivationPhase::Activated | ActivationPhase::Observing | ActivationPhase::Retired);
+            if source_ledger == self.ledger.ledger_id().to_string()
+                || read_selector(&source_tx, head.agent_id)?.as_ref() != Some(&selected)
+                || !same_activation || retired.mode != SubjectMode::Handoff
+                || retired.software_generation != record.from_generation
+                || retired.genesis_ref != head.genesis_ref || retired.branch_id != head.branch_id
+                || retired.committed_at != head.committed_at || retired.committed_step_no != head.committed_step_no
+                || retired.committed_step_id != head.committed_step_id || retired.next_step_id != head.next_step_id {
+                return Err(ShenkoError::conflict("legacy successor lacks the exact physical retired-source proof"));
+            }
+            let source_installation = crate::local_installation::installation_id_for_subject_conn(&source_tx, &self.cas, head.agent_id)?;
+            if self.installation_id_for_subject(head.agent_id)? != source_installation {
+                return Err(ShenkoError::conflict("legacy successor and retired source belong to different installations"));
+            }
+            self.ledger.with_mutation(|| {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+                let (current, _) = crate::store::read_subject(&tx, head.agent_id)?;
+                if locally_materialized_successor(&tx, self.ledger.ledger_id(), &current)? {
+                    return Ok(());
+                }
+                if read_selector(&tx, head.agent_id)?.as_ref() != Some(&selected)
+                    || read_activation_record(&tx, activation_id)?.as_ref() != Some(&record)
+                    || serde_json::to_string(&current)? != serde_json::to_string(&head)? {
+                    return Err(ShenkoError::conflict("legacy successor changed before identity recovery"));
+                }
+                let (revision, epoch, original_seq): (u64, u64, i64) = tx.query_row(
+                    "SELECT selector_revision,active_epoch,updated_commit_seq FROM activation_selectors WHERE agent_id=?1",
+                    [head.agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                ).map_err(storage_error)?;
+                if revision != selected.selector_revision || epoch != selected.active_epoch || original_seq <= 0 {
+                    return Err(ShenkoError::conflict("legacy selector projection disagrees with its original CAS"));
+                }
+                let incarnation: String = tx.query_row(
+                    "SELECT incarnation FROM commit_log WHERE ledger_id=?1 AND seq=?2",
+                    params![self.ledger.ledger_id().to_string(), original_seq], |row| row.get(0),
+                ).map_err(storage_error)?;
+                let original_commit = CommitRef::new(self.ledger.ledger_id(), shenko_types::ids::LedgerSeq(original_seq as u64));
+                write_local_successor_materialization(&tx, &selected, &head, original_commit, incarnation.parse().map_err(storage_error)?)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
+                self.record_subject_commit(&tx, CommitRef::new(self.ledger.ledger_id(), seq), 1)?;
+                tx.commit().map_err(storage_error)?;
+                Ok(())
+            }, |error| matches!(error, ShenkoError::Storage(_)))?;
+        }
+        Ok(())
+    }
+
     pub fn activation_launch_for_selector(&self, agent: EntityId, revision: u64) -> Result<Option<serde_json::Value>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let raw: Option<String> = conn.query_row("SELECT data FROM activation_launch_receipts WHERE agent_id=?1 AND selector_revision=?2 ORDER BY updated_commit_seq DESC LIMIT 1",
@@ -715,6 +987,7 @@ impl Store {
                         tx.execute("UPDATE subject_quiesce_requests SET state='resumed',data=?2,updated_commit_seq=?3 WHERE request_id=?1",
                             params![request.request_id.to_string(), serde_json::to_string(&request).map_err(storage_error)?, seq.0 as i64]).map_err(storage_error)?;
                     }
+                    write_local_successor_materialization(&tx, next, &head, commit_ref, self.capabilities.incarnation)?;
                 }
                 let mut stored = activated.clone();
                 stored.phase = ActivationPhase::Activated;
@@ -735,7 +1008,7 @@ impl Store {
                     params![swapped.agent_id.to_string(), seq.0 as i64],
                 )
                 .map_err(storage_error)?;
-                self.record_subject_commit(&tx, commit_ref, 2)?;
+                self.record_subject_commit(&tx, commit_ref, if successor { 3 } else { 2 })?;
                 tx.commit().map_err(storage_error)?;
                 Ok((swapped, stored, commit_ref))
             },
