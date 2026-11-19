@@ -1,0 +1,57 @@
+{
+  "kind": "source_comparison_only",
+  "runtime_tested": false,
+  "parents": [
+    "e34efd1fed758bb2feeb5abb2ee6e50a656585b7",
+    "bd30bee40dcd9533eb123a7a5dfc48a9cdc788f5"
+  ],
+  "common_ancestor": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+  "checked_tree": "f2ac3275816adebb19efaec0b7c61a8818670b95",
+  "changed_paths_from_first_parent": [
+    "bin/shenko/src/context_policy.rs",
+    "bin/shenko/src/policy_config.rs",
+    "crates/shenko-channel-adapters/src/ilink/plugin.rs",
+    "crates/shenko-channel-napcat/src/channel.rs",
+    "crates/shenko-subject/src/dispatch.rs",
+    "docs/IMPLEMENTATION_DOCS_MAP.md",
+    "docs/specs/channels.md"
+  ],
+  "unchanged_paths_from_first_parent": [
+    "bin/shenko/tests/component_process.rs",
+    "bin/shenko/src/runtime_lifecycle.rs",
+    "bin/shenko/src/runtime_start.rs",
+    "bin/shenko/src/runtime_authority.rs",
+    "bin/shenko/src/node_sync.rs",
+    "bin/shenko/src/cli_tools.rs",
+    "crates/shenko-store",
+    "crates/shenko-broker",
+    "docs/evidence",
+    ".github/workflows"
+  ],
+  "inputs": {
+    "e34efd1fed758bb2feeb5abb2ee6e50a656585b7": {
+      "commit": "e34efd1fed758bb2feeb5abb2ee6e50a656585b7",
+      "tree": "2ce8aec2bed7922796db601cf13aec6eed71a7bb",
+      "parents": "9b5a6cb8987806879b8cfb713321744bd087bc0e 09cb667a79cc2e2212b8d60afcef97cee7e165f9"
+    },
+    "bd30bee40dcd9533eb123a7a5dfc48a9cdc788f5": {
+      "commit": "bd30bee40dcd9533eb123a7a5dfc48a9cdc788f5",
+      "tree": "76a43f89e463ee8160e29146a51a69f85271fd85",
+      "parents": "2d2391517078ed1a8d8e2f154a4197a37f7f81bd be7d09df2166679bc876a243004f057c602d0aae"
+    },
+    "be7d09df2166679bc876a243004f057c602d0aae": {
+      "commit": "be7d09df2166679bc876a243004f057c602d0aae",
+      "tree": "0bf6f3c4583925f0ebc5d87206f8a411c5ff9edf",
+      "parents": "09cb667a79cc2e2212b8d60afcef97cee7e165f9 719a51b1083a70c67f57f93bfd83810ed6ae6223"
+    }
+  },
+  "changed_file_sha256": {
+    "bin/shenko/src/context_policy.rs": "3546644e2d1ad9e66bdbae646bc5bf39e571407953f7b1b02db97892a9a8156d",
+    "bin/shenko/src/policy_config.rs": "26357df65c5f06236be78bd3757456296a1175f29ba376ff7a88d32683addadc",
+    "crates/shenko-channel-adapters/src/ilink/plugin.rs": "493d001cf351378dd71ae81a0cae55dc77abf61fc92a6335791aadfa114100ed",
+    "crates/shenko-channel-napcat/src/channel.rs": "9ac3ac4c0d44117f786a1db0c2afcaa28058a2ecc054b122c335d7fda9f08667",
+    "crates/shenko-subject/src/dispatch.rs": "a3c7a9d06e468956fb4ec80762c1be87291c5f6158aac2db56ca89665a5285a3",
+    "docs/IMPLEMENTATION_DOCS_MAP.md": "2c244244767e695e784776ec2451447d5272eac68549559906631919c3bae967",
+    "docs/specs/channels.md": "e79bca76be0aa29d863499befce9a5f01ac020b813005ddb4645d7c3db5fef69"
+  }
+}

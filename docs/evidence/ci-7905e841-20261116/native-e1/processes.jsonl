@@ -1,0 +1,24 @@
+{"label":"000-keygen","observation":{"event":"spawned"},"pid":17423}
+{"label":"000-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17423}
+{"label":"001-keygen","observation":{"event":"spawned"},"pid":17424}
+{"label":"001-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17424}
+{"label":"002-account","observation":{"event":"spawned"},"pid":17425}
+{"label":"002-account","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17425}
+{"label":"sshd","observation":{"event":"spawned"},"pid":17426}
+{"label":"003-source-page","observation":{"event":"spawned"},"pid":17428}
+{"label":"003-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17428}
+{"label":"004-source-page","observation":{"event":"spawned"},"pid":17440}
+{"label":"004-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17440}
+{"label":"005-sync-evidence","observation":{"event":"spawned"},"pid":17452}
+{"label":"005-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17452}
+{"label":"006-sync-evidence","observation":{"event":"spawned"},"pid":17484}
+{"label":"006-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17484}
+{"label":"007-sync-evidence","observation":{"event":"spawned"},"pid":18570}
+{"label":"007-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18570}
+{"label":"008-sync-evidence","observation":{"event":"spawned"},"pid":18591}
+{"label":"008-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18591}
+{"label":"009-sync-evidence","observation":{"event":"spawned"},"pid":18612}
+{"label":"009-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":18612}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17426}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17426}
+{"label":"sshd","observation":{"event":"joined","exit_code":null,"status":"signal: 9 (SIGKILL)"},"pid":17426}

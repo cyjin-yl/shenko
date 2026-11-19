@@ -1,0 +1,6 @@
+tree 0637c46d7a497c892813d3006872866a6a330643
+parent fae94e2ccfca9a427f79db6a1d40d2ae41d9ed86
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870534 +0000
+
+docs: name the actual Rust CI container precisely

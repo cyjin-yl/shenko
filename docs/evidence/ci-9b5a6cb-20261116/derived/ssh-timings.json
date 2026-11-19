@@ -1,0 +1,474 @@
+{
+  "source": "ssh-wasi/openssh-journey.json records[].cli_stderr",
+  "method": "ANSI removed only in this derived parser; original logs unchanged",
+  "commands": [
+    {
+      "label": "guest-0",
+      "action": "keygen",
+      "exit_code": 0,
+      "cli_elapsed_secs": 32.624575683,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:22:10.536004Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:22:17.727716Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "7.191708903",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:17.728312Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:17.728598Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000287122"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:43.132063Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.40345941",
+            "run_elapsed_secs": "25.403741053"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:43.133139Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.404827556"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:43.133648Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.000516376",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.405338162"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:43.133749Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.405441892"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:43.136783Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.003030876",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.408470077"
+          }
+        }
+      ]
+    },
+    {
+      "label": "guest-1",
+      "action": "exec",
+      "exit_code": 7,
+      "cli_elapsed_secs": 31.726971208,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:22:43.234584Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:22:49.257420Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "6.022843908",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:49.258040Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:22:49.258310Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000270973"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:14.754512Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.496195652",
+            "run_elapsed_secs": "25.496461715"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:14.756513Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.498470574"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:14.757061Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.0005625",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.499021513"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:14.757147Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.499113165"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:14.917047Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.159880698",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.65899273"
+          }
+        }
+      ]
+    },
+    {
+      "label": "guest-2",
+      "action": "put",
+      "exit_code": 0,
+      "cli_elapsed_secs": 31.907435373,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:23:14.963001Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:23:20.974799Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "6.011808515",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:20.975447Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:20.975729Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000284177"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:46.407822Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.432089288",
+            "run_elapsed_secs": "25.432366933"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:46.409679Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.434234195"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:46.410200Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.000528456",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.434754821"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:46.410283Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.434843028"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:46.831831Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.421528077",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.856369701"
+          }
+        }
+      ]
+    },
+    {
+      "label": "guest-3",
+      "action": "get",
+      "exit_code": 0,
+      "cli_elapsed_secs": 32.248816479,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:23:46.870869Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:23:53.142499Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "6.271636742",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:53.143118Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:23:53.143401Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000283378"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:18.572799Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.429392317",
+            "run_elapsed_secs": "25.429670898"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:18.574605Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.431485616"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:18.575133Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.000542138",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.432014749"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:18.575237Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.432124164"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:19.080936Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.505680619",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.937802538"
+          }
+        }
+      ]
+    },
+    {
+      "label": "guest-4",
+      "action": "exec",
+      "exit_code": 255,
+      "cli_elapsed_secs": 31.395510538,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:24:19.120154Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:24:25.113307Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "5.99315557",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:25.113939Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:25.114246Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000310864"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:50.419405Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.3051552",
+            "run_elapsed_secs": "25.305460471"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:50.421294Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.307356573"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:50.421834Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.000554791",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.307899534"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:50.421931Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.30800161"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:50.477736Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.055788666",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.363788217"
+          }
+        }
+      ]
+    },
+    {
+      "label": "guest-5",
+      "action": "exec",
+      "exit_code": 255,
+      "cli_elapsed_secs": 31.356125305,
+      "run_timeout_secs": 120,
+      "cli_timeout_secs": 180,
+      "stages": [
+        {
+          "utc": "2026-11-16T15:24:50.516945Z",
+          "stage": "artifact_verification_started",
+          "fields": {}
+        },
+        {
+          "utc": "2026-11-16T15:24:56.538251Z",
+          "stage": "artifact_verification_finished",
+          "fields": {
+            "verification_secs": "6.021309271",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:56.538855Z",
+          "stage": "budget_started",
+          "fields": {
+            "deadline_secs": "Some(120.0)",
+            "module_bytes": "2552689"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:24:56.539146Z",
+          "stage": "compile_started",
+          "fields": {
+            "run_elapsed_secs": "0.000295781"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:25:21.832306Z",
+          "stage": "compile_finished",
+          "fields": {
+            "compile_secs": "25.293154604",
+            "run_elapsed_secs": "25.293444837"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:25:21.833328Z",
+          "stage": "instantiate_started",
+          "fields": {
+            "run_elapsed_secs": "25.294476981"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:25:21.833826Z",
+          "stage": "instantiate_finished",
+          "fields": {
+            "instantiate_secs": "0.000503527",
+            "returned_with_trap": "false",
+            "run_elapsed_secs": "25.294974319"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:25:21.833912Z",
+          "stage": "start_entered",
+          "fields": {
+            "run_elapsed_secs": "25.295066649"
+          }
+        },
+        {
+          "utc": "2026-11-16T15:25:21.835797Z",
+          "stage": "start_returned",
+          "fields": {
+            "execution_secs": "0.001880371",
+            "returned_with_trap": "true",
+            "run_elapsed_secs": "25.296945934"
+          }
+        }
+      ]
+    }
+  ]
+}

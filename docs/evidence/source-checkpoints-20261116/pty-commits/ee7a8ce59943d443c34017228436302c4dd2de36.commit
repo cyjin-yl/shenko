@@ -1,0 +1,6 @@
+tree 567e8caeea198bcf308b3e6925235d9fb08424e0
+parent 464a130a0b615af11191b082de33099553b08c63
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866298 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866298 +0000
+
+Observe original PTY output tail before closing its channel

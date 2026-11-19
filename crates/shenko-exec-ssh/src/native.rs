@@ -381,18 +381,27 @@ impl SshPtyHandler {
             }),
             process_identity: None,
         };
-        let seat = crate::seat::ssh_pty::SshPtySeat::spawn(
+        let seat = Arc::new(crate::seat::ssh_pty::SshPtySeat::spawn(
             pty_session,
             handle.clone(),
             frozen.cols as u16,
             frozen.rows as u16,
-        );
-        self.runtime
+        ));
+        let result = self.runtime
             .attach(
-                Arc::new(seat),
+                seat.clone(),
                 SeatAttachment { task_id, seat_record_id: frozen.seat_id, lease_id: frozen.lease_id },
             )
-            .await
+            .await;
+        if let Err(error) = result {
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!(
+                    "PTY attach teardown also failed: {close_error:#}"
+                ))),
+            };
+        }
+        result
     }
 }
 
@@ -1321,10 +1330,13 @@ impl OmpSeatHandler {
             task_id,
         )
         .await;
-        if result.is_err() {
-            // Binding failed after the process started: stop our side so a
-            // refused operation never leaves a live agent behind.
-            seat.close().await;
+        if let Err(error) = result {
+            // The original binding failure and a failed close are separate
+            // facts. A failed join must not disappear behind the first error.
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!("managed seat teardown also failed: {close_error:#}"))),
+            };
         }
         result
     }
@@ -1383,10 +1395,13 @@ impl ClaudeSeatHandler {
             task_id,
         )
         .await;
-        if result.is_err() {
-            // Binding failed after the process started: stop our side so a
-            // refused operation never leaves a live agent behind.
-            seat.close().await;
+        if let Err(error) = result {
+            // The original binding failure and a failed close are separate
+            // facts. A failed join must not disappear behind the first error.
+            return match seat.close().await {
+                Ok(_) => Err(error),
+                Err(close_error) => Err(error.context(format!("managed seat teardown also failed: {close_error:#}"))),
+            };
         }
         result
     }
@@ -1649,7 +1664,8 @@ mod exec_observation_tests {
             schema: "ssh.native-transport.v1", stdout: b"partial".to_vec(), stderr: vec![],
             exit: None, exec_request_queued: true, exec_accepted: true,
             channel_closed: false, interruption: Some(NativeInterruption::Deadline),
-            session_end_observed: true,
+            local_stream_closed: true, session_end_observed: true,
+            session_error: Some("original session join error".into()),
         };
         let (payload, outcome, effect) = exec_payload(&frozen(), &ExecObservation::Executed(Ok(observation)));
         assert_eq!(outcome, None, "a local protocol end does not prove the remote command ended");
@@ -1657,6 +1673,8 @@ mod exec_observation_tests {
         assert_eq!(payload["observation"]["interruption"], "deadline");
         assert!(payload["observation"]["exit"].is_null());
         assert_eq!(payload["observation"]["stdout"], serde_json::json!(b"partial".to_vec()));
+        assert_eq!(payload["observation"]["local_stream_closed"], true);
+        assert_eq!(payload["observation"]["session_error"], "original session join error");
     }
 
     #[test]
@@ -1665,12 +1683,14 @@ mod exec_observation_tests {
             schema: "ssh.native-transport.v1", stdout: b"bounded".to_vec(), stderr: vec![],
             exit: Some(NativeExit::Status { code: 255 }),
             exec_request_queued: true, exec_accepted: true, channel_closed: true,
-            interruption: Some(NativeInterruption::OutputLimit), session_end_observed: true,
+            interruption: Some(NativeInterruption::OutputLimit), local_stream_closed: true,
+            session_end_observed: true, session_error: Some("original session join error".into()),
         };
         let (payload, outcome, effect) = exec_payload(&frozen(), &ExecObservation::Executed(Ok(observation)));
         assert_eq!(outcome, Some(OperationOutcome::Succeeded));
         assert_eq!(effect, EffectStatus::Complete);
         assert_eq!(payload["observation"]["exit"]["code"], 255);
         assert_eq!(payload["observation"]["interruption"], "output_limit");
+        assert_eq!(payload["observation"]["session_error"], "original session join error");
     }
 }

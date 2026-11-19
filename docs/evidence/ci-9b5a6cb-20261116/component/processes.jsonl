@@ -1,0 +1,186 @@
+{"label":"0000-account","observation":{"event":"spawned"},"pid":13241}
+{"label":"0000-account","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13241}
+{"label":"0001-a-host-keygen","observation":{"event":"spawned"},"pid":13242}
+{"label":"0001-a-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13242}
+{"label":"0002-a-client-keygen","observation":{"event":"spawned"},"pid":13243}
+{"label":"0002-a-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13243}
+{"label":"0003-b-host-keygen","observation":{"event":"spawned"},"pid":13244}
+{"label":"0003-b-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13244}
+{"label":"0004-b-client-keygen","observation":{"event":"spawned"},"pid":13245}
+{"label":"0004-b-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13245}
+{"label":"0005-c-host-keygen","observation":{"event":"spawned"},"pid":13246}
+{"label":"0005-c-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13246}
+{"label":"0006-c-client-keygen","observation":{"event":"spawned"},"pid":13247}
+{"label":"0006-c-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13247}
+{"label":"0007-d-host-keygen","observation":{"event":"spawned"},"pid":13248}
+{"label":"0007-d-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13248}
+{"label":"0008-d-client-keygen","observation":{"event":"spawned"},"pid":13249}
+{"label":"0008-d-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13249}
+{"label":"0009-e-host-keygen","observation":{"event":"spawned"},"pid":13250}
+{"label":"0009-e-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13250}
+{"label":"0010-e-client-keygen","observation":{"event":"spawned"},"pid":13251}
+{"label":"0010-e-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13251}
+{"label":"0011-f-host-keygen","observation":{"event":"spawned"},"pid":13252}
+{"label":"0011-f-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13252}
+{"label":"0012-f-client-keygen","observation":{"event":"spawned"},"pid":13253}
+{"label":"0012-f-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13253}
+{"label":"0013-g-host-keygen","observation":{"event":"spawned"},"pid":13254}
+{"label":"0013-g-host-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13254}
+{"label":"0014-g-client-keygen","observation":{"event":"spawned"},"pid":13255}
+{"label":"0014-g-client-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13255}
+{"label":"sshd-a","observation":{"event":"spawned"},"pid":13256}
+{"label":"sshd-b","observation":{"event":"spawned"},"pid":13258}
+{"label":"sshd-c","observation":{"event":"spawned"},"pid":13259}
+{"label":"sshd-d","observation":{"event":"spawned"},"pid":13261}
+{"label":"sshd-e","observation":{"event":"spawned"},"pid":13264}
+{"label":"sshd-f","observation":{"event":"spawned"},"pid":13266}
+{"label":"sshd-g","observation":{"event":"spawned"},"pid":13268}
+{"label":"resident-b","observation":{"event":"spawned"},"pid":13270}
+{"label":"resident-b","observation":{"event":"signal_requested","signal":2},"pid":13270}
+{"label":"resident-b","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13270}
+{"label":"0015-b-sync-identity","observation":{"event":"spawned"},"pid":13285}
+{"label":"0015-b-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13285}
+{"label":"0016-a-sync-identity","observation":{"event":"spawned"},"pid":13290}
+{"label":"0016-a-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13290}
+{"label":"0017-b-sync-identity","observation":{"event":"spawned"},"pid":13295}
+{"label":"0017-b-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13295}
+{"label":"0018-c-sync-identity","observation":{"event":"spawned"},"pid":13300}
+{"label":"0018-c-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13300}
+{"label":"0019-d-sync-identity","observation":{"event":"spawned"},"pid":13305}
+{"label":"0019-d-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13305}
+{"label":"0020-e-sync-identity","observation":{"event":"spawned"},"pid":13310}
+{"label":"0020-e-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13310}
+{"label":"0021-f-sync-identity","observation":{"event":"spawned"},"pid":13315}
+{"label":"0021-f-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13315}
+{"label":"0022-g-sync-identity","observation":{"event":"spawned"},"pid":13320}
+{"label":"0022-g-sync-identity","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13320}
+{"label":"0023-a-sync-enroll-component-a-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13325}
+{"label":"0023-a-sync-enroll-component-a-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13325}
+{"label":"0024-a-sync-enroll-component-a-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13345}
+{"label":"0024-a-sync-enroll-component-a-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13345}
+{"label":"0025-a-sync-enroll-component-a-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13365}
+{"label":"0025-a-sync-enroll-component-a-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13365}
+{"label":"0026-a-sync-enroll-component-a-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13385}
+{"label":"0026-a-sync-enroll-component-a-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13385}
+{"label":"0027-a-sync-enroll-component-a-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13405}
+{"label":"0027-a-sync-enroll-component-a-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13405}
+{"label":"0028-a-sync-enroll-component-a-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13425}
+{"label":"0028-a-sync-enroll-component-a-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13425}
+{"label":"0029-b-sync-enroll-component-b-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13445}
+{"label":"0029-b-sync-enroll-component-b-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13445}
+{"label":"0030-b-sync-enroll-component-b-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13465}
+{"label":"0030-b-sync-enroll-component-b-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13465}
+{"label":"0031-b-sync-enroll-component-b-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13485}
+{"label":"0031-b-sync-enroll-component-b-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13485}
+{"label":"0032-b-sync-enroll-component-b-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13505}
+{"label":"0032-b-sync-enroll-component-b-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13505}
+{"label":"0033-b-sync-enroll-component-b-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13525}
+{"label":"0033-b-sync-enroll-component-b-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13525}
+{"label":"0034-b-sync-enroll-component-b-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13545}
+{"label":"0034-b-sync-enroll-component-b-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13545}
+{"label":"0035-c-sync-enroll-component-c-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13565}
+{"label":"0035-c-sync-enroll-component-c-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13565}
+{"label":"0036-c-sync-enroll-component-c-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13585}
+{"label":"0036-c-sync-enroll-component-c-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13585}
+{"label":"0037-c-sync-enroll-component-c-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13605}
+{"label":"0037-c-sync-enroll-component-c-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13605}
+{"label":"0038-c-sync-enroll-component-c-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13625}
+{"label":"0038-c-sync-enroll-component-c-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13625}
+{"label":"0039-c-sync-enroll-component-c-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13645}
+{"label":"0039-c-sync-enroll-component-c-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13645}
+{"label":"0040-c-sync-enroll-component-c-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13665}
+{"label":"0040-c-sync-enroll-component-c-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13665}
+{"label":"0041-d-sync-enroll-component-d-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13685}
+{"label":"0041-d-sync-enroll-component-d-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13685}
+{"label":"0042-d-sync-enroll-component-d-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13705}
+{"label":"0042-d-sync-enroll-component-d-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13705}
+{"label":"0043-d-sync-enroll-component-d-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13725}
+{"label":"0043-d-sync-enroll-component-d-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13725}
+{"label":"0044-d-sync-enroll-component-d-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13745}
+{"label":"0044-d-sync-enroll-component-d-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13745}
+{"label":"0045-d-sync-enroll-component-d-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13765}
+{"label":"0045-d-sync-enroll-component-d-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13765}
+{"label":"0046-d-sync-enroll-component-d-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13785}
+{"label":"0046-d-sync-enroll-component-d-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13785}
+{"label":"0047-e-sync-enroll-component-e-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13805}
+{"label":"0047-e-sync-enroll-component-e-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13805}
+{"label":"0048-e-sync-enroll-component-e-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13825}
+{"label":"0048-e-sync-enroll-component-e-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13825}
+{"label":"0049-e-sync-enroll-component-e-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13845}
+{"label":"0049-e-sync-enroll-component-e-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13845}
+{"label":"0050-e-sync-enroll-component-e-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13865}
+{"label":"0050-e-sync-enroll-component-e-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13865}
+{"label":"0051-e-sync-enroll-component-e-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13885}
+{"label":"0051-e-sync-enroll-component-e-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13885}
+{"label":"0052-e-sync-enroll-component-e-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13905}
+{"label":"0052-e-sync-enroll-component-e-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13905}
+{"label":"0053-f-sync-enroll-component-f-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13925}
+{"label":"0053-f-sync-enroll-component-f-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13925}
+{"label":"0054-f-sync-enroll-component-f-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13945}
+{"label":"0054-f-sync-enroll-component-f-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13945}
+{"label":"0055-f-sync-enroll-component-f-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13965}
+{"label":"0055-f-sync-enroll-component-f-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13965}
+{"label":"0056-f-sync-enroll-component-f-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":13985}
+{"label":"0056-f-sync-enroll-component-f-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13985}
+{"label":"0057-f-sync-enroll-component-f-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14005}
+{"label":"0057-f-sync-enroll-component-f-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14005}
+{"label":"0058-f-sync-enroll-component-f-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14025}
+{"label":"0058-f-sync-enroll-component-f-g---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14025}
+{"label":"0059-g-sync-enroll-component-g-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14045}
+{"label":"0059-g-sync-enroll-component-g-a---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14045}
+{"label":"0060-g-sync-enroll-component-g-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14065}
+{"label":"0060-g-sync-enroll-component-g-b---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14065}
+{"label":"0061-g-sync-enroll-component-g-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14085}
+{"label":"0061-g-sync-enroll-component-g-c---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14085}
+{"label":"0062-g-sync-enroll-component-g-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14105}
+{"label":"0062-g-sync-enroll-component-g-d---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14105}
+{"label":"0063-g-sync-enroll-component-g-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14125}
+{"label":"0063-g-sync-enroll-component-g-e---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14125}
+{"label":"0064-g-sync-enroll-component-g-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"spawned"},"pid":14145}
+{"label":"0064-g-sync-enroll-component-g-f---remote-data-dir-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14145}
+{"label":"0065-b-sync-push","observation":{"event":"spawned"},"pid":14165}
+{"label":"0065-b-sync-push","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14165}
+{"label":"0066-a-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14288}
+{"label":"0066-a-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14288}
+{"label":"0067-c-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14295}
+{"label":"0067-c-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14295}
+{"label":"0068-d-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14302}
+{"label":"0068-d-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14302}
+{"label":"0069-e-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14309}
+{"label":"0069-e-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14309}
+{"label":"0070-f-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14316}
+{"label":"0070-f-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14316}
+{"label":"0071-g-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"spawned"},"pid":14323}
+{"label":"0071-g-sync-adopt---identity-file-_tmp_shenko-component-process-f8a21c8f-91ff-4c1a-a077-02052e968cad","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14323}
+{"label":"0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed","observation":{"event":"spawned"},"pid":14328}
+{"label":"0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":14328}
+{"label":"0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca","observation":{"event":"spawned"},"pid":16584}
+{"label":"0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16584}
+{"label":"0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9","observation":{"event":"spawned"},"pid":16605}
+{"label":"0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16605}
+{"label":"0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d","observation":{"event":"spawned"},"pid":16626}
+{"label":"0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16626}
+{"label":"0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599","observation":{"event":"spawned"},"pid":16647}
+{"label":"0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16647}
+{"label":"0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2","observation":{"event":"spawned"},"pid":16668}
+{"label":"0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16668}
+{"label":"0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f","observation":{"event":"spawned"},"pid":16689}
+{"label":"0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16689}
+{"label":"0079-b-sync-members-show","observation":{"event":"spawned"},"pid":16710}
+{"label":"0079-b-sync-members-show","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16710}
+{"label":"0080-a-sync-members-show","observation":{"event":"spawned"},"pid":16715}
+{"label":"0080-a-sync-members-show","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":16715}
+{"label":"sshd-a","observation":{"event":"signal_requested","signal":15},"pid":13256}
+{"label":"sshd-a","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13256}
+{"label":"sshd-b","observation":{"event":"signal_requested","signal":15},"pid":13258}
+{"label":"sshd-b","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13258}
+{"label":"sshd-c","observation":{"event":"signal_requested","signal":15},"pid":13259}
+{"label":"sshd-c","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13259}
+{"label":"sshd-d","observation":{"event":"signal_requested","signal":15},"pid":13261}
+{"label":"sshd-d","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13261}
+{"label":"sshd-e","observation":{"event":"signal_requested","signal":15},"pid":13264}
+{"label":"sshd-e","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13264}
+{"label":"sshd-f","observation":{"event":"signal_requested","signal":15},"pid":13266}
+{"label":"sshd-f","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13266}
+{"label":"sshd-g","observation":{"event":"signal_requested","signal":15},"pid":13268}
+{"label":"sshd-g","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":13268}

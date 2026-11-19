@@ -1,0 +1,270 @@
+{
+  "kind": "actual_hosted_source_build_failure",
+  "run_id": 43945415290,
+  "job_id": 133573644956,
+  "attempt": 1,
+  "head_sha": "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+  "actual_checkout": "2d275430b103fb0e13316ba51cc5b5c5fdafa262",
+  "actual_tree": "d695242eb0005a1d06256aab91e9e649f1cb8a86",
+  "checkout_parents": [
+    "84ae19404f2a17d259362c99091db408b7262e14",
+    "83bf391440adbe3e153b036ba8fd1ecfe5867202"
+  ],
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "source_bindings": [
+    {
+      "response": "build-source.tool.json",
+      "artifact_member": "builder.py",
+      "git_blob": "b8c223aff736823cbd325a2b81f75df887290892",
+      "bytes": 26759,
+      "sha256": "179a1ec662498a6e9ad71cd21a3261867c8c5b2980069eb2a6f6a2444f6367c5"
+    },
+    {
+      "response": "runner-source.tool.json",
+      "artifact_member": "runner.py",
+      "git_blob": "e3a9dcd9f2fae97329fe04f0c5bc225e2ea6a273",
+      "bytes": 34906,
+      "sha256": "9e42b06d016f6740ca700b2a7519bdaa763801974143be57fbd3570a299cc11a"
+    },
+    {
+      "response": "patch-source.tool.json",
+      "artifact_member": "source.patch",
+      "git_blob": "0e4693cd029f7d302b590518a617e14a0a7ff4d8",
+      "bytes": 1001,
+      "sha256": "93970b459d28ad3ac6af9c6446bc175220b4ea3b2f9ab29f5330710454d5fee9"
+    },
+    {
+      "response": "workflow-source.tool.json",
+      "artifact_member": null,
+      "git_blob": "3714a3915f1d46b25317cf3b30044d88b7519247",
+      "bytes": 1330,
+      "sha256": "2abdf4ebbe9042aa2d7af304ca5a96b71b9585948e6872cd901096fea92ae145"
+    }
+  ],
+  "compile": {
+    "command": [
+      "/usr/bin/make",
+      "-C",
+      "out",
+      "BUILDTYPE=Release",
+      "V=1",
+      "-j1",
+      "node"
+    ],
+    "started_at": "2026-11-16T20:02:29.095182+00:00",
+    "finished_at": "2026-11-16T20:50:16.890832+00:00",
+    "elapsed_seconds": 2867.794816597,
+    "exit_code": 2,
+    "stopped": null,
+    "leader_reaped": true,
+    "group_remaining": [],
+    "rss_peak_bytes_observed": 3361767424,
+    "limits": {
+      "rss_monitor_bytes": 10737418240,
+      "available_memory_reserve_bytes": 3844165632,
+      "free_disk_reserve_bytes": 8589934592,
+      "address_space_hard_bytes": 25769803776,
+      "cpu_soft_seconds": 7200,
+      "file_hard_bytes": 2147483648,
+      "monitor_interval_seconds": 0.2,
+      "output_monitor_bytes": 134217728,
+      "basis": "actual visible headroom; reserve max(2 GiB, one quarter); sampled group RSS remainder capped at 10 GiB; this is an experimental budget, not a measured compiler requirement",
+      "enforcement": "per-process hard AS/CPU/file limits, sampled group RSS/headroom/disk/output guards; one make job and one Binaryen worker; total build-stage wall budget 7200 seconds",
+      "wall_seconds": 7158.984031765,
+      "sample_seconds": 5
+    },
+    "sample_count": 574,
+    "minimum_observed_effective_headroom_bytes": 12280815616,
+    "minimum_observed_disk_free_bytes": 92715462656
+  },
+  "stderr_errors": [
+    {
+      "line": 255367,
+      "text": "../deps/v8/src/builtins/builtins-typed-array.cc:17:10: fatal error: 'wasi/wasi-simdutf-compat.h' file not found"
+    },
+    {
+      "line": 255370,
+      "text": "4 warnings and 1 error generated."
+    },
+    {
+      "line": 255371,
+      "text": "Error: Command failed with status: exit status: 1; the command was: \"/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/toolchains/llvm/bin/clang++\" \"--sysroot\" \"/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/toolchains/sysroot/wasix-sysroot/sysroot\" \"--target=wasm32-wasi\" \"-c\" \"-matomics\" \"-mbulk-memory\" \"-mmutable-globals\" \"-pthread\" \"-mthread-model\" \"posix\" \"-fno-trapping-math\" \"-D_WASI_EMULATED_MMAN\" \"-D_WASI_EMULATED_SIGNAL\" \"-D_WASI_EMULATED_PROCESS_CLOCKS\" \"-fno-exceptions\" \"-ftls-model=local-exec\" \"-msimd128\" \"-mrelaxed-simd\" \"-mextended-const\" \"-D_GLIBCXX_USE_CXX11_ABI=1\" \"-D_FILE_OFFSET_BITS=64\" \"-DNODE_OPENSSL_CONF_NAME=nodejs_conf\" \"-DICU_NO_USER_DATA_OVERRIDE\" \"-DV8_GYP_BUILD\" \"-DV8_TYPED_ARRAY_MAX_SIZE_IN_HEAP=64\" \"-D__STDC_FORMAT_MACROS\" \"-DOPENSSL_NO_PINSHARED\" \"-DOPENSSL_THREADS\" \"-DOPENSSL_NO_ASM\" \"-DV8_TARGET_ARCH_WASM32\" \"-DV8_EMBEDDER_STRING=\\\"-node.13\\\"\" \"-DENABLE_DISASSEMBLER\" \"-DV8_PROMISE_INTERNAL_FIELD_COUNT=1\" \"-DOBJECT_PRINT\" \"-DV8_INTL_SUPPORT\" \"-DV8_ATOMIC_OBJECT_FIELD_WRITES\" \"-DV8_ENABLE_LAZY_SOURCE_POSITIONS\" \"-DV8_USE_SIPHASH\" \"-DNDEBUG\" \"-DV8_WIN64_UNWINDING_INFO\" \"-DV8_ENABLE_REGEXP_INTERPRETER_THREADED_DISPATCH\" \"-DV8_USE_ZLIB\" \"-DV8_ENABLE_TURBOFAN\" \"-DV8_ENABLE_WEBASSEMBLY\" \"-DV8_ENABLE_DRUMBRAKE\" \"-DV8_ENABLE_JAVASCRIPT_PROMISE_HOOKS\" \"-DV8_ENABLE_CONTINUATION_PRESERVED_EMBEDDER_DATA\" \"-DV8_ALLOCATION_FOLDING\" \"-DV8_ALLOCATION_SITE_TRACKING\" \"-DV8_ADVANCED_BIGINT_ALGORITHMS\" \"-DICU_UTIL_DATA_IMPL=ICU_UTIL_DATA_STATIC\" \"-DUCONFIG_NO_SERVICE=1\" \"-DU_ENABLE_DYLOAD=0\" \"-DU_STATIC_IMPLEMENTATION=1\" \"-DU_HAVE_STD_STRING=1\" \"-DUCONFIG_NO_BREAK_ITERATION=0\" \"-DV8_USING_WASI_SHIMS=1\" \"-D__wasi__=1\" \"-I../deps/v8\" \"-I../deps/v8/include\" \"-I/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj/gen/generate-bytecode-output-root\" \"-I/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj/gen\" \"-I/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj/gen/inspector-generated-output-root\" \"-I../deps/v8/third_party/inspector_protocol\" \"-I/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj/gen/inspector-generated-output-root/include\" \"-I../deps/icu-small/source/i18n\" \"-I../deps/icu-small/source/common\" \"-I../deps/v8/third_party/zlib\" \"-I../deps/v8/third_party/zlib/google\" \"-I../deps/v8/third_party/fp16/src/include\" \"-I../deps/v8/third_party/highway/src\" \"-I../deps/v8/third_party/simdutf\" \"-I../deps/v8/third_party/abseil-cpp\" \"-O3\" \"-fno-omit-frame-pointer\" \"-std=gnu++20\" \"-Wno-invalid-offsetof\" \"-MMD\" \"-MF\" \"/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/.deps//home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/v8_base_without_compiler/deps/v8/src/builtins/builtins-typed-array.o.d.raw\" \"-c\" \"../deps/v8/src/builtins/builtins-typed-array.cc\" \"-o\" \"/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/v8_base_without_compiler/deps/v8/src/builtins/builtins-typed-array.o\""
+    },
+    {
+      "line": 255372,
+      "text": "make: *** [tools/v8_gypfiles/v8_base_without_compiler.target.mk:1026: /home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/v8_base_without_compiler/deps/v8/src/builtins/builtins-typed-array.o] Error 1"
+    }
+  ],
+  "diagnostic_inputs": [
+    {
+      "path": "compile.stdout",
+      "bytes": 4603983,
+      "sha256": "a5a7f26af76474ed95b6a0985c2935a36c5e6458981affc28943e60b84609a21"
+    },
+    {
+      "path": "compile.stderr",
+      "bytes": 15579615,
+      "sha256": "46eb10ac4c24eb9ef2c7ab7c3a36ba4b6e1bfa41e354238da4a76335bddce67d"
+    },
+    {
+      "path": "compile.observation.json",
+      "bytes": 2436940,
+      "sha256": "c87c1f1e635d21cfa00913f648f8878468d38fcdb927993e4c5e78794048383d"
+    },
+    {
+      "path": "source-files.stdout",
+      "bytes": 4582489,
+      "sha256": "065b5cea5d4a0f5e812fb1bca83292ae4d2591cc34114c969a776d877ed26ec9"
+    }
+  ],
+  "openssl_archive_commands": [
+    {
+      "line": 2958,
+      "text": "rm -f /home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/deps/openssl/libopenssl.a ar-file-list; mkdir -p `dirname /home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/deps/openssl/libopenssl.a`"
+    },
+    {
+      "line": 2959,
+      "text": "/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/bin/wasixar crsT /home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/deps/openssl/libopenssl.a @/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/source/out/Release/obj.target/deps/openssl/libopenssl.a.ar-file-list"
+    }
+  ],
+  "source_summary": {
+    "started_at": "2026-11-16T20:01:48.078747+00:00",
+    "stage": "compile",
+    "checks": {},
+    "build_succeeded": false,
+    "reopen_attempted": false,
+    "feasibility_passed": false,
+    "product_capability_installed": false,
+    "named_target_acceptance": false,
+    "error": {
+      "type": "RuntimeError",
+      "message": "compile failed; see its original output and process observation"
+    },
+    "owned_groups_settled": true,
+    "compiled_cache_files": [],
+    "stop_signal": null,
+    "finished_at": "2026-11-16T20:50:16.964673+00:00"
+  },
+  "symlinks": [
+    {
+      "path": "deps/cares/src/lib/ares_config.h",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "4081035f9e1f406accb209ac26fac2ddd31af866",
+      "bytes": 20,
+      "target": "config/ares_config.h",
+      "absolute": false,
+      "relative_target_in_tree": false,
+      "relative_target": "deps/cares/src/lib/config/ares_config.h"
+    },
+    {
+      "path": "deps/v8/include/wasi/wasi-simdutf-compat.h",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+      "bytes": 81,
+      "target": "/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h",
+      "absolute": true,
+      "relative_target_in_tree": false,
+      "relative_target": null
+    },
+    {
+      "path": "deps/v8/third_party/ittapi/ittapi-rs/CMakeLists.txt",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "de0cf227139ff67dd6d0493c03533e48d6ea8634",
+      "bytes": 17,
+      "target": "../CMakeLists.txt",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "deps/v8/third_party/ittapi/CMakeLists.txt"
+    },
+    {
+      "path": "deps/v8/third_party/ittapi/ittapi-rs/LICENSES",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "a274e110699818e46ccc452f164e9e4581dc79cf",
+      "bytes": 12,
+      "target": "../LICENSES/",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "deps/v8/third_party/ittapi/LICENSES"
+    },
+    {
+      "path": "deps/v8/third_party/ittapi/ittapi-rs/include",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "3a1af68fd1cdb60bde9d135dd7cb5c7250f22b3d",
+      "bytes": 11,
+      "target": "../include/",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "deps/v8/third_party/ittapi/include"
+    },
+    {
+      "path": "deps/v8/third_party/ittapi/ittapi-rs/src/ittnotify",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "4859c0fe8132b0064e28140606c893fbde279251",
+      "bytes": 19,
+      "target": "../../src/ittnotify",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "deps/v8/third_party/ittapi/src/ittnotify"
+    },
+    {
+      "path": "test/fixtures/wasi/subdir/input_link.txt",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "4a6d09bf82379f2369f664ac2ab83ff703c586ab",
+      "bytes": 12,
+      "target": "../input.txt",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "test/fixtures/wasi/input.txt"
+    },
+    {
+      "path": "test/fixtures/wasi/subdir/outside.txt",
+      "mode": "120000",
+      "kind": "blob",
+      "blob": "2e0694706746f7213ebdd81109ac221f0308ef73",
+      "bytes": 17,
+      "target": "../../outside.txt",
+      "absolute": false,
+      "relative_target_in_tree": true,
+      "relative_target": "test/fixtures/outside.txt"
+    }
+  ],
+  "verified_upstream_blobs": [
+    {
+      "file": "blob-bd6e8c79587d83d5c6eaac604f4acd4faf9b105d",
+      "git_blob": "bd6e8c79587d83d5c6eaac604f4acd4faf9b105d",
+      "bytes": 41028,
+      "sha256": "d18b0b787ef7757852b20a2963bf755705eb3c357ad5a1c9653472b26bc7f84d"
+    },
+    {
+      "file": "blob-e855e0ab27eecb80fabb1c05d1abb08caaf3c4d8",
+      "git_blob": "e855e0ab27eecb80fabb1c05d1abb08caaf3c4d8",
+      "bytes": 1449,
+      "sha256": "6412d368a2d00ea303e79331ce998b36ebafa1c2f1d3694fb03ff33abd5ac8f9"
+    },
+    {
+      "file": "blob-f7e59ed84434ac2100e830dfc652203f1ccdad48",
+      "git_blob": "f7e59ed84434ac2100e830dfc652203f1ccdad48",
+      "bytes": 81,
+      "sha256": "e9a3435e5f0b6916070df2c51e633cb78d02f39fa5eda31367c82bade47dbaa1"
+    }
+  ],
+  "module_members": [],
+  "guest_executed": false,
+  "reopen_attempted": false,
+  "product_capability_installed": false,
+  "previous_source_build": {
+    "run_id": 43922989826,
+    "result": "failure",
+    "cause": "OpenSSL archive recipe: make printf Argument list too long",
+    "artifact_sha256": "56ac75e7ca5580b4c0ce19c5a7dcc96f61ffb31e049f67f323194fb33fb8b73d"
+  },
+  "scope": "Original source build only; no new build, limit change, module, guest result, or named acceptance."
+}

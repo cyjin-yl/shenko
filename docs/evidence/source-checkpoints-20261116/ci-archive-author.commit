@@ -1,0 +1,6 @@
+tree fbec6d3818c13f566e4f38967dad0c7cc95bf55d
+parent 262f980e2db13dac7d12e7df861fbf0ba707999d
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794858458 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794858458 +0000
+
+docs(evidence): preserve complete CI 262f980e artifacts and source binding

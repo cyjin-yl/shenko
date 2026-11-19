@@ -1,0 +1,78 @@
+{
+  "kind": "named_node_wasix_local_failed_observations",
+  "observed_date": "2026-11-16",
+  "driver_repository_head": "ce18c5ec89163d19f07037e5e9489ef33c376fc9",
+  "driver_sha256": "a9419c9aa0abbced7c69145806768153971d37121a8c20e63e0c623f0991f150",
+  "original_evidence_zip": {
+    "path": "original-local-evidence.zip",
+    "bytes": 60145,
+    "sha256": "6dc5f0c0267027e6f5ee36cf32c45d99733fb464b068753ab213d357bc9d0289"
+  },
+  "attempts": [
+    {
+      "path": ".",
+      "started_at": "2026-11-16T16:34:07.690572+00:00",
+      "elapsed_seconds": 56.383512624001014,
+      "exit_code": 1,
+      "limits": {
+        "rss_monitor_bytes": 1610612736,
+        "available_memory_reserve_bytes": 805306368,
+        "address_space_hard_bytes": 8589934592,
+        "wall_seconds": 180,
+        "cpu_soft_seconds": 150,
+        "file_hard_bytes": 16777216,
+        "free_disk_reserve_bytes": 268435456,
+        "monitor_interval_seconds": 0.05
+      },
+      "rss_peak_bytes_observed": 1280180224,
+      "stopped": null,
+      "group_remaining": [],
+      "compiled_cache_files": []
+    },
+    {
+      "path": "address-space-retry",
+      "started_at": "2026-11-16T16:37:41.387108+00:00",
+      "elapsed_seconds": 55.54271949999384,
+      "exit_code": -15,
+      "limits": {
+        "rss_monitor_bytes": 1610612736,
+        "available_memory_reserve_bytes": 805306368,
+        "address_space_hard_bytes": 12884901888,
+        "wall_seconds": 180,
+        "cpu_soft_seconds": 150,
+        "file_hard_bytes": 16777216,
+        "free_disk_reserve_bytes": 268435456,
+        "monitor_interval_seconds": 0.05
+      },
+      "rss_peak_bytes_observed": 1613180928,
+      "stopped": {
+        "reason": "rss_observation_limit",
+        "actions": [
+          "SIGTERM"
+        ],
+        "remaining_group": []
+      },
+      "group_remaining": [],
+      "compiled_cache_files": []
+    }
+  ],
+  "third_local_guest_started": false,
+  "local_pause_reason": "system MemAvailable was observed, but no cgroup filesystem/ancestor hard memory limit was exposed; not proof of physical memory insufficiency",
+  "source_build_attestation": null,
+  "release_asset_differs_from_tag_tracked_module": true,
+  "successful_node_cell_observed": false,
+  "checkpoint_reopen_attempted": false,
+  "product_capability_installed": false,
+  "named_target_acceptance": false,
+  "hosted_journey_status": "implementation_only_not_run",
+  "large_binaries_in_git": false,
+  "original_mount_listing_published": false,
+  "staging_reclaimed": {
+    "observed_at": "2026-11-16T16:52:04.300721+00:00",
+    "bytes": 219153104,
+    "verified_sha256": "72c57ef6be45d500cb528c0a684b13159620ddfb4b50d3e429a3a352d0b3f116",
+    "purpose": "Reclaim already-verified re-downloadable SDK executable staging; preserve all original observations, scripts, module and small evidence archive.",
+    "guest_started": false,
+    "free_disk_bytes": 477437952
+  }
+}

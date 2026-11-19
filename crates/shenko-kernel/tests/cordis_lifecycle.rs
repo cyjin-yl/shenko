@@ -236,7 +236,19 @@ async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
         assert_ne!(before.services()[0].id(), after.services()[0].id());
         assert_eq!(plugin.joined.load(Ordering::SeqCst), 1);
         let cleaned = Arc::new(AtomicUsize::new(0));
-        host.stop().await.unwrap();
+        // Terminal admission closes first, but an exact resident handle can
+        // still retire through the same native barrier while shutdown joins
+        // the flat runtime. It must not invent a lifecycle failure merely
+        // because the shutdown token has already been cancelled.
+        let (stopped, retired) = tokio::join! { biased;
+            host.stop(),
+            async {
+                assert!(host.is_shutdown(), "shutdown closes admission before resident retirement");
+                host.plugins.uninstall(&provider).await
+            },
+        };
+        assert!(stopped.is_ok(), "{stopped:?}");
+        assert!(retired.is_ok(), "{retired:?}");
         host.stop().await.unwrap();
         assert!(host.is_shutdown());
         assert!(host.spawn(Healthy(cleaned.clone()), ()).await.is_err());
@@ -302,8 +314,12 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
         assert_eq!(delivered.state(), FiberState::Active);
         assert!(host.spawn(Healthy(cleaned.clone()), ()).await.is_err());
         assert!(host.restart(&healthy).await.is_err());
-        assert!(host.stop().await.is_err()); // drain != proof external effects undone
+        let Err(stopped) = host.stop().await else {
+            panic!("drain is not proof that failed external cleanup was undone")
+        };
+        assert!(stopped.to_string().contains("payload destructor panicked"), "{stopped:#}");
         assert!(host.stop().await.is_err()); // reading does not clear unknown
+        assert!(host.plugins.uninstall(&healthy).await.is_err()); // cleanup keeps the unknown latch
         assert_eq!(cleaned.load(Ordering::SeqCst), 2);
         assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
     })

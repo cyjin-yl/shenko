@@ -1,0 +1,274 @@
+{
+  "artifact": {
+    "id": 14276138196,
+    "name": "web-rebuild-evidence",
+    "size_in_bytes": 2287316,
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14276138196",
+    "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14276138196/zip",
+    "expired": false,
+    "created_at": "2026-11-16T22:19:05Z",
+    "expires_at": "2027-02-14T22:17:03Z",
+    "updated_at": "2026-11-16T22:19:05Z",
+    "digest": "sha256:2b46ede87beb85e6b4092a7cf797f736dc7e53beab5e0aadc3f5fa409d04c0ff",
+    "workflow_run": {
+      "id": 43968540714,
+      "repository_id": 1430340138,
+      "head_repository_id": 1430340138,
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919"
+    }
+  },
+  "file_name": "web-rebuild-evidence.original.zip",
+  "sha256": "2b46ede87beb85e6b4092a7cf797f736dc7e53beab5e0aadc3f5fa409d04c0ff",
+  "size": 2287316,
+  "crc_checked": true,
+  "member_count": 49,
+  "members": [
+    {
+      "path": "committed/build-manifest.json",
+      "size": 7825,
+      "sha256": "f2e3e44bdb4e51ec69aec79364632d2027ea898b2dc3421993a5d2eba38361a9"
+    },
+    {
+      "path": "committed/app.css",
+      "size": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f"
+    },
+    {
+      "path": "committed/chunks/chunk-TJPYHGM5.js",
+      "size": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    },
+    {
+      "path": "committed/app.js",
+      "size": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693"
+    },
+    {
+      "path": "committed/chunks/demo-controller-3CZCHCX4.js",
+      "size": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
+    },
+    {
+      "path": "committed/licenses/REACT-DOM-LICENSE",
+      "size": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "committed/licenses/PROTO-UI-LICENSE",
+      "size": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
+    },
+    {
+      "path": "committed/licenses/REACT-LICENSE",
+      "size": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "committed/licenses/SHADCN-NOTICES.md",
+      "size": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
+    },
+    {
+      "path": "committed/proto-ui-style.css",
+      "size": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
+    },
+    {
+      "path": "committed/proto-ui-tokens.generated.css",
+      "size": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9"
+    },
+    {
+      "path": "committed/shadcn-theme.css",
+      "size": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96"
+    },
+    {
+      "path": "committed/theme-bootstrap.js",
+      "size": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
+    },
+    {
+      "path": "comparison.json",
+      "size": 10545,
+      "sha256": "9d6972a601a45e06c4f11482927fdf69f38418fa1edaf89e8241339cd5c091ad"
+    },
+    {
+      "path": "inputs.json",
+      "size": 3749285,
+      "sha256": "90181172302b6dd44a4c30d160ab3c0e96993542a2641f88ea5b6259a574eced"
+    },
+    {
+      "path": "source/src/static/app.css",
+      "size": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f"
+    },
+    {
+      "path": "source/src/static/build-manifest.json",
+      "size": 7747,
+      "sha256": "26947f938f220d79996186b360ee1e1c1494245acb2e1f32344abc92370fa36e"
+    },
+    {
+      "path": "source/src/static/app.js",
+      "size": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693"
+    },
+    {
+      "path": "source/src/static/chunks/chunk-TJPYHGM5.js",
+      "size": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    },
+    {
+      "path": "source/src/static/chunks/demo-controller-3CZCHCX4.js",
+      "size": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
+    },
+    {
+      "path": "source/src/static/licenses/PROTO-UI-LICENSE",
+      "size": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
+    },
+    {
+      "path": "source/src/static/licenses/REACT-LICENSE",
+      "size": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "source/src/static/licenses/REACT-DOM-LICENSE",
+      "size": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "source/src/static/licenses/SHADCN-NOTICES.md",
+      "size": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
+    },
+    {
+      "path": "source/src/static/proto-ui-style.css",
+      "size": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
+    },
+    {
+      "path": "source/src/static/proto-ui-tokens.generated.css",
+      "size": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9"
+    },
+    {
+      "path": "source/src/static/shadcn-theme.css",
+      "size": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96"
+    },
+    {
+      "path": "source/src/static/theme-bootstrap.js",
+      "size": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
+    },
+    {
+      "path": "source/web/generated/prototypes/manifest.json",
+      "size": 3067,
+      "sha256": "3fc76b13124f2513ec7fdaa83cfdf525c19a1056df1a8b03443f89a47c8b73b3"
+    },
+    {
+      "path": "source/web/generated/prototypes/message-bubble/Component.tsx",
+      "size": 38956,
+      "sha256": "22e0215ad9f2b8dfd9d526ec73bbb578e4725004e8ea5e379ac37e8e50005968"
+    },
+    {
+      "path": "source/web/generated/compiler/proto-ui-compiler.mjs",
+      "size": 2278557,
+      "sha256": "c915bf31223a1f951b99dd23d69907638c81291583a195ddd141e0201dfb15e6"
+    },
+    {
+      "path": "source/web/generated/prototypes/message-bubble/Component.tsx.map",
+      "size": 2328,
+      "sha256": "acc95063314469cfe87520996ab4731b5a451f111af5c8ef82620d4944db8783"
+    },
+    {
+      "path": "source/web/generated/prototypes/message-bubble/provenance.json",
+      "size": 1541,
+      "sha256": "23878e572c25b280e1e73c6b89660963139ba0cec7cc8162a62d26b2a5c720ba"
+    },
+    {
+      "path": "source/web/generated/prototypes/transport-badge/Component.tsx",
+      "size": 39242,
+      "sha256": "56b5bb54f2dda879d4086752c93c7261c68c4f76d11a638d8a75faf00674e107"
+    },
+    {
+      "path": "source/web/generated/prototypes/transport-badge/Component.tsx.map",
+      "size": 2788,
+      "sha256": "819055de63e9c7047d0a622bbf6b049b7e1df921c325d6584dc3f398bbb396b0"
+    },
+    {
+      "path": "source/web/generated/prototypes/transport-badge/provenance.json",
+      "size": 1543,
+      "sha256": "6ad1fba338c29fac6b29e39f939066e4f3a0e1ff2fadad53d48a8283d8ceaf43"
+    },
+    {
+      "path": "upstream-build.json",
+      "size": 5164,
+      "sha256": "5863d187346a8ca9eea8fc73194c3847d9b7ca83563325c22f26751632f31512"
+    },
+    {
+      "path": "upstream-build.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "upstream-checkout.log",
+      "size": 93,
+      "sha256": "dbe882480cd58abec4af54c6706f9abe1824bbc69f1b28b17f2259649cd22dd1"
+    },
+    {
+      "path": "upstream-fetch.log",
+      "size": 118,
+      "sha256": "7be7df4457b76e89ca83ca4954fd0a579b7619d22dfd8edd7bc6b567cc60e92c"
+    },
+    {
+      "path": "upstream-init.log",
+      "size": 563,
+      "sha256": "a25f72097af1c41f1a3c50e058abdbade391723e85d1b4330a57f8cb7e20c1d8"
+    },
+    {
+      "path": "upstream-install.log",
+      "size": 1094,
+      "sha256": "5dc6cc6f4ffb0fa59c50e427f04c63b63c79548786058e7dcb8f5c92e3e630da"
+    },
+    {
+      "path": "upstream-plan.json",
+      "size": 1458,
+      "sha256": "da89d0a13a4f9f49d145f1b3406828c9bd8d18c518676b5ac79ce28239a09114"
+    },
+    {
+      "path": "upstream-plan.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "upstream-remote.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "web-build.log",
+      "size": 619,
+      "sha256": "5496a89329eb6f5082eaf8ff7ad405b729b0719d89bf88e5ec3df403d8c3e376"
+    },
+    {
+      "path": "web-install.log",
+      "size": 1264,
+      "sha256": "80641b39ad16ba02ba270354a036f70abd8d25b3d6e3d5d0fa8159bec10a2b80"
+    },
+    {
+      "path": "web-tests.log",
+      "size": 3571,
+      "sha256": "49072ed9e1ac907f253d94b48f7e1c652b2d8cdad8aa59b83abfb32d455c38f3"
+    },
+    {
+      "path": "web-types.log",
+      "size": 323,
+      "sha256": "386138cbc5ec2c450683421db92d9067aa344517833f319a46696dc662d9881d"
+    }
+  ],
+  "observed_at": "2026-11-16T22:25:50.367831+00:00"
+}

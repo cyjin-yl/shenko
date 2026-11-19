@@ -1,0 +1,16 @@
+{
+  "artifact_id": 14267913615,
+  "file_id": "file_00000000ef4c81f78297a18e7a07b57a",
+  "source_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14267913615/zip",
+  "reported_sha256": "ec5be14b1cac12e2c7342f6506f2e4c6fe0889dd60916dd451c760fce614caf0",
+  "name": "kernel-boundary-evidence-43952544325.zip",
+  "independent_sha256": "ec5be14b1cac12e2c7342f6506f2e4c6fe0889dd60916dd451c760fce614caf0",
+  "zip_crc_verified": true,
+  "members": [
+    {
+      "path": "base.json",
+      "bytes": 120,
+      "sha256": "e6e8ad7ff925263a7069f3e4f818b20d2a8c959f509b8912c4d43f8ed705cc65"
+    }
+  ]
+}

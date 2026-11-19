@@ -1,0 +1,8 @@
+{
+  "error": "b readiness timed out; original logs retained",
+  "foreign_inflight_takeover_tested": false,
+  "model_inference_tested": false,
+  "passed": false,
+  "physical_partition_tested": false,
+  "source_revision": "92135ff8956c425748baa2560e1fbafed72498d4"
+}

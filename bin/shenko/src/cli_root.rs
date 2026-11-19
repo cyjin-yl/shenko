@@ -43,6 +43,7 @@ pub(crate) fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
             });
             let installation_id = store.installation_id_for_subject(agent_id)?;
             let prepared = bootstrap.prepare(installation_id)?;
+            prepared.record_local_provisioning(&store)?;
             let (home_bytes, home_ref) = shenko_seed::bootstrap::seed_home_content(&prepared.manifest)?;
 
             // Seal home content in CAS.

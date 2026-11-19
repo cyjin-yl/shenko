@@ -1,0 +1,6 @@
+tree 6dd4a17b677961a3b7b27f419e54caf55451f8d2
+parent ee7a8ce59943d443c34017228436302c4dd2de36
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866579 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866579 +0000
+
+Close the original fixture stream before observing SSH cleanup

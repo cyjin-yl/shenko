@@ -1,0 +1,228 @@
+{
+  "observed_at": "2026-11-16T17:32:36.888479+00:00",
+  "source": {
+    "observed_at": "2026-11-16 17:16:16 UTC",
+    "head_sha": "be46be34593452f47b824d3ae62f625032e2d54c",
+    "head_tree": "58e5e59b230a5020ee56ccf800deea1466c3151b",
+    "head_parents": [
+      "bf49f38733bc69975f8825c3f5056b227e83adc0",
+      "efdb3da73160f9f20303014a6f2c981f1e2a0b3c"
+    ],
+    "checkout_sha": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+    "checkout_tree": "58e5e59b230a5020ee56ccf800deea1466c3151b",
+    "baseline": "efdb3da73160f9f20303014a6f2c981f1e2a0b3c",
+    "run_id": 43916292651,
+    "attempt": 1,
+    "duplicate_cancelled_run_id": 43916293222,
+    "local_verification": "git object tree and parents; not a new build or test"
+  },
+  "run": {
+    "id": 43916292651,
+    "status": "completed",
+    "conclusion": "failure",
+    "head_sha": "be46be34593452f47b824d3ae62f625032e2d54c",
+    "created_at": "2026-11-16T17:14:37Z",
+    "updated_at": "2026-11-16T17:28:10Z",
+    "run_attempt": 1
+  },
+  "jobs": [
+    {
+      "id": 133471250671,
+      "name": "docs-migration",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-16T17:15:19Z"
+    },
+    {
+      "id": 133471251040,
+      "name": "rust",
+      "status": "completed",
+      "conclusion": "failure",
+      "completed_at": "2026-11-16T17:28:10Z"
+    },
+    {
+      "id": 133471251094,
+      "name": "web",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-16T17:16:35Z"
+    },
+    {
+      "id": 133471251107,
+      "name": "clippy-ratchet",
+      "status": "completed",
+      "conclusion": "failure",
+      "completed_at": "2026-11-16T17:21:10Z"
+    },
+    {
+      "id": 133471251241,
+      "name": "docs",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-16T17:15:22Z"
+    },
+    {
+      "id": 133471251464,
+      "name": "kernel-boundary",
+      "status": "completed",
+      "conclusion": "success",
+      "completed_at": "2026-11-16T17:15:15Z"
+    }
+  ],
+  "workspace_totals": {
+    "passed": 1066,
+    "failed": 1,
+    "ignored": 11,
+    "measured": 0,
+    "filtered_out": 84
+  },
+  "clippy_counts": {
+    "production": {
+      "baseline_total_compared": 757,
+      "candidate_total_compared": 759,
+      "baseline_group_count": 247,
+      "candidate_group_count": 248,
+      "deltas": [
+        {
+          "package": "shenko",
+          "lint": "unreachable_code",
+          "baseline": 0,
+          "candidate": 3,
+          "delta": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::expect_used",
+          "baseline": 14,
+          "candidate": 13,
+          "delta": -1
+        }
+      ],
+      "production_only_uncompared_baseline": 0,
+      "production_only_uncompared_candidate": 0
+    },
+    "all-targets": {
+      "baseline_total_compared": 1279,
+      "candidate_total_compared": 1284,
+      "baseline_group_count": 248,
+      "candidate_group_count": 249,
+      "deltas": [
+        {
+          "package": "shenko",
+          "lint": "unreachable_code",
+          "baseline": 0,
+          "candidate": 6,
+          "delta": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::err_expect",
+          "baseline": 3,
+          "candidate": 2,
+          "delta": -1
+        }
+      ],
+      "production_only_uncompared_baseline": 58,
+      "production_only_uncompared_candidate": 58
+    }
+  },
+  "component": {
+    "actual_result": {
+      "error": "coordinator started a different self",
+      "foreign_inflight_takeover_tested": false,
+      "model_inference_tested": false,
+      "passed": false,
+      "physical_partition_tested": false,
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c"
+    },
+    "failure_location": "bin/shenko/tests/component_process.rs:949-952",
+    "confirmed_fixture_error": "The fixture reads subject_id from /health, whose actual handler emits only status/product/version. The public identity endpoint is /api/self. The current coordinator health response was not separately persisted before this assertion; do not fabricate it.",
+    "retained_bootstrap_health": {
+      "product": "Shenko",
+      "status": "ok",
+      "version": "0.1.0"
+    },
+    "retained_original_subject": {
+      "agent_id": "80385d2a-fe49-4766-ad10-cb773a584b04",
+      "branch_id": "026e079a-2e1b-4890-acbb-f95dc34e613a",
+      "origin_proof": "blake3:1569c34ebee3319a4206ddf0442701178e850ac212d74c7c2b5c964e7e206f35"
+    },
+    "runtime_log_observation": "resident-b.stderr records existing genesis resumed and subject loop started with that same original agent ID; no different subject is established by the failed health-field assertion.",
+    "metadata_observer": {
+      "error": null,
+      "read_deadline_seconds": 5,
+      "request_limit_bytes": 65536,
+      "requests": [
+        "GET /v1/models HTTP/1.1",
+        "GET /metrics HTTP/1.1"
+      ],
+      "response": "HTTP 503; no model card or generation",
+      "write_deadline_seconds": 1
+    },
+    "reached": "Seven-member configuration consensus fields, complete frontier, per-node reopen metadata, foreign-home provisioning and A/C fork assertions completed. B reached UI readiness and the next health-field assertion failed.",
+    "not_reached": "Final common certificate, reservation/admission and remaining follower/restart permission assertions; no process-journey success is claimed.",
+    "cleanup": {
+      "errors": [],
+      "scope": "owned leaders joined and SSH listeners checked; not a proof about arbitrary escaped descendants"
+    }
+  },
+  "start_boundary": {
+    "actual_result": {
+      "error": null,
+      "journey_passed": true,
+      "metadata_connection_end": "client_eof",
+      "model_completion_tested": false,
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c"
+    },
+    "duration_seconds": 1.64,
+    "held_request": "rust/start-boundary/model-002.request",
+    "actual_connection_end": "client_eof",
+    "post_resume_request": "rust/start-boundary/model-005.request",
+    "interpretation": "The existing continuous journey passed including held GET cancellation, same-installation reopen, pause retention, and resumed actual POST. This is not model-response completion or real-model acceptance."
+  },
+  "ssh": {
+    "case": "ssh_wasi_auth_exec_sftp_and_refusal_journey",
+    "result": "ok",
+    "duration_seconds": 203.54,
+    "original_report": "rust/ssh-wasi/openssh-journey.json"
+  },
+  "new_standalone_native_e1": "862213d9 was not included in be46; no standalone native_evidence_delivery SSH test was executed by this run.",
+  "full_job_logs": {
+    "available": [
+      "docs-job.log",
+      "docs-migration-job.log",
+      "kernel-job.log",
+      "web-job.log",
+      "rust-job.log"
+    ],
+    "unavailable": {
+      "clippy": "Two GitHub job-log retrievals returned Transport closed; both original tool errors are retained. The verified ZIP retains all four complete diagnostic JSONLs and all four cargo stderr logs."
+    }
+  },
+  "artifact_retention": "All four original downloaded artifact ZIPs and per-member SHA256 manifests retained. Only required Rust logs and reports were expanded; compatibility installation databases remain in the original ZIP.",
+  "pin_followup": {
+    "head": "9bb2c5b459149172787a26e5f03f5dc1afee9e4c",
+    "only_changed_file": "bin/shenko/src/runtime_inference.rs",
+    "change": "Three std::pin::pin! expressions replaced with Box::pin; no poll-order/cleanup/deadline/assertion changes.",
+    "metadata": "pin-fix-clippy-observation.json",
+    "diagnostic_review": {
+      "source_head": "9bb2c5b459149172787a26e5f03f5dc1afee9e4c",
+      "scope": "shenko lib scoped Clippy metadata with exact be46 flags; not runtime or complete dual-tree ratchet",
+      "all_shenko_lint_counts": {
+        "clippy::collapsible_if": 4,
+        "clippy::expect_used": 5,
+        "clippy::needless_question_mark": 1,
+        "clippy::needless_return": 1,
+        "clippy::type_complexity": 1,
+        "dead_code": 2,
+        "unused_assignments": 1,
+        "unused_imports": 1,
+        "unused_variables": 10
+      },
+      "unreachable_code_count": 0,
+      "new_probe_block_diagnostics_including_expansion_and_children": []
+    },
+    "prior_review_correction": "prior-scoped-review-correction.json"
+  },
+  "remote_actions_performed_by_this_monitor": []
+}

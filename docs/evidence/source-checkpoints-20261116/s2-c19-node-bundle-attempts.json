@@ -1,0 +1,78 @@
+{
+  "scope": "provenance preparation only; not a runtime test",
+  "attempts": [
+    {
+      "command": [
+        "git",
+        "bundle",
+        "create",
+        "/workspace/scratch/faaa3ccca531/shenko/docs/evidence/source-checkpoints-20261116/s2-c19-node-ci.bundle",
+        "--version=3",
+        "refs/heads/checkpoint/fixture-lint-20261116",
+        "refs/heads/checkpoint/c19-directory-lock-20261116",
+        "refs/heads/checkpoint/node-second-failure-20261116",
+        "refs/heads/checkpoint/e1-successor-sql-20261116",
+        "refs/heads/checkpoint/node-relative-header-20261116",
+        "refs/heads/checkpoint/ci10d4-archive-20261116",
+        "refs/heads/checkpoint/s2-build-receipt-20261116",
+        "refs/heads/checkpoint/s2-c19-node-integration-20261116",
+        "^d2dc8ee4a23f722771eae913864ff344f3f16b83",
+        "^5b1c8a310b959acca251d26c9d008520f7b6291f",
+        "^8689295761ec02e480167155d0ab0956e627fff3"
+      ],
+      "exit_code": 1,
+      "stdout": "s2-c19-node-create-attempt1.stdout",
+      "stderr": "s2-c19-node-create-attempt1.stderr",
+      "result": "argument order rejected before successful bundle creation"
+    },
+    {
+      "command": [
+        "git",
+        "bundle",
+        "create",
+        "--version=3",
+        "/workspace/scratch/faaa3ccca531/shenko/docs/evidence/source-checkpoints-20261116/s2-c19-node-ci.bundle",
+        "refs/heads/checkpoint/fixture-lint-20261116",
+        "refs/heads/checkpoint/c19-directory-lock-20261116",
+        "refs/heads/checkpoint/node-second-failure-20261116",
+        "refs/heads/checkpoint/e1-successor-sql-20261116",
+        "refs/heads/checkpoint/node-relative-header-20261116",
+        "refs/heads/checkpoint/ci10d4-archive-20261116",
+        "refs/heads/checkpoint/s2-build-receipt-20261116",
+        "refs/heads/checkpoint/s2-c19-node-integration-20261116",
+        "^d2dc8ee4a23f722771eae913864ff344f3f16b83",
+        "^5b1c8a310b959acca251d26c9d008520f7b6291f",
+        "^8689295761ec02e480167155d0ab0956e627fff3"
+      ],
+      "exit_code": 0,
+      "stdout": "s2-c19-node-create.stdout",
+      "stderr": "s2-c19-node-create.stderr"
+    },
+    {
+      "command": [
+        "git",
+        "bundle",
+        "verify",
+        "/workspace/scratch/faaa3ccca531/shenko/docs/evidence/source-checkpoints-20261116/s2-c19-node-ci.bundle"
+      ],
+      "exit_code": 0,
+      "stdout": "s2-c19-node-verify.stdout",
+      "stderr": "s2-c19-node-verify.stderr"
+    },
+    {
+      "command": [
+        "git",
+        "bundle",
+        "list-heads",
+        "/workspace/scratch/faaa3ccca531/shenko/docs/evidence/source-checkpoints-20261116/s2-c19-node-ci.bundle"
+      ],
+      "exit_code": 0,
+      "stdout": "s2-c19-node-heads.stdout",
+      "stderr": "s2-c19-node-heads.stderr"
+    }
+  ],
+  "initial_successful_bundle_bytes": 15938926,
+  "initial_successful_bundle_sha256": "31ce9a0fc1b2ec864830f5236e5aa6d8753cb012c53cefb9517dd8a2c78bf041",
+  "reason_for_raw_commit_tree_records": "The preliminary bundle duplicated original CI ZIPs already retained in the candidate; exact raw commits and complete tree deltas below retain provenance without duplicating those ZIPs.",
+  "initial_bundle_reproducible_from_recorded_commands": true
+}

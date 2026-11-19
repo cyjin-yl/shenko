@@ -1,0 +1,6 @@
+tree ec709b7607cc1ff56b74ef02c5d0e289b5e52c30
+parent 5b1c8a310b959acca251d26c9d008520f7b6291f
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794861342 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794861383 +0000
+
+docs: retain CI83 capture failures and exact diagnostics

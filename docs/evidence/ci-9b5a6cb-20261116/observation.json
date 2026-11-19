@@ -1,0 +1,679 @@
+{
+  "kind": "observed_ci_candidate_result",
+  "head_sha": "9b5a6cb8987806879b8cfb713321744bd087bc0e",
+  "head_tree": "6d48becc87eacfb1f00c2b050e6b27987b663e86",
+  "checkout_merge_sha": "6621968fbb2528475157d30488215ec16fa62e90",
+  "checkout_merge_tree": "6d48becc87eacfb1f00c2b050e6b27987b663e86",
+  "same_candidate_and_checkout_tree": true,
+  "independent_base": "a574705ca742c11aa7b0a05203c3473a6c4103fe",
+  "run_id": 43894092386,
+  "run_number": 73,
+  "run_attempt": 1,
+  "event": "pull_request",
+  "created_at": "2026-11-16T15:13:48Z",
+  "updated_at": "2026-11-16T15:27:16Z",
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/43894092386",
+  "overall_result": "failure",
+  "rust_job_id": 133392924986,
+  "jobs": [
+    {
+      "id": 133392924507,
+      "name": "docs",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 133392924948,
+      "name": "clippy-ratchet",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 133392924986,
+      "name": "rust",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "id": 133392925185,
+      "name": "kernel-boundary",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 133392925234,
+      "name": "web",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "id": 133392925903,
+      "name": "docs-migration",
+      "status": "completed",
+      "conclusion": "success"
+    }
+  ],
+  "artifact": {
+    "id": 14237854481,
+    "name": "rust-evidence",
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43894092386/artifacts/14237854481",
+    "zip_bytes": 8266536,
+    "zip_sha256": "09cdd9fbac8c84201e4da9f5772a660b030f027883d7634b30e8c481f5be62d7",
+    "matches_github_digest": true,
+    "zip_crc_check": "passed",
+    "entries": 1744,
+    "uncompressed_bytes": 176954107,
+    "retention": "Complete original ZIP retained in diagnostic workspace; repository retains selected unchanged originals, all-entry SHA-256 manifest, and full lossless job/workspace logs. Compatibility database trees and guest binary remain in the ZIP."
+  },
+  "full_job_log": {
+    "retrieved": true,
+    "successful_tool_calls": 1,
+    "source": "GitHub fetch_workflow_job_logs decoded text, preserved as UTF-8 including original BOM",
+    "bytes": 484030,
+    "sha256": "2bf79356d9f8428988f1b8b70cc583577f5f4e8f2a00c5916faf95689a501eda",
+    "scope": "Complete returned setup, checkout, build, tests, artifact upload, post-job and cleanup output; not only cargo tee output"
+  },
+  "workspace_check": "passed",
+  "ssh_guest_build": "passed",
+  "workspace_tests": "failed",
+  "failures": [
+    {
+      "target": "-p shenko --test component_process",
+      "case": "three_real_start_processes_agree_over_a_pinned_ssh_star",
+      "error": "member configuration was not actually retained",
+      "target_summary": {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0,
+        "seconds": 69.02
+      },
+      "diagnosis": "Whole MemberConfiguration comparison treated node-local bounded-Append learning time as consensus identity. The two observed configuration tuples differ only in committed_at; all five consensus fields and six successful push frontiers agree.",
+      "later_star_processes_reached": false,
+      "fix_commit": "1784d91cf59da524dc6781012ee4db99dc3ad206",
+      "fix_runtime_verified_in_this_run": false
+    }
+  ],
+  "observed_passes": [
+    {
+      "case": "ssh_wasi_auth_exec_sftp_and_refusal_journey",
+      "result": "passed",
+      "workspace_test_log_line": 1643
+    },
+    {
+      "case": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+      "result": "passed",
+      "workspace_test_log_line": 1650
+    },
+    {
+      "case": "minority_agreement_survives_reopen_and_supersession_fences_original_branch",
+      "result": "passed",
+      "workspace_test_log_line": 2569
+    },
+    {
+      "case": "canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker",
+      "result": "passed",
+      "workspace_test_log_line": 2945
+    },
+    {
+      "case": "canonical_native_arming_keeps_original_intent_without_reissuing_execution",
+      "result": "passed",
+      "workspace_test_log_line": 2941
+    },
+    {
+      "case": "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+      "result": "passed",
+      "workspace_test_log_line": 2944
+    },
+    {
+      "case": "canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt",
+      "result": "passed",
+      "workspace_test_log_line": 2949
+    },
+    {
+      "case": "canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results",
+      "result": "passed",
+      "workspace_test_log_line": 2942
+    },
+    {
+      "case": "canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt",
+      "result": "passed",
+      "workspace_test_log_line": 2943
+    },
+    {
+      "case": "canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch",
+      "result": "passed",
+      "workspace_test_log_line": 2950
+    },
+    {
+      "case": "bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence",
+      "result": "passed",
+      "workspace_test_log_line": 2940
+    },
+    {
+      "case": "inspection_projections_keep_each_subjects_tasks_and_messages_private",
+      "result": "passed",
+      "workspace_test_log_line": 2957
+    }
+  ],
+  "store_roundtrip": {
+    "passed": 39,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 6.31
+  },
+  "zero_touch_and_handoff": {
+    "case": "bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence",
+    "result": "passed",
+    "scope": "Exact main/WAL/SHM equality for raw and current-route inspection, missing-CAS refusal, inactive copied-slot refusal and unresolved Handoff refusal. This does not establish candidate activation or live upgrade."
+  },
+  "ssh": {
+    "result": "passed",
+    "seconds": 204.51,
+    "artifact_bytes": 2552689,
+    "artifact_sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+    "cli_sha256": "5c5f6c94e9407a3cbb9b97a5d3bd23fb5b5072f5ad29c36af3c079e91c8897f3",
+    "payload_bytes": 100003,
+    "same_installation_after_execution": true,
+    "bootstrap": {
+      "exit_code": 0,
+      "forced": false,
+      "health": {
+        "product": "Shenko",
+        "status": "ok",
+        "version": "0.1.0"
+      },
+      "port": 37529
+    },
+    "server_stop": {
+      "forced": false,
+      "status": "exit status: 0"
+    },
+    "run_budget_seconds": 120,
+    "outer_cli_budget_seconds": 180,
+    "production_default_run_seconds": 60
+  },
+  "startup_boundary": {
+    "result": "passed",
+    "seconds": 1.41,
+    "scope": "Paused Start graceful stop/reopen, same request, inference admission only after resume; observer supplies no model result"
+  },
+  "not_established": [
+    "three resident Start processes forming the real SSH star",
+    "foreign running effect takeover",
+    "model inference or browser acceptance",
+    "physical network partition",
+    "7-day or 30-day operation"
+  ],
+  "followup_checks": [
+    {
+      "kind": "metadata_compile_only",
+      "source_commit": "c1c915fabb0725e5ee107d45b6399a17e42ae1bf",
+      "fix_commit": "1784d91cf59da524dc6781012ee4db99dc3ad206",
+      "command": "cargo check --offline --locked -p shenko --test component_process -j1",
+      "result": "passed",
+      "exit_code": 0,
+      "log": "followup/component-local-time-metadata.log.gz",
+      "raw_bytes": 39218,
+      "raw_sha256": "160a632359a31e6d8023872835f7c233f4a651c76c39e3f41c11548e1906d84c",
+      "scope": "Root ran the integrated main304 + fixture fix under the shared build lock; this is not codegen, a process journey execution, or a pass for the failed 9b candidate"
+    }
+  ],
+  "retained_files": {
+    "github/run.json": {
+      "source": "run.terminal.raw.json",
+      "bytes": 12938,
+      "sha256": "ff15011c4f9c2632a134d26f96a4d91a9ad15ce74d5ddc0d9b9b3f53c59754fa",
+      "transformation": "none"
+    },
+    "github/jobs.json": {
+      "source": "jobs.terminal.json",
+      "bytes": 12956,
+      "sha256": "f2124cdb1b4e783475afd3e04684a0c16414f4234ee30e4f6179801f02574a51",
+      "transformation": "none"
+    },
+    "github/artifacts.json": {
+      "source": "artifacts.api.json",
+      "bytes": 3296,
+      "sha256": "485ec5893c616dd5c53c84c01e517a9dbca80be89d67593ff26ade675836dca6",
+      "transformation": "none"
+    },
+    "github/merge-metadata.json": {
+      "source": "merge.metadata.json",
+      "bytes": 2877,
+      "sha256": "379810ddedf23d13bfa4fb31a6a5a82acfb2a57b907172a8593b0de3a3e61432",
+      "transformation": "none"
+    },
+    "job.log.gz": {
+      "source": "job.log",
+      "bytes": 102766,
+      "sha256": "b2902796a6ec71e345a324cf1dff6783e20ee5084f22c893ab3631a2e80c9742",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 484030,
+      "uncompressed_sha256": "2bf79356d9f8428988f1b8b70cc583577f5f4e8f2a00c5916faf95689a501eda"
+    },
+    "workspace-check.log.gz": {
+      "source": "artifact/workspace-check.log",
+      "bytes": 12133,
+      "sha256": "3138c723a0bec8dd462dc105348d36a87e9a9f01c4ba352fbd86f6c17fa72159",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 64357,
+      "uncompressed_sha256": "0d9b5238eee2af2b38863787b663b240406cb1f27adfcc982f616c46bd758d2a"
+    },
+    "workspace-test.log.gz": {
+      "source": "artifact/workspace-test.log",
+      "bytes": 39333,
+      "sha256": "1137bb7e393da2689c795d8c2c5ec97206889974166ee155ad72f239d320d96c",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 183462,
+      "uncompressed_sha256": "764e3865c2b867e9a2ab94d87e8260894b98c2497ff434f84e7b35c1a34ee25d"
+    },
+    "followup/component-local-time-metadata.log.gz": {
+      "source": "followup/component-local-time-metadata.log",
+      "bytes": 7893,
+      "sha256": "25e6721b7d95fe1a1472ddbd48fc58dbb06a693326c70e7e832f78b11fe9458a",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 39218,
+      "uncompressed_sha256": "160a632359a31e6d8023872835f7c233f4a651c76c39e3f41c11548e1906d84c"
+    },
+    "artifact-manifest.json": {
+      "source": "derived; sources stated in this JSON",
+      "bytes": 562202,
+      "sha256": "679f26bfc63adc98e1c3124332aa173ef936e4084bf620bbba4312b947db64df",
+      "transformation": "derived JSON"
+    },
+    "component/0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed.stderr": {
+      "source": "artifact/component-process/0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed.stderr",
+      "bytes": 668,
+      "sha256": "ace479af7c89d3d22c87f6185e818e9a67e4023ceecbdfc225567def1e59dce1",
+      "transformation": "none"
+    },
+    "component/0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed.stdout": {
+      "source": "artifact/component-process/0072-b-sync-members-add-5e0edc30-6b87-450f-a767-b6df7f97b7ca-548e8de4-2e57-46bf-b3d7-f06036db57b9-ed.stdout",
+      "bytes": 6539,
+      "sha256": "e73d09f6e43b28645f921c35d707b8d40043ab8346c7f1043aafa0378a48ad1c",
+      "transformation": "none"
+    },
+    "component/0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stderr": {
+      "source": "artifact/component-process/0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stderr",
+      "bytes": 668,
+      "sha256": "c93a4108bc50f17b49b3487f9097290c977a840e9111e4f52313db096a458d5b",
+      "transformation": "none"
+    },
+    "component/0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stdout": {
+      "source": "artifact/component-process/0073-b-sync-members-push---peer-5e0edc30-6b87-450f-a767-b6df7f97b7ca.stdout",
+      "bytes": 163,
+      "sha256": "10e1ffadd3bd7c8be51dd051b1f27466631ff16f0ae6920f961ce257536c7dcf",
+      "transformation": "none"
+    },
+    "component/0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stderr": {
+      "source": "artifact/component-process/0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stderr",
+      "bytes": 668,
+      "sha256": "86825b07c57cbc565e4bfc8bf92ff470b52a0583e53edc8e553bd3cd0245d78b",
+      "transformation": "none"
+    },
+    "component/0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stdout": {
+      "source": "artifact/component-process/0074-b-sync-members-push---peer-548e8de4-2e57-46bf-b3d7-f06036db57b9.stdout",
+      "bytes": 163,
+      "sha256": "618a1c03d647d27158cbe567bc8b0b9226e55c9647732096bfadd4d3bc73c27f",
+      "transformation": "none"
+    },
+    "component/0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stderr": {
+      "source": "artifact/component-process/0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stderr",
+      "bytes": 668,
+      "sha256": "2bc895f3b526d722522f997e83f9a81bae0f5d2ac38cc1a75cc28f9aa44860f4",
+      "transformation": "none"
+    },
+    "component/0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stdout": {
+      "source": "artifact/component-process/0075-b-sync-members-push---peer-edcddad1-801d-44a5-9239-a3fe189da02d.stdout",
+      "bytes": 163,
+      "sha256": "019633bd262396d2d308478b3b4c8a0bd9080455ef3f822248550a5df1adc9ab",
+      "transformation": "none"
+    },
+    "component/0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stderr": {
+      "source": "artifact/component-process/0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stderr",
+      "bytes": 668,
+      "sha256": "5c6ce4d881031579b5ead00f981769b7ed08ddbbde7eaac1d4bd9dcaf6841e3c",
+      "transformation": "none"
+    },
+    "component/0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stdout": {
+      "source": "artifact/component-process/0076-b-sync-members-push---peer-fd068644-e5ed-4cce-81eb-a60b2ac55599.stdout",
+      "bytes": 163,
+      "sha256": "758f96f127c09076a5fe783527e76d610fe94bd23e25d0427fa72e4fb31db423",
+      "transformation": "none"
+    },
+    "component/0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stderr": {
+      "source": "artifact/component-process/0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stderr",
+      "bytes": 668,
+      "sha256": "556d87ad60294dbbd595635695a61a784dd16fe8085ad9a705d40d3fe4e16ec7",
+      "transformation": "none"
+    },
+    "component/0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stdout": {
+      "source": "artifact/component-process/0077-b-sync-members-push---peer-3e50f1cf-ecbe-434f-b1c6-8d4fbfb4ceb2.stdout",
+      "bytes": 163,
+      "sha256": "16aa407f699f1006b40e094da62f046ecd91c2849af3d70f1c9949a1370a48ad",
+      "transformation": "none"
+    },
+    "component/0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stderr": {
+      "source": "artifact/component-process/0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stderr",
+      "bytes": 668,
+      "sha256": "5d1430cace39e8a20139ba68f85c53df32cec9be28ab8f0680a2cafedbd85597",
+      "transformation": "none"
+    },
+    "component/0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stdout": {
+      "source": "artifact/component-process/0078-b-sync-members-push---peer-4bb04c00-24c0-4483-be3b-25c80755019f.stdout",
+      "bytes": 163,
+      "sha256": "4594644e76f1fa42db6e77b6e59bb01d680f22b3baf6e05225680d4d28dd4d9f",
+      "transformation": "none"
+    },
+    "component/0079-b-sync-members-show.stderr": {
+      "source": "artifact/component-process/0079-b-sync-members-show.stderr",
+      "bytes": 668,
+      "sha256": "00a03d5e7c671709e5e9e63b066a5b25d371e5318c3a162d9e445591081e6b87",
+      "transformation": "none"
+    },
+    "component/0079-b-sync-members-show.stdout": {
+      "source": "artifact/component-process/0079-b-sync-members-show.stdout",
+      "bytes": 685,
+      "sha256": "d6e0f43dbe3efc8cdd57405729c24e44f90310c4ec648edfad1ef81b3a7b74bb",
+      "transformation": "none"
+    },
+    "component/0080-a-sync-members-show.stderr": {
+      "source": "artifact/component-process/0080-a-sync-members-show.stderr",
+      "bytes": 668,
+      "sha256": "a9965c627b618837f16a7c10e5d2f7135d2c1f773f0baa3f60a2d80949d1c3cf",
+      "transformation": "none"
+    },
+    "component/0080-a-sync-members-show.stdout": {
+      "source": "artifact/component-process/0080-a-sync-members-show.stdout",
+      "bytes": 1102,
+      "sha256": "69858e3c885871fb160e88877767920d5a38412447614c8bab9aa437d97190f1",
+      "transformation": "none"
+    },
+    "component/cleanup.json": {
+      "source": "artifact/component-process/cleanup.json",
+      "bytes": 119,
+      "sha256": "2d95c01e3bcd63edb76fee5553d3bd02c6404f9dac80cce98b825fdc80792772",
+      "transformation": "none"
+    },
+    "component/commands.jsonl": {
+      "source": "artifact/component-process/commands.jsonl",
+      "bytes": 25243,
+      "sha256": "e2dfa8cb8125fc39c9dc1eb6d170c3d91a1e4efcb7acf3b4dbe9397df7934dc2",
+      "transformation": "none"
+    },
+    "component/processes.jsonl": {
+      "source": "artifact/component-process/processes.jsonl",
+      "bytes": 26388,
+      "sha256": "90e21c8a1edbf8a433b81c368b192c0cbbf1dda58ae03ad1dc2c34d7c1216062",
+      "transformation": "none"
+    },
+    "component/resident-b.stderr": {
+      "source": "artifact/component-process/resident-b.stderr",
+      "bytes": 5875,
+      "sha256": "b2f03332169fd2a3f60aad7dc0c37170c9bcf91b1582f6ddd4ed013ac398685b",
+      "transformation": "none"
+    },
+    "component/resident-b.stdout": {
+      "source": "artifact/component-process/resident-b.stdout",
+      "bytes": 461,
+      "sha256": "cb1c4deb7174b5ff8370d54707661b579e05dd562778ee813474b261606426f0",
+      "transformation": "none"
+    },
+    "component/result.json": {
+      "source": "artifact/component-process/result.json",
+      "bytes": 265,
+      "sha256": "d8fb831b8f5ff17be731867359c0ac48e8fd6c8e8964735efe4f71482dfdcb8c",
+      "transformation": "none"
+    },
+    "component/topology.jsonl": {
+      "source": "artifact/component-process/topology.jsonl",
+      "bytes": 530,
+      "sha256": "3558f40ad2a726419d3e85f3b9c58b827e69b03a5f0949d945a079c474e8950b",
+      "transformation": "none"
+    },
+    "component/transport.json": {
+      "source": "artifact/component-process/transport.json",
+      "bytes": 1416,
+      "sha256": "507faa634d75483570126b621aeff2147e6d98c072602c8504569ae9387afd26",
+      "transformation": "none"
+    },
+    "derived/membership-comparison.json": {
+      "source": "derived; sources stated in this JSON",
+      "bytes": 4055,
+      "sha256": "bab762f2950280b6807e89c23befc94e054bdab3ecef578d24a3400c1b50a225",
+      "transformation": "derived JSON"
+    },
+    "ssh-wasi/build-receipt.json": {
+      "source": "artifact/ssh-wasi/build/build-receipt.json",
+      "bytes": 13158,
+      "sha256": "e979eb194164a7c1a4215a88bbdda01b7d1097473ffe2f5d6d5cec1c56cfaea1",
+      "transformation": "none"
+    },
+    "ssh-wasi/openssh-journey.json": {
+      "source": "artifact/ssh-wasi/openssh-journey.json",
+      "bytes": 42982,
+      "sha256": "1b687a57a9c4ae9ec6b37f8574793fd97397b754c95ad2eda2ba8283391cacf9",
+      "transformation": "none"
+    },
+    "ssh-wasi/guest-records.jsonl": {
+      "source": "artifact/ssh-wasi/openssh-journey.guest-records.jsonl",
+      "bytes": 25443,
+      "sha256": "b675a00a22293fe20d794563268d790682c6e02aa1f0c9f4fc0d2659d0a0f00f",
+      "transformation": "none"
+    },
+    "ssh-wasi/build.log.gz": {
+      "source": "artifact/ssh-wasi/build/build.log",
+      "bytes": 2629,
+      "sha256": "ef3013a3d08b2e005b9cfeb9f81cbb2505104088a88523e1c4eb006150be592e",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 8994,
+      "uncompressed_sha256": "f61e40ece4372b59bd51644746d10d6bb2a41ad69996cba672f68257d75bfa09"
+    },
+    "ssh-wasi/diagnostics/processes.jsonl": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/processes.jsonl",
+      "bytes": 2242,
+      "sha256": "a3b3a9a380774b72cb4afb45922ea56e740e33753496d0c513b1280aa2d5a4a3",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/install.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/install.stdout",
+      "bytes": 4540,
+      "sha256": "453d0ac24d26c91f521b02b5def4f96f5f24f6f1f18687d00e51b95fc4902fc4",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/install.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/install.stderr",
+      "bytes": 668,
+      "sha256": "aa61eae098aca7e7eeafb7811240ce6bcaf2173eb6a98e6c85639d541ef98ea3",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/inventory.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/inventory.stdout",
+      "bytes": 7440,
+      "sha256": "928fe83ed569e0f0a6cd57e569d7501d56a6d201e1af1468657b03f3186b78a0",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/inventory.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/inventory.stderr",
+      "bytes": 486,
+      "sha256": "12460026be34403fb1b60113eb9f5570d89cbb2f41eacf1152144dbef5311dc1",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/bootstrap.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/bootstrap.stdout",
+      "bytes": 461,
+      "sha256": "711f4330f5d2098de9b22f835a3bcd3184ff8959971573ac43359846f04f6a0a",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/bootstrap.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/bootstrap.stderr",
+      "bytes": 6441,
+      "sha256": "131f8ad81223152c85ef3122a89a8b63db2cb89a840e215fe381b24ce9244ca0",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.guest-stdout",
+      "bytes": 91,
+      "sha256": "87dd9422b432429a8dbebd441a88862373f7dd7bcec2376c66659f37410449d4",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.stderr",
+      "bytes": 2772,
+      "sha256": "9ac5ced79a2926cb41b01981d5e27bf6fdf06f98fe82d52abf19290232e136e8",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-0.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-0.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.guest-stderr",
+      "bytes": 16,
+      "sha256": "6deffbb034a1585c217ee4933d50eba6cedb039b4c7cd2a0762194746e85398e",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.guest-stdout",
+      "bytes": 14,
+      "sha256": "08e7f1e071ea86647816066e289fcf6e016005f102891510daadd2d5d833915d",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.stderr",
+      "bytes": 2770,
+      "sha256": "46baa9e18fde6799d3e7805ca35a815de19b1125c83e485ee3ad7f73bcf564d5",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-1.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-1.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.guest-stdout",
+      "bytes": 47,
+      "sha256": "0ff5665d8e66e9ca96ae00d99e3bac1ffb26bddb215843868bd99cd04da070ad",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.stderr",
+      "bytes": 2773,
+      "sha256": "cdd788ff9d301351abf13754c51dd0a5f68eee6a3fdb0dc848571a941f55f875",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-2.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-2.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.guest-stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.guest-stdout",
+      "bytes": 47,
+      "sha256": "053894d68fe2fb6f4617d45237d981d492ed7aa88c613e340d7a30f88f780de5",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.stderr",
+      "bytes": 2773,
+      "sha256": "fd0a86445fd9251afe06e0dfa5eeb57fe04b9c3042bf1e2873b59cfa357da95d",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-3.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-3.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.guest-stderr",
+      "bytes": 29,
+      "sha256": "97a3970f9537c2cbc6122ccc74fbc8c7a27c958c7315b653cfc9a11b3a3b3fb4",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.guest-stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.stderr",
+      "bytes": 2769,
+      "sha256": "073c76a4762e9393d10e845b9e51f2896c07a8fd02b65ccb6181712e375bc2a6",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-4.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-4.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.guest-stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.guest-stderr",
+      "bytes": 62,
+      "sha256": "2addea8ca7c81d265416a416cb8166ecfc2a2f1fb454865a532493104ca5dd67",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.guest-stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.guest-stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.stderr": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.stderr",
+      "bytes": 2773,
+      "sha256": "d264b6d5c53c058f0c45a80e131e10d0183c8ac1d267b651ae8d88a6af5d925d",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/guest-5.stdout": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/guest-5.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformation": "none"
+    },
+    "ssh-wasi/diagnostics/sshd.stderr.gz": {
+      "source": "artifact/ssh-wasi/openssh-journey.diagnostics/sshd.stderr",
+      "bytes": 555,
+      "sha256": "52f23c9d935addd09cc44b172078223760ffdef8dd4d25aa0ea7a5e671a1aea3",
+      "transformation": "gzip, lossless, mtime=0",
+      "uncompressed_bytes": 2924,
+      "uncompressed_sha256": "9e2190bc5fdf9665f0e383c234defb21f2d70a4b3198de1f71563a6f1fd65302"
+    },
+    "derived/ssh-timings.json": {
+      "source": "derived; sources stated in this JSON",
+      "bytes": 13216,
+      "sha256": "79ba67e1addae32f0b5e6b7abd0b9818993cb2fee20c11ef4c379d184037277a",
+      "transformation": "derived JSON"
+    },
+    "derived/source-input-comparison.json": {
+      "source": "derived; sources stated in this JSON",
+      "bytes": 28046,
+      "sha256": "aee8564d3f26706c03d2732bcbbd5f5fd058d5d4a7c6929dfdb18dca0ff741c1",
+      "transformation": "derived JSON"
+    }
+  }
+}

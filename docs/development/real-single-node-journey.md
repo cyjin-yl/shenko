@@ -69,7 +69,10 @@ each explicit resume. The
 excluded from the hosted artifact; publish only the explicit evidence subset.
 
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
-with workflow dispatch or the PR label `run-real-model`. The label also works
+with workflow dispatch or by adding the PR label `run-real-model`. Adding that
+specific label requests one experiment; later pushes and unrelated labels do
+not request another. To deliberately observe a new candidate, remove and add
+the label again after publishing that candidate. The label also works
 while the workflow is first being reviewed, before its file reaches main. It
 builds the exact selected repository revision, verifies pinned model and
 llama.cpp archive SHA-256 values, and runs the same script. It retains failed
@@ -86,6 +89,47 @@ below; they are not evidence that the journey passes. The model, full product
 prompt, sampling parameters and all success predicates are unchanged. Outside
 this workflow an unset local request limit still means 180 seconds; a configured
 limit is sealed in every new request and cannot reinterpret an earlier one.
+
+### Hosted CPU attention configuration
+
+The next hosted experiment explicitly uses `--flash-attn on`, F16 K/V caches
+and `--verbosity 4`. It keeps the pinned weights and runtime, complete product
+prompt, parser, sampling, context, batch sizes, sealed request limit and every
+success predicate. Cache precision can change numerical results; the same
+behavior assertions still apply. No improvement is claimed until a new exact
+candidate completes the real journey.
+
+This choice follows inspection of fixed llama.cpp b12359, commit
+`b1b770d90d94cad9e9ea5b993bdbc383a522fb28`:
+
+- The default is `auto`, and [quantized V explicitly enables Flash Attention](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/src/llama-context.cpp#L4541-L4549).
+  The preceding Q8 experiment therefore cannot be described as having omitted
+  Flash Attention merely because it did not pass `--flash-attn`.
+- The CPU's [split-KV and tiled paths require equal F16/F32 K/V types](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-cpu/ops.cpp#L9366-L9447).
+  Q8 does not satisfy those predicates. The alternative path still calls vector
+  dot products; its presence does not prove a generic or SIMD-free backend.
+- The [logging callback maps library INFO to verbosity 4](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/common/log.cpp#L548-L565),
+  while application INFO defaults to 3. Raising this observation setting retains
+  [the selected backend's library path](https://github.com/ggml-org/llama.cpp/blob/b1b770d90d94cad9e9ea5b993bdbc383a522fb28/ggml/src/ggml-backend-reg.cpp#L259)
+  and attention-configuration records that the earlier log lacked.
+
+The first 65,536 bytes of the exact pinned GGUF were read without loading the
+model. They report 28 layers, eight KV heads, and 128 dimensions each for K and
+V. At 16,384 tokens and one slot, an F16 cache body is
+`28 × 16384 × 8 × (128 + 128) × 2 = 1,879,048,192` bytes (1.75 GiB).
+This estimate excludes weights, graph/work buffers and process overhead. The
+previous runner recorded 14.258 GiB available before model startup; neither
+that earlier snapshot nor this calculation proves the next run's peak memory
+fits. The actual startup log and process status remain the observations.
+
+The workflow now retains the pinned runtime's help, complete invocation,
+visible cgroup cpuset/limits/counters and mount identity, then the real model
+process's command, affinity, status and mapped ggml libraries at readiness.
+Unexposed ancestor limits remain unknown. The source review, original header
+range and hashes are in [the runtime inspection](../evidence/single-node-runtime-b12359/observation.json).
+These are configuration and source facts. They do not retrospectively profile
+the earlier slowdown, repair its unknown outcome, or provide a successful model
+run.
 
 ## 2026-11-16 local attempt
 
@@ -190,3 +234,318 @@ the frozen input CAS and terminal CAS, and the complete runtime error records.
 The startup/input boundary correction responds to the observed race. The slow
 prefill remains a separate runtime observation; increasing the limit again is
 not an acceptance result.
+
+## 2026-11-16 hosted attempt with startup pause and a real browser
+
+[Run 43875531168](https://github.com/cyjin-yl/shenko/actions/runs/43875531168)
+built and ran merge source `e40ec5102b0ce7c34b07663eedcf3f197f82ab4b`
+(PR head `a3739f2e581b25e3ca841c8402b3cc118fdeb222`). The real model
+loaded, and the live browser composer received a durable submission receipt.
+This time the optional startup pause prevented the idle-generation race:
+
+| Fact in ledger `1358b9e6-4b71-464e-b1ee-a0b9650e703a` | Sequence |
+| --- | ---: |
+| Startup pause request and confirmed boundary | 6, 7 |
+| Browser submission accepted | 9 |
+| Public runtime resume | 10 |
+| First main request created | 15 |
+| Seven original provider text chunks | 18–23, 25 |
+| Provider stream terminal observation, `kind=unknown` | 26 |
+| Main request's failed/unknown terminal result recorded | 28 |
+
+Both paused and accepted snapshots contain zero main request attempts. The
+actual frozen input then associates the same subject, branch, step and request
+with the accepted UI event. Its `payload.messages` user text contains the
+complete submitted finite-child task and marker, not only an event copy outside
+the model payload. The 56,953-byte frozen input is retained in full.
+
+The attempt still **failed at the sealed 1,200,000 ms request limit**. The last
+server progress sample reported 12,288 prompt tokens, 97% progress and 1,116.48
+seconds. The final observed 2,048-token interval took 339.01 seconds, about 6.04
+tokens/second. Generation subsequently began: the original journal contains
+seven chunks whose concatenation is:
+
+```text
+[delegate:claude.seat:1] {"command":[
+```
+
+This is incomplete generated text, not a completed delegation or a real coding
+seat call. The chunk count is not a generated-token count. The exact prefill
+completion time was not recorded. The main terminal CAS and provider stream
+both retain `unknown`; the subject preserves the original `awaiting_model`
+step. There are no child results, child E1 receipts, committed decisions or
+final output, and the restart phase was not reached. The browser observed no
+public streaming parts, so raw provider chunks do not establish UI streaming
+quality. Its composer and receipt observations passed; screen-reader and
+restart/reconnect acceptance remain untested.
+
+The original session journal also records three separate cleanup failures:
+`policy.budget-compact` and `policy.snapcompact` installation observers each
+failed with `plugin host is shut down`; the `policy.notes-rollover-compact`
+observer additionally reports native-definition retirement failing with the
+same error. A subsequent Cordis lifecycle event reports that an effect cleanup
+returned this error. All three original policy events, the Cordis event, the
+transport-timeout and outcome-unknown events remain intact. The tested candidate
+predates the correction that lets an existing resident's exact disposal/join
+complete after shutdown closes new admission. That secondary cleanup defect is
+distinct from the model request's unresolved outcome; repairing cleanup does
+not turn this model attempt into success.
+
+The recorded runtime used four generation/batch workers on affinity CPUs
+`[0,1,2,3]`; `/proc/cpuinfo` reports two physical cores and four logical
+processors on a Xeon Platinum 8573C. The recorded current cgroup `cpu.max` is
+`max 100000`, and `MemAvailable` is 14,950,548 KiB (about 14.258 GiB). The
+CPU flags include AVX2 and AVX-512, but the selected ggml CPU backend and actual
+ISA dispatch were not logged. Neither effective cpuset/ancestor limits nor
+utilization and throttling counters were collected. These facts do not justify
+claiming an exceeded CPU quota or a generic backend. The growing prefill cost
+motivates checking the pinned attention implementation; it is not a measured
+profile of that implementation or a reason to extend the deadline again.
+
+The [complete retained observation](../evidence/single-node-hosted-43875531168/observation.json)
+contains all 87 original artifact files, their SHA-256 values, and the original
+ZIP with verified SHA-256
+`e5065be8491a82c130fa674c42ea6d66bac2df35491b4141cabb321ce147ccda`.
+Every copied file was compared byte-for-byte with its ZIP entry. This remains a
+failed 0.6B mechanical experiment, with narrower startup/input evidence, not a
+complete S1, 27B quality-baseline, NapCat/coding-seat S2, physical-failure or
+long-run acceptance.
+
+
+## Diagnostic reporting after the concurrent ship follow-up
+
+The concurrent `37ddbf7` follow-up changes how the broker reports a cause:
+execution submits the specific transport/fence failure once to the fail-soft
+runtime-error reporter, and completion emits the generic
+`INFERENCE_OUTCOME_UNKNOWN` diagnostic only when execution did not attempt a
+specific report. `cause_report_attempted` describes that attempt; it is not a
+receipt that the journal persisted. A missing or failed sink keeps the existing
+fail-soft behavior, including the Store's dropped count in later successful
+entries (SPEC 45.14).
+
+This diagnostic change does not settle a timed-out request. Its original stream
+terminal and E1 still say Unknown, the admission guard remains quarantined, and
+reconciliation without terminal evidence cannot release a slot or authorize a
+new send. The existing live HTTP deadline journey retains those assertions and
+the exact stream/E1 equality check, while requiring one specific timeout report
+that identifies the original request/agent, sealed limit and unconfirmed remote
+termination. The two-report observations from earlier candidates remain
+unchanged historical evidence.
+
+Integration restores a terminal assertion damaged by literal merge text in
+`37ddbf7`; the reconciled candidate still needs its own actual test result.
+
+## 2026-11-16 hosted attempt with explicit CPU attention configuration
+
+[Run 43885905651](https://github.com/cyjin-yl/shenko/actions/runs/43885905651)
+built merge source `3c4d9e132a498904379c3e9caf7c4066c30135a9`
+(PR #305 head `da00eb8e35da3ffcb3a1aae2376061d81cc60363`). Its binary
+SHA-256 is `14472dadef68305d88c6c18aad3c0ba61da0f3e6e868bd1f4ba0cb80c785f1e9`.
+The pinned Qwen3-0.6B weights, full task/protocol prompt, sampling configuration,
+1,200,000 ms request limit and 1,800-second phase limit were retained. This
+attempt failed after real completed generations and protocol corrections; it
+did not hit the transport deadline.
+
+The server records `flash_attn = enabled` and a 1,792 MiB KV buffer, with 896 MiB
+each for f16 K and V. The ready process maps `libggml-cpu-icelake.so`; its
+reported CPU capabilities include AVX2 and AVX-512. The first 12,723-token
+prefill completed in 266,679.16 ms, or 47.71 tokens/second. Generation of 170
+tokens took a further 57,615.47 ms. The process had affinity CPUs `[0,1,2,3]`
+on a Xeon Platinum 8370C; the visible cgroup reports `cpu.max = max 100000`
+and effective cpuset `0-3`. The ready process's RSS was 2,295,236 KiB, which is
+a readiness observation, not the peak over the full run. The previous run used
+a different hosted CPU, so this is not a controlled speedup measurement or a
+complete attribution of its previous slow prefill.
+
+The input boundary again worked on the actual branch:
+
+| Fact in ledger `c93511cc-c1dc-4601-9d49-41861f5a549c` | Sequence |
+| --- | ---: |
+| Startup pause request and confirmed boundary | 6, 7 |
+| Live browser submission accepted | 9 |
+| Public runtime resume | 10 |
+| First main request created | 15 |
+| First main request's provider-terminal result | 106 |
+| Final main request created | 757 |
+| Final stream's transport-rejected terminal | 761 |
+| Final main request's transport-rejected result | 763 |
+
+The paused and accepted snapshots both have zero inference attempts. The
+56,953-byte first frozen input associates the actual subject, branch, step,
+request and accepted event with the complete user text inside
+`payload.messages`, including both requested children and the marker. The
+browser observed a durable receipt and two public stream parts without page
+errors. Stream parts are not committed output, stream-quality acceptance or a
+screen-reader test.
+
+The first generated response tried a `claude.seat` native delegation with
+invented preselected seat/lease values, followed by a `web_ui` delegation and a
+wait-end control. Its first JSON input was followed by prose on the same
+control line. The decoder correctly rejected the complete result with
+`native delegation input must be one JSON value`; no action was accepted.
+The decoded response text contains ordinary quotation marks. Backslashes in
+its enclosing JSON representation are not literal model output.
+
+The next 36 generated texts all contained:
+
+```text
+[wait:replace] {"condition":"新退出条件","reason":"更改了控制协议要求"}
+```
+
+The first 35 were rejected because the frozen context contained no semantic
+wait. The last reached the server context boundary and ended with `length`,
+which produced `MODEL_RESULT_INCOMPLETE`. Each correction retained the old
+result and created a new request identity. These were conclusive provider
+responses followed by new correction requests, not retransmissions of an
+unknown request.
+
+The final request contained 16,462 tokens. The server explicitly refused it
+because its served context was 16,384 tokens. The retained last result is
+`Rejected { http_status: 400 }` with `transport_rejected`, recorded at sequence
+763 for original request `d49ecfb3-8397-4e5e-ac4e-da472978a4c4`.
+The public WebSocket then closed after the CLI exited 1. That connection error
+is a consequence of the failure, not its underlying cause. This result is
+neither a timeout nor an Unknown terminal.
+
+There are 38 main request receipts and 38 matching stream terminal units:
+37 provider-terminal results (36 `stop`, one `length`) and one HTTP rejection.
+The journal retains 444 provider text chunks. There are zero committed
+decisions, zero child tasks, zero child operations and zero child E1 receipts;
+the task table contains only the root. No qualifying answer/marker output was
+committed, and the restart phase was not reached. The 2,645 artifact files
+are primarily main-request, stream and context CAS, not evidence of child
+execution. The only two `runtime_error` events report the HTTP rejection and
+the subject-loop failure. No context-policy or Cordis cleanup failure was
+recorded in this run; that narrower observation does not make its exit or
+restart successful.
+
+The original artifacts also expose two capacity integration gaps. The
+server's `/v1/models` response advertises `data[0].meta.n_ctx = 16384`, distinct
+from `n_ctx_train = 40960`. The current capability decoder only reads top-level
+context fields, so all frozen plans record an unknown model context limit and
+`model_context_limit_not_observed`. Separately, the correction path appends
+assistant/feedback messages to the frozen payload without updating its token
+estimate or policy selection. The message count grows from 1 to 75 while every
+context record retains estimated/budget input 14,611, reserved output 4,096 and
+the original source snapshot. The final provider refusal is correct; these
+earlier missing capacity and correction-planning connections still need a
+product change. This observation makes no change to prompts, model output,
+capacity checks or acceptance assertions.
+
+The [complete observation](../evidence/single-node-hosted-43885905651/observation.json)
+links the full original ZIP, all-entry SHA-256 inventory and a derived timeline
+of all 38 requests. Its verified ZIP SHA-256 is
+`f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a`.
+All 2,645 original files remain inside that unchanged ZIP; 52 key originals
+are also expanded for reading. Every expanded copy was compared byte-for-byte
+with its archive entry. All request/result reference lengths, raw result CAS
+and corresponding stream terminal values were cross-checked. Recorded BLAKE3
+ObjectRefs are preserved without claiming an independent BLAKE3 recomputation.
+This remains a failed 0.6B mechanical experiment. Complete S1, the 27B quality
+baseline, NapCat/coding-seat S2, physical failures and 7/30-day acceptance are
+still unfulfilled.
+
+
+## Capacity correction following hosted run 43885905651
+
+The candidate following the preserved run changes capability discovery and
+correction preparation. It does not change that failed run or claim another
+model execution.
+
+Discovery now selects the exact bound model card and reads llama.cpp's actual
+served `meta.n_ctx`. `n_ctx_train` remains training metadata, never a serving
+fallback. Positive serving limits must agree; zero, malformed values, conflicting
+fields or contradictory cards for the same bound model produce a typed
+`InvalidModelMetadata`. Start propagates that error before inference admission.
+A genuinely unavailable observation may still remain unknown; contradictory
+observations cannot be converted into an unbounded model by the optional-probe
+fallback. The retained run4 `/v1/models` response is used directly by the HTTP
+metadata fixture.
+
+New input seals use schema/codec 14 with explicit payload partitions. Correction
+preparation recounts the complete actual text/image payload, retains the original
+output reservation and immutable correction tail, and invokes the installed
+context policy against the original raw scope/leaf when necessary. Original S0
+and any new execution projection have separate identities. Owned preparation
+and its cancellation keep the recorded result/terminal intact; only a fitting
+new seal can enter atomic R0. A later correction whose immutable material alone
+exhausts the capacity is refused without replacing the result or sending it.
+The [R0 contract](../specs/subject-runtime.md#r0-rejection-and-correction) and
+[policy preparation](../specs/context-policies.md#慢路径请求之外) describe the
+reader, call-state observation and final Store CAS boundaries.
+
+The estimator is still `heuristic:cjk-1-other-4@1`, with immediate-parent provider
+usage calibration where available. This fixes stale payload accounting; it does
+not create a model tokenizer or prove a request fits merely because its estimate
+fits. Unsupported document/citation/search/native-option accounting remains an
+explicit correction refusal. Complete provider response, usage and refusal
+records remain part of the real journey.
+
+The metadata target check for broker and subject, including their tests, passed
+locally with `cargo check --offline --locked -p shenko-broker -p shenko-subject
+--tests -j1`. The updated existing recovery journey checks full recount and
+immutable parent/tail bytes across reopen. One capacity journey covers owned
+waiting/cancellation, preserved `ResultRecorded`, reopen, actual policy compaction
+and R0, then a complete oversized-tail refusal. The existing late-arrival journey
+now requires the worker's moved observation to be rejected before stable
+re-preparation. These are deterministic mechanics fixtures; metadata checking is
+not execution of those tests and is not live-model acceptance.
+
+Recognizing run4's actual 16,384-token slot also means its first observed
+12,723-token input plus the original 4,096-token reservation exceeds that slot.
+A subsequent diagnostic must explicitly configure and record a sufficient served
+capacity while retaining the complete prompt, model, sampling and reservation.
+No later diagnostic is claimed here. The 27B baseline, child/output/restart
+success, S2 and duration/device acceptance remain separate open requirements.
+
+### Configuration and evidence for the next capacity diagnostic
+
+The next opt-in hosted configuration requests `--ctx-size 32768 --parallel 1`
+from the same pinned llama runtime and Qwen3-0.6B weights. It preserves FA on,
+f16 K/V, the complete product prompt and fixed user task, the original 4,096-token
+output reservation, sampling, 1,200,000 ms request deadline, 1,800-second phase
+observation limit, and all finite-child/E1/output/replay/restart criteria.
+This configuration is not a new run or a successful capacity observation.
+
+Run4's observed 12,723 input tokens plus the original 4,096 output reservation
+already exceed its old 16,384-token slot. Its frozen heuristic estimate plus
+that reservation was 18,707. The explicit 32K request creates room for those
+complete inputs; the new candidate's actual slot and complete frozen budget
+still have to be observed. `models.json`, the schema-14 input plans, the actual
+server argv and server log must agree. A different reported limit, capacity
+refusal or inability to start stays a recorded failure; there is no silent
+fallback to a smaller prompt, output reservation or model.
+
+The retained 16K run allocated 1.75 GiB for f16 KV. Doubling the context implies
+an estimated 3.5 GiB cache body for this fixed model, before weights and other
+buffers. This is a sizing estimate, not a new memory measurement or a guarantee
+about the next hosted runner. The existing invocation, readiness and server
+artifacts retain actual CPU affinity/cgroup visibility, memory observations,
+loaded backend and attention/cache configuration. Readiness and any resource
+failure remain evidence.
+
+The existing atomic diagnostic snapshot now also retains `context_windows` and
+`context_window_scopes`: complete window bodies, call-state baselines, generations
+and profile identities stay available after the private installation directory
+is excluded from the artifact. `commit_log` contributes only `ledger_id`, `seq`
+and `created_at`, in the same read transaction. This makes the worker observation,
+committed window and final request projection traceable independently of the
+copies of CAS and provider responses. No derivative bytes or control/owner secret
+tables are added to the export.
+
+Both shutdowns use the existing owned-process `SIGINT` path and its forced-kill
+fallback; neither is an intentional crash experiment. The first follows the
+confirmed durable pause. The final shutdown occurs after continued-output
+observation and may encounter the still-continuous main loop. The success checks
+now require both observed exits to be zero. A nonzero first exit stops the journey
+before automatic restart; a nonzero final exit keeps `passed=false` while final
+ledger/CAS evidence is retained. Unknown inference outcomes remain Unknown and
+are not converted to successful cleanup.
+
+A single explicit label event is still required for one exact-candidate run;
+pushes and unrelated labels do not repeat it. A protocol correction loop is a
+model-behavior failure even if the new capacity accounting works. Diagnose each
+original request/terminal, complete correction tail, charged budget, window and
+raw rejection reason before deciding on any later change. The unchanged 0.6B
+experiment does not discharge the 27B quality baseline, complete S2 or long-term
+acceptance requirements.

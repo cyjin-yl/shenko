@@ -1,0 +1,588 @@
+{
+  "schema_version": 3,
+  "workflow_run_url": "https://github.com/cyjin-yl/shenko/actions/runs/43885905651",
+  "job_id": 133363842579,
+  "artifact_id": 14234729067,
+  "artifact_name": "real-single-node-3c4d9e132a498904379c3e9caf7c4066c30135a9",
+  "artifact_sha256": "f1d5e8a81c5dfe5039caa1bc620daff822c0b4baa3177e1601a726e22ec7ef3a",
+  "artifact_bytes": 4464725,
+  "original_artifact": "original-artifact.zip",
+  "all_entry_inventory": "artifact-entries.json",
+  "raw_artifact_file_count": 2645,
+  "raw_uncompressed_bytes": 16506316,
+  "expanded_original_files": 52,
+  "expansion_scope": "All non-CAS originals plus inputs/results and existing step references for request ordinals 1,2,36,37,38. Every other original CAS remains unchanged in the complete original ZIP and has an entry SHA-256. Three logs are retained with reversible gzip to preserve their original whitespace; see lossless_log_storage. The complete original ZIP is unchanged.",
+  "tested_source_revision": "3c4d9e132a498904379c3e9caf7c4066c30135a9",
+  "pull_request_head": "da00eb8e35da3ffcb3a1aae2376061d81cc60363",
+  "binary_sha256": "14472dadef68305d88c6c18aad3c0ba61da0f3e6e868bd1f4ba0cb80c785f1e9",
+  "started_at": "2026-11-16T14:33:29Z",
+  "outcome": "failed_after_protocol_corrections_exhausted_served_context",
+  "acceptance_passed": false,
+  "model": "Qwen3-0.6B-Q4_K_M",
+  "model_ready": {
+    "status": "ok"
+  },
+  "request_timeout_ms": 1200000,
+  "last_exit": 1,
+  "harness_checks": {
+    "startup_paused_before_inference": true,
+    "input_accepted_before_inference": true,
+    "browser_first_input_from_composer": true,
+    "browser_first_durable_receipt": true,
+    "browser_no_page_errors": true
+  },
+  "harness_errors": [
+    "ConnectionClosedError: no close frame received or sent"
+  ],
+  "browser": {
+    "checks": {
+      "browser_first_input_from_composer": true,
+      "browser_first_durable_receipt": true,
+      "browser_no_page_errors": true
+    },
+    "observations": {
+      "served_manifest_sha256": "a8a3f9bd4d896828b2ec42510ba6e558a60d1fadf60d6fd8f046ced6b41a6762",
+      "streaming": {
+        "observed": true,
+        "received_stream_parts": 2,
+        "scope": "actual public wire frames only; no stream-quality or latency claim"
+      },
+      "accessibility": {
+        "aria_snapshot_phases": [
+          "opened",
+          "first-submitted",
+          "final"
+        ],
+        "screen_reader_tested": false
+      }
+    },
+    "errors": [],
+    "page_errors": [],
+    "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"
+  },
+  "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+  "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+  "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+  "startup_request_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 6
+  },
+  "startup_pause_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 7
+  },
+  "input_accepted_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 9
+  },
+  "public_resume_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 10
+  },
+  "first_request_created_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 15
+  },
+  "user_input_event_id": "44308963-7b98-4a94-bfd1-f82b28e06b97",
+  "user_input_submission_id": "53c227b8-fe98-4427-9937-eda2e9c7c3ad",
+  "accepted_before_first_request": true,
+  "full_input_in_frozen_events_and_actual_payload": true,
+  "sealed_input_plan_ref": {
+    "digest": "blake3:307731f67ac9e6f78c20ad25f80fc7532cd290263680e1cf0e07830331c2cf6d",
+    "bytes": 56953,
+    "media_type": "application/json",
+    "store_namespace": "input_plans",
+    "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/30/77/307731f67ac9e6f78c20ad25f80fc7532cd290263680e1cf0e07830331c2cf6d",
+    "codec": {
+      "name": "subject_step_input",
+      "major": 13,
+      "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+    }
+  },
+  "sealed_input_sha256": "94813d348d53c41af64ac0e6b0bd7b7474d4fb40f2958a2e30bc944c464632ff",
+  "sealed_provider_binding": {
+    "kind": "local",
+    "base_url": "http://127.0.0.1:18832",
+    "model": "Qwen3-0.6B-Q4_K_M",
+    "allow_invalid_certs": false,
+    "serializer_revision": 4,
+    "default_max_tokens": 8192,
+    "request_timeout_ms": 1200000
+  },
+  "counts": {
+    "subject_branch_heads": 1,
+    "subject_steps": 38,
+    "subject_genesis": 1,
+    "tasks": 1,
+    "task_results": 0,
+    "operations": 0,
+    "attempts": 0,
+    "evidence_receipts": 0,
+    "web_input_submissions": 1,
+    "subject_intents": 0,
+    "session_events": 77,
+    "inbox_events": 78,
+    "subject_request_attempts": 38,
+    "content_streams": 38,
+    "content_stream_units": 482,
+    "subject_quiesce_requests": 1,
+    "decisions": 0,
+    "subject_request_results": 38
+  },
+  "main_terminal_kinds": {
+    "provider_terminal": 37,
+    "transport_rejected": 1
+  },
+  "provider_stop_reasons": [
+    {
+      "stop_reason": "stop",
+      "count": 36
+    },
+    {
+      "stop_reason": "length",
+      "count": 1
+    },
+    {
+      "stop_reason": null,
+      "count": 1
+    }
+  ],
+  "journal_provider_text_chunks": 444,
+  "journal_terminal_units": 38,
+  "rejections": [
+    {
+      "code": "CONTROL_PROTOCOL_INVALID",
+      "details": {
+        "line": 1,
+        "protocol": 3,
+        "reason": "native delegation input must be one JSON value"
+      },
+      "count": 1
+    },
+    {
+      "code": "CONTROL_PROTOCOL_INVALID",
+      "details": {
+        "line": 1,
+        "protocol": 3,
+        "reason": "no semantic wait exists in the frozen context"
+      },
+      "count": 35
+    },
+    {
+      "code": "MODEL_RESULT_INCOMPLETE",
+      "details": {
+        "reason": "partial/refused/unknown result is not an action decision",
+        "stop_reason": "length"
+      },
+      "count": 1
+    }
+  ],
+  "request_observations": "request-observations.json",
+  "first_generated_content": "[delegate:claude.seat:1] {\"command\":[\"claude\",\"-p\",\"Qwen3-0.6B-Q4_K_M\"],\"seat_id\":\"pre-selected seat 1234567890\",\"lease_id\":\"pre-selected lease 1234567890\",\"lease_epoch\":1,\"fence_capability\":\"claude.control:<session-anchor>\"} 开启并挂接 Qwen3-0.6B-Q4_K_M 有限模型 child。\n\n[delegate:web_ui] {\"op\":\"list\",\"limit\":1} —— 等待两个任务实际返回结果。\n\n[wait:end] —— 当前等待结束。现在在正文中报告计算结果和原样回显的标记，不模拟执行，也不提前宣称成功。",
+  "repeated_generated_content": "[wait:replace] {\"condition\":\"新退出条件\",\"reason\":\"更改了控制协议要求\"}",
+  "repeated_generated_content_count": 36,
+  "content_decode_note": "These are decoded response.content strings. JSON representation escapes are not literal backslashes in generated text. The first delegation line appends prose after its JSON object; the parser reports that the input must be one JSON value. Subsequent wait:replace outputs are refused because the frozen context has no semantic wait.",
+  "runtime_error_events": [
+    {
+      "event_id": "31b2ce13-32a9-4f2f-92ce-c1d240f83e87",
+      "session_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+      "seq": 76,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:05b317a96531ed2223b089754a048505e4ddcd7b06a7b37f2d13e0c4c82a7914",
+        "extra": {
+          "conversation_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+          "purpose": "subject",
+          "request_id": "d49ecfb3-8397-4e5e-ac4e-da472978a4c4"
+        },
+        "journal_dropped_total": 0,
+        "kind": "inference_broker",
+        "message": "INFERENCE_PROVIDER_REJECTED: provider rejected the request with HTTP 400",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T14:48:21.122Z",
+        "source_module": "shenko-broker",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 14:48:21"
+    },
+    {
+      "event_id": "2c3828bf-5c5b-4fbf-9c7e-26526e84bdbd",
+      "session_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+      "seq": 77,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:ceab9f7e43c569a0c481e236934fd5fa7309efc7023caeb1b5bb9f37dedbda42",
+        "extra": {},
+        "journal_dropped_total": 0,
+        "kind": "subject_loop",
+        "message": "subject loop stopped on error: protocol error: [request] PROVIDER_REJECTED",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T14:48:21.126Z",
+        "source_module": "shenko_subject::loop_runner",
+        "step_no": 1,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 14:48:21"
+    }
+  ],
+  "last_request_id": "d49ecfb3-8397-4e5e-ac4e-da472978a4c4",
+  "last_attempt_id": "24642a00-7dd5-4213-b91c-c20c98c893c0",
+  "last_step_id": "80673d8e-785c-4cea-a4de-801f4b06c8d5",
+  "last_request_created_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 757
+  },
+  "last_terminal_commit": {
+    "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+    "seq": 763
+  },
+  "last_terminal_outcome": {
+    "status": {
+      "rejected": {
+        "http_status": 400
+      }
+    },
+    "stop_reason": null,
+    "termination": {
+      "kind": "transport_rejected",
+      "length": false,
+      "max_tokens": null,
+      "output_tokens": null,
+      "stop_reason": null
+    },
+    "usage": null
+  },
+  "last_result_ref": {
+    "digest": "blake3:27e4999a20944163b4c9859dd087f82631f5b6153db51a447a70837574fe6d1b",
+    "bytes": 661,
+    "media_type": "application/json",
+    "store_namespace": "subject_requests",
+    "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/27/e4/27e4999a20944163b4c9859dd087f82631f5b6153db51a447a70837574fe6d1b",
+    "codec": {
+      "name": "subject-request-result",
+      "major": 1,
+      "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+    }
+  },
+  "last_step_state": "awaiting_model",
+  "last_head": {
+    "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+    "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+    "subject_root_task_id": "a32ed0c8-209b-4a68-984e-46c61e24f720",
+    "controller_epoch": 2,
+    "software_generation": "seed",
+    "genesis_ref": {
+      "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+      "genesis_id": "f2069d8a-7434-4754-9d0a-0581a6f23f84"
+    },
+    "committed_step_no": 0,
+    "committed_step_id": null,
+    "committed_at": {
+      "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+      "seq": 1
+    },
+    "next_step_id": "80673d8e-785c-4cea-a4de-801f4b06c8d5",
+    "mode": "active",
+    "mode_reason_ref": null,
+    "record_revision": 40
+  },
+  "runtime_observed": {
+    "argv": [
+      ".ci/model/llama-b12359/llama-server",
+      "--model",
+      ".ci/model/model.gguf",
+      "--alias",
+      "Qwen3-0.6B-Q4_K_M",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "18832",
+      "--offline",
+      "--no-webui",
+      "--threads",
+      "4",
+      "--threads-batch",
+      "4",
+      "--threads-http",
+      "2",
+      "--ctx-size",
+      "16384",
+      "--parallel",
+      "1",
+      "--batch-size",
+      "2048",
+      "--ubatch-size",
+      "512",
+      "--n-gpu-layers",
+      "0",
+      "--flash-attn",
+      "on",
+      "--cache-type-k",
+      "f16",
+      "--cache-type-v",
+      "f16",
+      "--cache-ram",
+      "64",
+      "--load-mode",
+      "none",
+      "--repack",
+      "--jinja",
+      "--reasoning",
+      "off",
+      "--n-predict",
+      "1024",
+      "--no-context-shift",
+      "--temp",
+      "0.7",
+      "--top-p",
+      "0.8",
+      "--top-k",
+      "20",
+      "--min-p",
+      "0",
+      "--presence-penalty",
+      "1.5",
+      "--timeout",
+      "600",
+      "--verbosity",
+      "4",
+      "--log-timestamps",
+      "--log-colors",
+      "off"
+    ],
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "cpu_model": "Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz",
+    "cpu_cores": "2",
+    "cgroup_cpu_max": "max 100000\n",
+    "cgroup_cpuset_cpus_effective": "0-3\n",
+    "cgroup_cpu_stat": "usage_usec 620679383\nuser_usec 549929554\nsystem_usec 70749829\nnice_usec 0\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n",
+    "cgroup_memory_max": "max\n",
+    "cgroup_scope": "visible cgroup mount; unexposed ancestor limits are not observed",
+    "ready_process_status": "Name:\tllama-server\nUmask:\t0022\nState:\tS (sleeping)\nTgid:\t15172\nNgid:\t0\nPid:\t15172\nPPid:\t15163\nTracerPid:\t0\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\nFDSize:\t256\nGroups:\t0 \nNStgid:\t15172\nNSpid:\t15172\nNSpgid:\t15163\nNSsid:\t15163\nKthread:\t0\nVmPeak:\t 2793244 kB\nVmSize:\t 2744096 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t 2295236 kB\nVmRSS:\t 2295236 kB\nRssAnon:\t 2274280 kB\nRssFile:\t   20956 kB\nRssShmem:\t       0 kB\nVmData:\t 2514856 kB\nVmStk:\t     136 kB\nVmExe:\t       4 kB\nVmLib:\t   19616 kB\nVmPTE:\t    4728 kB\nVmSwap:\t       0 kB\nHugetlbPages:\t       0 kB\nCoreDumping:\t0\nTHP_enabled:\t1\nuntag_mask:\t0xffffffffffffffff\nThreads:\t10\nSigQ:\t1/58109\nSigPnd:\t0000000000000000\nShdPnd:\t0000000000000000\nSigBlk:\t0000000000000000\nSigIgn:\t0000000000001004\nSigCgt:\t0000000100004002\nCapInh:\t0000000000000000\nCapPrm:\t00000000a80425fb\nCapEff:\t00000000a80425fb\nCapBnd:\t00000000a80425fb\nCapAmb:\t0000000000000000\nNoNewPrivs:\t0\nSeccomp:\t2\nSeccomp_filters:\t1\nSpeculation_Store_Bypass:\tvulnerable\nSpeculationIndirectBranch:\talways enabled\nCpus_allowed:\tf\nCpus_allowed_list:\t0-3\nMems_allowed:\t00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000000,00000001\nMems_allowed_list:\t0\nvoluntary_ctxt_switches:\t4\nnonvoluntary_ctxt_switches:\t15\nx86_Thread_features:\t\nx86_Thread_features_locked:\t\n",
+    "mapped_ggml_libraries": [
+      "/__w/shenko/shenko/.ci/model/llama-b12359/libggml-base.so.1.0.0",
+      "/__w/shenko/shenko/.ci/model/llama-b12359/libggml-cpu-icelake.so",
+      "/__w/shenko/shenko/.ci/model/llama-b12359/libggml-rpc.so",
+      "/__w/shenko/shenko/.ci/model/llama-b12359/libggml.so.1.0.0"
+    ],
+    "source_lines": [
+      {
+        "line": 6,
+        "text": "0.00.008.022 I cmn  common_param: system_info: n_threads = 4 (n_threads_batch = 4) / 4 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | AVX512 = 1 | AVX512_VBMI = 1 | AVX512_VNNI = 1 | LLAMAFILE = 1 | OPENMP = 1 | REPACK = 1 | "
+      },
+      {
+        "line": 158,
+        "text": "0.00.758.229 I llama_context: flash_attn            = enabled"
+      },
+      {
+        "line": 167,
+        "text": "0.01.510.767 I llama_kv_cache:        CPU KV buffer size =  1792.00 MiB"
+      },
+      {
+        "line": 168,
+        "text": "0.01.510.788 I llama_kv_cache: size = 1792.00 MiB ( 16384 cells,  28 layers,  1/1 seqs), K (f16):  896.00 MiB, V (f16):  896.00 MiB"
+      },
+      {
+        "line": 983,
+        "text": "14.55.205.574 E srv    send_error: task id = 968, error: request (16462 tokens) exceeds the available context size (16384 tokens), try increasing it"
+      }
+    ],
+    "first_prompt_eval": {
+      "line": 245,
+      "elapsed_ms": 266679.16,
+      "tokens": 12723,
+      "tokens_per_second": 47.71,
+      "raw": "5.30.910.678 I slot print_timing: id  0 | task 0 | prompt eval time =  266679.16 ms / 12723 tokens (   20.96 ms per token,    47.71 tokens per second)"
+    },
+    "completed_prompt_eval_records": 37,
+    "comparison_limit": "The prior run used a different hosted CPU (8573C versus 8370C). This is an observed complete prefill under the new pinned runtime configuration, not a controlled attribution or speedup benchmark."
+  },
+  "capacity_observation": {
+    "served_models_metadata": {
+      "id": "Qwen3-0.6B-Q4_K_M",
+      "aliases": [
+        "Qwen3-0.6B-Q4_K_M"
+      ],
+      "tags": [],
+      "object": "model",
+      "architecture": {
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "created": 1794839609,
+      "owned_by": "llamacpp",
+      "meta": {
+        "vocab_type": 2,
+        "n_vocab": 151936,
+        "n_ctx": 16384,
+        "n_ctx_train": 40960,
+        "n_embd": 1024,
+        "n_params": 596049920,
+        "size": 390753280,
+        "ftype": "Q4_K - Medium"
+      }
+    },
+    "first_context": {
+      "source": {
+        "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+        "source_commit_seq": 13,
+        "leaf_seq": 1,
+        "input_raw_event_ids": [
+          "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+        ],
+        "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+        "window_generation": 1,
+        "model_generation": 1
+      },
+      "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+      "capabilities": {
+        "binding": {
+          "kind": "local",
+          "base_url": "http://127.0.0.1:18832",
+          "model": "Qwen3-0.6B-Q4_K_M",
+          "allow_invalid_certs": false,
+          "serializer_revision": 4,
+          "default_max_tokens": 8192,
+          "request_timeout_ms": 1200000
+        },
+        "max_context_tokens": null,
+        "vision": null
+      },
+      "observed_input_tokens": null,
+      "estimated_input_tokens": 14611,
+      "budget_input_tokens": 14611,
+      "trigger_budget_input_tokens": 14611,
+      "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+      "reserved_output_tokens": 4096,
+      "unfinished_call_ids": [],
+      "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+      "policy_contract": 5,
+      "selection": {
+        "outcome": "unavailable",
+        "reason": "model_context_limit_not_observed"
+      }
+    },
+    "last_context": {
+      "source": {
+        "scope_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+        "source_commit_seq": 13,
+        "leaf_seq": 1,
+        "input_raw_event_ids": [
+          "70ac44e3-b740-40d4-a585-cad82f6fc42b"
+        ],
+        "window_id": "f5eefa43-e193-495a-a55a-038414aa5d80",
+        "window_generation": 1,
+        "model_generation": 1
+      },
+      "profile_digest": "blake3:5d0bddbca2d2aa6636704ab118627a4a210fca70411198f10a5a1c58ff07ef84",
+      "capabilities": {
+        "binding": {
+          "kind": "local",
+          "base_url": "http://127.0.0.1:18832",
+          "model": "Qwen3-0.6B-Q4_K_M",
+          "allow_invalid_certs": false,
+          "serializer_revision": 4,
+          "default_max_tokens": 8192,
+          "request_timeout_ms": 1200000
+        },
+        "max_context_tokens": null,
+        "vision": null
+      },
+      "observed_input_tokens": null,
+      "estimated_input_tokens": 14611,
+      "budget_input_tokens": 14611,
+      "trigger_budget_input_tokens": 14611,
+      "budget_provenance": "final charged estimate; no matching previous provider/estimate anchor; contribution max(rendered 0, declared 0); reserved output 4096",
+      "reserved_output_tokens": 4096,
+      "unfinished_call_ids": [],
+      "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+      "policy_contract": 5,
+      "selection": {
+        "outcome": "unavailable",
+        "reason": "model_context_limit_not_observed"
+      }
+    },
+    "all_context_records_equal": true,
+    "payload_message_counts_first_last": [
+      1,
+      75
+    ],
+    "server_rejected_input_tokens": 16462,
+    "server_context_limit_tokens": 16384,
+    "source_findings": [
+      "broker.rs ModelMetadata recognizes only top-level served context fields; this response supplies data[].meta.n_ctx, so the frozen capability remains unknown. n_ctx_train is a different training figure.",
+      "replace_rejected_output appends assistant/feedback messages to the original frozen input while leaving its context token estimate and policy selection unchanged; all 38 plans retain estimated/budget input 14611 and reserved output 4096."
+    ],
+    "source_review_is_not_a_fix_or_new_execution": true
+  },
+  "completed_scope": [
+    "real pinned local model completed provider requests",
+    "same-branch browser input accepted before the first inference",
+    "all 38 main terminal receipts and 38 stream terminal units retained",
+    "two actual public browser stream parts"
+  ],
+  "unfulfilled_scope": [
+    "no committed subject decision",
+    "no finite model child or native child created",
+    "no child operation, result, or child E1",
+    "no qualifying answer or marker output",
+    "restart/continued-work phase not reached",
+    "no 27B model-quality baseline",
+    "no NapCat/coding-seat S2 journey",
+    "no physical-failure or 7/30-day run",
+    "no screen-reader or full UI acceptance"
+  ],
+  "shutdown_observation": "Exactly two runtime_error events: provider HTTP400 and subject_loop PROVIDER_REJECTED. No context_policy_lifecycle or cordis_lifecycle event in this run; the CLI still correctly exits 1 for the main failure. This is not a successful stop/restart journey.",
+  "verification": {
+    "archive_sha256_matches_github_artifact_digest": true,
+    "every_archive_entry_sha256_recorded": true,
+    "all_38_plan_and_result_objectref_byte_lengths_verified": true,
+    "all_38_result_cas_equal_retained_ledger_results": true,
+    "all_38_stream_terminal_values_equal_main_results": true,
+    "blake3_ref_values": "preserved as recorded; not independently recomputed",
+    "every_retained_copy_decodes_to_original_zip_entry": true
+  },
+  "lossless_log_storage": [
+    {
+      "original_path": "job.log",
+      "stored_path": "job.log.gz",
+      "encoding": "gzip",
+      "original_bytes": 230771,
+      "original_sha256": "26f0de590f62101a6ff7ea041816629adaee1e2d6ea03bd3ce2f02baee844973",
+      "stored_bytes": 50142,
+      "stored_sha256": "8d9bf287ec34fff8099e134ceaf28f253bc0c24b27ff8aabd62f7e83f5dfdeca"
+    },
+    {
+      "original_path": "raw/model-runtime-help.txt",
+      "stored_path": "raw/model-runtime-help.txt.gz",
+      "encoding": "gzip",
+      "original_bytes": 62823,
+      "original_sha256": "368031c632ea0678df10211d4a9230608ca5d95cde4fd05cda33f16a838b2aef",
+      "stored_bytes": 13418,
+      "stored_sha256": "3d3347d5f39fab1eda7262abc30c877c3a4bd2e8e4b704a44a74c0810670bc46"
+    },
+    {
+      "original_path": "raw/model-server.log",
+      "stored_path": "raw/model-server.log.gz",
+      "encoding": "gzip",
+      "original_bytes": 100988,
+      "original_sha256": "3eef324a805865a6c4084302225b7f0f524355cb8dd40745338f67bfc14a076f",
+      "stored_bytes": 13841,
+      "stored_sha256": "89ddc5dd2de087000086cb0ae9efa36d5c0264f2d394ec639ca5ea8c7d7327b1"
+    }
+  ]
+}

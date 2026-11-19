@@ -1,0 +1,26 @@
+{
+  "status": "fulfilled",
+  "value": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Action completed."
+      }
+    ],
+    "structuredContent": {
+      "content": "{\"total_count\":0,\"check_runs\":[]}",
+      "title": "check-runs",
+      "modified_date": null,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/commits/a9c17717a6effb504c63ff5248401c8857d65558/check-runs",
+      "display_url": "https://api.github.com/repos/cyjin-yl/shenko/commits/a9c17717a6effb504c63ff5248401c8857d65558/check-runs",
+      "display_title": "check-runs",
+      "structuredContent": {
+        "title": "check-runs",
+        "content": "{\"total_count\":0,\"check_runs\":[]}",
+        "display_url": "https://api.github.com/repos/cyjin-yl/shenko/commits/a9c17717a6effb504c63ff5248401c8857d65558/check-runs"
+      }
+    },
+    "isError": false
+  }
+}
+

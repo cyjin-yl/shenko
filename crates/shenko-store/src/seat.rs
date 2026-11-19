@@ -1078,10 +1078,12 @@ impl Store {
 
     /// Arm the exact effect of a committed decision — `T1 arm`.
     ///
-    /// The arm records the digest of the bytes that are about to be written
-    /// and the operation that carries them, and moves the question to
-    /// `Responding`. From this commit on the effect *may* have reached the
-    /// remote side, so recovery never re-sends it.
+    /// The arm rechecks the committed decision's complete question, seat,
+    /// task and lease binding in its write transaction, records the exact
+    /// effect digest and operation, and moves the question to `Responding`.
+    /// From this commit on the effect *may* have reached the remote side, so
+    /// recovery never re-sends it. This transaction does not hold a fence
+    /// across the subsequent transport write.
     pub fn arm_seat_answer_decision(
         &self,
         decision_id: EntityId,
@@ -1110,6 +1112,8 @@ impl Store {
                     .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown question"))?;
                 ensure!(
                     question.record_revision == expected_question_record_revision
+                        && question.record_revision == decision.expected_question_record_revision.next()
+                        && question.question_revision == decision.expected_question_revision
                         && question.state == SeatQuestionState::DecisionCommitted,
                     seat_error(
                         "stale_question",
@@ -1122,14 +1126,78 @@ impl Store {
                         }),
         )
                 );
+                ensure!(
+                    question.seat_id == decision.seat_id
+                        && question.task_id == decision.task_id
+                        && question.lease_id == decision.lease_id,
+                    seat_error(
+                        "seat_decision_binding_mismatch",
+                        RetryStrategy::NeverAutomatically,
+                        serde_json::json!({"decision_id": decision_id.to_string()}),
+                    )
+                );
                 let lease = read_lease(&tx, decision.lease_id)?
                     .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown lease"))?;
                 let seat = read_seat(&tx, decision.seat_id)?
                     .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown seat"))?;
                 check_seat_task(&seat, decision.task_id)?;
                 ensure!(
+                    seat.status == SeatStatus::Active,
+                    seat_error(
+                        "seat_retired",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({"seat_id": decision.seat_id.to_string()}),
+                    )
+                );
+                ensure!(
+                    seat.incarnation == decision.expected_seat_incarnation
+                        && lease.acquired_at_incarnation == seat.incarnation,
+                    seat_error(
+                        "seat_location_changed",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({
+                            "seat_id": decision.seat_id.to_string(),
+                            "expected": decision.expected_seat_incarnation.0,
+                            "acquired_at": lease.acquired_at_incarnation.0,
+                            "current": seat.incarnation.0,
+                        }),
+                    )
+                );
+                ensure!(
+                    seat.record_revision == decision.expected_seat_revision,
+                    seat_error(
+                        "stale_task",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({
+                            "seat_id": decision.seat_id.to_string(),
+                            "expected": decision.expected_seat_revision.0,
+                            "current": seat.record_revision.0,
+                        }),
+                    )
+                );
+                let task = read_task_row(&tx, decision.task_id)?.ok_or_else(|| {
+                    seat_error(
+                        "seat_task_missing",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({"task_id": decision.task_id.to_string()}),
+                    )
+                })?;
+                ensure!(
+                    task.task_revision == decision.expected_task_revision,
+                    seat_error(
+                        "stale_task",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({
+                            "task_id": decision.task_id.to_string(),
+                            "expected": decision.expected_task_revision.0,
+                            "current": task.task_revision.0,
+                        }),
+                    )
+                );
+                ensure!(
                     lease.is_current() && lease.is_writer_fence()
                         && lease.lease_epoch == decision.lease_epoch
+                        && lease.fence_capability == decision.fence_capability
                         && lease.seat_id == decision.seat_id
                         && lease.holder_task_id == decision.task_id,
                     seat_error(
@@ -2055,6 +2123,35 @@ impl Store {
                             "lease_id": decision.lease_id.to_string(),
                             "expected": expected.lease_epoch,
                             "current": lease.lease_epoch,
+                        }),
+                    )
+                );
+                // Persist the exact expectation that was admitted, not a
+                // second caller-supplied set that could differ when arm
+                // later checks the committed decision.
+                ensure!(
+                    decision.expected_question_revision == expected.question_revision
+                        && decision.expected_question_record_revision == expected.question_record_revision
+                        && decision.expected_seat_incarnation == expected.seat_incarnation
+                        && decision.expected_seat_revision == expected.seat_revision
+                        && decision.expected_task_revision == expected.task_revision
+                        && decision.lease_epoch == expected.lease_epoch
+                        && decision.fence_capability == lease.fence_capability,
+                    seat_error(
+                        "seat_decision_binding_mismatch",
+                        RetryStrategy::NeverAutomatically,
+                        serde_json::json!({"decision_id": decision.decision_id.to_string()}),
+                    )
+                );
+                ensure!(
+                    lease.acquired_at_incarnation == seat.incarnation,
+                    seat_error(
+                        "seat_location_changed",
+                        RetryStrategy::AfterReconcile,
+                        serde_json::json!({
+                            "seat_id": decision.seat_id.to_string(),
+                            "acquired_at": lease.acquired_at_incarnation.0,
+                            "current": seat.incarnation.0,
                         }),
                     )
                 );

@@ -1,0 +1,7 @@
+[2m2026-11-16T22:29:25.523805Z[0m [32m INFO[0m [2mshenko::runtime_lifecycle[0m[2m:[0m quota strategies installed [3mstrategies[0m[2m=[0m[StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Cadence }]
+[2m2026-11-16T22:29:25.532026Z[0m [32m INFO[0m [2mshenko_store::store[0m[2m:[0m store opened [3mfts5[0m[2m=[0mtrue [3mwal[0m[2m=[0mtrue [3msqlite[0m[2m=[0m3.46.0
+Error: native E1 2def90a3-01f5-4e96-a13e-210c44f73405 transfer incomplete; local delivery b34ca089-2583-63fd-084e-8c6557ce8a3a remains pending
+
+Caused by:
+    0: authenticated peer responded without a usable receipt
+    1: SSH replication unconfirmed (exit status: 75): 

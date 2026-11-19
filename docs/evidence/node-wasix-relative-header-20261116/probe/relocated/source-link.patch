@@ -1,0 +1,9 @@
+diff --git a/deps/v8/include/wasi/wasi-simdutf-compat.h b/deps/v8/include/wasi/wasi-simdutf-compat.h
+index f7e59ed84434ac2100e830dfc652203f1ccdad48..3589e61e26b635c6f1620181732b9d04dea83fa8 120000
+--- a/deps/v8/include/wasi/wasi-simdutf-compat.h
++++ b/deps/v8/include/wasi/wasi-simdutf-compat.h
+@@ -1 +1 @@
+-/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h
+\ No newline at end of file
++../../third_party/simdutf/simdutf-wasi-compat.h
+\ No newline at end of file

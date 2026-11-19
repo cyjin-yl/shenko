@@ -1,0 +1,67 @@
+{
+  "kind": "public_source_inspection",
+  "product_tested": false,
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "assets": [
+    {
+      "name": "wasixcc",
+      "tag": "v0.4.7",
+      "release_url": "https://github.com/wasix-org/wasixcc/releases/tag/v0.4.7",
+      "asset": {
+        "id": 548912543,
+        "name": "wasixcc-x86_64-unknown-linux-gnu.tar.gz",
+        "bytes": 3258983,
+        "sha256": "d39db81b6b76d9567e0f61955f390b8586d932ab683816989e23305f27099c2f",
+        "url": "https://github.com/wasix-org/wasixcc/releases/download/v0.4.7/wasixcc-x86_64-unknown-linux-gnu.tar.gz"
+      }
+    },
+    {
+      "name": "llvm",
+      "tag": "21.1.206",
+      "release_url": "https://github.com/wasix-org/llvm-project/releases/tag/21.1.206",
+      "asset": {
+        "id": 504888438,
+        "name": "LLVM-Linux-x86_64-gnu.tar.gz",
+        "bytes": 75596113,
+        "sha256": "ab32cf976226dc9478c9cb8331fa877163ff34d78b190fb201d6eac92cb7dab0",
+        "url": "https://github.com/wasix-org/llvm-project/releases/download/21.1.206/LLVM-Linux-x86_64-gnu.tar.gz"
+      }
+    },
+    {
+      "name": "sysroot",
+      "tag": "v2026-10-02.1",
+      "release_url": "https://github.com/wasix-org/wasix-libc/releases/tag/v2026-10-02.1",
+      "asset": {
+        "id": 605347435,
+        "name": "sysroot.tar.gz",
+        "bytes": 5951821,
+        "sha256": "ffc1a6f52e81a4945a9df7bb2fee632a051403eb64316b006543ea54cd779c6b",
+        "url": "https://github.com/wasix-org/wasix-libc/releases/download/v2026-10-02.1/sysroot.tar.gz"
+      }
+    },
+    {
+      "name": "binaryen",
+      "tag": "version_128",
+      "release_url": "https://github.com/WebAssembly/binaryen/releases/tag/version_128",
+      "asset": {
+        "id": 373217228,
+        "name": "binaryen-version_128-x86_64-linux.tar.gz",
+        "bytes": 114606053,
+        "sha256": "4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e",
+        "url": "https://github.com/WebAssembly/binaryen/releases/download/version_128/binaryen-version_128-x86_64-linux.tar.gz"
+      }
+    }
+  ],
+  "source_git_tree": {
+    "truncated": false,
+    "entries": 44011,
+    "blob_files": 41100,
+    "blob_bytes": 648431593,
+    "root_wasm_bytes": 223451820,
+    "submodules": 0,
+    "top_tree_reconstructed": true,
+    "compressed_transfer_bytes": null
+  },
+  "build_runtime_and_resource_requirement_observed": false
+}

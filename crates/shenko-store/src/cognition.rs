@@ -377,7 +377,9 @@ pub struct CognitionSubjectOrigin {
     pub imported_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Local receipt coordinates follow the same table catalog as archive import.
+/// Physical receipt positions are local projections. Canonical transitions
+/// use exactly the same distinction as the archive importer, never a column
+/// name heuristic that could rewrite original source sequence provenance.
 pub(crate) fn control_local_sequence(table: &str) -> Option<&'static str> {
     rows::TABLES.iter().find(|spec| spec.name == table).and_then(|spec| spec.local_seq)
 }

@@ -1,0 +1,36 @@
+- link "跳到输入区":
+  - /url: "#composer-editor"
+- banner:
+  - button "未命名主体，打开主体详情": 未命名主体 尚无已提交步骤
+  - navigation "视图":
+    - group "视图":
+      - button "对话" [pressed]
+      - button "Inspect"
+  - navigation "镜头":
+    - group "在时间线旁打开":
+      - button "任务 （Ctrl/⌘ 1）"
+      - button "记忆 （Ctrl/⌘ 2）"
+      - button "Playground （Ctrl/⌘ 3）"
+      - button "配置 （Ctrl/⌘ 4）"
+  - text: 已连接
+  - button "长代码行软换行"
+  - button "切换到深色"
+  - button "主体详情"
+- main:
+  - navigation "会话":
+    - group "会话":
+      - button "主体 还没有消息" [pressed]:
+        - text: 主体
+        - time
+        - text: 还没有消息
+  - region "主体":
+    - text: 主体 直接对话
+    - paragraph: 还没有消息。
+    - textbox "向同一主体追加输入":
+      - /placeholder: 信息
+    - group "输入方式":
+      - button "追加" [pressed]
+      - button "引导"
+    - button "追加" [disabled]
+  - status
+- text: 传输已连接

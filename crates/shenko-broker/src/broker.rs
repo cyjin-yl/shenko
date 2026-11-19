@@ -11,7 +11,7 @@
 //! budget belongs to the physical domain, the residency pool is described in
 //! [`crate::kv`]. A request whose remote outcome is unknown keeps its
 //! capacity and is quarantined as debt until it is reconciled.
-use anyhow::{Context, Result, anyhow, ensure};
+use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -45,6 +45,15 @@ struct ModelMetadata {
     context_length: Option<u32>,
     max_image_context: Option<u32>,
     patch_px: Option<u32>,
+    meta: Option<ServedModelMetadata>,
+}
+
+#[derive(Deserialize)]
+struct ServedModelMetadata {
+    /// llama.cpp reports the actual per-sequence serving limit here.
+    /// `n_ctx_train` is deliberately not a fallback: training capacity does
+    /// not establish how much context this running endpoint serves.
+    n_ctx: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -53,13 +62,22 @@ struct ModelMetadataList {
     has_more: Option<bool>,
 }
 
+/// An advertised metadata response is structurally invalid, or the bound
+/// model's limits are invalid or contradictory. Callers may continue without
+/// an observation, but must not hide a rejected response as an optional probe
+/// failure and admit the model as unknown/unbounded.
+#[derive(Debug, thiserror::Error)]
+#[error("invalid model metadata: {0}")]
+pub struct InvalidModelMetadata(String);
+
 impl ProviderCapabilities {
     fn from_metadata(binding: ProviderBinding, metadata: ModelMetadata) -> Result<Self> {
         ensure!(metadata.id == binding.model(), "metadata model id differs from bound model");
         // `max_tokens` is deliberately absent: Anthropic defines that as the
         // output-parameter ceiling, not the input context window.
         let limits = [metadata.max_model_len, metadata.max_context_tokens,
-            metadata.max_input_tokens, metadata.context_length]
+            metadata.max_input_tokens, metadata.context_length,
+            metadata.meta.and_then(|meta| meta.n_ctx)]
             .into_iter().flatten().collect::<Vec<_>>();
         ensure!(limits.iter().all(|limit| *limit > 0), "model metadata has an invalid context limit");
         ensure!(limits.iter().all(|limit| Some(*limit) == limits.first().copied()),
@@ -621,8 +639,9 @@ struct CompletedRequest {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
-    /// Whether the execution already recorded a typed cause for this request.
-    typed_cause: bool,
+    /// Whether execution submitted a specific cause to the fail-soft reporter.
+    /// This does not acknowledge a durable journal write.
+    cause_report_attempted: bool,
 }
 
 pub struct Broker {
@@ -818,6 +837,7 @@ impl Broker {
         self.adopt_capabilities(&snapshot);
         let binding = runtime.binding();
         let mut has_more = false;
+        let mut capabilities = None;
         for document in &snapshot.raw_evidence {
             // Metrics and diagnostics are separate evidence, not failed model
             // lists. A document presenting a data member must parse as one.
@@ -825,11 +845,22 @@ impl Broker {
                 continue;
             }
             let list = ModelMetadataList::deserialize(document)
-                .context("provider returned invalid model metadata")?;
+                .map_err(|error| InvalidModelMetadata(error.to_string()))?;
             has_more |= list.has_more == Some(true);
-            if let Some(metadata) = list.data.into_iter().find(|model| model.id == binding.model()) {
-                return ProviderCapabilities::from_metadata(binding, metadata);
+            for metadata in list.data {
+                if metadata.id != binding.model() {
+                    continue;
+                }
+                let observed = ProviderCapabilities::from_metadata(binding.clone(), metadata)
+                    .map_err(|error| InvalidModelMetadata(error.to_string()))?;
+                if capabilities.as_ref().is_some_and(|prior| prior != &observed) {
+                    return Err(InvalidModelMetadata("conflicting observations for the bound model".into()).into());
+                }
+                capabilities = Some(observed);
             }
+        }
+        if let Some(capabilities) = capabilities {
+            return Ok(capabilities);
         }
         Err(ProtocolError::new(
             if has_more { "PROVIDER_MODEL_METADATA_INCOMPLETE" } else { "PROVIDER_MODEL_METADATA_MISSING" },
@@ -858,7 +889,7 @@ impl Broker {
         kv: &KvAllocator,
         error_sink: &ErrorSinkCell,
     ) -> Result<()> {
-        let CompletedRequest { request, receipt_sink, result, guard, typed_cause } = completed;
+        let CompletedRequest { request, receipt_sink, result, guard, cause_report_attempted } = completed;
         let request_id = request.request_id;
         let settlement = (|| -> Result<()> {
             if let Some(sink) = receipt_sink {
@@ -913,7 +944,10 @@ impl Broker {
             ));
             return Err(error.context(format!("inference completion settlement failed for {request_id}")));
         }
-        if result.termination.kind == TerminationKind::Unknown && !typed_cause {
+        // A cause report is fail-soft: it does not establish persistence or
+        // release Unknown occupancy. The retained original receipt and guard
+        // own recovery; only an outcome with no specific cause gets this report.
+        if result.termination.kind == TerminationKind::Unknown && !cause_report_attempted {
             crate::error_sink::journal_runtime_error(
                 error_sink,
                 &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
@@ -975,7 +1009,7 @@ impl Broker {
                         request,
                         receipt_sink,
                         result: executed.result,
-                        typed_cause: executed.typed_cause,
+                        cause_report_attempted: executed.cause_report_attempted,
                         guard,
                     };
                     if let Err(failed) = completed_tx.send(completed) {

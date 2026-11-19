@@ -269,6 +269,16 @@ fn guarded_send_command(
 
 /// ExecResult → Ok(())，或把守卫退出码/失败映射为 SeatRefusal / ExecFailure。
 fn refusal_or_success(result: &ExecResult) -> Result<()> {
+    // A reserved shell exit code proves a guard refusal only when the
+    // executor actually observed that exit without lost I/O or timeout.
+    // Preserve legacy results with no outcome/diagnostic, but never let a
+    // new uncertainty become a no-send fact merely because its code matches.
+    if result.timed_out
+        || !matches!(result.outcome, None | Some(ExecOutcome::Exited))
+        || result.diagnostic.is_some()
+    {
+        return Err(ExecFailure { result: result.clone() }.into());
+    }
     match result.exit_code {
         EXIT_PANE_MISSING => Err(SeatRefusal::PaneMissing.into()),
         EXIT_PANE_DEAD => Err(SeatRefusal::PaneDead.into()),
@@ -693,7 +703,8 @@ mod tests {
     }
 
     #[test]
-    fn guarded_send_refuses_stale_panes_and_maps_results() {
+    fn guarded_send_refuses_stale_panes_and_maps_results() -> Result<()> {
+        use anyhow::Context;
         // 场景 5-7：三种守卫退出码各自映射到可下转的 SeatRefusal（参数化，每案独立计数）。
         for (code, refusal) in [
             (EXIT_PANE_MISSING, SeatRefusal::PaneMissing),
@@ -706,5 +717,25 @@ mod tests {
         // 场景 8：普通远端失败保持 ExecFailure，不伪装成 seat 拒绝也不伪装成功。
         let err = refusal_or_success(&result(1)).unwrap_err();
         assert!(err.downcast_ref::<ExecFailure>().is_some());
+
+        // New outcome window: output loss can coexist with a reserved guard
+        // exit code. Keep the complete Unknown result, not a typed no-send
+        // refusal that would allow the answer to be attempted again.
+        let mut uncertain = result(EXIT_PANE_REPLACED);
+        uncertain.stdout = "original partial output\n\0字节".into();
+        uncertain.stderr = "original capture failure\n".into();
+        uncertain.execution_id = Some(uuid::Uuid::new_v4());
+        uncertain.outcome = Some(ExecOutcome::Unknown);
+        uncertain.diagnostic = Some(ExecDiagnostic {
+            reason: ExecUncertainty::OutputUnavailable,
+            local_process_reaped: true,
+            reconciliation: "original output observation is incomplete; do not resend".into(),
+        });
+        let expected = serde_json::to_value(&uncertain)?;
+        let error = refusal_or_success(&uncertain).err().context("Unknown must remain a failure")?;
+        assert!(error.downcast_ref::<SeatRefusal>().is_none());
+        let failure = error.downcast_ref::<ExecFailure>().context("retain original ExecFailure")?;
+        assert_eq!(serde_json::to_value(&failure.result)?, expected);
+        Ok(())
     }
 }

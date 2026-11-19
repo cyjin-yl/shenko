@@ -1,0 +1,205 @@
+name: Inspect fixed model 5 evidence
+
+on:
+  push:
+    branches: [diagnostics/model5-artifact-43916477826-20261116]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: model5-artifact-43916477826-readonly
+  cancel-in-progress: false
+
+jobs:
+  inspect-original-evidence:
+    if: github.repository == 'cyjin-yl/shenko' && github.ref == 'refs/heads/diagnostics/model5-artifact-43916477826-20261116'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash --noprofile --norc -e -o pipefail {0}
+    env:
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Check out only the diagnostic candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Compile the standard-library inspector before reading evidence
+        env:
+          PYTHONPYCACHEPREFIX: ${{ runner.temp }}/model5-inspector-pycache
+        run: |
+          mkdir -p .ci/evidence/model5-inspection
+          python3 --version > .ci/evidence/model5-inspection/python-version.txt 2>&1
+          git rev-parse HEAD > .ci/evidence/model5-inspection/diagnostic-source.txt
+          python3 -m py_compile scripts/inspect_model5_artifact.py > .ci/evidence/model5-inspection/py-compile.log 2>&1
+      - name: Verify and inspect the one historical ZIP without execution
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/inspect_model5_artifact.py --output .ci/evidence/model5-inspection \
+            > .ci/evidence/model5-inspection/inspector.stdout \
+            2> .ci/evidence/model5-inspection/inspector.stderr
+      - name: Show bounded derived observations, including a diagnostic failure
+        if: always()
+        run: |
+          if test -f .ci/evidence/model5-inspection/inspector.stdout; then
+            cat .ci/evidence/model5-inspection/inspector.stdout
+          fi
+          if test -f .ci/evidence/model5-inspection/inspection-state.json; then
+            cat .ci/evidence/model5-inspection/inspection-state.json
+          fi
+      - name: Retain original ZIP, all member hashes and complete derivatives
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: model5-readonly-inspection-${{ github.sha }}
+          path: .ci/evidence/model5-inspection/
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 90
+
+# This branch-only job neither runs Cargo nor starts a model, CLI or browser.
+# Diagnostic success preserves the original run's failure; it is not a product gate.
+
+  recover-fixed-source:
+    if: github.repository == 'cyjin-yl/shenko' && github.ref == 'refs/heads/diagnostics/model5-artifact-43916477826-20261116'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash --noprofile --norc -e -o pipefail {0}
+    steps:
+      - name: Prepare a separate source recovery evidence directory
+        run: mkdir -p .ci/evidence/source-recovery
+      - name: Check out the exact source with an explicit shallow boundary
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: 7905e8413b96015d96ea301bd1f3b6937dcfff90
+          path: recovered-source
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - name: Verify and archive source without running product code
+        env:
+          RECOVERY_COMMIT: 7905e8413b96015d96ea301bd1f3b6937dcfff90
+          RECOVERY_TREE: 241909742fd73225b08b88fea967197a74f65334
+        run: |
+          recovery_output="$GITHUB_WORKSPACE/.ci/evidence/source-recovery"
+          git --version > "$recovery_output/git-version.txt"
+          git -C recovered-source rev-parse HEAD > "$recovery_output/source.commit"
+          git -C recovered-source rev-parse 'HEAD^{tree}' > "$recovery_output/source.tree"
+          test "$(cat "$recovery_output/source.commit")" = "$RECOVERY_COMMIT"
+          test "$(cat "$recovery_output/source.tree")" = "$RECOVERY_TREE"
+          git -C recovered-source cat-file commit HEAD > "$recovery_output/source.commit-object.txt"
+          git -C recovered-source ls-tree -r -z HEAD > "$recovery_output/source.tree.entries.z"
+          git -C recovered-source archive --format=tar.gz --prefix=shenko/ HEAD > "$recovery_output/shenko-7905e841.source.tar.gz"
+          git -C recovered-source rev-parse --is-shallow-repository > "$recovery_output/source.is-shallow"
+          test "$(cat "$recovery_output/source.is-shallow")" = true
+          cp "$(git -C recovered-source rev-parse --path-format=absolute --git-path shallow)" "$recovery_output/source.shallow"
+          test "$(cat "$recovery_output/source.shallow")" = "$RECOVERY_COMMIT"
+          git -C recovered-source rev-list --objects --no-object-names HEAD > "$recovery_output/source.object-ids"
+          git -C recovered-source pack-objects --stdout < "$recovery_output/source.object-ids" > "$recovery_output/shenko-7905e841.source-objects.pack" 2> "$recovery_output/pack-create.log"
+          git init --bare "$RUNNER_TEMP/shenko-source-verification.git" > "$recovery_output/pack-init.log" 2>&1
+          cp "$recovery_output/source.shallow" "$RUNNER_TEMP/shenko-source-verification.git/shallow"
+          git -C "$RUNNER_TEMP/shenko-source-verification.git" index-pack --strict --stdin < "$recovery_output/shenko-7905e841.source-objects.pack" > "$recovery_output/pack-import.log" 2>&1
+          git -C "$RUNNER_TEMP/shenko-source-verification.git" update-ref refs/heads/recovered "$RECOVERY_COMMIT"
+          git -C "$RUNNER_TEMP/shenko-source-verification.git" fsck --full --no-reflogs --strict "$RECOVERY_COMMIT" > "$recovery_output/pack-fsck.log" 2>&1
+          git -C "$RUNNER_TEMP/shenko-source-verification.git" rev-parse refs/heads/recovered > "$recovery_output/imported.commit"
+          git -C "$RUNNER_TEMP/shenko-source-verification.git" rev-parse 'refs/heads/recovered^{tree}' > "$recovery_output/imported.tree"
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import tarfile
+
+          output = pathlib.Path(".ci/evidence/source-recovery")
+          expected = {}
+          for record in (output / "source.tree.entries.z").read_bytes().split(b"\0"):
+              if not record:
+                  continue
+              fields, name = record.split(b"\t", 1)
+              mode, kind, digest = fields.split()
+              if kind != b"blob" or mode not in (b"100644", b"100755", b"120000"):
+                  raise ValueError("unsupported tracked source entry; recovery is incomplete")
+              expected[name.decode("utf-8", "surrogateescape")] = (mode, digest.decode("ascii"))
+          observed = set()
+          with tarfile.open(output / "shenko-7905e841.source.tar.gz", "r:gz") as archive:
+              for member in archive:
+                  if member.isdir() and member.name.rstrip("/") == "shenko":
+                      continue
+                  if not member.name.startswith("shenko/"):
+                      raise ValueError("unexpected archive prefix")
+                  relative = member.name[len("shenko/"):]
+                  if member.isdir():
+                      if relative and not any(name.startswith(relative.rstrip("/") + "/") for name in expected):
+                          raise ValueError("unexpected archive directory")
+                      continue
+                  if relative not in expected or relative in observed:
+                      raise ValueError("unexpected or duplicate source archive member")
+                  mode, wanted_digest = expected[relative]
+                  if mode == b"120000":
+                      if not member.issym():
+                          raise ValueError("source symlink type changed")
+                      contents = member.linkname.encode("utf-8", "surrogateescape")
+                  else:
+                      if not member.isfile():
+                          raise ValueError("source file type changed")
+                      if bool(member.mode & 0o111) != (mode == b"100755"):
+                          raise ValueError("source executable mode changed")
+                      with archive.extractfile(member) as stream:
+                          contents = stream.read()
+                  actual_digest = hashlib.sha1(b"blob " + str(len(contents)).encode("ascii") + b"\0" + contents).hexdigest()
+                  if actual_digest != wanted_digest:
+                      raise ValueError("source archive differs from its Git tree blob")
+                  observed.add(relative)
+          if observed != set(expected):
+              raise ValueError("source archive omitted tracked files")
+          if (output / "imported.commit").read_text().strip() != os.environ["RECOVERY_COMMIT"]:
+              raise ValueError("imported source commit changed")
+          if (output / "imported.tree").read_text().strip() != os.environ["RECOVERY_TREE"]:
+              raise ValueError("imported source tree changed")
+          shallow = (output / "source.shallow").read_text().splitlines()
+          if shallow != [os.environ["RECOVERY_COMMIT"]]:
+              raise ValueError("unexpected shallow source boundary")
+          source_header = (output / "source.commit-object.txt").read_text().split("\n\n", 1)[0]
+          parents = [line[len("parent "):] for line in source_header.splitlines() if line.startswith("parent ")]
+          files = []
+          for path in sorted(output.iterdir()):
+              if not path.is_file():
+                  raise ValueError("unexpected source recovery directory entry")
+              digest = hashlib.sha256()
+              with path.open("rb") as stream:
+                  for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              files.append({"path": path.name, "bytes": path.stat().st_size, "sha256": digest.hexdigest()})
+          manifest = {
+              "diagnostic_source": os.environ["GITHUB_SHA"],
+              "source_commit": os.environ["RECOVERY_COMMIT"],
+              "source_tree": os.environ["RECOVERY_TREE"],
+              "complete_source_archive_verified": True,
+              "verified_git_blobs": len(observed),
+              "source_objects_verified_in_empty_repository": True,
+              "history_complete": False,
+              "shallow_boundary": shallow,
+              "original_parent_commits": parents,
+              "object_scope": "Exact HEAD commit, trees and blobs through the recorded shallow boundary; no checkout config or credentials",
+              "product_code_executed": False,
+              "files": files,
+          }
+          (output / "source-recovery-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          print(json.dumps(manifest, indent=2))
+          PY
+      - name: Retain source, original Git objects and boundary evidence on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: shenko-fixed-source-7905e841-${{ github.sha }}
+          path: .ci/evidence/source-recovery/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

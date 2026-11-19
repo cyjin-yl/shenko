@@ -1,0 +1,665 @@
+{
+  "source": "native-e1/020-native-e1-originals.zip",
+  "bytes": 780804,
+  "sha256": "3ef6d9d1f1ff202457a2a976b29684e761f95d4f326fc3b3a33321b5a3f72c41",
+  "members": 440,
+  "crc_ok": true,
+  "original_inventory_entries_verified": 438,
+  "original_text_hashes_verified": 1247,
+  "blake3_recomputed_locally": false,
+  "blake3_limit": "The local Python environment has no blake3 module; SHA-256/length/CRC and original text digests are independently checked. This is not a new product execution.",
+  "original_manifest": {
+    "schema_version": 1,
+    "source_revision": "1c01c95a4915856312746b5c7ef404c1d7a84cec",
+    "scope": "native E1 fixture selected original rows and typed CAS closure; read-only export",
+    "not_a_full_sqlite_backup": true,
+    "tables_selected": [
+      "subject_genesis",
+      "subject_branch_heads",
+      "subject_steps",
+      "tasks",
+      "task_results",
+      "operations",
+      "attempts",
+      "evidence_receipts",
+      "evidence_receipt_conflicts",
+      "evidence_key_conflicts",
+      "reconciliation_cases",
+      "subject_intents",
+      "inbox_events",
+      "session_events",
+      "subject_event_dispositions",
+      "control_prepared_transitions",
+      "control_materializations",
+      "native_evidence_materializations",
+      "native_evidence_seal_debts",
+      "native_evidence_deliveries",
+      "context_windows",
+      "context_window_scopes",
+      "cognition_origins",
+      "commit_log"
+    ],
+    "namespace_allowlist": [
+      "commit-authority",
+      "input_plans",
+      "model_outcomes",
+      "native-e1-fixture",
+      "test"
+    ],
+    "excluded_by_design": [
+      "all Node databases",
+      "owner_admin_tokens and other unselected tables",
+      "SSH keys and configuration",
+      "credential-bearing fields or non-allowlisted CAS namespaces"
+    ],
+    "stores": {
+      "source": {
+        "retained_tables": [
+          "subject_genesis",
+          "subject_branch_heads",
+          "subject_steps",
+          "tasks",
+          "task_results",
+          "operations",
+          "attempts",
+          "evidence_receipts",
+          "evidence_receipt_conflicts",
+          "reconciliation_cases",
+          "subject_intents",
+          "inbox_events",
+          "session_events",
+          "subject_event_dispositions",
+          "control_prepared_transitions",
+          "control_materializations",
+          "native_evidence_materializations",
+          "native_evidence_seal_debts",
+          "native_evidence_deliveries",
+          "context_windows",
+          "context_window_scopes",
+          "cognition_origins",
+          "commit_log"
+        ],
+        "retained_objects": 140,
+        "missing_reference_count": 1,
+        "excluded_object_count": 1,
+        "excluded_row_count": 0
+      },
+      "receiver": {
+        "retained_tables": [
+          "subject_genesis",
+          "subject_branch_heads",
+          "subject_steps",
+          "tasks",
+          "task_results",
+          "operations",
+          "attempts",
+          "evidence_receipts",
+          "evidence_receipt_conflicts",
+          "reconciliation_cases",
+          "subject_intents",
+          "inbox_events",
+          "session_events",
+          "subject_event_dispositions",
+          "control_prepared_transitions",
+          "control_materializations",
+          "native_evidence_materializations",
+          "native_evidence_seal_debts",
+          "native_evidence_deliveries",
+          "context_windows",
+          "context_window_scopes",
+          "cognition_origins",
+          "commit_log"
+        ],
+        "retained_objects": 72,
+        "missing_reference_count": 0,
+        "excluded_object_count": 1,
+        "excluded_row_count": 0
+      },
+      "parked": {
+        "retained_tables": [
+          "subject_genesis",
+          "subject_branch_heads",
+          "subject_steps",
+          "tasks",
+          "task_results",
+          "operations",
+          "attempts",
+          "evidence_receipts",
+          "evidence_receipt_conflicts",
+          "reconciliation_cases",
+          "subject_intents",
+          "inbox_events",
+          "session_events",
+          "subject_event_dispositions",
+          "control_prepared_transitions",
+          "control_materializations",
+          "native_evidence_materializations",
+          "native_evidence_seal_debts",
+          "native_evidence_deliveries",
+          "context_windows",
+          "context_window_scopes",
+          "cognition_origins",
+          "commit_log"
+        ],
+        "retained_objects": 68,
+        "missing_reference_count": 0,
+        "excluded_object_count": 1,
+        "excluded_row_count": 0
+      },
+      "causal": {
+        "retained_tables": [
+          "subject_genesis",
+          "subject_branch_heads",
+          "subject_steps",
+          "tasks",
+          "task_results",
+          "operations",
+          "attempts",
+          "evidence_receipts",
+          "evidence_receipt_conflicts",
+          "reconciliation_cases",
+          "subject_intents",
+          "inbox_events",
+          "session_events",
+          "subject_event_dispositions",
+          "control_prepared_transitions",
+          "control_materializations",
+          "native_evidence_materializations",
+          "native_evidence_seal_debts",
+          "native_evidence_deliveries",
+          "context_windows",
+          "context_window_scopes",
+          "cognition_origins",
+          "commit_log"
+        ],
+        "retained_objects": 72,
+        "missing_reference_count": 0,
+        "excluded_object_count": 1,
+        "excluded_row_count": 0
+      },
+      "diverged": {
+        "retained_tables": [
+          "subject_genesis",
+          "subject_branch_heads",
+          "subject_steps",
+          "tasks",
+          "task_results",
+          "operations",
+          "attempts",
+          "evidence_receipts",
+          "evidence_receipt_conflicts",
+          "reconciliation_cases",
+          "subject_intents",
+          "inbox_events",
+          "session_events",
+          "subject_event_dispositions",
+          "control_prepared_transitions",
+          "control_materializations",
+          "native_evidence_materializations",
+          "native_evidence_seal_debts",
+          "native_evidence_deliveries",
+          "context_windows",
+          "context_window_scopes",
+          "cognition_origins",
+          "commit_log"
+        ],
+        "retained_objects": 74,
+        "missing_reference_count": 0,
+        "excluded_object_count": 1,
+        "excluded_row_count": 0
+      }
+    },
+    "errors": []
+  },
+  "physical_effects_hex": "6566666563740a6566666563740a",
+  "physical_effect_lines": 2,
+  "stores": {
+    "source": {
+      "scope": "selected original row values from one read transaction; not a SQLite backup",
+      "row_counts": {
+        "subject_genesis": 1,
+        "subject_branch_heads": 1,
+        "subject_steps": 3,
+        "tasks": 4,
+        "task_results": 0,
+        "operations": 3,
+        "attempts": 3,
+        "evidence_receipts": 5,
+        "evidence_receipt_conflicts": 0,
+        "reconciliation_cases": 3,
+        "subject_intents": 3,
+        "inbox_events": 9,
+        "session_events": 5,
+        "subject_event_dispositions": 2,
+        "control_prepared_transitions": 8,
+        "control_materializations": 8,
+        "native_evidence_materializations": 3,
+        "native_evidence_seal_debts": 1,
+        "native_evidence_deliveries": 2,
+        "context_windows": 2,
+        "context_window_scopes": 1,
+        "cognition_origins": 0,
+        "commit_log": 34
+      },
+      "branch_head_original_data": [
+        {
+          "agent_id": "fe4064f2-2ced-42cf-804e-e5e110ef1c35",
+          "branch_id": "2c59e406-244f-490b-8ee8-6f5e1fa580ea",
+          "subject_root_task_id": "eee062fd-39c0-4f39-8ad0-601c08285332",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "genesis_id": "341191c8-8c42-434e-a2d7-2a3d45666997"
+          },
+          "committed_step_no": 2,
+          "committed_step_id": "759aa8d0-988e-421b-81b8-dbd426fc8203",
+          "committed_at": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 24
+          },
+          "next_step_id": "04978289-6882-4f6e-b3de-90f029a0e404",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 3
+        }
+      ],
+      "reconciliation_original_data": [
+        {
+          "case_id": "4fd69ad0-13ba-4519-90dd-b383b886003e",
+          "operation_id": "7b4ef500-9860-c761-6901-03d83ad77197",
+          "supervisor_task_id": "380ab3e1-a4a9-4d1f-a8de-08eb97f8aec9",
+          "reason": "external_effect_unknown",
+          "state": "acknowledged_unknown",
+          "evidence_refs": [
+            "7771c8c3-ff52-4e93-8549-e90e0d5cbb15"
+          ],
+          "next_action_ref": null,
+          "decision_ref": {
+            "digest": "blake3:600679b87886567107c36bb02fd8c67e6460144b47e10b86f07ca7b1222e0c2d",
+            "bytes": 2216,
+            "media_type": "application/json",
+            "store_namespace": "test",
+            "locator": "file:///tmp/shenko-native-e1-c38a1482-fced-462b-b768-c7a3cc5aad83/private/source/cas/60/06/600679b87886567107c36bb02fd8c67e6460144b47e10b86f07ca7b1222e0c2d",
+            "codec": {
+              "name": "StepDecision",
+              "major": 9,
+              "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+            }
+          },
+          "created_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 20
+          },
+          "updated_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 24
+          }
+        },
+        {
+          "case_id": "dcd72941-f8a1-4da6-a318-18851216999e",
+          "operation_id": "7b4ef500-9860-c761-6901-03d83ad77197",
+          "supervisor_task_id": "380ab3e1-a4a9-4d1f-a8de-08eb97f8aec9",
+          "reason": "definite_evidence_after_unknown",
+          "state": "resolved",
+          "evidence_refs": [
+            "2def90a3-01f5-4e96-a13e-210c44f73405"
+          ],
+          "next_action_ref": null,
+          "decision_ref": null,
+          "created_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 27
+          },
+          "updated_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 27
+          }
+        },
+        {
+          "case_id": "5cf2c89b-56c3-4aca-a1e2-c6aff7e619ca",
+          "operation_id": "0733b277-242a-5222-c3a0-28046c4bd979",
+          "supervisor_task_id": "eae52249-4704-4022-bf08-5eaf7f0c3646",
+          "reason": "external_effect_unknown",
+          "state": "open",
+          "evidence_refs": [
+            "1d92f4ac-38fb-40e0-b1c0-7d596d8eb72d"
+          ],
+          "next_action_ref": null,
+          "decision_ref": null,
+          "created_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 33
+          },
+          "updated_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 33
+          }
+        }
+      ],
+      "seal_debt_original_data": [
+        {
+          "schema_version": 1,
+          "receipt_id": "1d92f4ac-38fb-40e0-b1c0-7d596d8eb72d",
+          "operation_id": "0733b277-242a-5222-c3a0-28046c4bd979",
+          "attempt_id": "8daa143a-076f-47b8-a498-2696f4cdd861",
+          "received_commit": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 33
+          },
+          "reason": "not found: cas read blake3:47de114dad170f21b3bb287d65b624dd604da82f273c1bd95844e0223366c1f1: No such file or directory (os error 2)"
+        }
+      ],
+      "missing_references": [
+        {
+          "reference": {
+            "bytes": 61180,
+            "codec": {
+              "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+              "major": 2,
+              "name": "store-native-arm-transition"
+            },
+            "digest": "blake3:47de114dad170f21b3bb287d65b624dd604da82f273c1bd95844e0223366c1f1",
+            "locator": "file:///tmp/shenko-native-e1-c38a1482-fced-462b-b768-c7a3cc5aad83/private/source/cas/47/de/47de114dad170f21b3bb287d65b624dd604da82f273c1bd95844e0223366c1f1",
+            "media_type": "application/json",
+            "store_namespace": "commit-authority"
+          },
+          "via": "inbox_events/9/data/payload/transition_ref",
+          "missing": "referenced original CAS bytes absent; no replacement sealed"
+        }
+      ],
+      "excluded_digest_count": 1,
+      "untyped_digest_count": 86
+    },
+    "receiver": {
+      "scope": "selected original row values from one read transaction; not a SQLite backup",
+      "row_counts": {
+        "subject_genesis": 1,
+        "subject_branch_heads": 1,
+        "subject_steps": 2,
+        "tasks": 4,
+        "task_results": 0,
+        "operations": 2,
+        "attempts": 2,
+        "evidence_receipts": 3,
+        "evidence_receipt_conflicts": 0,
+        "reconciliation_cases": 1,
+        "subject_intents": 3,
+        "inbox_events": 6,
+        "session_events": 4,
+        "subject_event_dispositions": 1,
+        "control_prepared_transitions": 0,
+        "control_materializations": 5,
+        "native_evidence_materializations": 3,
+        "native_evidence_seal_debts": 0,
+        "native_evidence_deliveries": 3,
+        "context_windows": 2,
+        "context_window_scopes": 1,
+        "cognition_origins": 1,
+        "commit_log": 15
+      },
+      "branch_head_original_data": [
+        {
+          "agent_id": "fe4064f2-2ced-42cf-804e-e5e110ef1c35",
+          "branch_id": "2c59e406-244f-490b-8ee8-6f5e1fa580ea",
+          "subject_root_task_id": "eee062fd-39c0-4f39-8ad0-601c08285332",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "genesis_id": "341191c8-8c42-434e-a2d7-2a3d45666997"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "48558278-fd11-44c0-9cd5-a8931bd58b9b",
+          "committed_at": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 9
+          },
+          "next_step_id": "759aa8d0-988e-421b-81b8-dbd426fc8203",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 2
+        }
+      ],
+      "reconciliation_original_data": [
+        {
+          "case_id": "75073576-6e59-4438-ba66-47746a160db3",
+          "operation_id": "7b4ef500-9860-c761-6901-03d83ad77197",
+          "supervisor_task_id": "380ab3e1-a4a9-4d1f-a8de-08eb97f8aec9",
+          "reason": "external_effect_unknown",
+          "state": "resolved",
+          "evidence_refs": [
+            "7771c8c3-ff52-4e93-8549-e90e0d5cbb15",
+            "2def90a3-01f5-4e96-a13e-210c44f73405"
+          ],
+          "next_action_ref": null,
+          "decision_ref": null,
+          "created_commit": {
+            "ledger_id": "b4223a19-4024-48b0-a190-578fea50f0df",
+            "seq": 13
+          },
+          "updated_commit": {
+            "ledger_id": "b4223a19-4024-48b0-a190-578fea50f0df",
+            "seq": 14
+          }
+        }
+      ],
+      "seal_debt_original_data": [],
+      "missing_references": [],
+      "excluded_digest_count": 1,
+      "untyped_digest_count": 86
+    },
+    "parked": {
+      "scope": "selected original row values from one read transaction; not a SQLite backup",
+      "row_counts": {
+        "subject_genesis": 1,
+        "subject_branch_heads": 1,
+        "subject_steps": 2,
+        "tasks": 4,
+        "task_results": 0,
+        "operations": 2,
+        "attempts": 2,
+        "evidence_receipts": 0,
+        "evidence_receipt_conflicts": 0,
+        "reconciliation_cases": 0,
+        "subject_intents": 3,
+        "inbox_events": 6,
+        "session_events": 4,
+        "subject_event_dispositions": 1,
+        "control_prepared_transitions": 0,
+        "control_materializations": 0,
+        "native_evidence_materializations": 0,
+        "native_evidence_seal_debts": 0,
+        "native_evidence_deliveries": 1,
+        "context_windows": 2,
+        "context_window_scopes": 1,
+        "cognition_origins": 1,
+        "commit_log": 3
+      },
+      "branch_head_original_data": [
+        {
+          "agent_id": "fe4064f2-2ced-42cf-804e-e5e110ef1c35",
+          "branch_id": "2c59e406-244f-490b-8ee8-6f5e1fa580ea",
+          "subject_root_task_id": "eee062fd-39c0-4f39-8ad0-601c08285332",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "genesis_id": "341191c8-8c42-434e-a2d7-2a3d45666997"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "48558278-fd11-44c0-9cd5-a8931bd58b9b",
+          "committed_at": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 9
+          },
+          "next_step_id": "759aa8d0-988e-421b-81b8-dbd426fc8203",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 2
+        }
+      ],
+      "reconciliation_original_data": [],
+      "seal_debt_original_data": [],
+      "missing_references": [],
+      "excluded_digest_count": 1,
+      "untyped_digest_count": 86
+    },
+    "causal": {
+      "scope": "selected original row values from one read transaction; not a SQLite backup",
+      "row_counts": {
+        "subject_genesis": 1,
+        "subject_branch_heads": 1,
+        "subject_steps": 2,
+        "tasks": 4,
+        "task_results": 0,
+        "operations": 2,
+        "attempts": 2,
+        "evidence_receipts": 3,
+        "evidence_receipt_conflicts": 0,
+        "reconciliation_cases": 1,
+        "subject_intents": 3,
+        "inbox_events": 6,
+        "session_events": 4,
+        "subject_event_dispositions": 1,
+        "control_prepared_transitions": 0,
+        "control_materializations": 5,
+        "native_evidence_materializations": 3,
+        "native_evidence_seal_debts": 0,
+        "native_evidence_deliveries": 3,
+        "context_windows": 2,
+        "context_window_scopes": 1,
+        "cognition_origins": 1,
+        "commit_log": 14
+      },
+      "branch_head_original_data": [
+        {
+          "agent_id": "fe4064f2-2ced-42cf-804e-e5e110ef1c35",
+          "branch_id": "2c59e406-244f-490b-8ee8-6f5e1fa580ea",
+          "subject_root_task_id": "eee062fd-39c0-4f39-8ad0-601c08285332",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "genesis_id": "341191c8-8c42-434e-a2d7-2a3d45666997"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "48558278-fd11-44c0-9cd5-a8931bd58b9b",
+          "committed_at": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 9
+          },
+          "next_step_id": "759aa8d0-988e-421b-81b8-dbd426fc8203",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 2
+        }
+      ],
+      "reconciliation_original_data": [
+        {
+          "case_id": "ff3dd544-a521-49ce-8940-5f2983efcae2",
+          "operation_id": "7b4ef500-9860-c761-6901-03d83ad77197",
+          "supervisor_task_id": "380ab3e1-a4a9-4d1f-a8de-08eb97f8aec9",
+          "reason": "external_effect_unknown",
+          "state": "resolved",
+          "evidence_refs": [
+            "7771c8c3-ff52-4e93-8549-e90e0d5cbb15",
+            "2def90a3-01f5-4e96-a13e-210c44f73405"
+          ],
+          "next_action_ref": null,
+          "decision_ref": null,
+          "created_commit": {
+            "ledger_id": "79fee115-50d2-4417-9e16-307fab8b63e8",
+            "seq": 13
+          },
+          "updated_commit": {
+            "ledger_id": "79fee115-50d2-4417-9e16-307fab8b63e8",
+            "seq": 14
+          }
+        }
+      ],
+      "seal_debt_original_data": [],
+      "missing_references": [],
+      "excluded_digest_count": 1,
+      "untyped_digest_count": 86
+    },
+    "diverged": {
+      "scope": "selected original row values from one read transaction; not a SQLite backup",
+      "row_counts": {
+        "subject_genesis": 1,
+        "subject_branch_heads": 1,
+        "subject_steps": 2,
+        "tasks": 4,
+        "task_results": 0,
+        "operations": 2,
+        "attempts": 2,
+        "evidence_receipts": 3,
+        "evidence_receipt_conflicts": 0,
+        "reconciliation_cases": 1,
+        "subject_intents": 3,
+        "inbox_events": 6,
+        "session_events": 4,
+        "subject_event_dispositions": 1,
+        "control_prepared_transitions": 0,
+        "control_materializations": 5,
+        "native_evidence_materializations": 3,
+        "native_evidence_seal_debts": 0,
+        "native_evidence_deliveries": 3,
+        "context_windows": 2,
+        "context_window_scopes": 1,
+        "cognition_origins": 1,
+        "commit_log": 14
+      },
+      "branch_head_original_data": [
+        {
+          "agent_id": "fe4064f2-2ced-42cf-804e-e5e110ef1c35",
+          "branch_id": "2c59e406-244f-490b-8ee8-6f5e1fa580ea",
+          "subject_root_task_id": "eee062fd-39c0-4f39-8ad0-601c08285332",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "genesis_id": "341191c8-8c42-434e-a2d7-2a3d45666997"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "48558278-fd11-44c0-9cd5-a8931bd58b9b",
+          "committed_at": {
+            "ledger_id": "be0fabd2-0b96-4e5d-a6ee-e9742c756097",
+            "seq": 9
+          },
+          "next_step_id": "759aa8d0-988e-421b-81b8-dbd426fc8203",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 2
+        }
+      ],
+      "reconciliation_original_data": [
+        {
+          "case_id": "dd461f1f-d269-4478-a1b4-0672467cb093",
+          "operation_id": "7b4ef500-9860-c761-6901-03d83ad77197",
+          "supervisor_task_id": "380ab3e1-a4a9-4d1f-a8de-08eb97f8aec9",
+          "reason": "external_effect_unknown",
+          "state": "resolved",
+          "evidence_refs": [
+            "7771c8c3-ff52-4e93-8549-e90e0d5cbb15",
+            "35e6486e-f2f0-4a9c-8ea1-1ae63c739780"
+          ],
+          "next_action_ref": null,
+          "decision_ref": null,
+          "created_commit": {
+            "ledger_id": "fdfcc306-a3f6-4136-a35d-0b7c1c1f3e4a",
+            "seq": 11
+          },
+          "updated_commit": {
+            "ledger_id": "fdfcc306-a3f6-4136-a35d-0b7c1c1f3e4a",
+            "seq": 12
+          }
+        }
+      ],
+      "seal_debt_original_data": [],
+      "missing_references": [],
+      "excluded_digest_count": 1,
+      "untyped_digest_count": 86
+    }
+  }
+}

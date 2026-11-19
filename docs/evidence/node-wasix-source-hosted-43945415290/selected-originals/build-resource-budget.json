@@ -1,0 +1,12 @@
+{
+  "rss_monitor_bytes": 10737418240,
+  "available_memory_reserve_bytes": 3860604928,
+  "free_disk_reserve_bytes": 8589934592,
+  "address_space_hard_bytes": 25769803776,
+  "cpu_soft_seconds": 7200,
+  "file_hard_bytes": 2147483648,
+  "monitor_interval_seconds": 0.2,
+  "output_monitor_bytes": 134217728,
+  "basis": "actual visible headroom; reserve max(2 GiB, one quarter); sampled group RSS remainder capped at 10 GiB; this is an experimental budget, not a measured compiler requirement",
+  "enforcement": "per-process hard AS/CPU/file limits, sampled group RSS/headroom/disk/output guards; one make job and one Binaryen worker; total build-stage wall budget 7200 seconds"
+}

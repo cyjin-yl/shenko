@@ -1,0 +1,18 @@
+{
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "/workspace/scratch/faaa3ccca531/model5-43916477826/independent-review/review_model5.py",
+    "--zip",
+    "/workspace/scratch/faaa3ccca531/model5-43916477826/original.zip",
+    "--output",
+    "/workspace/scratch/faaa3ccca531/model5-43916477826/independent-review/review.json"
+  ],
+  "cwd": "/workspace/scratch/faaa3ccca531",
+  "started_unix_seconds": 1794854176.5904887,
+  "elapsed_seconds": 0.21233534812927246,
+  "exit_code": 0,
+  "script_sha256": "d38598fbd80a8d7a1976f36947b85eddd02b7cc08149301d57dc7e2b7ae019ca",
+  "stdout_sha256": "51d24ac5bf456d447c133a79d19d1240d3ba6a61afbc68b3f2b93529c098f807",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "scope": "offline original-evidence analysis; no model, Cargo, live Store or CAS write"
+}

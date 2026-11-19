@@ -1,0 +1,51 @@
+{
+  "source": "7bffa671ba11f6877f9f309b30d895619466cfb9",
+  "tree": "b38b4b492583f2f4525045c3d0e88f3b9877dd6a",
+  "parent": "0260d28dba032b7ab1c5bdecbeb271b947a1097d",
+  "git_diff_check_exit": 0,
+  "worktree_status": "",
+  "changed_files": [
+    {
+      "path": "crates/shenko-store/src/retained_objects.rs",
+      "bytes": 17231,
+      "sha256": "776adbe1b8bf5b5f0e771dd16938e7cc803c0b9660c253bebd60bd2f86f9d83a"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+      "bytes": 7991,
+      "sha256": "a1907ea99aa227ef0ec3944d5ce046d45e017dea66e91dc743d541a67915391f"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/carriers.rs",
+      "bytes": 5107,
+      "sha256": "1dc9de7e9c84cba667535509c61c8aaed68f2ac49df65de08d028c7b638c1269"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/closure.rs",
+      "bytes": 11840,
+      "sha256": "2407bb69b13fc813d45658d119014c39c4b6999ddee365ad3952ef7907f369eb"
+    },
+    {
+      "path": "docs/development/store-retained-objects.md",
+      "bytes": 10132,
+      "sha256": "a002ebe48d6dcc6300de0eb2ff195248f8e85a362c8f690a39c39ebb8bd88255"
+    }
+  ],
+  "fixture_blobs_unchanged": {
+    "bin/shenko/tests/native_evidence_delivery.rs": true,
+    "crates/shenko-update/src/handoff_tests.rs": true,
+    "crates/shenko-store/tests/retained_objects.rs": true
+  },
+  "protected_spec_files_changed": [],
+  "new_scenarios": 0,
+  "three_retention_observations_unchanged": true,
+  "checks_not_executed": [
+    "Rust compiler",
+    "Cargo",
+    "Clippy",
+    "rustfmt",
+    "documentation parser",
+    "runtime journeys"
+  ],
+  "scope": "Static diff/source binding only; not a compilation or behavioral result."
+}

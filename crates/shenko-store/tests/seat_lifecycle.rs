@@ -34,6 +34,182 @@ fn protocol_code(err: &anyhow::Error) -> Option<(&str, &serde_json::Value)> {
     }
 }
 
+fn answer_candidate() -> (
+    std::path::PathBuf,
+    Store,
+    shenko_store::SeatDecisionExpectation,
+    shenko_store::SeatAnswerDecisionRecord,
+) {
+    use shenko_store::{
+        SeatAnswerDecisionRecord, SeatAnswerDecisionState, SeatAnswerFact, SeatConfidenceFact,
+        SeatDecisionExpectation, SeatQuestionFact, SeatQuestionRecord, SeatQuestionState,
+    };
+    use shenko_types::{
+        commit::CommitRef, ids::{LedgerSeq, RecordRevision, TaskRevision}, store::WriteBatch,
+        task::{DispatchEligibility, ImplementationRef, TaskOwner, TaskRecord, TaskState},
+    };
+
+    let dir = std::env::temp_dir().join(format!("shenko-seat-answer-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+    let commit = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+    let input = store.cas.seal_object(b"answer task", "text/plain", "test", "raw", 1)
+        .unwrap().object;
+    let agent = EntityId::new();
+    let task = TaskRecord {
+        record_schema_version: 1, task_id: EntityId::new(), task_revision: TaskRevision(0),
+        record_revision: RecordRevision(0), agent_id: agent, conversation_id: agent,
+        owner: TaskOwner::Conversation { id: agent }, background: false,
+        kind: "seat.answer.test".into(), definition_version: 1,
+        implementation_ref: ImplementationRef {
+            plugin_id: agent, artifact_digest: input.digest.clone(), registry_revision: 1,
+        },
+        input_ref: input, state: TaskState::Pending { checkpoint_ref: None },
+        abort_request: None, memos: Default::default(), residual_case_ids: vec![],
+        created_by_step_id: None, dispatch_eligibility: DispatchEligibility::Ready,
+        no_progress_crashes: 0, first_run_at: None, terminal_at: None,
+        created_commit: commit, updated_commit: commit,
+    };
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(task.clone());
+    store.commit(batch).unwrap();
+    let seat = store.register_seat(EntityId::new(), task.task_id, "omp_rpc", "1",
+        SeatLocation::OmpRpc { host: "local".into(), remote_session_id: "answer".into() })
+        .unwrap();
+    let lease = store.acquire_seat_lease(SeatLeaseRequest {
+        lease_id: EntityId::new(), seat_id: seat.seat_id, holder_task_id: task.task_id,
+        lease_epoch: 1, fence_capability: "omp.ui_response".into(),
+    }).unwrap();
+    let question = store.open_seat_question(SeatQuestionRecord {
+        schema_version: 2, question_id: EntityId::new(), seat_id: seat.seat_id,
+        task_id: task.task_id, seat_incarnation: seat.incarnation,
+        task_revision: task.task_revision, lease_id: lease.lease_id,
+        lease_epoch: lease.lease_epoch, question_revision: 0,
+        question: SeatQuestionFact {
+            source_kind: "native_protocol".into(), question_kind: "text".into(),
+            native_request_id: Some("request-1".into()), native_tool_use_id: None,
+            native_payload: None, title: None, text: "Which file should change?".into(),
+            options: vec![], selected_option: None,
+            confidence: SeatConfidenceFact { level: "high".into(), basis: "Store fixture".into() },
+            unknown: vec![], observed_screen_revision: 1, expires_at_ms: None,
+            fingerprint: "native-request-1".into(),
+        },
+        state: SeatQuestionState::Open, record_revision: RecordRevision(0),
+        created_commit: commit, updated_commit: commit,
+    }).unwrap();
+    let expected = SeatDecisionExpectation {
+        question_revision: question.question_revision,
+        question_record_revision: question.record_revision,
+        seat_incarnation: seat.incarnation, seat_revision: seat.record_revision,
+        task_revision: task.task_revision, lease_epoch: lease.lease_epoch,
+    };
+    let decision = SeatAnswerDecisionRecord {
+        schema_version: 2, decision_id: EntityId::new(), question_id: question.question_id,
+        seat_id: seat.seat_id, task_id: task.task_id, lease_id: lease.lease_id,
+        lease_epoch: lease.lease_epoch, fence_capability: lease.fence_capability,
+        expected_question_revision: expected.question_revision,
+        expected_question_record_revision: expected.question_record_revision,
+        expected_seat_incarnation: expected.seat_incarnation,
+        expected_seat_revision: expected.seat_revision,
+        expected_task_revision: expected.task_revision,
+        deciding_actor: "Store fixture".into(), delegation_grant_ref: None,
+        authority_revision: None,
+        answer: SeatAnswerFact { option_id: None, text: Some("main.rs".into()), allow: None,
+            reason: "Bounded Store admission journey".into() },
+        exact_effect_input_digest: String::new(), transport: None, confirmation: None,
+        closure_evidence: None, operation_id: None, state: SeatAnswerDecisionState::Committed,
+        record_revision: RecordRevision(0), created_commit: commit, updated_commit: commit,
+    };
+    (dir, store, expected, decision)
+}
+
+#[test]
+fn answer_arm_rechecks_the_committed_scope_after_another_store_handle_changes_it() {
+    use shenko_store::{SeatAnswerDecisionState, SeatQuestionState};
+    use shenko_types::store::WriteBatch;
+
+    // Five windows, using the actual Store admissions and a second connection.
+    // No adapter or external transport is executed by this Store-only journey.
+    for window in ["unchanged", "incarnation", "task", "lease", "contradictory_expectation"] {
+        let (dir, store, expected, mut candidate) = answer_candidate();
+        if window == "contradictory_expectation" {
+            candidate.expected_task_revision = candidate.expected_task_revision.next();
+            let id = candidate.decision_id;
+            let question_id = candidate.question_id;
+            let before = serde_json::to_value(store.seat_question(question_id).unwrap().unwrap()).unwrap();
+            let error = store.commit_seat_answer_decision(&expected, candidate).unwrap_err();
+            assert_eq!(protocol_code(&error).unwrap().0, "seat_decision_binding_mismatch");
+            assert!(store.seat_answer_decision(id).unwrap().is_none());
+            assert_eq!(serde_json::to_value(store.seat_question(question_id).unwrap().unwrap()).unwrap(), before);
+            continue;
+        }
+        let decision = store.commit_seat_answer_decision(&expected, candidate).unwrap();
+        let question = store.seat_question(decision.question_id).unwrap().unwrap();
+        let original_decision = serde_json::to_value(&decision).unwrap();
+        let original_question = serde_json::to_value(&question).unwrap();
+        let contender = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+        let refusal = match window {
+            "incarnation" => {
+                contender.bump_seat_incarnation(decision.seat_id).unwrap();
+                // The old lease remains current: checking only its epoch
+                // would admit the now-stale decision.
+                assert!(contender.seat_lease(decision.lease_id).unwrap().unwrap().is_current());
+                Some("seat_location_changed")
+            }
+            "task" => {
+                let mut task = contender.get_task(decision.task_id).unwrap().unwrap();
+                task.task_revision = task.task_revision.next();
+                task.record_revision = task.record_revision.next();
+                let mut batch = WriteBatch::new();
+                batch.task_upserts.push(task);
+                contender.commit(batch).unwrap();
+                Some("stale_task")
+            }
+            "lease" => {
+                contender.end_seat_lease(decision.lease_id, SeatLeaseEnd::HumanTakeover).unwrap();
+                Some("stale_authority")
+            }
+            "unchanged" => None,
+            _ => unreachable!(),
+        };
+        drop(contender);
+        let operation = EntityId::new();
+        let digest = shenko_types::object::Digest::blake3(b"exact intended answer").to_string();
+        let result = store.arm_seat_answer_decision(
+            decision.decision_id, question.record_revision, digest.clone(), operation,
+        );
+        if let Some(code) = refusal {
+            assert_eq!(protocol_code(&result.unwrap_err()).unwrap().0, code, "{window}");
+            assert_eq!(serde_json::to_value(store.seat_answer_decision(decision.decision_id).unwrap().unwrap()).unwrap(), original_decision);
+            assert_eq!(serde_json::to_value(store.seat_question(question.question_id).unwrap().unwrap()).unwrap(), original_question);
+        } else {
+            let armed = result.unwrap();
+            assert_eq!(armed.state, SeatAnswerDecisionState::Armed);
+            assert_eq!(armed.operation_id, Some(operation));
+            assert_eq!(armed.exact_effect_input_digest, digest);
+            assert_eq!(store.seat_question(question.question_id).unwrap().unwrap().state, SeatQuestionState::Responding);
+        }
+        drop(store);
+        let reopened = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+        let retained = reopened.seat_answer_decision(decision.decision_id).unwrap().unwrap();
+        if let Some(code) = refusal {
+            assert_eq!(serde_json::to_value(&retained).unwrap(), original_decision);
+            let error = reopened.arm_seat_answer_decision(
+                decision.decision_id, question.record_revision, digest, operation,
+            ).unwrap_err();
+            assert_eq!(protocol_code(&error).unwrap().0, code, "{window} after reopen");
+        } else {
+            assert_eq!(retained.state, SeatAnswerDecisionState::Armed);
+            assert_eq!(retained.operation_id, Some(operation));
+            assert_eq!(retained.exact_effect_input_digest, digest);
+            let error = reopened.arm_seat_answer_decision(
+                decision.decision_id, question.record_revision, digest, operation,
+            ).unwrap_err();
+            assert_eq!(protocol_code(&error).unwrap().0, "seat_decision_not_armed");
+        }
+    }
+}
+
 #[test]
 fn displaced_writer_stays_displaced_after_reopen_and_human_takeover() {
     let dir = std::env::temp_dir().join(format!("shenko-seat-{}", EntityId::new()));

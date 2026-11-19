@@ -1,0 +1,8 @@
+tree 39f65e771eb299d2c342d61ceb2dc8528f028276
+parent 32729e9a753ea40bbee67e0231b93c59a29fc8b4
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866663 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794866785 +0000
+
+Distinguish actual SSH session join from fixture observer completion
+
+(cherry picked from commit 4229b45b8ab33426986540a9a83d22a41a0c9948)

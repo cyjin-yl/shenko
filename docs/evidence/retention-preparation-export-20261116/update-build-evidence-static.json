@@ -1,0 +1,35 @@
+{
+  "crates/shenko-update/src/build_tests.rs": {
+    "original_assertions_preserved": 37,
+    "all_original_functions_present": true,
+    "before_sha256": "fa1859efde85be2beafa6bf2c6d45396adb06ae7ec5543c410084fbad21278e0",
+    "after_sha256": "cc6b108f77f2fd4d01beef1bed10fc32d66f94dfceb6fd9a4ce6c5875ff9412a"
+  },
+  "crates/shenko-update/src/handoff_tests.rs": {
+    "original_assertions_preserved": 118,
+    "all_original_functions_present": true,
+    "before_sha256": "c1d74e41011b11c25470220c165d7b63f27a44c047094af23b8d0ecfc42463bf",
+    "after_sha256": "468566c0df2aa202df920a33b72c5f0e5a3832b751b3514103b10c528b15759f"
+  },
+  "crates/shenko-update/src/build.rs": {
+    "production_source_byte_identical": true
+  },
+  "crates/shenko-update/src/handoff.rs": {
+    "production_source_byte_identical": true
+  },
+  "crates/shenko-update/src/smoke.rs": {
+    "production_source_byte_identical": true
+  },
+  "observed_at": "2026-11-16T23:05:46.598727+00:00",
+  "source_base": "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5",
+  "workflow_only_two_evidence_exports": true,
+  "new_behavioral_windows": 0,
+  "local_toolchains": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "runtime_validation": false,
+  "diff_check_exit": 0,
+  "limitation": "Lexical conservation and manual review, not Rust compilation or exporter execution."
+}

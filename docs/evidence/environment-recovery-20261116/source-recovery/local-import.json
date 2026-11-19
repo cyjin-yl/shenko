@@ -1,0 +1,132 @@
+{
+  "restored_at": "2026-11-16T18:34:52Z",
+  "repository": "/workspace/scratch/faaa3ccca531/shenko",
+  "head": "7905e8413b96015d96ea301bd1f3b6937dcfff90",
+  "tree": "241909742fd73225b08b88fea967197a74f65334",
+  "clean": true,
+  "history_complete": false,
+  "source_artifact_id": 14257518420,
+  "source_run": 43929782732,
+  "original_parent_recorded_but_not_available_locally": true,
+  "product_code_executed": false,
+  "logs": [
+    {
+      "args": [
+        "init",
+        "--initial-branch=feat/ship-work-candidate-20261116"
+      ],
+      "exit_code": 0,
+      "stdout": "Initialized empty Git repository in /workspace/scratch/faaa3ccca531/shenko/.git/\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "index-pack",
+        "--strict",
+        "--stdin"
+      ],
+      "exit_code": 0,
+      "stdout": "pack\tf2752ddc17f5e6e57c25646694d9f9e2e3e86519\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "update-ref",
+        "refs/heads/feat/ship-work-candidate-20261116",
+        "7905e8413b96015d96ea301bd1f3b6937dcfff90"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "reset",
+        "--hard",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "stdout": "HEAD is now at 7905e84 docs: retain actual 51a1 CI results and original Rust log\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "config",
+        "user.name",
+        "Shenko continuation agent"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "config",
+        "user.email",
+        "shenko-continuation@users.noreply.github.com"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/cyjin-yl/shenko.git"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "fsck",
+        "--full",
+        "--strict",
+        "--no-reflogs",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "rev-parse",
+        "HEAD"
+      ],
+      "exit_code": 0,
+      "stdout": "7905e8413b96015d96ea301bd1f3b6937dcfff90\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "rev-parse",
+        "HEAD^{tree}"
+      ],
+      "exit_code": 0,
+      "stdout": "241909742fd73225b08b88fea967197a74f65334\n",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "status",
+        "--porcelain=v1"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "args": [
+        "rev-parse",
+        "--is-shallow-repository"
+      ],
+      "exit_code": 0,
+      "stdout": "true\n",
+      "stderr": ""
+    }
+  ]
+}

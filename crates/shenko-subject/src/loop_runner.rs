@@ -6,7 +6,7 @@
 //! of ending the subject; unknown/lost dispatches and refusals still stop the
 //! loop for reconciliation.
 use crate::inbox::Inbox;
-use crate::context_projection::{ContextPreparer, FrozenContextInput, estimate_payload_tokens, prepare_context, wait_for_context_preparer};
+use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
@@ -165,13 +165,30 @@ fn frozen_input(
     // sealed request; it simply carried no case the subject could accept, so
     // an acknowledgement naming a case at 12 is refused (old
     // bytes keep their old meaning).
-    if !matches!(input.schema_version, 12 | 13)
+    if !matches!(input.schema_version, 12..=14)
         || input.step_id != step.step_id
         || input.step_no != step.step_no
     {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
+    }
+    if input.schema_version == 14 {
+        if object.store_namespace != "input_plans" || object.codec.name != "subject_step_input"
+            || object.codec.major != 14
+        {
+            return Err(ShenkoError::conflict("recovery_blocked: schema-14 frozen input codec mismatch"));
+        }
+        input.context.payload_layout.as_ref()
+            .ok_or_else(|| ShenkoError::conflict("recovery_blocked: schema-14 payload layout missing"))?
+            .partitions(&input.payload)?;
+    } else if input.context.payload_layout.is_some() || input.context.correction_observation.is_some() {
+        return Err(ShenkoError::conflict("recovery_blocked: legacy input cannot interpret schema-14 projection metadata"));
+    }
+    if input.context.capabilities.as_ref().is_some_and(|capabilities|
+        input.provider_binding.as_ref() != Some(&capabilities.binding))
+    {
+        return Err(ShenkoError::conflict("recovery_blocked: frozen context capabilities/provider binding mismatch"));
     }
     Ok(input)
 }
@@ -1346,7 +1363,7 @@ fn sealed_previous_projection(
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
     if !matches!(
         input.get("schema_version").and_then(serde_json::Value::as_u64),
-        Some(12) | Some(13)
+        Some(12..=14)
     ) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
@@ -1455,7 +1472,7 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 13,
+            schema_version: 14,
             step_id,
             step_no: seq,
             events: prepared.events,
@@ -1482,7 +1499,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            13,
+            14,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -1983,7 +2000,7 @@ async fn execute_step(
                 "CONTROL_PROTOCOL_INVALID" | "MODEL_RESULT_INCOMPLETE"
             ) =>
         {
-            replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error)?;
+            replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error, cancel).await?;
             return Ok(None);
         }
         Err(error) => return Err(error),
@@ -2004,7 +2021,7 @@ async fn execute_step(
                         "reason": "obligation terminal target was not shown in this step's S0",
                         "obligation_id": change.obligation_id,
                     }));
-                    replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error)?;
+                    replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error, cancel).await?;
                     return Ok(None);
                 }
             }
@@ -2382,14 +2399,15 @@ async fn execute_step(
 
 /// A protocol rejection is conclusive, unlike an unknown provider outcome.
 /// R0 records it and freezes a new correction request before adopting memory.
-fn replace_rejected_output(
+async fn replace_rejected_output(
     state: &mut SubjectLoopState,
     mut input: FrozenStepInput,
     raw_output: &str,
     error: shenko_types::error::ProtocolError,
+    cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<(), ShenkoError> {
     use shenko_types::subject::ControlOutputRejection;
-    let store = &state.store;
+    let store = Arc::clone(&state.store);
     let mut retired = state.step.clone();
     let raw_ref = retired
         .model_result_ref
@@ -2414,8 +2432,30 @@ fn replace_rejected_output(
             .ok_or_else(|| ShenkoError::conflict("rejection missing terminal outcome"))?,
         error,
     };
+    let parent_ref = retired.input_plan_ref.as_ref()
+        .ok_or_else(|| ShenkoError::conflict("rejection missing original input seal"))?;
+    let observed = observed_input_tokens(&store.recorded_model_outcome(&retired)?, input.provider_binding.as_ref());
+    let prepared = match prepare_corrected_context(state, CorrectionInput {
+        parent_ref, parent_payload: &input.payload, parent_context: &input.context,
+        contribution_tokens: input.contribution_tokens, observed_input_tokens: observed,
+        raw_output, feedback: shenko_store::control_rejection_feedback(&rejection),
+    }) {
+        Ok(Some(prepared)) => prepared,
+        Ok(None) => {
+            wait_for_context_preparer(state, cancel).await;
+            return Ok(());
+        }
+        Err(ShenkoError::ResnapshotRequired { reason }) => {
+            tracing::debug!(%reason, "correction source changed; original result retained");
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
+    if cancel.is_cancelled() { return Ok(()); }
+    input.payload = prepared.0;
+    input.context = prepared.1;
     let reason_ref = seal_step_object(
-        store,
+        &store,
         retired.step_no,
         &serde_json::to_vec(&rejection)?,
         "application/json",
@@ -2429,28 +2469,17 @@ fn replace_rejected_output(
     // The correction is a NEW request identity: the rejected attempt's
     // identity is spent and is never re-used.
     input.request_id = EntityId::new();
-    input
-        .payload
-        .messages
-        .push(shenko_broker::request::InferenceMessage::text(
-            "assistant",
-            raw_output,
-        ));
-    input.payload.messages.push(shenko_broker::request::InferenceMessage::text(
-        "user",
-        shenko_store::control_rejection_feedback(&rejection),
-    ));
     let mut replacement = retired.clone();
     replacement.step_id = replacement_id;
     replacement.state = SubjectStepState::Preparing;
     replacement.input_plan_ref = Some(seal_step_object(
-        store,
+        &store,
         retired.step_no,
         &serde_json::to_vec(&input)?,
         "application/json",
         "input_plans",
         "subject_step_input",
-        12,
+        input.schema_version,
     )?);
     replacement.context_revision = Some(
         retired
@@ -2471,7 +2500,14 @@ fn replace_rejected_output(
     retired.state = SubjectStepState::Retired;
     retired.retry_reason_ref = Some(reason_ref);
     retired.record_revision = RecordRevision(retired.record_revision.0 + 1);
-    let receipt = store.reject_output_and_replace_step(&retired, &state.head, &replacement)?;
+    let receipt = match store.reject_output_and_replace_step(&retired, &state.head, &replacement) {
+        Ok(receipt) => receipt,
+        Err(ShenkoError::ResnapshotRequired { reason }) => {
+            tracing::debug!(%reason, "R0 CAS refused a moved correction observation; original result retained");
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     let (head, step) = store.load_subject(state.agent_id)?;
     state.head = head;
     state.step = step;

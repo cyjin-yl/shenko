@@ -1,0 +1,2 @@
+clang++: warning: argument unused during compilation: '-fuse-ld=/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/llvm/bin/wasm-ld' [-Wunused-command-line-argument]
+clang: warning: argument unused during compilation: '-fuse-ld=/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/llvm/bin/wasm-ld' [-Wunused-command-line-argument]

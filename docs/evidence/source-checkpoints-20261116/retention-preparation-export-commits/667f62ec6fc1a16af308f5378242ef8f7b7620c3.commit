@@ -1,0 +1,8 @@
+tree 8fd5e058a9643292974dfd04b693514274fbb2c7
+parent c0c5563d1262688fa1d4f70923229ed78addabff
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870401 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870679 +0000
+
+fix(store): decode retained reference storage carriers strictly
+
+(cherry picked from commit 7bffa671ba11f6877f9f309b30d895619466cfb9)

@@ -1,0 +1,94 @@
+{
+  "source_pr": "https://github.com/cyjin-yl/shenko/pull/314",
+  "source_head": "245a846ba0109a0916bad7a4a30ee7f66e2c2d01",
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha": "ef546ed6dd135dba81b14ed9181ddf058dc92fcd"
+    },
+    {
+      "path": "docs/development/long-run-observation.md",
+      "sha": "29e89bf9fc309b11789fe15a0f318be6cc7a4956"
+    },
+    {
+      "path": "scripts/observe_longrun.py",
+      "sha": "fff3423dfb6fb999261e690e4f02dc766707b99d"
+    },
+    {
+      "path": "scripts/observe_longrun_test.py",
+      "sha": "25734cd78cbb800ebecedef814aace9a9a860387"
+    }
+  ],
+  "commits": [
+    {
+      "sha": "c69389f1f1106b9bb15f4157e7f1a0629806a270",
+      "node_id": "C_kwDOVUFCKtoAKGM2OTM4OWYxZjExMDZiOWJiMTVmNDE1N2U3ZjFhMDYyOTgwNmEyNzA",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/c69389f1f1106b9bb15f4157e7f1a0629806a270",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/c69389f1f1106b9bb15f4157e7f1a0629806a270",
+      "author": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-16T20:41:16Z"
+      },
+      "committer": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-16T20:41:16Z"
+      },
+      "tree": {
+        "sha": "2ba49c226841a21ec5d29e1cf2c23391a350899e",
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/git/trees/2ba49c226841a21ec5d29e1cf2c23391a350899e"
+      },
+      "message": "fix(evidence): serialize concurrent C19 long-run records on directory inode\n\nWHY: Independent sample/run/checkpoint/stop processes previously read the same\nlast sequence and could write duplicate or post-seal records despite individually\nfsynced appends. A passing 7/30-day wall-clock report must not depend on a\nsingle-writer scheduling assumption.\n\nUse Linux directory flock for atomic read/check/append and terminal stop, with\nshared report reads (exclusive when publishing a report), no replaceable\nsidecar file, and fail-closed directory replacement detection. Preserve the\nschema, raw bytes, existing gap/Unknown admission and wall-clock obligations.\nAdd two real subprocess concurrency regressions, retaining 15 original cases.\n\nEvidence: code/static review and local Linux flock probe only; exact branch\nCI and multi-day evidence remain required.",
+      "parents": [
+        {
+          "sha": "84ae19404f2a17d259362c99091db408b7262e14",
+          "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/84ae19404f2a17d259362c99091db408b7262e14",
+          "html_url": "https://github.com/cyjin-yl/shenko/commit/84ae19404f2a17d259362c99091db408b7262e14"
+        }
+      ],
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    {
+      "sha": "245a846ba0109a0916bad7a4a30ee7f66e2c2d01",
+      "node_id": "C_kwDOVUFCKtoAKDI0NWE4NDZiYTAxMDlhMDkxNmJhZDdhNGEzMGVlN2Y2NmUyYzJkMDE",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/245a846ba0109a0916bad7a4a30ee7f66e2c2d01",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/245a846ba0109a0916bad7a4a30ee7f66e2c2d01",
+      "author": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-16T20:52:53Z"
+      },
+      "committer": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-16T20:52:53Z"
+      },
+      "tree": {
+        "sha": "b8bce60b332c573c112c8dd5511b9224b9c6f573",
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/git/trees/b8bce60b332c573c112c8dd5511b9224b9c6f573"
+      },
+      "message": "test(s5): run 17 C19 evidence cases in CI and document serial protocol\n\nWHY: The existing docs CI did not run the Python observation consumer, so a\nnew concurrency proof would otherwise remain source-only. Execute all 15\noriginal and 2 bounded CLI subprocess cases on each candidate; late samples\nremain explicitly rejected after a concurrent stop. Document inode locking,\nrecovery limits and unchanged candidate-bound wall-clock requirements.\n\nNo test skips, baselines, schema or admission thresholds changed.",
+      "parents": [
+        {
+          "sha": "c69389f1f1106b9bb15f4157e7f1a0629806a270",
+          "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/c69389f1f1106b9bb15f4157e7f1a0629806a270",
+          "html_url": "https://github.com/cyjin-yl/shenko/commit/c69389f1f1106b9bb15f4157e7f1a0629806a270"
+        }
+      ],
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    }
+  ]
+}

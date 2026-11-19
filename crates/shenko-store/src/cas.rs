@@ -188,6 +188,20 @@ impl ContentStore {
         fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
     }
 
+    /// Audit a digest in this CAS with bounded streaming reads. The caller
+    /// verifies the complete length/hash; no historical locator is followed.
+    pub(crate) fn open_retained_object(&self, digest: &Digest) -> io::Result<fs::File> {
+        let path = self.object_path(digest).map_err(io::Error::other)?;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+        }
+        options.open(path)
+    }
+
     /// Read at most 1 MiB authenticated by a separately trusted index. This
     /// verifies the requested range, NOT the unread remainder of the object.
     /// Resolve only in this CAS; an exported locator is never a read authority.

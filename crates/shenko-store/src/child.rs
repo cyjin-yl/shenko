@@ -772,6 +772,9 @@ impl Store {
                     "native_implementation_unavailable");
             }
         }
+        if !settlement_only && self.canonical_native_claim_applicable(task_id)? {
+            return self.canonical_native_claim(task_id, implementation).map_err(Into::into);
+        }
         let authority = self.reserve_task_control(task_id, "claim", &serde_json::json!({
             "kind":"native.claim", "task_id":task_id, "implementation":implementation,
             "settlement_only":settlement_only,
@@ -1850,7 +1853,7 @@ fn in_cancel_scope(
     false
 }
 
-fn native_claim_ids(task: &TaskRecord) -> (EntityId, EntityId, EntityId) {
+pub(crate) fn native_claim_ids(task: &TaskRecord) -> (EntityId, EntityId, EntityId) {
     let stable = task.task_id.to_string();
     (memo_uuid(task, NATIVE_OPERATION_ID).unwrap_or_else(|| EntityId::derived("native-operation-v1", stable.as_bytes())),
      memo_uuid(task, NATIVE_RESULT_ID).unwrap_or_else(|| EntityId::derived("native-result-v1", stable.as_bytes())),

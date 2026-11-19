@@ -197,7 +197,7 @@ retained across at most three prefix/term recovery rounds.
 | --- | --- |
 | A fresh quorum chose the local primary and the final local fence still names this campaign | Start with the exact current authority; each global mutation still needs its own admission. |
 | Another primary is learned through an authenticated route | Return `PrimaryNotSelected` to the resident follower loop; retain the owner lock, catch up and recover learned canonical results before trying selection again. |
-| No global fence is available and several reachable configured voters form a minority | Independently observe every participant's authenticated routes. Only an exact reciprocal view, the same committed configuration, and every participant's durable acknowledgement can choose a component coordinator and its new availability branch. |
+| No global fence is available and several reachable configured voters form a minority | Independently observe every participant's authenticated routes. A closed reciprocal neighbourhood graph, a preferred coordinator with direct routes to every member, the same committed configuration, and every participant's durable acknowledgement can choose the component's new availability branch. |
 | A connected view is incomplete, asymmetric, changed or lacks a resident candidate | Remain a follower and repeat bounded observation; a subset of responses does not create component authority. |
 | No authenticated response from another configured voter during this attempt | A branch fallback is eligible only while the failed campaign's term/configuration and absence of a fence still match a fresh reservation; materialize the actual Store branch before consumers. |
 | A newer prefix/term keeps changing or the authority snapshot changed before fallback | Bound recovery to three rounds and report not-selected or the actual authority conflict; never convert that conflict into isolated authority. |
@@ -212,6 +212,31 @@ The owned observation worker cancels its runtime on renewal or task failure,
 and its original error is joined before teardown. Durable authority does not
 expire with presence, so this explicit local stop is required; it does not
 prove that an already admitted external effect stopped.
+
+A startup pause gates subject inference; it does not forbid read-only provider
+capability discovery. The local provider reads `/v1/models` and `/metrics`
+without generating a model request. Each GET retains the configured HTTP
+deadline (180 seconds by default); these two sequential reads are not a single
+180-second startup deadline. While discovery is pending, Start now observes
+both user SIGINT and runtime failure cancellation. SIGINT stops this startup
+normally; failure cancellation stays an error. Both paths drop the read-only
+HTTP future, stop the already-owned consumers and let the existing heartbeat
+and supervisor teardown finish before releasing the runtime. This does not
+prove that any previously admitted inference or external effect stopped.
+
+The real-process journey at `bf49f3` in
+[CI 43905866500](https://github.com/cyjin-yl/shenko/actions/runs/43905866500)
+passed all seven member/reopen comparisons and created the real A/C forks.
+B committed its startup pause and A/C reported following it, but B then waited
+on the fixture's never-accepted metadata socket until readiness failed. The
+subsequent certificate, final-authority and heartbeat assertions were not
+reached. The corrected fixture retains complete HTTP request bytes, refuses
+both metadata GETs with 503, and fails on every POST or other request. The
+existing startup-boundary journey also gains one held-GET cancellation window
+on the same installation and pause ID, before continuing its original
+reopen/resume/request checks. These amended runtime windows still need their
+own execution result; metadata compilation alone does not pass them.
+
 Retaining a remote global primary additionally requires a fresh authenticated
 resident-process observation: an SSH Node command alone can outlive the subject
 process. Expiry allows an ordinary quorum campaign, whose actual accepted
@@ -221,7 +246,14 @@ Component agreement is separate from the global control log. Its proposal
 binds the full sorted participant set, each participant's identity, term,
 configuration, local component revision and observed candidate, plus a new
 decision/branch identity. Every participant probes its own configured SSH
-routes before acknowledging. An acknowledgement advances a durable local
+routes before acknowledging. Each observation retains that node's complete
+direct neighbourhood, including itself; all observed neighbours must appear
+in the proposal and each reported edge must have its reverse. Followers need
+not contact one another, but the candidate selected by the unchanged preference
+and tie-break rules must have direct reciprocal routes to every member. A
+preferred candidate that needs a relay remains an unavailable view; the
+mechanism does not replace it with a less-preferred network hub. An
+acknowledgement advances a durable local
 component revision and invalidates its preceding availability origin before
 the reply. The exact original proposal, acknowledgements and full committed
 certificate remain in immutable command history after supersession. Replaying
@@ -231,7 +263,13 @@ and quorum thresholds never change to accommodate the smaller component.
 The selected coordinator publishes the complete certificate to every follower,
 confirms their retained selection, then materializes an actual Store fork.
 Only that coordinator may open the agreed branch. Before new Store admissions,
-it confirms the same reachable view and candidate observations; the final local
+it obtains every member's new `ComponentObserve` and confirms that member's
+original complete neighbourhood, retained certificate and runtime/candidate
+observations. A follower checks its own neighbourhood and its reachable
+neighbours, including the coordinator, to remain resident; that local check
+grants no execution authority and does not confirm unreachable remote state.
+An added neighbour, asymmetric edge, missing response or changed selection
+refuses the old view. The final local
 Node reservation also checks the exact component revision/certificate. Learning
 a newer local promise, term, configuration or identity prevents fresh work under
 the old origin. This does not retract a previously granted physical send or
@@ -256,7 +294,8 @@ model binding and uses Node identity as a deterministic tie break when no
 comparison exists. The typed candidate can retain supplied rank and model
 evidence, but configuration is not a successful inference and no automatic
 strongest-usable-model assessment is supplied here. That product requirement,
-transitive/asymmetric route handling, real multi-device/provider journeys and
+coordinators requiring transitive-only routes, asymmetric route handling,
+real multi-device/provider journeys and
 the full [§5.4.1](#spec-5-4-1) contract still require further work.
 
 ## Connected Store admission and materialization
@@ -298,7 +337,7 @@ task may enter `Completing`; after convergence its terminal task, original
 result and inbox entry are one atomic application. Their validator permits
 only those exact task/result/inbox writes. It cannot rewrite E1 or grant a new
 physical send. Prepared startup recovery uses the same existing entry point.
-Implementation and unexecuted journey limits are recorded in
+Implementation, actual candidate results and remaining journey limits are recorded in
 [canonical native T2 materialization](../development/canonical-native-t2-materialization.md).
 
 The separate `native.dispatch` send-boundary marker also carries a typed
@@ -312,6 +351,71 @@ In particular, the first consensus choice of an older preparation can have
 `replayed=false` and still grants no new send. See
 [canonical native dispatch](../development/canonical-native-dispatch.md).
 
+For already claimed, non-model native tasks, `native.arm` now freezes the
+original complete task/request/operation/attempt/invocation. The ordinary and
+paired-dispatch T1 APIs insert only the original operation and attempt and
+update their task, retaining one source result commit and creation timestamp.
+Only the current call that first prepared this action can receive the fresh
+execution result after its final authority, invocation and dispatcher checks.
+Existing preparations, preactivation recovery and learned materialization
+never return a new permit, including when consensus first chooses that old
+preparation with `replayed=false`. The typed projection excludes model-child
+quota and subject publication T1, and cannot overwrite imported parking.
+See [canonical native arming](../development/canonical-native-arming.md).
+
+The first claim of an exact non-model native delegation born in a locally
+materialized canonical S1 also has a typed `native.claim` transition. That S1
+may be quorum chosen or admitted by the existing local availability authority;
+`grant=None` is not quorum evidence. Its independent
+reader proves the direct-root task dependency and original S1 birth; the root
+itself can remain parked. Only the current source call that first prepared and
+finally validates its worker, dispatcher and authority can receive a fresh claim.
+Prepared and learned applications retain the original Running fact without a
+worker permit. Foreign Learned application still needs a legitimate chosen
+claim grant and this installation's actual S1 materialization. The local
+availability path retains its source authority, dispatcher and worker checks;
+the new eight-window journey covers only the grant path and passed on
+`9b5a6cb` in [CI 43894092386](https://github.com/cyjin-yl/shenko/actions/runs/43894092386),
+with no new execution evidence for grant-free availability. Ordinary imported
+targets, recovery claims and atomic child-tool
+creation plus claim remain outside this narrow scope. See
+[canonical first native claim](../development/canonical-native-first-claim.md).
+
+A subsequent bounded continuation now joins that first claim to paired
+native T1, its first definite external E1 and a childless terminal T2. Its
+version-2 readers independently prove the direct-root task range and local
+claim/T1 application; they retain the source root read fence and every
+original receipt/commit/time. Receiver E1 materialization and T2 commit in
+one transaction, with a separate local physical receipt and no execution
+permit. Ordinary archive parking, Unknown/multiple receipts and other native
+phases retain their existing boundaries. A missing derived source E1 proof
+keeps the original E1 plus explicit seal debt; it cannot justify generic
+success. The new nine-window journey is not yet executed on this candidate:
+see [direct native continuation](../development/canonical-native-continuation.md).
+
+The original first paired-T1 E1 can also travel independently of chosen T2.
+The authenticated `NativeEvidencePage` adapter exposes bounded source facts
+and explicit gaps for a named self; registered routes verify Node and origin
+identity. Receiving Store requires its own actual canonical T1 receipt,
+keeps the original source commit/time/fold, and separately commits its local
+application receipt. The version-2 E1 reader supports the first definite or
+Unknown observation; an Unknown case is local and never imports a source
+acknowledgement. `sync evidence --peer` and the existing selected-runtime
+replication tick use this path without granting execution. Missing facts,
+transfer failures and incompatible predecessors remain visible delivery
+debt. The new SSH journey is authored but not yet executed on this candidate;
+scope, bootstrap eligibility and limits are recorded in
+[independent native E1 delivery](../development/canonical-native-e1-delivery.md).
+
+The bounded successor candidate uses an explicit schema-2 transport scope and
+codec-3 fact for one original-attempt Unknown-to-definite observation. It
+requires this installation's actual first-E1 application, retains original
+source commits/times and local acknowledgements, and records local resolution
+and a separate physical receipt atomically. A different local observation or
+missing predecessor remains debt. It adds no execution permission or narrow
+T2 proof; [successor scope and authored windows](../development/canonical-native-e1-successor.md)
+still await execution on the integrated candidate.
+
 Each compatible Store applies only those frozen SQL writes, under its own
 IMMEDIATE transaction and a reserved, verified chosen grant. It rechecks the
 exact predecessor and schema inside that transaction. Source `CommitRef`s,
@@ -324,7 +428,8 @@ actual writes and local marker commit atomically, and learned application does
 not re-evaluate time, allocate new result identities or call a provider.
 
 This implementation is deliberately conservative: read tables bind their full
-range, while insert-only tables bind their affected keys. Unrelated parked
+range, while insert-only tables bind their affected keys. The typed first-claim
+reader additionally proves its target-only task range. Unrelated parked
 replica tasks stay parked. A missing or different required predecessor,
 incompatible schema, or conflicting original receipt remains reconciliation
 debt; a cognition archive is never treated as permission to restore executable
@@ -335,11 +440,12 @@ The live Store provider and runtime reconstruction path retain local markers
 only after Store COMMIT. A live authority failure cancels and drains the owned
 runtime before rebuilding its branch-scoped consumers. Storage failure retains
 its actual error instead of being disguised as an election retry. A follower
-may materialize a verified chosen S1, native dispatch marker or native T2 without becoming a primary, but this
+may materialize a verified chosen S1, first native claim, non-model native T1,
+native dispatch marker or native T2 without becoming a primary, but this
 factual projection supplies no new physical send permit.
 
-The other admission boundaries, including S0 request arming, native claims,
-external-operation T1 arming and publication T2, still
+The other admission boundaries, including S0 request arming, other native claims,
+model-child/quota and publication T1, other trusted-executor T1 and publication T2, still
 carry original plans rather than this canonical transition. Calling their
 ordinary code on another ledger is not deterministic replication. When a
 chosen plan cannot be materialized, the selected local primary retains its
@@ -459,13 +565,24 @@ Connected-minority agreement and a resident follower now have runtime paths;
 their focused Node journey executed and passed in the Nightly scope recorded by
 the [component continuation evidence](../evidence/component-coordination-20261116.md),
 while real multi-device, model-readiness and all-topology acceptance remain
-open. Canonical cross-ledger transition replay is implemented for S1, and the
-paired native T2 boundaries carry frozen transitions at source level; those
-two native T2 journeys did not exist at the candidate that has runtime
-evidence, so they are not yet execution evidence. The remaining replay work is
-the other control boundaries — S0 request arming, native claims, T1/dispatch
-and publication T2 — which still carry original plans rather than a canonical
-transition. The
+open. The later reciprocal-star extension, including a model-free resident,
+has actual protocol results on `15cfee0` and `9b5a6cb`; its real-process journey
+on `9b5a6cb` failed during the member-configuration setup comparison, before
+the three resident Start processes. The [original tuples and diagnosis](../evidence/ci-9b5a6cb-20261116/README.md)
+are retained; the corrected fixture still requires its own runtime result. Canonical S1,
+the paired native T2 boundaries and native dispatch have actual focused journey
+results with exact candidate scope in their linked evidence. Non-model native
+T1 also has a typed frozen transition; its journey passed on `15cfee0` in
+[CI 43886488027](https://github.com/cyjin-yl/shenko/actions/runs/43886488027).
+That whole run still failed the separately documented context-inspection fixture.
+The first native claim from a locally materialized canonical S1, under quorum
+choice or the existing local availability authority, has a separately bounded
+typed implementation. Its new grant-path journey passed in the same `9b5a6cb` CI; no new
+execution evidence covers grant-free availability.
+The remaining replay work includes S0 request arming, other native claims,
+model-child/quota and publication T1, other trusted-executor T1 and publication
+T2. They still carry original plans rather than canonical transitions, and
+general authoritative task predecessors remain a separate gap. The
 [runtime authority evidence](../evidence/runtime-authority-bridge-20261115.md)
 records the passing integrated journeys without claiming those remaining goals.
 

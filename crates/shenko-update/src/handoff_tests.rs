@@ -20,6 +20,8 @@ use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep, SubjectStep
 use shenko_types::task::{DispatchEligibility, TaskRecord};
 
 use super::*;
+#[cfg(unix)]
+use crate::test_evidence::FixtureEvidence;
 
 /// An explicit local-installation authority: no committed node claim, a
 /// present local-branch binding, stable across every re-read so authority
@@ -264,6 +266,11 @@ fn candidate_slot(fixture: &Installation, generation: &RuntimeGeneration) -> Pat
     slots::SlotLayout::new(fixture.data_dir.clone()).slot_dir(generation)
 }
 
+struct FixturePreparation<'a> {
+    smoke: Option<ObjectRef>,
+    program: Option<(&'a Path, Digest)>,
+}
+
 /// An activation record shaped like the ones `prepare` creates, over real
 /// sealed references, with a caller-chosen phase and smoke evidence.
 fn activation_record(
@@ -273,8 +280,9 @@ fn activation_record(
     from_slot: &Path,
     to_slot: &Path,
     phase: ActivationPhase,
-    smoke_evidence_ref: Option<ObjectRef>,
+    preparation: FixturePreparation<'_>,
 ) -> ActivationRecord {
+    let FixturePreparation { smoke: smoke_evidence_ref, program: prepared_program } = preparation;
     ActivationRecord {
         activation_id: EntityId::new(),
         agent_id: fixture.agent_id,
@@ -285,7 +293,14 @@ fn activation_record(
         migrator_ref: delta_migrator_ref(),
         recovery_closure_ref: seal(
             &fixture.store,
-            &serde_json::json!({ "schema_version": 1, "authority": authority_json() }),
+            &serde_json::json!({
+                "schema_version": 1,
+                "authority": authority_json(),
+                "from_slot": from_slot,
+                "to_slot": to_slot,
+                "to_artifact": prepared_program.map(|(path, digest)|
+                    serde_json::json!({ "path": path, "digest": digest })),
+            }),
         ),
         contract_revision: "shenko.update.activation/v1".to_string(),
         phase,
@@ -361,7 +376,9 @@ fn smoke_script(generation: &str) -> String {
 #[tokio::test]
 #[cfg(unix)]
 async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
+    let mut evidence = FixtureEvidence::new("refused-prebuilt-observations").unwrap();
     let fixture = installation();
+    evidence.watch_installation(&fixture.data_dir);
     let failed_report = serde_json::to_string(&smoke_report(
         &RuntimeGeneration::new("gen-failed-report"),
         false,
@@ -392,9 +409,11 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
             "state_copy",
         ),
     ];
+    let mut refused_generations = Vec::new();
     for (name, script, detail) in cases {
         let candidate = write_executable(&fixture.data_dir, name, &script);
-        let error = fixture
+        evidence.file("original-prebuilt-candidate", &candidate);
+        let prepared = fixture
             .service
             .prepare(PrepareRequest {
                 agent_id: fixture.agent_id,
@@ -402,8 +421,12 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
                 source: CandidateSource::Prebuilt { path: candidate },
                 primary_claim: None,
             })
-            .await
-            .unwrap_err();
+            .await;
+        evidence.record("original-prepare-result", &serde_json::json!({
+            "case": name, "result_debug": format!("{prepared:?}"),
+            "original_error": prepared.as_ref().err().map(|error| format!("{error:#}")),
+        }));
+        let error = prepared.unwrap_err();
         let UpdateError::SmokeFailed(message) = &error else {
             panic!("expected SmokeFailed for {name}, got {error:?}");
         };
@@ -420,8 +443,10 @@ async fn prepare_refuses_a_candidate_whose_smoke_did_not_pass() {
             "a refused candidate must never create an activation record"
         );
         assert_working_runtime_intact(&fixture);
+        refused_generations.push(format!("gen-{name}"));
     }
-    fixture.cleanup();
+    let retained = verify_refused_build_observations_after_reopen(fixture, &refused_generations, evidence);
+    assert!(retained.is_ok(), "refused build observation was not retained: {retained:?}");
 }
 
 /// An activation record that reaches `activate` with a saved smoke report
@@ -453,7 +478,7 @@ async fn activate_refuses_a_saved_smoke_report_that_failed() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        Some(evidence),
+        FixturePreparation { smoke: Some(evidence), program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -497,7 +522,7 @@ async fn activate_refuses_a_record_without_smoke_evidence() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -559,7 +584,7 @@ async fn activate_admits_a_saved_smoke_report_that_passed() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Smoke,
-        Some(evidence),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), Digest::blake3(b"candidate executable fixture\n"))) },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -647,7 +672,7 @@ async fn rollback_refuses_a_retained_executable_whose_smoke_did_not_pass() {
         &previous_slot,
         &fixture.live_slot,
         ActivationPhase::Activated,
-        Some(passed_evidence),
+        FixturePreparation { smoke: Some(passed_evidence), program: None },
     );
     fixture.store.create_activation_record(&record).unwrap();
 
@@ -730,7 +755,7 @@ async fn reconcile_resumes_the_same_controller_after_an_interrupted_handoff() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     record.recovery_closure_ref = seal(
         &fixture.store,
@@ -879,7 +904,7 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1000,7 +1025,7 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {
             generation: target.0.clone(),
             cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
             artifact_path: Some(program.to_string_lossy().into_owned()),
-            artifact_digest: Some(digested),
+            artifact_digest: Some(digested.clone()),
             copied_through_seq: None,
             created_at: "2026-11-02T00:00:00Z".to_string(),
         },
@@ -1017,7 +1042,7 @@ async fn activate_refuses_a_candidate_program_that_changed_after_its_smoke() {
         &fixture.live_slot,
         &slot,
         ActivationPhase::Smoke,
-        Some(evidence),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), digested)) },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1099,7 +1124,7 @@ async fn reconcile_refuses_a_boundary_bound_to_another_frozen_request() {
         &fixture.live_slot,
         &candidate_slot(&fixture, &target),
         ActivationPhase::Handoff,
-        None,
+        FixturePreparation { smoke: None, program: None },
     );
     record.recovery_closure_ref = seal(
         &fixture.store,
@@ -1217,7 +1242,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
             generation: target.0.clone(),
             cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
             artifact_path: Some(program.to_string_lossy().into_owned()),
-            artifact_digest: Some(artifact_digest),
+            artifact_digest: Some(artifact_digest.clone()),
             copied_through_seq: None,
             created_at: "2026-11-02T00:00:00Z".to_string(),
         },
@@ -1234,7 +1259,7 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         &fixture.live_slot,
         &slot.slot_dir,
         ActivationPhase::Smoke,
-        Some(evidence),
+        FixturePreparation { smoke: Some(evidence), program: Some((program.as_path(), artifact_digest)) },
     );
     let record = fixture.store.create_activation_record(&record).unwrap();
 
@@ -1301,4 +1326,194 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
         "no launch receipt exists before a process actually starts the selection"
     );
     fixture.cleanup();
+}
+
+
+#[cfg(unix)]
+fn read_build_json(store: &Store, reference: &ObjectRef) -> Result<serde_json::Value> {
+    let bytes = store.cas.read_object(&reference.digest)?;
+    anyhow::ensure!(Digest::blake3(&bytes) == reference.digest && bytes.len() as u64 == reference.bytes);
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+#[cfg(unix)]
+fn verify_refused_build_observations_after_reopen(
+    fixture: Installation,
+    generations: &[String],
+    mut evidence: FixtureEvidence,
+) -> Result<()> {
+    let db = fixture.live_slot.join(SLOT_DB_FILENAME);
+    let dir = fixture.data_dir.clone();
+    let agent = fixture.agent_id;
+    drop(fixture);
+    let reopened = Store::open(db, dir.join("cas"))?;
+    let head = reopened.load_subject(agent)?.0;
+    let events = reopened.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?;
+    evidence.record("original-reopened-session-events", &events);
+    let mut observed = Vec::new();
+    for event in &events {
+        if event.event_type != "runtime_error" { continue; }
+        let data: serde_json::Value = serde_json::from_str(&event.data)?;
+        if data["kind"] != "update_prepare" { continue; }
+        let reference: ObjectRef = serde_json::from_value(data["extra"]["build_receipt_ref"].clone())?;
+        let receipt = read_build_json(&reopened, &reference)?;
+        let generation = receipt["prepare_request"]["generation"].as_str()
+            .context("original candidate generation missing")?;
+        anyhow::ensure!(generations.iter().any(|expected| expected == generation));
+        anyhow::ensure!(receipt["original_branch_head"]["agent_id"] == serde_json::to_value(agent)?);
+        let outcome_ref: ObjectRef = serde_json::from_value(receipt["build_outcome_ref"].clone())?;
+        let outcome = read_build_json(&reopened, &outcome_ref)?;
+        anyhow::ensure!(outcome["artifact"]["generation"] == generation);
+        anyhow::ensure!(outcome["invocation"].is_null(), "prebuilt input cannot claim a compiler invocation");
+        anyhow::ensure!(outcome["validation_tests_executed_by_builder"] == false);
+        let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
+            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let expected_digest = serde_json::to_value(&reference.digest)?;
+        anyhow::ensure!(rooted.iter().any(|fact| fact["build_id"] == outcome["build_id"]
+            && fact["build_receipt_ref"]["digest"] == expected_digest));
+        observed.push(generation.to_owned());
+    }
+    anyhow::ensure!(observed.len() == generations.len());
+    anyhow::ensure!(reopened.activation_records(agent)?.is_empty());
+    drop(reopened);
+    evidence.closed_installation(&dir);
+    evidence.finish()?;
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let mut evidence = FixtureEvidence::new("prepared-build-observation-reopened")?;
+        let fixture = installation();
+        evidence.watch_installation(&fixture.data_dir);
+        let generation = RuntimeGeneration::new("receipt-qualified");
+        let original_head = fixture.store.load_subject(fixture.agent_id)?.0;
+        let candidate = write_executable(&fixture.data_dir, "candidate-with-receipt", &smoke_script(&generation.0));
+        evidence.file("original-prebuilt-candidate", &candidate);
+        let prepared = fixture.service.prepare(PrepareRequest {
+            agent_id: fixture.agent_id, generation: generation.clone(),
+            source: CandidateSource::Prebuilt { path: candidate.clone() }, primary_claim: None,
+        }).await;
+        evidence.record("original-prepare-result", &serde_json::json!({
+            "result_debug": format!("{prepared:?}"),
+            "original_error": prepared.as_ref().err().map(|error| format!("{error:#}")),
+            "activation_record": prepared.as_ref().ok(),
+        }));
+        let record = prepared?;
+        anyhow::ensure!(record.phase == ActivationPhase::Smoke);
+        let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
+        let receipt_ref: ObjectRef = serde_json::from_value(closure["build_receipt_ref"].clone())?;
+        let receipt = read_build_json(&fixture.store, &receipt_ref)?;
+        anyhow::ensure!(receipt["original_branch_head"] == serde_json::to_value(&original_head)?);
+        anyhow::ensure!(receipt["prepare_request"]["generation"] == generation.0);
+        let outcome_ref: ObjectRef = serde_json::from_value(receipt["build_outcome_ref"].clone())?;
+        let outcome = read_build_json(&fixture.store, &outcome_ref)?;
+        anyhow::ensure!(outcome["artifact"]["path"] == serde_json::to_value(&candidate)?);
+        anyhow::ensure!(outcome["invocation"].is_null() && outcome["source_snapshot_frozen"] == false);
+        let db = fixture.live_slot.join(SLOT_DB_FILENAME);
+        let dir = fixture.data_dir.clone();
+        let agent = fixture.agent_id;
+        drop(fixture);
+        let reopened = Store::open(db, dir.join("cas"))?;
+        let restored = reopened.activation_record(record.activation_id)?.context("activation was lost")?;
+        anyhow::ensure!(restored.recovery_closure_ref == record.recovery_closure_ref);
+        let events = reopened.session_events_range(EntityId(original_head.branch_id.0), 0, i64::MAX)?;
+        evidence.record("original-reopened-session-events", &events);
+        let rooted = events.iter().filter(|event| event.event_type == "update_build_observation")
+            .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        anyhow::ensure!(rooted.len() == 1 && rooted[0]["build_id"] == outcome["build_id"]);
+        anyhow::ensure!(rooted[0]["build_receipt_ref"] == serde_json::to_value(&receipt_ref)?);
+        anyhow::ensure!(rooted[0]["native_operation_settled"] == false);
+        anyhow::ensure!(reopened.activation_selector(agent)?.context("working selector lost")?.selector_revision == 0);
+        anyhow::ensure!(read_build_json(&reopened, &receipt_ref)? == receipt);
+        let retained = reopened.retained_object_snapshot(shenko_store::RetentionLimits::default())?;
+        anyhow::ensure!(retained.complete, "build retention gaps: {:?}", retained.gaps);
+        for reference in [&restored.recovery_closure_ref, &receipt_ref, &outcome_ref] {
+            anyhow::ensure!(retained.verified_objects.contains(&reference.digest));
+        }
+        // Both independently committed carriers must survive the read: the
+        // original raw observation and the candidate's recovery closure.
+        for table_name in ["session_events", "activation_records"] {
+            anyhow::ensure!(retained.references.iter().any(|reference| matches!(&reference.origin,
+                shenko_store::retained_objects::RetentionOrigin::Row { table, .. }
+                    if table == table_name)));
+        }
+        anyhow::ensure!(reopened.current_commit_seq()? == retained.source_through.0);
+        drop(reopened);
+        evidence.closed_installation(&dir);
+        evidence.finish()?;
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    })
+}
+
+#[test]
+#[cfg(unix)]
+fn activate_refuses_replaced_program_and_manifest_after_preparation_reopens() -> Result<()> {
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let fixture = installation();
+        let generation = RuntimeGeneration::new("prepared-artifact-b");
+        let candidate = write_executable(&fixture.data_dir, "original-b", &smoke_script(&generation.0));
+        let record = fixture.service.prepare(PrepareRequest {
+            agent_id: fixture.agent_id, generation: generation.clone(),
+            source: CandidateSource::Prebuilt { path: candidate }, primary_claim: None,
+        }).await?;
+        anyhow::ensure!(record.phase == ActivationPhase::Smoke);
+        let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
+        let smoke_ref = record.smoke_evidence_ref.as_ref().context("prepared smoke was not retained")?;
+        let smoke = read_build_json(&fixture.store, smoke_ref)?;
+        let slot = candidate_slot(&fixture, &generation);
+        let mut manifest = slots::read_slot_manifest(&slot)?;
+        let program = PathBuf::from(manifest.artifact_path.as_deref().context("prepared program missing")?);
+        let prepared_digest = Digest::blake3(&fs::read(&program)?);
+        anyhow::ensure!(manifest.artifact_digest.as_ref() == Some(&prepared_digest));
+        anyhow::ensure!(closure["to_artifact"]["path"] == serde_json::to_value(&program)?);
+        anyhow::ensure!(closure["to_artifact"]["digest"] == serde_json::to_value(&prepared_digest)?);
+        let live_slot = fixture.live_slot.clone();
+        let dir = fixture.data_dir.clone();
+        let agent = fixture.agent_id;
+        drop(fixture);
+
+        let reopened = Arc::new(Store::open(live_slot.join(SLOT_DB_FILENAME), dir.join("cas"))?);
+        anyhow::ensure!(reopened.activation_record(record.activation_id)?.as_ref() == Some(&record));
+        let selector_before = reopened.activation_selector(agent)?.context("working selector missing")?;
+        let head_before = reopened.load_subject(agent)?.0;
+        let service = UpdateService::new(
+            dir.clone(), live_slot, Arc::clone(&reopened),
+            Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+            Arc::new(crate::build::CargoBuildProvider::default()),
+        ).with_claim_source(Arc::new(FixtureAuthority));
+
+        // Both mutable witnesses now agree about C, while the sealed
+        // preparation and successful smoke still describe the original B.
+        let replacement = b"#!/bin/sh\nexit 23\n";
+        fs::write(&program, replacement)?;
+        let replacement_digest = Digest::blake3(replacement);
+        anyhow::ensure!(replacement_digest != prepared_digest);
+        manifest.artifact_digest = Some(replacement_digest.clone());
+        slots::write_slot_manifest(&slot, &manifest)?;
+        anyhow::ensure!(slots::read_slot_manifest(&slot)?.artifact_digest == Some(replacement_digest.clone()));
+        anyhow::ensure!(Digest::blake3(&fs::read(&program)?) == replacement_digest);
+        let error = match service.activate(record.activation_id, selector_before.selector_revision).await {
+            Err(error) => error,
+            Ok(_) => anyhow::bail!("a different program was admitted under B's preparation"),
+        };
+        anyhow::ensure!(format!("{error:#}").contains("does not match the sealed prepared artifact digest"),
+            "the refusal did not identify the original preparation: {error:#}");
+        anyhow::ensure!(reopened.activation_selector(agent)?.as_ref() == Some(&selector_before));
+        anyhow::ensure!(serde_json::to_value(reopened.load_subject(agent)?.0)? == serde_json::to_value(&head_before)?);
+        anyhow::ensure!(reopened.open_subject_quiesce(agent)?.is_none());
+        anyhow::ensure!(reopened.activation_record(record.activation_id)?.as_ref() == Some(&record));
+        anyhow::ensure!(read_build_json(&reopened, &record.recovery_closure_ref)? == closure);
+        anyhow::ensure!(read_build_json(&reopened, smoke_ref)? == smoke);
+        drop(service);
+        drop(reopened);
+        fs::remove_dir_all(dir)?;
+        Ok(())
+    })
 }

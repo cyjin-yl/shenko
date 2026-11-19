@@ -1,0 +1,22 @@
+{
+  "read_only_archive_inspection": {
+    "command": "python3 inspect_archive.py > inspection.stdout 2> inspection.stderr",
+    "exit_code": 0,
+    "first_exit_code": 1,
+    "first_failure_retained": "inspection-initial.stderr"
+  },
+  "script_ast_parse": true,
+  "local_readme_links_checked": 23,
+  "missing_links": [],
+  "product_scenarios_added": 0,
+  "rust_or_guest_executed": false,
+  "docs_parser_run": false,
+  "docs_parser_limitation": "The recovered environment has no repository documentation-parser virtual environment; no substitute gate is claimed.",
+  "git_diff_check": {
+    "exit_code": 2,
+    "raw_job_log_trailing_whitespace_warnings": 7,
+    "original_log_unmodified": true,
+    "stdout": "diff-check.stdout",
+    "stderr": "diff-check.stderr"
+  }
+}

@@ -1,0 +1,2 @@
+rm -f /workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin/libopenssl.a ar-file-list; mkdir -p `dirname /workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin/libopenssl.a`
+/usr/bin/ar crsT /workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin/libopenssl.a @/workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin/libopenssl.a.ar-file-list

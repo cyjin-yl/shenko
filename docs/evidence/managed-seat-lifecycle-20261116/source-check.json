@@ -1,0 +1,84 @@
+{
+  "kind": "source_checkpoint_only",
+  "base_commit": "7905e8413b96015d96ea301bd1f3b6937dcfff90",
+  "rust_compiler_available": false,
+  "cargo_available": false,
+  "rust_compile_or_tests_ran": false,
+  "python_fixture_syntax_checks": 3,
+  "git_diff_check_exit": 0,
+  "contract_scope": "Owned managed child/readers and PTY pump teardown; no new submit handler, Broker integration, actual coding, or named-runtime acceptance.",
+  "source_files": [
+    {
+      "path": "bin/shenko/src/runtime_sessions.rs",
+      "bytes": 9799,
+      "sha256": "b10ee72cfcbfa046b82dd9520e7bed69be616801e0382b4dd3dcfeb2c82547ba"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native.rs",
+      "bytes": 73311,
+      "sha256": "714a1959d7ae92c7ff121f707d6bec91f2e2c6919c4612d1ae34445f467789b9"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+      "bytes": 16221,
+      "sha256": "51b6e4635cd43958f04d533c55cf683d1cf4de45703d74ad9e89fee21a6b0d25"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+      "bytes": 11937,
+      "sha256": "a444306ff054f5819b2ad6549698998555ae1d0178f25332380d9fefdcda6d9a"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+      "bytes": 16092,
+      "sha256": "2f5657c762f2544db5d6e1d7fb5cd9806ebd837ad40e27d1a79e11b8bb39c672"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/claude_sdk.rs",
+      "bytes": 29983,
+      "sha256": "fdee5adb3e0a72a56b4ef48daf7c5617165c9f66d6b992117820ab3749883b19"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/mod.rs",
+      "bytes": 24811,
+      "sha256": "125781036e6f32a61b0bf748521dd08cd5daa07669e7bc2989e8ab20a7b1fb89"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/omp_rpc.rs",
+      "bytes": 30784,
+      "sha256": "42ef7ec1d2267af3290d63d442e77eddb07b2df5ac218b1f2dfa18a86d4e4c8c"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+      "bytes": 54498,
+      "sha256": "2ccc0ab0633e8989cdfbbc9b185fa2ee9c21bc62ce9d8063abbec8cf57ccb515"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+      "bytes": 14816,
+      "sha256": "0dee1df46908b34d3e229f771319d14d3465a907124d6050de8b243f52c92638"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/tests/real_omp_seat.rs",
+      "bytes": 2695,
+      "sha256": "1ae3cb6c12bb7f01d679aaeb79108152eb91f37d94722e8a7fefd6cbf1a12972"
+    },
+    {
+      "path": "docs/specs/remote-seats.md",
+      "bytes": 40608,
+      "sha256": "6b68c8e2ef619de331ea1a468f78ae2febd95502dc4866a552f05b03bdc2c3e5"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/managed_process.rs",
+      "bytes": 9308,
+      "sha256": "eab2887ffc8fceeba1ac8291e5b523f9046d376ce5c95cfca0bdc7102436d82a"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/managed_lifecycle_tests.rs",
+      "bytes": 8328,
+      "sha256": "8f8f205b67a261a59174ccf7b729dec1815ea2eca5b4882e0ada1bf0781953b6"
+    }
+  ],
+  "new_test_functions": 4,
+  "new_or_extended_distinct_scenarios": 5
+}

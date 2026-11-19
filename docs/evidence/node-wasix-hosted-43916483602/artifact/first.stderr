@@ -1,0 +1,5 @@
+WASM32_UNSUPPORTED_BUILTIN id=256 name=BigIntConstructor
+TypeError: BigIntConstructor
+(Use `node --trace-uncaught ...` to show where the exception was thrown)
+
+Node.js v25.0.0-pre

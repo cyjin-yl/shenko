@@ -1,0 +1,10 @@
+{
+  "url": "https://github.com/Multi-V-VM/node-wasix32/releases/download/wasix32/node.wasm",
+  "expected_bytes": 112379740,
+  "expected_sha256": "3e0b4c9f9c258fef4ecf522bf86c42844d50368138abb86d5c2700775cf84a1d",
+  "started_at": "2026-11-16T17:15:52.042951+00:00",
+  "verified": true,
+  "actual_bytes": 112379740,
+  "actual_sha256": "3e0b4c9f9c258fef4ecf522bf86c42844d50368138abb86d5c2700775cf84a1d",
+  "finished_at": "2026-11-16T17:15:52.736896+00:00"
+}

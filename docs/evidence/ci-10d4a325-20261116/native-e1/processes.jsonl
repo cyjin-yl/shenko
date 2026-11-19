@@ -1,0 +1,22 @@
+{"label":"000-keygen","observation":{"event":"spawned"},"pid":17695}
+{"label":"000-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17695}
+{"label":"001-keygen","observation":{"event":"spawned"},"pid":17696}
+{"label":"001-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17696}
+{"label":"002-account","observation":{"event":"spawned"},"pid":17697}
+{"label":"002-account","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17697}
+{"label":"sshd","observation":{"event":"spawned"},"pid":17698}
+{"label":"003-source-page","observation":{"event":"spawned"},"pid":17700}
+{"label":"003-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17700}
+{"label":"004-source-page","observation":{"event":"spawned"},"pid":17712}
+{"label":"004-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17712}
+{"label":"005-sync-evidence","observation":{"event":"spawned"},"pid":17724}
+{"label":"005-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17724}
+{"label":"006-sync-evidence","observation":{"event":"spawned"},"pid":17756}
+{"label":"006-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17756}
+{"label":"007-sync-evidence","observation":{"event":"spawned"},"pid":18842}
+{"label":"007-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18842}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17698}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17698}
+{"label":"sshd","observation":{"event":"joined","exit_code":null,"status":"signal: 9 (SIGKILL)"},"pid":17698}
+{"label":"008-capture-originals","observation":{"event":"spawned"},"pid":18863}
+{"label":"008-capture-originals","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18863}

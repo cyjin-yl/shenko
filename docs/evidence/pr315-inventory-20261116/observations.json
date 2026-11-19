@@ -1,0 +1,435 @@
+{
+  "schema_version": 1,
+  "kind": "read_only_github_audit",
+  "scope": "PR315 provenance and source equivalence; open issue/PR inventory; PR305/313/314/315 response triggers; one requested current Clippy log attempt",
+  "observation_completed_at": "2026-11-16T23:44:47Z",
+  "inventory": {
+    "issues": [
+      12,
+      19,
+      89,
+      240,
+      241,
+      242,
+      243,
+      244,
+      245,
+      246,
+      247,
+      248,
+      249,
+      251,
+      266,
+      279,
+      294,
+      295,
+      296,
+      297,
+      300
+    ],
+    "prs": [
+      {
+        "number": 305,
+        "url": "https://github.com/cyjin-yl/shenko/pull/305",
+        "author": "cyjin-yl",
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "created_at": "2026-11-16T14:26:23Z",
+        "updated_at": "2026-11-16T23:31:25Z",
+        "head": "41d785ae8f968a3e81cd632223cadb356c44a224",
+        "head_ref": "feat/ship-work-candidate-20261116",
+        "base": "84ae19404f2a17d259362c99091db408b7262e14",
+        "base_ref": "main",
+        "conversation_count": 0,
+        "review_count": 0,
+        "inline_count": 0
+      },
+      {
+        "number": 313,
+        "url": "https://github.com/cyjin-yl/shenko/pull/313",
+        "author": "cyjin-yl",
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "created_at": "2026-11-16T19:03:41Z",
+        "updated_at": "2026-11-16T19:03:41Z",
+        "head": "fa990555ea1bde1c95ddc5118e63cdf506007182",
+        "head_ref": "fix/c19-observer-lock-20261117",
+        "base": "84ae19404f2a17d259362c99091db408b7262e14",
+        "base_ref": "main",
+        "conversation_count": 0,
+        "review_count": 0,
+        "inline_count": 0
+      },
+      {
+        "number": 314,
+        "url": "https://github.com/cyjin-yl/shenko/pull/314",
+        "author": "cyjin-yl",
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "created_at": "2026-11-16T20:42:08Z",
+        "updated_at": "2026-11-16T20:55:11Z",
+        "head": "245a846ba0109a0916bad7a4a30ee7f66e2c2d01",
+        "head_ref": "fix/s5-longrun-dirlock-20261117",
+        "base": "84ae19404f2a17d259362c99091db408b7262e14",
+        "base_ref": "main",
+        "conversation_count": 0,
+        "review_count": 0,
+        "inline_count": 0
+      },
+      {
+        "number": 315,
+        "url": "https://github.com/cyjin-yl/shenko/pull/315",
+        "author": "cyjin-yl",
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "created_at": "2026-11-16T22:59:07Z",
+        "updated_at": "2026-11-16T22:59:07Z",
+        "head": "04a765c6496036b3122c457c81c977b4f2447855",
+        "head_ref": "fix/pty-select-bindings-ratchet-20261116",
+        "base": "3e62c0e517a246872101cd1e61a694b2156bc919",
+        "base_ref": "feat/ship-work-candidate-20261116",
+        "conversation_count": 0,
+        "review_count": 0,
+        "inline_count": 0
+      }
+    ],
+    "page_size": 100,
+    "returned_items": 25
+  },
+  "pr315_ci": {
+    "id": 43975166203,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43975166203",
+    "head_sha": "04a765c6496036b3122c457c81c977b4f2447855",
+    "created_at": "2026-11-16T22:59:10Z",
+    "updated_at": "2026-11-16T23:13:51Z",
+    "status": "completed",
+    "conclusion": "success",
+    "attempt": 1,
+    "jobs": [
+      {
+        "id": 133677169127,
+        "name": "docs",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:14Z",
+        "completed_at": "2026-11-16T22:59:55Z"
+      },
+      {
+        "id": 133677169329,
+        "name": "rust",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:14Z",
+        "completed_at": "2026-11-16T23:13:50Z"
+      },
+      {
+        "id": 133677169372,
+        "name": "web",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:14Z",
+        "completed_at": "2026-11-16T23:01:12Z"
+      },
+      {
+        "id": 133677169403,
+        "name": "docs-migration",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:14Z",
+        "completed_at": "2026-11-16T22:59:57Z"
+      },
+      {
+        "id": 133677169481,
+        "name": "kernel-boundary",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:15Z",
+        "completed_at": "2026-11-16T23:00:04Z"
+      },
+      {
+        "id": 133677169529,
+        "name": "clippy-ratchet",
+        "conclusion": "success",
+        "started_at": "2026-11-16T22:59:14Z",
+        "completed_at": "2026-11-16T23:06:11Z"
+      }
+    ],
+    "actual_checkout_log_read": false
+  },
+  "integration": {
+    "source_head": "04a765c6496036b3122c457c81c977b4f2447855",
+    "independent_fix": "b02dd0c624219d24e9879beb7287e5b7fec71eee",
+    "source_tree": "e822ee3c9bcddcdd44839b8984ecaba21c2a1497",
+    "independent_fix_tree": "e822ee3c9bcddcdd44839b8984ecaba21c2a1497",
+    "trees_equal": true,
+    "target": "41d785ae8f968a3e81cd632223cadb356c44a224",
+    "compare_status": "diverged",
+    "ahead_by": 16,
+    "behind_by": 2,
+    "preserved_provenance_commit": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+    "conclusion": "Equivalent five-line fix is present through independent b02/ebc provenance; PR315 is not merged and its two commits are not ancestors of 41d."
+  },
+  "monitoring": {
+    "rule_source": "https://github.com/cyjin-yl/shenko/blob/41d785ae8f968a3e81cd632223cadb356c44a224/DEVELOPMENT.md#issuepr-monitoring-and-three-hour-continuation",
+    "rule": "Three hours starts from a comment/review requiring response, not creation/update alone. Handling notice and verifiable checkpoint prevent unsupported abandonment claim.",
+    "trigger_count_found": 0,
+    "inspected_comment_review_inline_arrays": 12
+  },
+  "limitations": [
+    "PR315 actual checkout and independent Clippy baseline logs were not read; one purpose-built request failed Transport closed.",
+    "41d job 133693798953 was queried once via the requested purpose-built log tool; Transport closed. Hourly claim of full log/only seven diagnostics remains unverified.",
+    "Inventory is a timestamped read, not a completion percentage.",
+    "GitHub author/committer identity is observed; no assumption made about which person or automation authored the PR."
+  ],
+  "mutations_performed": [],
+  "originals": [
+    {
+      "key": "audit315_pr315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315",
+      "observed_at": "2026-11-16T23:41:46.257Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 38006
+    },
+    {
+      "key": "audit315_pr305",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305",
+      "observed_at": "2026-11-16T23:41:46.336Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 93492
+    },
+    {
+      "key": "audit315_run315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43975166203",
+      "observed_at": "2026-11-16T23:41:46.114Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 26784
+    },
+    {
+      "key": "audit315_open_items",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/issues?state=open&per_page=100&sort=created&direction=asc",
+      "observed_at": "2026-11-16T23:41:46.367Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 409137
+    },
+    {
+      "key": "audit315_pr313",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313",
+      "observed_at": "2026-11-16T23:42:18.871Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 39166
+    },
+    {
+      "key": "audit315_pr314",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314",
+      "observed_at": "2026-11-16T23:42:18.990Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 37860
+    },
+    {
+      "key": "audit315_files315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/files?per_page=100",
+      "observed_at": "2026-11-16T23:42:18.883Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 6806
+    },
+    {
+      "key": "audit315_commits315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/commits?per_page=100",
+      "observed_at": "2026-11-16T23:42:18.778Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 14724
+    },
+    {
+      "key": "audit315_compare315_41d",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/compare/04a765c6496036b3122c457c81c977b4f2447855...41d785ae8f968a3e81cd632223cadb356c44a224",
+      "observed_at": "2026-11-16T23:42:19.665Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 2664842
+    },
+    {
+      "key": "audit315_agents41d",
+      "present": true,
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/41d785ae8f968a3e81cd632223cadb356c44a224/AGENTS.md",
+      "observed_at": "2026-11-16T23:42:18.928Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 8698
+    },
+    {
+      "key": "audit315_conversation305",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/issues/305/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.009Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 641
+    },
+    {
+      "key": "audit315_reviews305",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305/reviews?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.136Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 630
+    },
+    {
+      "key": "audit315_inline305",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.055Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 637
+    },
+    {
+      "key": "audit315_conversation313",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/issues/313/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.218Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 641
+    },
+    {
+      "key": "audit315_reviews313",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313/reviews?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.108Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 630
+    },
+    {
+      "key": "audit315_inline313",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.009Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 637
+    },
+    {
+      "key": "audit315_conversation314",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/issues/314/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.218Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 641
+    },
+    {
+      "key": "audit315_reviews314",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314/reviews?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.192Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 630
+    },
+    {
+      "key": "audit315_inline314",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.022Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 637
+    },
+    {
+      "key": "audit315_conversation315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/issues/315/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.019Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 641
+    },
+    {
+      "key": "audit315_reviews315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/reviews?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.086Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 630
+    },
+    {
+      "key": "audit315_inline315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/comments?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.049Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 637
+    },
+    {
+      "key": "audit315_git315head",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855",
+      "observed_at": "2026-11-16T23:42:56.012Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 3267
+    },
+    {
+      "key": "audit315_git41d_fix",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/b02dd0c624219d24e9879beb7287e5b7fec71eee",
+      "observed_at": "2026-11-16T23:42:56.055Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 4929
+    },
+    {
+      "key": "audit315_jobs315",
+      "present": true,
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43975166203/jobs?per_page=100",
+      "observed_at": "2026-11-16T23:42:56.745Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 40583
+    },
+    {
+      "key": "audit315_clippy41d_once",
+      "present": true,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "isError": true,
+      "error": null,
+      "serialized_characters": 220
+    },
+    {
+      "key": "audit315_clippy315",
+      "present": true,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "isError": true,
+      "error": null,
+      "serialized_characters": 220
+    },
+    {
+      "key": "audit315_development41d",
+      "present": true,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "isError": false,
+      "error": null,
+      "serialized_characters": 38255
+    }
+  ]
+}

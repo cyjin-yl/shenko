@@ -1,0 +1,19 @@
+{
+  "started_at": "2026-11-16T17:15:47.359269+00:00",
+  "source_revision_requested": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "harness_sha256": "6218ed78275c4423160c93fbdb384901a7fd89b2a8eaf06f01efcad464abebaa",
+  "checks": {
+    "first_exit_zero": false,
+    "owned_group_stopped": true
+  },
+  "reopen_attempted": false,
+  "feasibility_passed": false,
+  "product_capability_installed": false,
+  "named_target_acceptance": false,
+  "source_revision_observed": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "driver_sha256_observed": "a9419c9aa0abbced7c69145806768153971d37121a8c20e63e0c623f0991f150",
+  "owned_groups_settled": true,
+  "compiled_cache_files": [],
+  "stop_signal": null,
+  "finished_at": "2026-11-16T17:16:51.518527+00:00"
+}

@@ -29,6 +29,54 @@ arm the exact operation id (`arm_external_operation`), effect once, observe
 with evidence. Reconcile is query-only; a crash after T1 never re-sends a
 command, re-opens a PTY or re-answers a question.
 
+### Managed transport lifecycle implementation
+
+The seven installed handlers compose their existing registration directly
+into one Cordis generation journal, rather than spawning independent resident
+Fibers. Its teardown
+closes `SeatRuntime` admission and awaits the owned transports; a failed join
+is reported through the existing lifecycle diagnostics, never converted into
+a clean Start shutdown. A replacement generation constructs a fresh runtime.
+Retained handles from the closed generation cannot attach new seats, and a
+second attach cannot silently replace a live transport at the same location.
+
+OMP and Claude stdout/stderr readers retain protocol state only. Their shared
+process owner retains the child, stdin and both reader handles, so an EOF
+reader no longer keeps the child alive through an `Arc` cycle. Explicit close
+wakes a blocked original write, stops and reaps the child and joins both
+readers with finite waits. An observed close error is retained in the owner
+before another wait or removal of the original handle, so cancelling a
+closer cannot let its retry misreport a failed barrier as clean.
+A cancelled or failed write keeps its original
+native request id, when present, and complete wire digest as `Unknown`;
+subsequent frames cannot append to a possibly partial JSON line. A refusal
+before writer admission is `NotSent`. Neither write/flush nor local process
+cleanup proves remote acceptance, completed coding or a settled session.
+Decoded OMP response frames, including their original ids, remain in the
+bounded in-memory event tail after close; this tail is not a durable response
+ledger or automatic recovery mechanism.
+
+The PTY owner also retains its pump handle until join is observed. Closing
+uses a separate notification that can interrupt SSH write backpressure,
+instead of waiting behind the same command queue. Cancelling a close caller
+does not discard the pump owner. The channel-close send, drain and local
+session-end observation have finite waits. A failed pump or unobserved local
+session end remains an explicit close error with the available observation;
+queued input stays unconfirmed. Local session termination does not prove the
+remote process stopped or an answer took effect.
+
+These are implementation changes, with five new lifecycle checks awaiting
+Rust execution at this checkpoint: three real child/pipe checks using a small
+Python protocol fixture, plus a cancelled-closer check using the existing real
+SSH packet fixture and one actual Cordis owner restart/dispose/reinstall check
+for all seven native registrations. The existing fleet journey also checks
+closed-generation admission, making six new or extended scenarios in this increment. These are
+not actual OMP/Claude coding evidence, a new
+`seat.submit` capability, a companion that survives controller restart, or
+proof that a coding agent's internal inference shares the Broker budget.
+The direct-child owner does not claim to terminate arbitrary descendant process
+trees. Original seat/operation facts and query-only recovery remain unchanged.
+
 ### Fleet observations
 
 `seat.fleet` takes `{}` to discover the registered seats, or
@@ -102,13 +150,14 @@ identity is `seat_lease_identity_conflict`. Existing historical leases are
 retained; write admission also checks their holder against the durable
 seat owner, so an older foreign-holder row cannot acquire write authority.
 
-The writer authority travels *with* the effect: `SeatWriteFence { lease_id,
+The decision's authority snapshot travels with the effect: `SeatWriteFence { lease_id,
 lease_epoch, fence_capability, seat_id, seat_incarnation, task_id,
 task_revision, question_id, question_revision, question_record_revision }` is
-handed to the adapter that performs the write. The runtime does not
-check-then-act: the durable claim and the arm happen before the transport
-runs, and the epoch the decision was made under is the epoch the write
-carries.
+handed to the adapter that performs the write. The durable claim and arm
+compare the current Store bindings before transport runs. Neither check holds
+an exclusion against a concurrent Store change through the actual write;
+carrying the epoch is not a continuous writer fence. Managed pipe writes,
+PTY queue admission and native tmux input retain that implementation gap.
 
 ## The respond contract ([§41.11](remote-seats.md#spec-41-11))
 
@@ -122,6 +171,43 @@ decider actually read:
 | `seat_incarnation` + `seat_revision` | `seat_location_changed` / `stale_task` |
 | `task_revision` | `stale_task` |
 | `lease_epoch` | `stale_authority` / `seat_lease_ended` |
+
+The stored decision must carry the same expectation and fence capability that
+the claim validated. `arm_seat_answer_decision` rechecks that committed scope
+inside its IMMEDIATE transaction: the exact question revision produced by
+the claim, the active seat's identity/incarnation/revision, current task
+revision, and the original current lease's epoch, capability and acquisition
+incarnation. A change between claim and arm refuses before recording an
+operation or effect digest; it leaves the committed decision and question
+facts unchanged. An unchanged arm still records the exact operation/digest,
+and an already armed decision is never armed again after reopen.
+
+The Store-only journey
+`answer_arm_rechecks_the_committed_scope_after_another_store_handle_changes_it`
+adds five windows: unchanged arm/reopen, another handle changing incarnation,
+another handle changing task revision, lease termination, and contradictory
+claim expectations. This source checkpoint has not executed that journey;
+it needs the integrated candidate's Rust CI. It does not establish actual
+seat I/O, native task admission or the continuous transport fence above.
+
+The accompanying outcome correction preserves uncertainty through the guarded
+tmux and durable-answer paths. A timeout, non-Exited outcome or executor
+diagnostic keeps the complete `ExecFailure`, even if its exit code resembles
+a target-side refusal. The tmux response retains the original execution ID,
+stdout/stderr and reconciliation diagnostic; a successful Unknown close also
+retains that detail in the durable decision. If an adapter errors after arm
+and durable close then fails, the runtime returns the original Armed decision
+and Unknown response. The native handler therefore retains `EffectStatus::Unknown`
+instead of treating that failure as a pre-send `EffectStatus::None`.
+
+The additional checks cover Unknown classification with an explicit NotSent
+control, an Unknown result carrying a reserved guard exit, and a real Store
+with a controlled local append, failed close and refusal to resend after
+reopen. Including that explicit NotSent control and the five arm windows above,
+the combined increment has nine distinct scenarios. No additional scenario is
+introduced by the E1 compilation fixes.
+These checks have not yet run for this integrated source; the controlled
+append is not evidence of real tmux or SSH receiver behavior.
 
 On success the question becomes `decision_committed`, so a second decision for
 the same question is refused (`seat_question_not_open`). The only exception is

@@ -239,11 +239,10 @@ pub fn write_slot_manifest(slot_dir: &Path, manifest: &SlotManifest) -> Result<(
     Ok(())
 }
 
-/// The slot that currently holds the control authority of an installation.
-///
-/// The pointer file is a convenience for the launcher; the authority itself
-/// is the activation selector inside the slot's database. A pointer that
-/// disagrees with the selector is reported, not silently trusted.
+/// Resolve and validate the launcher's convenience pointer path. This does
+/// not read the activation selector or prove that the slot holds authority;
+/// a caller claiming the current selection must also verify the committed
+/// selector and its sealed route against this path.
 pub fn resolve_live_slot(data_dir: &Path) -> Result<Option<PathBuf>> {
     let pointer = data_dir.join(CURRENT_SLOT_FILENAME);
     let bytes = match fs::read(&pointer) {

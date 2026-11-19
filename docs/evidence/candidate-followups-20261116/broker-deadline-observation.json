@@ -1,0 +1,93 @@
+{
+  "requested_source_revision": "52c9ce0e727b47d745ac8cd6b3fae1f448f63e22",
+  "head_before": "52c9ce0e727b47d745ac8cd6b3fae1f448f63e22",
+  "status_before": "",
+  "command": [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "shenko-broker",
+    "--lib",
+    "-j1",
+    "execution::tests::local_http_deadline_keeps_the_frozen_request_and_unknown_debt",
+    "--",
+    "--exact"
+  ],
+  "environment": {
+    "CARGO_TARGET_DIR": "/workspace/scratch/d013f3e3b824/shenko-target",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0"
+  },
+  "cleanup": {
+    "removed_generated_test_executables": [
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_exec_host-3150bcd29fb50246",
+        "bytes": 161310344
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_ui-91f0c214ea247ff9",
+        "bytes": 110914328
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/plugin_lifecycle-6d876428de7f26d5",
+        "bytes": 96088664
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/learning_efficacy-7cd086c84f633774",
+        "bytes": 95949992
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_subject-f5976ffed96441b6",
+        "bytes": 70427440
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_exec_ssh-68fffde80a436d2c",
+        "bytes": 46578400
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/obelisk_lifecycle-7b22478f79cff6a1",
+        "bytes": 45402680
+      },
+      {
+        "path": "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/store_roundtrip-efe3fc5fce89e571",
+        "bytes": 25588432
+      }
+    ],
+    "retained_latest_same_kind": [
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_exec_host-5ea651a0a8859428",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_ui-a1b4ea349e096a7c",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/plugin_lifecycle-cbb0dbed9c3a0a66",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/learning_efficacy-0de60eb4c97484de",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_subject-60a77ba236f314b9",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/shenko_exec_ssh-e0468e6f2b277dff",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/obelisk_lifecycle-8686d0f5504b2c8a",
+      "/workspace/scratch/d013f3e3b824/shenko-target/debug/deps/store_roundtrip-d0c6616903b3c174"
+    ],
+    "active_executable_paths_checked": 4
+  },
+  "new_tests": 0,
+  "exit_code": 0,
+  "elapsed_seconds": 18.783682736000628,
+  "head_after": "52c9ce0e727b47d745ac8cd6b3fae1f448f63e22",
+  "log_sha256": "4af2fe8e2fe9e54f8f7819cb798b23b052b7bd26e29a1ed61de05733436a8209",
+  "log": "broker-deadline-test.log.gz",
+  "log_encoding": "gzip; decompresses to complete original log bytes",
+  "compressed_log_sha256": "548edeb7b0b4c732d7e8d0da5be2d8e1e90ca84e05dd10fa77076d2a36fb6b4e",
+  "actual_test_result": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 23,
+    "build_seconds": 17.36,
+    "execute_seconds": 1.24
+  },
+  "tested_file_sha256": {
+    "crates/shenko-broker/src/broker.rs": "e86dc7d8bccd83daabed0d74da2ee408e3aea8a583620d5c3f9fbe594e22bb5b",
+    "crates/shenko-broker/src/execution.rs": "cabdfd9b604a784fa8b9a0f473e36593e1f39bfc58ada7d98b6197d0be7f8df8",
+    "crates/shenko-types/src/output.rs": "c012e9a37803fa14bcc43f3c9c9d33545256c247eb7234baa894e0d52ad1798e"
+  },
+  "scope": "One actual broker HTTP deadline journey at the named source, preserving original Unknown stream/E1 and no-redispatch debt. Not a full candidate or real model acceptance."
+}

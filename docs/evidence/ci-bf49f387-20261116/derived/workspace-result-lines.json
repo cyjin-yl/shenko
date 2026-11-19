@@ -1,0 +1,34 @@
+[
+  {
+    "line": 1593,
+    "text": "Error: b readiness timed out; original logs retained"
+  },
+  {
+    "line": 1599,
+    "text": "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 270.89s"
+  },
+  {
+    "line": 1615,
+    "text": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 246.55s"
+  },
+  {
+    "line": 1622,
+    "text": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.89s"
+  },
+  {
+    "line": 2935,
+    "text": "test canonical_direct_native_chain_retains_original_e1_and_only_one_effect ... ok"
+  },
+  {
+    "line": 2956,
+    "text": "test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.69s"
+  },
+  {
+    "line": 2992,
+    "text": "test loop_runner::recovery_tests::correction_capacity_waits_cancels_reopens_and_never_seals_an_oversized_tail ... ok"
+  },
+  {
+    "line": 3087,
+    "text": "test result: ok. 116 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 44.97s"
+  }
+]

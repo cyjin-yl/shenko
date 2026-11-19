@@ -213,6 +213,47 @@ store at S1.
 
 ## R0 rejection and correction
 
+A correction is a new request with a newly counted complete payload and the
+original output reservation. The recorded result and its terminal evidence stay
+`ResultRecorded` while an owned policy preparation is pending. Cancellation drops
+that owner; it does not retire the original step, mint an admitted replacement,
+consume a contribution or acknowledge an input. Only a fitting complete
+correction reaches the existing atomic R0 replacement. A capacity refusal keeps
+the original result and reports its actual reason through the runtime error path.
+
+New S0 seals use body and codec version 14. The payload layout records the UTF-8
+system-prefix boundary, history/idle/contribution message counts and the observed
+image charge. A correction retains the complete rejected assistant text and
+canonical feedback, every earlier correction turn, original selected events,
+system/persona/provider, tools/options and `max_tokens`. The correction tail has
+message positions and a content digest; it is not assigned invented raw-event
+sequence numbers. The policy budget first reserves this immutable material.
+
+A policy may reproject execution facts only within the parent's original raw
+scope and leaf. Its new observation names the adopted window and current
+execution projection separately from `parent_input_ref` and `parent_source`, which
+continue to name the original S0. Store checks these pins, the full tail and the
+current observation/window/model inside R0's transaction. A moved observation
+leaves the original `ResultRecorded` step unchanged. The window worker has its
+own stable read and call-state baseline, as described in
+[context preparation](context-policies.md#慢路径请求之外); the final projection
+revision does not retroactively prove the worker's read.
+
+Readers require the version-14 layout and the `input_plans` /
+`subject_step_input` / major-14 codec. Old version-12/13 seals retain their actual
+format, including the historical major-12 codec; they are not assigned inferred
+layout fields. Plain-text legacy corrections can be fully recounted and appended
+under the same body version. A legacy image/contribution charge that cannot be
+recovered, an unsupported native/document payload, or a correction requiring
+layout-dependent compaction is explicitly blocked for reconciliation/migration.
+R0 rejects a version-14 parent being replaced with a version-12/13 input.
+
+Token counts here remain the named heuristic, calibrated against the immediate
+parent's actual provider input usage when available. They are not a provider
+tokenizer. Store independently checks binding, layout, immutable material and
+declared budget against the served limit; it does not independently tokenize the
+payload. Provider refusal and actual usage remain authoritative observations.
+
 A syntactically valid disposition or obligation origin that names an event outside
 its own sealed S0 is rejected BEFORE the step can be committed, at the same parsed-result boundary
 that validates the rest of the control protocol. This is not an S1 conflict

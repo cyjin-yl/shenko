@@ -1,0 +1,173 @@
+{
+  "recorded_at": "2026-11-16T20:08:54.164452+00:00",
+  "bundle": "seat-successor.bundle",
+  "bytes": 37355,
+  "sha256": "da1d8944687d2c100437b5a5a1d142d32b39498549118bb7e3469703f833340e",
+  "verify_exit": 0,
+  "prerequisites": [
+    "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+    "e4d45747d53f7701aea4a293310192dac2126205",
+    "5a1075de15b3ef17cade103bc5f6acddd5229dcd"
+  ],
+  "prerequisite_source_bundle": "authored-checkpoints.bundle",
+  "prerequisite_source_bundle_sha256": "cb09e95a5e3146d15fe53e2fb7e15bd9d79864a07fa3eca10c51dd693b7f6358",
+  "commits": [
+    {
+      "commit": "95e0a2d68b459f3cfee9561d5211a40b3d6a1499",
+      "tree": "104708f0ae12b443f37af39db618d101a2d584f1",
+      "parents": "e4d45747d53f7701aea4a293310192dac2126205",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T19:54:26Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T19:54:26Z",
+      "message": "fix(seats): retain close failures and bind handlers to the owner generation\n\n",
+      "bundle_ref": "refs/heads/checkpoint/seat-reviewed-20261116"
+    },
+    {
+      "commit": "74ea34d6c6c7f52875a575d74b869480b63aac4b",
+      "tree": "dc653a40c94bcaeaa57d6980293493bb4a30ca88",
+      "parents": "a65a71f565e6030f0f0637a0b013592fa855477f",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:00:27Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:00:27Z",
+      "message": "docs: distinguish missing E1 marker from broken proof\n\n",
+      "bundle_ref": "refs/heads/checkpoint/native-e1-successor-reviewed-20261116"
+    },
+    {
+      "commit": "ff771184d8dd05b4c2125483958cfb2c55319bb4",
+      "tree": "6df8cde18f28aaeece746e042515523f69b97c3c",
+      "parents": "574f1a84d7f97b51b5eef34a8fefaab798e2e0ae",
+      "author_name": "Shenko continuation agent",
+      "author_email": "shenko-continuation@users.noreply.github.com",
+      "author_time": "2026-11-16T20:00:27Z",
+      "committer_name": "Shenko continuation agent",
+      "committer_email": "shenko-continuation@users.noreply.github.com",
+      "committer_time": "2026-11-16T20:07:01Z",
+      "message": "docs: distinguish missing E1 marker from broken proof\n\n(cherry picked from commit 74ea34d6c6c7f52875a575d74b869480b63aac4b)\n\n",
+      "bundle_ref": "refs/heads/checkpoint/seat-successor-integration-20261116"
+    }
+  ],
+  "source_comparison": [
+    {
+      "scope": "seat",
+      "original_base": "7905e8413b96015d96ea301bd1f3b6937dcfff90",
+      "original_head": "95e0a2d68b459f3cfee9561d5211a40b3d6a1499",
+      "source_files_equal_after_integration": [
+        {
+          "path": "bin/shenko/src/runtime_sessions.rs",
+          "git_blob": "af226322b5f16fb50dca180f51d2aedf90e41950"
+        },
+        {
+          "path": "bin/shenko/src/runtime_sessions_tests.rs",
+          "git_blob": "911ca67561231c48330541daf574e9bb55e38992"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native.rs",
+          "git_blob": "b146afa5334fb72254dd6f9f7da1dd1bdeb6dffe"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+          "git_blob": "899e13db1bff1da92748d5323c9e0f1e77324937"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+          "git_blob": "25877e64b4d814342b5b5ff3f28b3a872ae07368"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+          "git_blob": "9c746a0d0fc6d90c37c7e9a79b7a628c82366664"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/claude_sdk.rs",
+          "git_blob": "3b21ed06e1fb34e394051f301bad54d1b3109ae8"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/managed_lifecycle_tests.rs",
+          "git_blob": "6717bbfb14f8821435815af7d987bf82163929dd"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/managed_process.rs",
+          "git_blob": "2e40be262b6cdccb37a1d4b68bd07bd690da8180"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/mod.rs",
+          "git_blob": "95bcc8b09bfc54e08a7e8121c3113fe4e1a60883"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/omp_rpc.rs",
+          "git_blob": "28d4d63555aa8dea24bb0ac8a66a898df4c837d3"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+          "git_blob": "0ae287ab15c56a36edaa8974de6dddcbc6738bfc"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+          "git_blob": "74a4ad16bb3ffaa58d93bdf46fc1031559a5cbcb"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/tests/real_omp_seat.rs",
+          "git_blob": "957bbefaf7c0438dbef9a73fd24b726a7f6f621b"
+        }
+      ]
+    },
+    {
+      "scope": "native-e1",
+      "original_base": "5a1075de15b3ef17cade103bc5f6acddd5229dcd",
+      "original_head": "74ea34d6c6c7f52875a575d74b869480b63aac4b",
+      "source_files_equal_after_integration": [
+        {
+          "path": "bin/shenko/src/native_evidence_sync.rs",
+          "git_blob": "79df052a0fcbf63bc30652c74bd5ba9ccfd87ca7"
+        },
+        {
+          "path": "bin/shenko/src/node_sync.rs",
+          "git_blob": "a945a110797fdad32b518f61cedb0471c0545434"
+        },
+        {
+          "path": "bin/shenko/tests/native_evidence_delivery.rs",
+          "git_blob": "11060545535865422e9cea5edff0accad6ce3ea1"
+        },
+        {
+          "path": "bin/shenko/tests/support/native_e1_snapshot.py",
+          "git_blob": "f7b7615602400341cefd9baa668869c194db3a59"
+        },
+        {
+          "path": "crates/shenko-node/src/lib.rs",
+          "git_blob": "a509e0712ca8da5c2f4411359c11542b37f30c3b"
+        },
+        {
+          "path": "crates/shenko-store/src/external.rs",
+          "git_blob": "ed1998c28ec234d663c77c9b014733fc8ad78a15"
+        },
+        {
+          "path": "crates/shenko-store/src/lib.rs",
+          "git_blob": "32ad20d2e81b3c0c6b22fefe4f40e1f3ecd66fee"
+        },
+        {
+          "path": "crates/shenko-store/src/native_evidence.rs",
+          "git_blob": "1e60ec7fbeedeb787d1aaeafedf37edc8ba2c2ac"
+        },
+        {
+          "path": "crates/shenko-store/src/native_evidence_delivery.rs",
+          "git_blob": "8fb92b3b39c8cade74ad6abfbfe1fd568697ca6d"
+        },
+        {
+          "path": "crates/shenko-store/src/native_evidence_successor.rs",
+          "git_blob": "84778b75b65792b8e240badc298482f4349a232c"
+        },
+        {
+          "path": "crates/shenko-types/src/native_evidence.rs",
+          "git_blob": "6a837e906d9f68d647041b9455ca6dcc47beb41d"
+        }
+      ]
+    }
+  ],
+  "product_runtime_executed": false,
+  "scope": "Exact source, author and integration preservation; source review is not Rust/SSH/seat execution. Earlier runtime results retain their original bindings."
+}

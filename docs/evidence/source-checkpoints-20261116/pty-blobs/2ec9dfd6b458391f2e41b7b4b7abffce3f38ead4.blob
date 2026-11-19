@@ -1,0 +1,61 @@
+# PTY local write and flush receipts
+
+This increment connects the existing SSH PTY seat to an actual local transport
+boundary. It grants no Store authority and does not close the installation-wide
+writer exclusion gap.
+
+## Production path
+
+`SshPtySeat` admits each original input into its existing single-owner pump.
+Admission is bounded at 32 commands, including replies whose caller has not yet
+resumed. Each record keeps the complete original bytes (including the carriage
+return added by `submit`) or the exact `INT` signal request, its digest, an
+independent local write identity and the supplied writer epoch. That epoch is
+attribution, not a new lease validation.
+
+The vendored client's `FlushOutbound` travels on the same sender FIFO as the
+channel write. It completes only after prior channel-window/rekey queues and the
+packet writer have drained through `PacketWriter::flush_into`, including the
+underlying stream's flush. It does not use `ChannelTx::poll_flush`, which only
+returns queue-interface success. A channel-scoped receipt also requires the
+original channel still to exist at the boundary, so a peer close cannot silently
+turn discarded data into a successful receipt.
+
+The same pump continues feeding terminal output while waiting for that write.
+The reader and borrowed writer are disjoint views of the original session, not
+two physical sessions or an alternative execution route. Successful local flush
+maps to `Unconfirmed`, never to remote application acceptance.
+
+## Cancellation and failure
+
+A caller cancelled after admission synchronously closes the original owned
+stream through its shared stop handle. The stream serializes that close with a
+single actual nonblocking I/O poll; once close returns, no later inner write is
+polled. The original pump still owns close and join. Its active command becomes
+`Unknown`, and queued commands that never began become `NotSent`. Original bytes
+and observed errors remain in the pump journal and close observation; they are
+never selected again or replayed. Cancelling before admission cannot enqueue an
+input.
+
+The pump's last completed command and at most 32 outstanding records are kept.
+This is a bound on command count, not a new byte or RSS bound. Store's original
+decision/result path remains responsible for durable evidence. A dropped owner
+closes the physical stream before aborting the task. A cancelled closer retains
+the original join handle and any already-observed failure. An observed session
+error remains separate from observing that the local session has ended.
+
+## Boundaries and validation
+
+This source checkpoint has not been compiled or executed: the current local
+environment has no usable Rust toolchain. The existing close-cancellation
+journey and all nine scenarios from the preceding admission/outcome increment
+remain unchanged. A following fixture checkpoint will use the existing real SSH
+packet/PTY protocol fixture over bounded streams, with at most five new risk
+windows. Such a fixture is not a remote OpenSSH process or device acceptance
+journey.
+
+Continuous cross-process installation exclusion, canonical/import/slot mutation
+coordination, selection checks on old Store handles, and the managed stdio wire
+boundary remain separate work. Closing this local stream cannot retract bytes
+already transmitted, stop unrelated human input, prove a remote process stopped,
+or promise a physical effect happened exactly once.

@@ -1,0 +1,1058 @@
+{
+  "subject_branch_heads": [
+    {
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "committed_step_no": 0,
+      "committed_step_id": null,
+      "next_step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+      "mode": "active",
+      "record_revision": 3,
+      "data": {
+        "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+        "subject_root_task_id": "c103db54-4594-43bb-9568-4b1a417184a3",
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "genesis_ref": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "genesis_id": "80a10f4b-eb84-4db0-beaa-6e9647b96aec"
+        },
+        "committed_step_no": 0,
+        "committed_step_id": null,
+        "committed_at": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 1
+        },
+        "next_step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+        "mode": "active",
+        "mode_reason_ref": null,
+        "record_revision": 3
+      },
+      "updated_commit_seq": 10,
+      "created_at": "2026-11-16 13:30:30"
+    }
+  ],
+  "subject_steps": [
+    {
+      "step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+      "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "step_no": 1,
+      "state": "awaiting_model",
+      "record_revision": 3,
+      "data": {
+        "step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+        "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+        "step_no": 1,
+        "expected_parent_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 1
+        },
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "state": "awaiting_model",
+        "input_plan_ref": {
+          "digest": "blake3:6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "bytes": 56953,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/6a/a3/6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 13,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "context_revision": 1,
+        "active_request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49",
+        "active_attempt_id": null,
+        "model_result_ref": null,
+        "model_outcome_ref": null,
+        "decision_ref": null,
+        "commit_ref": null,
+        "retry_reason_ref": null,
+        "record_revision": 3,
+        "created_by_step_id": null
+      },
+      "updated_commit_seq": 15,
+      "created_at": "2026-11-16 13:30:30"
+    }
+  ],
+  "subject_genesis": [
+    {
+      "genesis_id": "80a10f4b-eb84-4db0-beaa-6e9647b96aec",
+      "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "bootstrap_id": "f608b358-d953-4cb9-bc8c-d8b7458671de",
+      "data": {
+        "genesis_id": "80a10f4b-eb84-4db0-beaa-6e9647b96aec",
+        "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "bootstrap_id": "f608b358-d953-4cb9-bc8c-d8b7458671de",
+        "launch_id": "70ea27f3-4b1b-4bdb-8885-a5c7f9b88281",
+        "seed_manifest_ref": {
+          "digest": "blake3:08d3a5c6c78f4676647b6745397ee45042e86530600fa03a68ff1615f5361ccb",
+          "bytes": 1117,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/08/d3/08d3a5c6c78f4676647b6745397ee45042e86530600fa03a68ff1615f5361ccb",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "initial_profile_ref": {
+          "digest": "blake3:8bc05ace859e6c743980c103706ed33c6eadefa98d99bbcdeba4f91110c93743",
+          "bytes": 88,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/8b/c0/8bc05ace859e6c743980c103706ed33c6eadefa98d99bbcdeba4f91110c93743",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "home_manifest_ref": {
+          "digest": "blake3:67539433a2192cf6b14ebceb426337459d8900b0fd6c70ce5c99616898ec55e3",
+          "bytes": 1900,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/67/53/67539433a2192cf6b14ebceb426337459d8900b0fd6c70ce5c99616898ec55e3",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "bootstrap_event_ref": {
+          "digest": "blake3:cdcba9adcb4fe3ca1df6d978f843a347296df19162fd47ae5c618187c099b592",
+          "bytes": 1026,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/cd/cb/cdcba9adcb4fe3ca1df6d978f843a347296df19162fd47ae5c618187c099b592",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "created_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 1
+        }
+      },
+      "created_commit_seq": 1,
+      "created_at": "2026-11-16 13:30:30"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "c103db54-4594-43bb-9568-4b1a417184a3",
+      "record_revision": 0,
+      "data": {
+        "record_schema_version": 1,
+        "task_id": "c103db54-4594-43bb-9568-4b1a417184a3",
+        "task_revision": 0,
+        "record_revision": 0,
+        "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "conversation_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "owner": {
+          "kind": "task",
+          "id": "c103db54-4594-43bb-9568-4b1a417184a3"
+        },
+        "background": false,
+        "kind": "subject_root",
+        "definition_version": 1,
+        "implementation_ref": {
+          "plugin_id": "00000000-0000-0000-0000-000000000000",
+          "artifact_digest": "blake3:87bc81b8d1da7fad87ee3aabb7a8e794b38f899d7dfd0b16c1229333eaeddf10",
+          "registry_revision": 1
+        },
+        "input_ref": {
+          "digest": "blake3:08d3a5c6c78f4676647b6745397ee45042e86530600fa03a68ff1615f5361ccb",
+          "bytes": 1117,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/08/d3/08d3a5c6c78f4676647b6745397ee45042e86530600fa03a68ff1615f5361ccb",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "state": {
+          "status": "pending",
+          "checkpoint_ref": null
+        },
+        "dispatch_eligibility": {
+          "status": "ready"
+        },
+        "no_progress_crashes": 0,
+        "created_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 0
+        },
+        "updated_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 0
+        }
+      },
+      "updated_commit_seq": 1,
+      "created_at": "2026-11-16 13:30:30"
+    }
+  ],
+  "task_results": [],
+  "operations": [],
+  "attempts": [],
+  "evidence_receipts": [],
+  "web_input_submissions": [
+    {
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "submission_id": "4124c0ac-172d-48a8-8735-10eca6303bba",
+      "event_id": "90575fbc-6da0-4a13-a142-63668713165d",
+      "payload": {
+        "attachment_refs": [],
+        "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-6b3f7d804414。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+        "message_id": "f7296daf-a245-48e4-bd24-43852b8ff716",
+        "mode": "append",
+        "observed_request_id": null,
+        "observed_step_id": null,
+        "rich_content_ref": null,
+        "schema_version": 2,
+        "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "submission_id": "4124c0ac-172d-48a8-8735-10eca6303bba",
+        "type": "submit"
+      },
+      "accepted_commit_seq": 9,
+      "created_at": "2026-11-16 13:30:33"
+    }
+  ],
+  "subject_intents": [],
+  "session_events": [
+    {
+      "event_id": "6f7dd7cd-4602-461b-91bf-9d8acbce2d92",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 1,
+      "event_type": "user",
+      "role": "user",
+      "data": {
+        "inbox_event": {
+          "created_at": "2026-11-16T13:30:33.136164548Z",
+          "event_id": "90575fbc-6da0-4a13-a142-63668713165d",
+          "kind": "message",
+          "payload": {
+            "attachment_refs": [],
+            "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-6b3f7d804414。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+            "message_id": "f7296daf-a245-48e4-bd24-43852b8ff716",
+            "mode": "append",
+            "observed_request_id": null,
+            "observed_step_id": null,
+            "role": "user",
+            "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+            "submission_id": "4124c0ac-172d-48a8-8735-10eca6303bba"
+          },
+          "source": "web_ui"
+        },
+        "text": "[event 90575fbc-6da0-4a13-a142-63668713165d] [web_ui] 请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-6b3f7d804414。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:30:33"
+    },
+    {
+      "event_id": "e084a8bb-5b90-4cc8-8060-f0217976fb7f",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 2,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:d598ce00d841901f2715833f62581a13323c991267fc5661630087f979ef0aee",
+        "extra": {
+          "conversation_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+          "purpose": "subject",
+          "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49"
+        },
+        "journal_dropped_total": 0,
+        "kind": "inference_broker",
+        "message": "INFERENCE_TRANSPORT_TIMEOUT: provider HTTP request timed out after the sealed 1200000 ms observation limit; remote termination is unconfirmed and the original request must be reconciled",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.619Z",
+        "source_module": "shenko-broker",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "fa43ab92-f40a-4e86-a1dc-f19f0b332b67",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 3,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:6f5ef2699b24d3baa062747f561288b73791f1610beba827d9ac6afc2987569b",
+        "extra": {
+          "conversation_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+          "purpose": "subject",
+          "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49"
+        },
+        "journal_dropped_total": 0,
+        "kind": "inference_broker",
+        "message": "INFERENCE_OUTCOME_UNKNOWN: provider outcome unknown",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.639Z",
+        "source_module": "shenko-broker",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "88b9ded5-472b-42b9-88ba-c28e7cb48b73",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 4,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:a7389c2e74473180e53ee65ba15da6634a23f86ca6d0dcd862caa004fcbbca9e",
+        "extra": {},
+        "journal_dropped_total": 0,
+        "kind": "subject_loop",
+        "message": "subject loop stopped on error: model outcome not conclusive; preserve original awaiting_model for reconciliation",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.640Z",
+        "source_module": "shenko_subject::loop_runner",
+        "step_no": 1,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "b7b055a0-8eb3-43eb-9165-5fbf926c64b8",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 5,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:74af19430b8f5d36150b82f33603548c5e2bcd2a367023ba9907b76c443949fe",
+        "extra": {
+          "unit_id": "policy.budget-compact"
+        },
+        "journal_dropped_total": 0,
+        "kind": "context_policy_lifecycle",
+        "message": "policy.budget-compact installation observer failed: plugin host is shut down",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.646Z",
+        "source_module": "shenko::context_policy",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "a2b99a1a-71b0-4be2-afbf-93069e034cd9",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 6,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:131b9c24a6991f951f8b29ca69de5a660e3db0e6e646ff3e09e4fafbaed99769",
+        "extra": {
+          "unit_id": "policy.snapcompact"
+        },
+        "journal_dropped_total": 0,
+        "kind": "context_policy_lifecycle",
+        "message": "policy.snapcompact installation observer failed: plugin host is shut down",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.653Z",
+        "source_module": "shenko::context_policy",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "d6def581-993a-4ddc-915d-6820f3c4dbdb",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 7,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:9e62712e6d6275c91999dbd20c400354aec5dec2dd62ada4ce3ca9089231e875",
+        "extra": {
+          "unit_id": "policy.notes-rollover-compact"
+        },
+        "journal_dropped_total": 0,
+        "kind": "context_policy_lifecycle",
+        "message": "policy.notes-rollover-compact installation observer failed: native definition retirement also failed: plugin host is shut down: plugin host is shut down",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.657Z",
+        "source_module": "shenko::context_policy",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    },
+    {
+      "event_id": "543fa7bb-1417-4b90-87e9-9ca7fa0a2d04",
+      "session_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+      "seq": 8,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:333c2b753306b4bec72ac05ea90ba4f91de3fe62fb2576f6bf35238659e53916",
+        "extra": {
+          "record_level": "Warn"
+        },
+        "journal_dropped_total": 0,
+        "kind": "cordis_lifecycle",
+        "message": "Cordis lifecycle failure: cordis: effect cleanup returned an error: plugin host is shut down",
+        "message_truncated": false,
+        "occurred_at": "2026-11-16T13:50:33.658Z",
+        "source_module": "shenko_kernel::plugin",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-16 13:50:33"
+    }
+  ],
+  "inbox_events": [
+    {
+      "event_id": "1e524a85-8ad9-4257-a983-943b80832156",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "kind": "system_event",
+      "source": "commit-authority",
+      "consumed": 0,
+      "data": {
+        "event_id": "1e524a85-8ad9-4257-a983-943b80832156",
+        "kind": "system_event",
+        "payload": {
+          "binding": {
+            "committed_at": {
+              "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+              "seq": 5
+            },
+            "controller_epoch": 2,
+            "schema_version": 1,
+            "software_generation": "seed",
+            "stamp": {
+              "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+              "holder_id": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+              "revision": "blake3:65375898de96e476bcb85c1fae183b5ddabb3d744988264e05e4d1370154b06b",
+              "source_id": "node:1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+              "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+            },
+            "writer_incarnation": "65dc1ff4-d98c-4b7e-8bc5-4abddac5363f"
+          },
+          "kind": "authority.bound",
+          "previous": null,
+          "previous_boundary": null
+        },
+        "created_at": "2026-11-16T13:30:31.222051227Z",
+        "source": "commit-authority"
+      },
+      "created_at": "2026-11-16 13:30:31"
+    },
+    {
+      "event_id": "90575fbc-6da0-4a13-a142-63668713165d",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "kind": "message",
+      "source": "web_ui",
+      "consumed": 1,
+      "data": {
+        "event_id": "90575fbc-6da0-4a13-a142-63668713165d",
+        "kind": "message",
+        "payload": {
+          "attachment_refs": [],
+          "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-6b3f7d804414。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+          "message_id": "f7296daf-a245-48e4-bd24-43852b8ff716",
+          "mode": "append",
+          "observed_request_id": null,
+          "observed_step_id": null,
+          "role": "user",
+          "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+          "submission_id": "4124c0ac-172d-48a8-8735-10eca6303bba"
+        },
+        "created_at": "2026-11-16T13:30:33.136164548Z",
+        "source": "web_ui"
+      },
+      "created_at": "2026-11-16 13:30:33"
+    },
+    {
+      "event_id": "7b4e3b11-3de9-e343-449f-d28dbb6f422a",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "kind": "system_event",
+      "source": "commit-authority",
+      "consumed": 0,
+      "data": {
+        "event_id": "7b4e3b11-3de9-e343-449f-d28dbb6f422a",
+        "kind": "system_event",
+        "payload": {
+          "admission": {
+            "action_id": "329066af-391b-1bbb-daf6-d85e2ab54aed",
+            "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+            "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+            "conflict_aliases": [
+              "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/2"
+            ],
+            "conflict_key": "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/request-after/00000000-0000-0000-0000-000000000000",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 4888,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+              "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/7c/d5/7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+          },
+          "committed_at": {
+            "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+            "seq": 15
+          },
+          "grant": {
+            "admission": {
+              "action_id": "329066af-391b-1bbb-daf6-d85e2ab54aed",
+              "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+              "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+              "conflict_aliases": [
+                "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/2"
+              ],
+              "conflict_key": "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/request-after/00000000-0000-0000-0000-000000000000",
+              "controller_epoch": 2,
+              "expected_head_revision": null,
+              "expected_parent": null,
+              "operation_id": null,
+              "payload_ref": {
+                "bytes": 4888,
+                "codec": {
+                  "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                  "major": 1,
+                  "name": "commit-admission"
+                },
+                "digest": "blake3:7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+                "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/7c/d5/7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+                "media_type": "application/json",
+                "store_namespace": "commit-authority"
+              },
+              "schema_version": 1,
+              "software_generation": "seed",
+              "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+            },
+            "grant_id": "control:3:blake3:31c64f71064609732f4f44834b70dfcc32567f62d19eb29aaec4b0eba7ade66c",
+            "proof": {
+              "durability": {
+                "acknowledgements": [
+                  {
+                    "accepted": true,
+                    "ballot": {
+                      "proposer": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                      "term": 2
+                    },
+                    "configuration_digest": "blake3:80761b6d2ca6b62cdefc126fe7009e667f8792bce8f7b38b4943b26e14c6d6ed",
+                    "configuration_revision": 1,
+                    "entry_digest": "blake3:31c64f71064609732f4f44834b70dfcc32567f62d19eb29aaec4b0eba7ade66c",
+                    "index": 3,
+                    "observed_term": 2,
+                    "prefix_digest": "blake3:4a162d7857bc7879a8401fd953c882632c51d39a22b9fa5b8737033105c53b46",
+                    "reason": "durably_accepted",
+                    "responder_id": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                    "schema": 3
+                  }
+                ],
+                "ballot": {
+                  "proposer": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                  "term": 2
+                }
+              },
+              "index": 3,
+              "kind": "admission",
+              "payload": {
+                "admission": {
+                  "action_id": "329066af-391b-1bbb-daf6-d85e2ab54aed",
+                  "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+                  "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+                  "conflict_aliases": [
+                    "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/2"
+                  ],
+                  "conflict_key": "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/request-after/00000000-0000-0000-0000-000000000000",
+                  "controller_epoch": 2,
+                  "expected_head_revision": null,
+                  "expected_parent": null,
+                  "operation_id": null,
+                  "payload_ref": {
+                    "bytes": 4888,
+                    "codec": {
+                      "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                      "major": 1,
+                      "name": "commit-admission"
+                    },
+                    "digest": "blake3:7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+                    "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/7c/d5/7cd58c710b6e7261a917f95d0ecfca08e64ff05db7f365d53597196f2bcc8b82",
+                    "media_type": "application/json",
+                    "store_namespace": "commit-authority"
+                  },
+                  "schema_version": 1,
+                  "software_generation": "seed",
+                  "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+                }
+              },
+              "schema": 3,
+              "term": 2
+            },
+            "replayed": false
+          },
+          "kind": "authority.admission_applied"
+        },
+        "created_at": "2026-11-16T13:30:33.548998583Z",
+        "source": "commit-authority"
+      },
+      "created_at": "2026-11-16 13:30:33"
+    },
+    {
+      "event_id": "fee915c1-4cf0-e23d-3e13-ea30878ea7a2",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "kind": "system_event",
+      "source": "commit-authority",
+      "consumed": 0,
+      "data": {
+        "event_id": "fee915c1-4cf0-e23d-3e13-ea30878ea7a2",
+        "kind": "system_event",
+        "payload": {
+          "admission": {
+            "action_id": "316838db-a598-651a-b717-41354652e827",
+            "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+            "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+            "conflict_key": "attempt/c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe/dispatch",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 3295,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+              "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/a3/79/a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/3"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+          },
+          "committed_at": {
+            "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+            "seq": 16
+          },
+          "grant": {
+            "admission": {
+              "action_id": "316838db-a598-651a-b717-41354652e827",
+              "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+              "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+              "conflict_key": "attempt/c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe/dispatch",
+              "controller_epoch": 2,
+              "expected_head_revision": null,
+              "expected_parent": null,
+              "operation_id": null,
+              "payload_ref": {
+                "bytes": 3295,
+                "codec": {
+                  "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                  "major": 1,
+                  "name": "commit-admission"
+                },
+                "digest": "blake3:a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+                "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/a3/79/a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+                "media_type": "application/json",
+                "store_namespace": "commit-authority"
+              },
+              "required_unconsumed": [
+                "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/3"
+              ],
+              "schema_version": 1,
+              "software_generation": "seed",
+              "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+            },
+            "grant_id": "control:4:blake3:ed72ed6ba78c964ac57804048ce4356ebb04a78079d24dd5530c24f23a715274",
+            "proof": {
+              "durability": {
+                "acknowledgements": [
+                  {
+                    "accepted": true,
+                    "ballot": {
+                      "proposer": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                      "term": 2
+                    },
+                    "configuration_digest": "blake3:80761b6d2ca6b62cdefc126fe7009e667f8792bce8f7b38b4943b26e14c6d6ed",
+                    "configuration_revision": 1,
+                    "entry_digest": "blake3:ed72ed6ba78c964ac57804048ce4356ebb04a78079d24dd5530c24f23a715274",
+                    "index": 4,
+                    "observed_term": 2,
+                    "prefix_digest": "blake3:c4db91f09071884293af29a202ac8b6580a0a82ef586a5efc1c2d242e0e9a03d",
+                    "reason": "durably_accepted",
+                    "responder_id": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                    "schema": 3
+                  }
+                ],
+                "ballot": {
+                  "proposer": "1ba8db01-dd9d-415a-9e47-84d56c9e5704",
+                  "term": 2
+                }
+              },
+              "index": 4,
+              "kind": "admission",
+              "payload": {
+                "admission": {
+                  "action_id": "316838db-a598-651a-b717-41354652e827",
+                  "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+                  "branch_id": "414c28ed-09fd-464c-8e6f-974815f1f3a0",
+                  "conflict_key": "attempt/c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe/dispatch",
+                  "controller_epoch": 2,
+                  "expected_head_revision": null,
+                  "expected_parent": null,
+                  "operation_id": null,
+                  "payload_ref": {
+                    "bytes": 3295,
+                    "codec": {
+                      "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                      "major": 1,
+                      "name": "commit-admission"
+                    },
+                    "digest": "blake3:a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+                    "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/a3/79/a379a991f4260e7bee61093c26b960fef36fac4b8f8bfe32454e5c6a47cac385",
+                    "media_type": "application/json",
+                    "store_namespace": "commit-authority"
+                  },
+                  "required_unconsumed": [
+                    "step/91047ffe-2ae8-4963-902f-9eeb73c9041c/revision/3"
+                  ],
+                  "schema_version": 1,
+                  "software_generation": "seed",
+                  "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0"
+                }
+              },
+              "schema": 3,
+              "term": 2
+            },
+            "replayed": false
+          },
+          "kind": "authority.admission_applied"
+        },
+        "created_at": "2026-11-16T13:30:33.612627048Z",
+        "source": "commit-authority"
+      },
+      "created_at": "2026-11-16 13:30:33"
+    }
+  ],
+  "subject_request_attempts": [
+    {
+      "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+      "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+      "send_id": null,
+      "state": "\"terminal\"",
+      "input_plan_ref": "{\"digest\":\"blake3:6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000\",\"bytes\":56953,\"media_type\":\"application/json\",\"store_namespace\":\"input_plans\",\"locator\":\"file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/6a/a3/6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000\",\"codec\":{\"name\":\"subject_step_input\",\"major\":13,\"digest\":\"blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a\"}}",
+      "payload_digest": "blake3:37b553863a2a264dc3346386a6de8d6de5dcbbe5a19bab72a42b5fe3f1104341",
+      "provider_binding_digest": "blake3:e525c9dc597d445a027c349ac335319b758382a1842714228cf188a2eb1e4746",
+      "data": {
+        "schema_version": 1,
+        "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49",
+        "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+        "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+        "send_id": null,
+        "state": "terminal",
+        "input_plan_ref": {
+          "digest": "blake3:6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "bytes": 56953,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/6a/a3/6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 13,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "payload_digest": "blake3:37b553863a2a264dc3346386a6de8d6de5dcbbe5a19bab72a42b5fe3f1104341",
+        "provider_binding_digest": "blake3:e525c9dc597d445a027c349ac335319b758382a1842714228cf188a2eb1e4746",
+        "terminal": {
+          "outcome": {
+            "status": "failed",
+            "stop_reason": null,
+            "termination": {
+              "kind": "unknown",
+              "length": false,
+              "max_tokens": null,
+              "output_tokens": null,
+              "stop_reason": null
+            },
+            "usage": null
+          },
+          "result_ref": {
+            "digest": "blake3:d9f2109385e7c3d36f0277c55b59ccf2e0dd4adf2823bdf791340b829b2bc438",
+            "bytes": 626,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/d9/f2/d9f2109385e7c3d36f0277c55b59ccf2e0dd4adf2823bdf791340b829b2bc438",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "recorded_commit": {
+            "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+            "seq": 28
+          }
+        },
+        "created_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 15
+        }
+      },
+      "created_commit_seq": 15,
+      "updated_commit_seq": 28
+    }
+  ],
+  "content_streams": [
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "kind": "provider_stream",
+      "binding": "{\"kind\":\"local\",\"base_url\":\"http://127.0.0.1:18832\",\"model\":\"Qwen3-0.6B-Q4_K_M\",\"allow_invalid_certs\":false,\"serializer_revision\":4,\"default_max_tokens\":8192,\"request_timeout_ms\":1200000}",
+      "state": "closed",
+      "opened_commit_ref": "{\"ledger_id\":\"1358b9e6-4b71-464e-b1ee-a0b9650e703a\",\"seq\":17}",
+      "closed_commit_ref": "{\"ledger_id\":\"1358b9e6-4b71-464e-b1ee-a0b9650e703a\",\"seq\":27}",
+      "commit_seq": 27
+    }
+  ],
+  "content_stream_units": [
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 0,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": "[delegate",
+      "terminal": 0,
+      "commit_seq": 18
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 1,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": ":cla",
+      "terminal": 0,
+      "commit_seq": 19
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 2,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": "ude.se",
+      "terminal": 0,
+      "commit_seq": 20
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 3,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": "at:",
+      "terminal": 0,
+      "commit_seq": 21
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 4,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": "1]",
+      "terminal": 0,
+      "commit_seq": 22
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 5,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": " {\"command",
+      "terminal": 0,
+      "commit_seq": 23
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 6,
+      "shape": "chunk",
+      "content_kind": "provider_text",
+      "data": ":[",
+      "terminal": 0,
+      "commit_seq": 25
+    },
+    {
+      "stream_id": "provider/d37d7b66-dc66-4294-873e-84cb30ce8b49",
+      "seq": 7,
+      "shape": "whole",
+      "content_kind": "provider_terminal",
+      "data": {
+        "kind": "unknown",
+        "stop_reason": null,
+        "max_tokens": null,
+        "output_tokens": null,
+        "length": false
+      },
+      "terminal": 1,
+      "commit_seq": 26
+    }
+  ],
+  "subject_quiesce_requests": [
+    {
+      "request_id": "3af089d4-5981-4a35-aa95-10d1ba16540a",
+      "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+      "state": "resumed",
+      "data": {
+        "request_id": "3af089d4-5981-4a35-aa95-10d1ba16540a",
+        "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "generation": "seed",
+        "epoch": 2,
+        "state": "resumed",
+        "requested_at": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 6
+        },
+        "boundary_at": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 7
+        },
+        "closed_at": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 10
+        }
+      },
+      "updated_commit_seq": 10
+    }
+  ],
+  "decisions": [],
+  "subject_request_results": [
+    {
+      "attempt": {
+        "schema_version": 1,
+        "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49",
+        "attempt_id": "c9e4b01a-1ac0-4b7d-9c94-4f611dbe20fe",
+        "agent_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+        "step_id": "91047ffe-2ae8-4963-902f-9eeb73c9041c",
+        "send_id": null,
+        "state": "terminal",
+        "input_plan_ref": {
+          "digest": "blake3:6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "bytes": 56953,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/6a/a3/6aa359d54d36c3077d2e59ecb45d8c34792f83154ae8c0d7e2e2151eae4ed000",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 13,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "payload_digest": "blake3:37b553863a2a264dc3346386a6de8d6de5dcbbe5a19bab72a42b5fe3f1104341",
+        "provider_binding_digest": "blake3:e525c9dc597d445a027c349ac335319b758382a1842714228cf188a2eb1e4746",
+        "terminal": {
+          "outcome": {
+            "status": "failed",
+            "stop_reason": null,
+            "termination": {
+              "kind": "unknown",
+              "length": false,
+              "max_tokens": null,
+              "output_tokens": null,
+              "stop_reason": null
+            },
+            "usage": null
+          },
+          "result_ref": {
+            "digest": "blake3:d9f2109385e7c3d36f0277c55b59ccf2e0dd4adf2823bdf791340b829b2bc438",
+            "bytes": 626,
+            "media_type": "application/json",
+            "store_namespace": "subject_requests",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/d9/f2/d9f2109385e7c3d36f0277c55b59ccf2e0dd4adf2823bdf791340b829b2bc438",
+            "codec": {
+              "name": "subject-request-result",
+              "major": 1,
+              "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+            }
+          },
+          "recorded_commit": {
+            "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+            "seq": 28
+          }
+        },
+        "created_commit": {
+          "ledger_id": "1358b9e6-4b71-464e-b1ee-a0b9650e703a",
+          "seq": 15
+        }
+      },
+      "result": {
+        "request_id": "d37d7b66-dc66-4294-873e-84cb30ce8b49",
+        "status": "failed",
+        "response": null,
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://127.0.0.1:18832",
+            "model": "Qwen3-0.6B-Q4_K_M",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 1200000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "termination": {
+          "kind": "unknown",
+          "stop_reason": null,
+          "max_tokens": null,
+          "output_tokens": null,
+          "length": false
+        },
+        "purpose": "subject",
+        "stream": {
+          "events": 0,
+          "batches": 0,
+          "public_chunks": 0,
+          "journaled": true
+        }
+      }
+    }
+  ]
+}

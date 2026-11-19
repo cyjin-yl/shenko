@@ -1,0 +1,12 @@
+The bundle contains these 7 refs:
+785197a61e068e3ac5c91a7176e5ea81ed1ede32 refs/heads/checkpoint/source-host-prompt-20261116
+5a1075de15b3ef17cade103bc5f6acddd5229dcd refs/heads/checkpoint/source-e1-retention-20261116
+2798bb37ef793dc90a6dadccab0738aacff84b04 refs/heads/checkpoint/source-capture-budget-20261116
+e4d45747d53f7701aea4a293310192dac2126205 refs/heads/checkpoint/source-seat-lifecycle-pending-20261116
+8f4295242f334d9a22ba335a933a7934e39f6abd refs/heads/checkpoint/source-node-original-result-20261116
+db48a55721d1ed342f602c84111c49241f2d1bc3 refs/heads/checkpoint/source-node-archive-recipe-20261116
+a05253bb5b5000d302662140510f327dc458bcf1 refs/heads/checkpoint/source-integration-preparation-20261116
+The bundle requires these 2 refs:
+7905e8413b96015d96ea301bd1f3b6937dcfff90 
+262f980e2db13dac7d12e7df861fbf0ba707999d 
+The bundle uses this hash algorithm: sha1

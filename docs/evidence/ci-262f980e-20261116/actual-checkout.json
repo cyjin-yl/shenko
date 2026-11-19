@@ -1,0 +1,40 @@
+{
+  "sha": "aa58209c068ccce6ec3ed7f2441e8538989db34b",
+  "node_id": "C_kwDOVUFCKtoAKGFhNTgyMDljMDY4Y2NjZTZlYzNlZDdmMjQ0MWU4NTM4OTg5ZGIzNGI",
+  "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/aa58209c068ccce6ec3ed7f2441e8538989db34b",
+  "html_url": "https://github.com/cyjin-yl/shenko/commit/aa58209c068ccce6ec3ed7f2441e8538989db34b",
+  "author": {
+    "name": "cyjin.yl",
+    "email": "chenyejin2004@foxmail.com",
+    "date": "2026-11-16T19:16:30Z"
+  },
+  "committer": {
+    "name": "GitHub",
+    "email": "noreply@github.com",
+    "date": "2026-11-16T19:16:30Z"
+  },
+  "tree": {
+    "sha": "1740cd95768523613fd36d8da46c2ad91a7b60f2",
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/git/trees/1740cd95768523613fd36d8da46c2ad91a7b60f2"
+  },
+  "message": "Merge 262f980e2db13dac7d12e7df861fbf0ba707999d into 84ae19404f2a17d259362c99091db408b7262e14",
+  "parents": [
+    {
+      "sha": "84ae19404f2a17d259362c99091db408b7262e14",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/84ae19404f2a17d259362c99091db408b7262e14",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/84ae19404f2a17d259362c99091db408b7262e14"
+    },
+    {
+      "sha": "262f980e2db13dac7d12e7df861fbf0ba707999d",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/262f980e2db13dac7d12e7df861fbf0ba707999d",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/262f980e2db13dac7d12e7df861fbf0ba707999d"
+    }
+  ],
+  "verification": {
+    "verified": true,
+    "reason": "valid",
+    "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq+1aOCRC1aQ7uu5UhlAAArBUQAG+ZSH4BmegbWBFQiylKEw0B\nMa2G0t91w6XXqui5N9iotFN+1hseZ+e53uQezXwOH0BKoDCD1Pxf7D8/PYATieuX\nS9Lm8TiOqHCniB9yYLC+8nxokyiw2HrV5xPdgpIMXq5ZNR3aoxwlCkZCcob4mxGh\nzHQLRBwKq5f4+IQ0BJz4wN4AIekADtXsnBPaLrFZPHeGTapzImRtD25Nc/GGRduI\negTZeRv10TUIX6x8Vq3qlRfQkAW3L4xWwqEjOEbr1q/AlgxM5KNskwzQVzA2zPwC\nglvGy4qtPJrxQTqvme+VjdPI2MnvjOu/Px/jX3dXAOSVX+LbdqElbkQLQ8x5EXyN\nJW8M3P07kQN5jn1HTJqcOFqQYadmzLAUUHhHxZwbrhbNzPS6+ZNnYqA3ATED0T+b\nfs1SfFkh/sCuVUKmOvRowidyFwAPpTcNu9bEVzOtx3dAE3AHSPUf0UhgyNb3I0rV\nj+wgSH5tXWwki8xdDPHDyYtQn7Qj2BotWbkhZb9Vysc/i14xW2lC5YRLMtcWUyxJ\n9UG87RHzYrLCrfd52wy44opFPyy9lzEyw/2vVPfxo0aJc41yUsv6LQJDqd1qA8mw\nP0TACjXq86zzG4bGXqDE1N5wb8TPekeAus9BFWbFTqkE5NRoiydNMx5TcAqBS9Pv\nsoVTyR7cfbRNcm6AjMyy\n=oZ0M\n-----END PGP SIGNATURE-----\n",
+    "payload": "tree 1740cd95768523613fd36d8da46c2ad91a7b60f2\nparent 84ae19404f2a17d259362c99091db408b7262e14\nparent 262f980e2db13dac7d12e7df861fbf0ba707999d\nauthor cyjin.yl <chenyejin2004@foxmail.com> 1794856590 +0800\ncommitter GitHub <noreply@github.com> 1794856590 +0800\n\nMerge 262f980e2db13dac7d12e7df861fbf0ba707999d into 84ae19404f2a17d259362c99091db408b7262e14\n",
+    "verified_at": "2026-11-16T19:16:30Z"
+  }
+}

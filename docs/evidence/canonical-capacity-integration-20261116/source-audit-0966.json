@@ -1,0 +1,286 @@
+{
+  "native": {
+    "source": "dff743d509b88b4d28d4e62482532def75fa55bd",
+    "port_commit": "58d1f82b09fd25e3522ec273f423933743d34d7f",
+    "checkpoint": "0966d6990397a80881ccbb00c14635edd089c236",
+    "files": [
+      {
+        "path": "crates/shenko-store/src/arming_transition.rs",
+        "source_blob": "3ba047675fac5e616a083a74fe4a8f344b1283ad",
+        "checkpoint_blob": "3ba047675fac5e616a083a74fe4a8f344b1283ad",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "78014100e5c89f6efa41dc0b5ebd9db578f014a0c65cd370509029e08fdc9902",
+        "port_changed_line_sha256": "78014100e5c89f6efa41dc0b5ebd9db578f014a0c65cd370509029e08fdc9902",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/claim_transition.rs",
+        "source_blob": "b093df85d1370645de2d476465c23d2ef25dda19",
+        "checkpoint_blob": "b093df85d1370645de2d476465c23d2ef25dda19",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "9b1826530c9978847d671691bc6b03ae3909fbebc54bfd5729129f0cb954e88f",
+        "port_changed_line_sha256": "9b1826530c9978847d671691bc6b03ae3909fbebc54bfd5729129f0cb954e88f",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/control_predecessor.rs",
+        "source_blob": "eef08efb738db4c58e95a2340e968acdd7ce35d8",
+        "checkpoint_blob": "eef08efb738db4c58e95a2340e968acdd7ce35d8",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "3c2348f7ef8929621fdfc53aec0bede85b371ab68854ec91896d66313afeea15",
+        "port_changed_line_sha256": "3c2348f7ef8929621fdfc53aec0bede85b371ab68854ec91896d66313afeea15",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/control_transition.rs",
+        "source_blob": "b2789ba03c0067dbd4aee9f666a2f1822258d5da",
+        "checkpoint_blob": "b2789ba03c0067dbd4aee9f666a2f1822258d5da",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "299f37394578ede3fa09fb67217df13c2e1d207bc2dd454b18b8af8426ad921f",
+        "port_changed_line_sha256": "299f37394578ede3fa09fb67217df13c2e1d207bc2dd454b18b8af8426ad921f",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/external.rs",
+        "source_blob": "a636a9c9517e278556f1d811d628101e654cc28b",
+        "checkpoint_blob": "a636a9c9517e278556f1d811d628101e654cc28b",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "ccbac9983d628cb879ddee0c52e54f2640ef7b25522739a69b7e9c742f7d53bf",
+        "port_changed_line_sha256": "ccbac9983d628cb879ddee0c52e54f2640ef7b25522739a69b7e9c742f7d53bf",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/lib.rs",
+        "source_blob": "918ea88ffda5f3da91eb597496d83b091efbb6b7",
+        "checkpoint_blob": "4f5f921a60daf58b0327ca4f831b33274b31af93",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "3068b7f7dde81e56860eedf5656476fa35ce0288f4b0fb8f63516e8d478513e9",
+        "port_changed_line_sha256": "3068b7f7dde81e56860eedf5656476fa35ce0288f4b0fb8f63516e8d478513e9",
+        "later_checkpoint_changes": true
+      },
+      {
+        "path": "crates/shenko-store/src/native_evidence.rs",
+        "source_blob": "b50b5958806d11410ef5444934ab8f0680592d53",
+        "checkpoint_blob": "b50b5958806d11410ef5444934ab8f0680592d53",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "b06511ce282eef506418bd00b2b77aba4ddf4020e8ace345b684bac1e7f24cd4",
+        "port_changed_line_sha256": "b06511ce282eef506418bd00b2b77aba4ddf4020e8ace345b684bac1e7f24cd4",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/native_facts.rs",
+        "source_blob": "9f46248f4e84d2ec230ba6f6ad938f11876f8d5e",
+        "checkpoint_blob": "9f46248f4e84d2ec230ba6f6ad938f11876f8d5e",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "838cbd7440f9e4d584ff148d7758daac2fea0d943a315c33087828af3858d979",
+        "port_changed_line_sha256": "838cbd7440f9e4d584ff148d7758daac2fea0d943a315c33087828af3858d979",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/native_transition.rs",
+        "source_blob": "09c0a0504b93477b24515806168d2cd58179b14d",
+        "checkpoint_blob": "09c0a0504b93477b24515806168d2cd58179b14d",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "495f4769422d00d746abec92fa74b94fb1f33ad6b9af98b289e0c4a9662829f5",
+        "port_changed_line_sha256": "495f4769422d00d746abec92fa74b94fb1f33ad6b9af98b289e0c4a9662829f5",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/store.rs",
+        "source_blob": "e2d01e437704d1c25d69c9599f492e4c1f2ecf1c",
+        "checkpoint_blob": "26f48c7c6e65e79eff630cd17f4393ed00379fea",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "b3bdb3bdf0a0150b27867497dba5aacacc9b266b3b61b2fbe9df5296b3bd0f97",
+        "port_changed_line_sha256": "b3bdb3bdf0a0150b27867497dba5aacacc9b266b3b61b2fbe9df5296b3bd0f97",
+        "later_checkpoint_changes": true
+      },
+      {
+        "path": "crates/shenko-store/tests/store_roundtrip.rs",
+        "source_blob": "31916fde377515aab262a4f91947f5dcc52add37",
+        "checkpoint_blob": "31916fde377515aab262a4f91947f5dcc52add37",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "b001824cf7dd6204ee8b52281f8475daf585ca386577f718c26e0b63297e81d4",
+        "port_changed_line_sha256": "b001824cf7dd6204ee8b52281f8475daf585ca386577f718c26e0b63297e81d4",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/development/canonical-native-continuation.md",
+        "source_blob": "7c6e1e632d10592c81c5563083405901757766e6",
+        "checkpoint_blob": "7c6e1e632d10592c81c5563083405901757766e6",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "e95da6295b170693cf83aa46e9c2ddf3cedd8c528ba8e5c7a273403e24cff0cf",
+        "port_changed_line_sha256": "e95da6295b170693cf83aa46e9c2ddf3cedd8c528ba8e5c7a273403e24cff0cf",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/specs/durable-state.md",
+        "source_blob": "ad769ca3c0635db56724744de703147fd3a3e039",
+        "checkpoint_blob": "ad769ca3c0635db56724744de703147fd3a3e039",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "9158418a10cf3c392309713ccc06151b909eec4150f0bb9bf6bb35ce330982b8",
+        "port_changed_line_sha256": "9158418a10cf3c392309713ccc06151b909eec4150f0bb9bf6bb35ce330982b8",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/specs/nodes.md",
+        "source_blob": "6379227a5df60f7dc48bfd9036020632ae9f6a18",
+        "checkpoint_blob": "099d5732d8ebd0f68f72d20b88108213d99f4d44",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "3415dec7743a96c99b6912b560132db698885c638b163b26d4ea66a105d226dd",
+        "port_changed_line_sha256": "3415dec7743a96c99b6912b560132db698885c638b163b26d4ea66a105d226dd",
+        "later_checkpoint_changes": false
+      }
+    ]
+  },
+  "capacity": {
+    "source": "c3cd591a65f18abbf505bead9b4c93b28ec4fcdb",
+    "port_commit": "0b099961dd1683c4365a5f0c8cc02e84bacaa711",
+    "checkpoint": "0966d6990397a80881ccbb00c14635edd089c236",
+    "files": [
+      {
+        "path": "bin/shenko/src/lib.rs",
+        "source_blob": "f9de47d63ca108175a239daa04ca0524318cf019",
+        "checkpoint_blob": "d0f8336f5992f6e26f1f32c2ccc6eedfc38553ec",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": false,
+        "source_changed_line_sha256": "b200e768225e4e9c1f99b48defa8d8031bc17553a9e4e2d22f6247018c3bd50e",
+        "port_changed_line_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-broker/src/broker.rs",
+        "source_blob": "857916e5d86cac197e6c1abc8db96eaa504163cf",
+        "checkpoint_blob": "7742deab985b9d5860f6ddaa872c5b8fa67897bf",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": false,
+        "source_changed_line_sha256": "54b24a59073fa9f7aa2c26de298c054ef0c092b6b015c6fda0d3609f9dcdad53",
+        "port_changed_line_sha256": "9ff35c96d35837cdf6683299c3bb253e1c104f4a252515638d4db70719563da2",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-broker/tests/kv_capability.rs",
+        "source_blob": "8232a5eb92618c2ce65e9edef1b17d1fb5162e1c",
+        "checkpoint_blob": "8232a5eb92618c2ce65e9edef1b17d1fb5162e1c",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "79cfbcf9f7ecb866d5f265c1b734ac856cc0327c970311cf3e9af3d3dca01fb4",
+        "port_changed_line_sha256": "79cfbcf9f7ecb866d5f265c1b734ac856cc0327c970311cf3e9af3d3dca01fb4",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/context_correction.rs",
+        "source_blob": "cec24ba9ea9ee75a1e8f02aa266ee2125fe79cef",
+        "checkpoint_blob": "cec24ba9ea9ee75a1e8f02aa266ee2125fe79cef",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "9b75033bcb8efa20cf24c456d634b4a85b940b4004d1cc9a9cbc66e396adba92",
+        "port_changed_line_sha256": "9b75033bcb8efa20cf24c456d634b4a85b940b4004d1cc9a9cbc66e396adba92",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/lib.rs",
+        "source_blob": "994105557800cd4b41477a191b20dad289c8036c",
+        "checkpoint_blob": "4f5f921a60daf58b0327ca4f831b33274b31af93",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "c8ceac5df1cb59323cff844b2532fff5c30f6d58c7a9ed92aa3ed5ab0ff21924",
+        "port_changed_line_sha256": "c8ceac5df1cb59323cff844b2532fff5c30f6d58c7a9ed92aa3ed5ab0ff21924",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-store/src/store.rs",
+        "source_blob": "4b6d8e4cb76fa74cf03c1a8e396bbaeb7cd1f7c0",
+        "checkpoint_blob": "26f48c7c6e65e79eff630cd17f4393ed00379fea",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "5c3218f464cb78c2519dd513ee7e453a7eeec365772e82dbede0eed870aa7c01",
+        "port_changed_line_sha256": "5c3218f464cb78c2519dd513ee7e453a7eeec365772e82dbede0eed870aa7c01",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-subject/src/context_projection.rs",
+        "source_blob": "2715e503564462d8c31f1dde3ec9a4bf59fdeced",
+        "checkpoint_blob": "ea5c2e851a7467bd3fe50c2ac61677350c6532bb",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "642938784936c466d58f9d2969135783ad748e2ad58c244ab5af6716dc070f2a",
+        "port_changed_line_sha256": "642938784936c466d58f9d2969135783ad748e2ad58c244ab5af6716dc070f2a",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-subject/src/loop_runner.rs",
+        "source_blob": "3d5f667c16abe93e5c521bc6c671343ee51277de",
+        "checkpoint_blob": "fc34cb536ecff67b19b145d21ec5b2f84ddd4dcd",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "46ec0e7da816e3f6d803898ac468c3808ba2ddafadafc2efcb2310d023494c06",
+        "port_changed_line_sha256": "46ec0e7da816e3f6d803898ac468c3808ba2ddafadafc2efcb2310d023494c06",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-subject/src/obligation_tests.rs",
+        "source_blob": "58ed19b8e72f22a69e732e35566476e846c29288",
+        "checkpoint_blob": "c2650a1d9065edab7c4738aec5805df119ea0035",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "505da9a9496185a220c255640b2020e28e706a2aea52cf7236c69cf8692b7a9b",
+        "port_changed_line_sha256": "505da9a9496185a220c255640b2020e28e706a2aea52cf7236c69cf8692b7a9b",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "crates/shenko-subject/src/recovery_tests.rs",
+        "source_blob": "45e33d01e77122dab931203bfe76e00946f916ed",
+        "checkpoint_blob": "fbdb197dc922ca4c00d2b40824fdea674d65b668",
+        "whole_file_equal": false,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "4c1963f3bd9271ffecc4afa50778f041a54088c3e77eb5771a86f621a4532c9a",
+        "port_changed_line_sha256": "4c1963f3bd9271ffecc4afa50778f041a54088c3e77eb5771a86f621a4532c9a",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/development/real-single-node-journey.md",
+        "source_blob": "7189615915bf28045469adcc2c61d45dfcbbec49",
+        "checkpoint_blob": "7189615915bf28045469adcc2c61d45dfcbbec49",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "3256634336d96a0ec04758421ed6ae196f3ef35d3e81bc61f0ba29fcc198b957",
+        "port_changed_line_sha256": "3256634336d96a0ec04758421ed6ae196f3ef35d3e81bc61f0ba29fcc198b957",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/specs/context-policies.md",
+        "source_blob": "7b8a1354c59cecd6f72bf2a36b19da7047b41378",
+        "checkpoint_blob": "7b8a1354c59cecd6f72bf2a36b19da7047b41378",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "c3f51780db7e7989019822e5cbc7cc1123e3a676d8fcb0858bc464649b1c802c",
+        "port_changed_line_sha256": "c3f51780db7e7989019822e5cbc7cc1123e3a676d8fcb0858bc464649b1c802c",
+        "later_checkpoint_changes": false
+      },
+      {
+        "path": "docs/specs/subject-runtime.md",
+        "source_blob": "096cf0656d255df1e2c1f73211d9fa3ef56cea8d",
+        "checkpoint_blob": "096cf0656d255df1e2c1f73211d9fa3ef56cea8d",
+        "whole_file_equal": true,
+        "introduced_patch_lines_equal": true,
+        "source_changed_line_sha256": "25fd5b8380021cf9681529d674105ec4b109cb22913dc31d362782621ffe0f24",
+        "port_changed_line_sha256": "25fd5b8380021cf9681529d674105ec4b109cb22913dc31d362782621ffe0f24",
+        "later_checkpoint_changes": false
+      }
+    ]
+  }
+}

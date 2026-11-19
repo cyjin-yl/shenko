@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fifteen independent C19 consumer scenarios; no long-run results are asserted.
+"""Seventeen independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
@@ -10,9 +10,12 @@ sealed run lifecycle; checkpoint binding; seal-to-sample binding.
 Also covers equal-stat different bytes, a replaced reported executable path,
 and unknown executed-file identity in a real-observation-shaped fixture.
 Synthetic clocks/processes exercise the actual manifest/log/report consumer.
+Two additional real-process cases cover concurrent appends and stop barriers.
 Real procfs smoke and all execution belong to the integrating parent.
 """
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
+import subprocess
 import hashlib
 import io
 import json
@@ -375,6 +378,58 @@ def scenario_unknown_executable_stays_unobserved(tmp):
     assert rep["eligible_as_product_evidence"] is False
 
 
+def _external_observe(tmp, command):
+    return subprocess.run(
+        [sys.executable, "-I", str(Path(ol.__file__).resolve()), command,
+         "--dir", str(tmp)] +
+        (["--reason", "completed"] if command == "stop" else []),
+        text=True, capture_output=True, check=False, timeout=15,
+    )
+
+
+def scenario_concurrent_writers_share_header_and_sequence(tmp):
+    """Parallel CLI processes serialize run_header/segment/sample commits."""
+    manifest = init_run(tmp)
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        outcomes = list(pool.map(lambda _: _external_observe(tmp, "sample"),
+                                 range(12)))
+    assert all(p.returncode == 0 for p in outcomes), [
+        (p.returncode, p.stderr) for p in outcomes]
+    runs, issues = ol.scan_log(ol.log_path(tmp))
+    state = runs[manifest["run_id"]]
+    assert len(state["headers"]) == 1
+    assert [s["seq"] for s in state["samples"]] == list(range(1, 13))
+    assert ol.run_integrity(
+        manifest, ol.sha256_file(ol.manifest_path(tmp)), runs, issues)["intact"]
+
+
+def scenario_concurrent_stop_is_terminal_barrier(tmp):
+    """A seal and racing CLI samples cannot insert post-run_end evidence."""
+    manifest = init_run(tmp)
+    first = _external_observe(tmp, "sample")
+    assert first.returncode == 0, first.stderr
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = [pool.submit(_external_observe, tmp, "sample")
+                   for _ in range(10)]
+        seal = pool.submit(_external_observe, tmp, "stop")
+        samples = [f.result() for f in futures]
+        stopped = seal.result()
+    assert stopped.returncode == 0, stopped.stderr
+    # The terminal barrier also applies to a writer started *after* stop.
+    late = _external_observe(tmp, "sample")
+    assert late.returncode == 2 and "sealed" in late.stderr, late.stderr
+    assert all(p.returncode in (0, 2) for p in samples)
+    assert all("sealed" in p.stderr for p in samples if p.returncode == 2)
+    runs, issues = ol.scan_log(ol.log_path(tmp))
+    state = runs[manifest["run_id"]]
+    assert len(state["samples"]) == 1 + sum(
+        p.returncode == 0 for p in samples)
+    assert state["run_end_count"] == 1
+    assert state["records_after_end"] == 0
+    assert ol.run_integrity(
+        manifest, ol.sha256_file(ol.manifest_path(tmp)), runs, issues)["intact"]
+
+
 def main():
     build = Path(__file__).resolve().parents[1] / "build"
     build.mkdir(exist_ok=True)
@@ -394,6 +449,8 @@ def main():
         ("equal-stat-binary", scenario_equal_stat_different_binary),
         ("reported-path", scenario_reported_path_is_not_executed_file),
         ("unknown-executable", scenario_unknown_executable_stays_unobserved),
+        ("concurrent-writers", scenario_concurrent_writers_share_header_and_sequence),
+        ("concurrent-stop", scenario_concurrent_stop_is_terminal_barrier),
     )
     with tempfile.TemporaryDirectory(prefix="c19-observe-", dir=build) as directory:
         base = Path(directory)

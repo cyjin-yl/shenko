@@ -160,9 +160,12 @@ fixes require their own candidate result. No all-CI-green claim is made here.
 
 ## Remaining acceptance and implementation boundaries
 
-- The protocol currently requires reciprocal configured authenticated routes.
-  Transitive-only and asymmetric network components remain waiting views;
-  this is not complete discovery/routing support for every connected topology.
+- The original protocol required every participant to contact every other
+  participant. The star-topology continuation below allows followers without
+  a direct route to each other. The preferred coordinator still needs direct
+  reciprocal configured authenticated routes to every participant. A preferred
+  leaf requiring relay, longer chains and asymmetric routes remain waiting
+  views; this is not complete discovery/routing support for every topology.
 - Configuration and a live process observation do not prove a usable model.
   Autonomous measured model readiness, comparison and recursive best-model
   takeover remain separate product work.
@@ -175,3 +178,163 @@ fixes require their own candidate result. No all-CI-green claim is made here.
 - Physical partitions, delayed external results, multi-device service failures
   and long-run observation remain unverified. No physical exactly-once effect
   or global single activity is claimed under network partition.
+
+## Real Start and pinned SSH continuation
+
+The isolated continuation from `09a235e` adds
+[`component_process.rs`](../../bin/shenko/tests/component_process.rs), one
+continuous process journey. It shares the existing SSH fixture's bounded
+owned-process and OpenSSH provisioning helpers; the named SSH WASI journey
+keeps its original protocol assertions. No Observe response, certificate,
+member identity, Store fork or admission result is supplied by a fixture closure.
+
+The runner creates seven separate Node/Store installations and authenticates
+their actual IDs over seven real loopback OpenSSH servers. Each source has a
+distinct private client key and each destination a pinned host key. Private
+configuration launchers exec the system `ssh` and exact candidate CLI without
+altering their protocol input/output. No ambient account, provider or channel
+configuration is inherited. The journey uses public `sync enroll`, `sync push`,
+`sync adopt`, Joint/Final membership commands and the failed-election branch
+path. It retains one verified source genesis while A and C obtain independent
+local ledgers, homes and explicit availability branches. This starts new branch
+work; it does not take over imported Running tasks.
+
+The public bootstrap chain exposed a production identity defect before this
+journey was executed: `sync receive` prepared a receiver home using the receiver
+ID, but later Start resolved the imported immutable bootstrap to the source
+installation ID and rejected that receiver home. The local provisioning change
+above fixes that distinction while retaining the original bootstrap event,
+source origin and strict home/path admission. Neither a manifest's arbitrary
+ID nor a peer's source receipt can create the local provisioning row. The
+journey checks that peer import does not copy this row or make a subject local,
+and that the legitimate fork retains the original genesis and local home ID.
+
+After the initial setup, accepted source keys enforce only A↔B and B↔C;
+A↔C authentication fails, and D through G's owned SSH servers stop. Three
+independent, owned Start processes run against the seven-member electorate.
+A/C have no configured model. B has a configured but explicitly **unprobed**
+binding to an owned socket that never serves model responses, plus a real
+`--pause-at-start` boundary. The socket must receive no connection, and all
+three stores must retain zero inference/external attempts. This verifies no
+model capability, intelligence comparison or physical network partition.
+
+The success conditions require the actual three-member certificate and full
+observed neighbourhoods, B's agreed paused Store branch and authority binding,
+and both live followers' absence of consumers/authority binding. A real follower
+attempt to open B's branch must fail without changing its Store head/attempts.
+Each resident must renew the same persisted runtime ID, then all owned Start
+leaders must exit successfully on SIGINT and every owned SSH listener must
+close. Bounded process-group signalling and leader joins are retained; these
+observations do not prove arbitrary escaped descendants have stopped.
+
+The execution budget is 900 seconds, each one-shot CLI is limited to 180 seconds,
+and each Start readiness wait to 180 seconds within that work budget. Teardown
+separately allows each owned Start 20 seconds and each SSH server 3 seconds,
+followed by a bounded SIGKILL/join fallback that makes the journey fail. Logs,
+binary SHA-256, actual public argv, SSH pins/topology, identity/genesis/home
+observations, certificate, process joins and failure result survive cleanup.
+Private client keys, owner controls, input files and installation databases
+are not copied to the artifact. Both normal CI and Nightly already provision
+OpenSSH; their workspace suite includes this ordinary test target and additionally
+retain `.ci/evidence/component-process` on success or failure.
+
+Focused entry point, after the same OpenSSH prerequisites as those workflows:
+
+```bash
+cargo test --locked -p shenko --test component_process -- --nocapture
+```
+
+At this change's preparation, **the new real process journey has not run**.
+The final metadata command
+`cargo check --offline --locked -j1 -p shenko -p shenko-store -p shenko-seed --tests`
+passed in 1 minute 33 seconds under the shared lock and target. It covers the
+new process target and the reused seed capability-migration and Store bootstrap
+identity journeys, including local provenance not hiding source identity
+conflicts. It executes none of them. Normal documentation checking passed with
+`errors: []`. Migration conservation initially reported the existing
+`SPEC:41.4` mismatch on the `09a235e` base; applying the already integrated
+documentation-only `d690647` fix moved its implementation note outside the
+immutable block, and `--verify-migration` then passed with `errors: []`.
+Both document reports explicitly state `product_tested: false`; no manifest or
+checksum baseline changed. New Rust files passed formatting checks and the
+diff passed whitespace checks. Targeted Clippy metadata for `component_process`
+initially reported seven new loop/conditional diagnostics. They were corrected
+without changing the scenario or assertions; the same target then completed in
+1.20 seconds without a diagnostic in the new test. Existing library warnings
+remain, and this local command is not the remote full ratchet.
+Existing Node protocol successes above do not stand
+in for this new CLI/SSH observation. Hosted-runner execution, coordinator loss,
+physical multi-device faults, actual model readiness and long-run acceptance
+remain separate evidence obligations.
+
+## Star-topology continuation
+
+The isolated `feat/component-star-topology-20261116` increment starts from
+`a3739f2e581b25e3ca841c8402b3cc118fdeb222`. It addresses a concrete unsupported
+minority: among seven configured voters, three residents form a reciprocal
+star, the preferred candidate reaches both followers, and the followers cannot
+directly reach one another. The old equality between each direct neighbour
+set and the entire component rejected that connected view.
+
+`ComponentProposal::validate` now preserves each sorted complete neighbour
+set, requires the member set to be closed over every observation, checks
+reciprocal edges, and requires the existing selected candidate to directly
+cover the full component. Candidate rank and the stable identity tie break are
+unchanged. `prepare_component` still compares the endpoint's independently
+probed view with its exact proposal observation before the durable ACK; the
+global quorum and all-member certificate requirements do not change.
+
+The production confirmation adapter uses `ComponentObserve` to recheck each
+contacted member's complete local view, certificate and runtime observation.
+The coordinator contacts every member before new Store admission. A follower
+contacts its own neighbours, including the coordinator, only to keep following;
+it cannot turn this local confirmation into branch or execution authority.
+Unknown responses remain refusals. A new outside neighbour or a changed local
+view prevents using the old agreement, while original certificates, branches
+and external results stay retained. Final local reservations remain in force.
+
+The existing Node agreement journey is extended to a real seven-voter
+Joint/Final configuration and a three-member star, with one model-free resident.
+It retains incomplete-view/partial-certificate refusal, ACK fencing, reopening,
+exact replay, coordinator-only branch opening, supersession, retirement and
+history checks. The same proposal also checks closure and refusal when a
+supplied preference chooses a leaf that cannot directly confirm all members.
+No new test function, ignored path or topology matrix is added. These are
+SQLite Node protocol observations; they do not manufacture an SSH transport
+or successful model response.
+
+Local verification for this increment used the same locked offline toolchain,
+shared Cargo target and `/tmp/shenko-cargo.lock` described above:
+
+- `cargo check -p shenko-node --test component_agreement --offline --locked -j1`
+  completed successfully in 14.71 seconds, including the changed journey's
+  compilation metadata.
+- `cargo check -p shenko --lib --offline --locked -j1` completed successfully
+  in 57.33 seconds, covering the production confirmation adapter.
+- The documentation checker returned `errors: []` and
+  `product_tested: false`. `git diff --check` and formatting checks on the
+  changed Node source and journey passed.
+
+These are compilation and structural checks, not an executed star journey.
+The changed test was not run locally. Earlier passing two-member Node and
+archive-exchange journeys do not prove this changed view validation or the
+real Start/SSH adapter. A real multi-node route/startup journey, relay support
+and asymmetric topology handling remain outstanding.
+
+### Later 9b5a6cb process observation
+
+[CI 43894092386](https://github.com/cyjin-yl/shenko/actions/runs/43894092386)
+actually passed the reciprocal-star Node protocol, but the new seven-SSH-identity
+process journey failed in 69.02 seconds during its membership setup. It had not
+reached the three resident Start processes. The two observed configurations
+matched on revision, term, members, joint configuration and digest; only their
+node-local bounded-Append learning times differed. The original failure, full
+tuples, real transfer frontiers, cleanup and complete logs remain in
+[the source-bound observation](ci-9b5a6cb-20261116/README.md).
+
+The follow-up fixture compares those consensus fields and complete control
+frontiers across members, then reopens each Node through another CLI process
+and requires its own full configuration, including its local time, to remain
+identical. It preserves every later certificate, installation, follower,
+authority and heartbeat assertion. Its metadata compilation passed on
+`c1c915fa`; the corrected whole process journey has not yet run.

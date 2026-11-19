@@ -1,0 +1,3577 @@
+{
+  "source": "bfc5f7e125a30bd86f48904617e97994c85d49a2",
+  "tree": "76cabefd52abc3b29a57b0392d179c023cecdb56",
+  "scope": "tracked Rust files, Cargo manifests/locks, Rust toolchain files and .cargo configuration; not a full hermetic build-input manifest",
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "mode": "100644",
+      "git_blob": "54c7263ba832a96d1d88556f1dfe0b6faa49aa38"
+    },
+    {
+      "path": "Cargo.toml",
+      "mode": "100644",
+      "git_blob": "2452b61f56f79475ba0409f1c207342f32f03024"
+    },
+    {
+      "path": "bin/shenko/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "e681d804f75b04cd7e4c31f63e164a0f8bb81107"
+    },
+    {
+      "path": "bin/shenko/examples/obelisk_acceptance.rs",
+      "mode": "100644",
+      "git_blob": "5e1aa16624c061d0110feb704c509139cc7a5f56"
+    },
+    {
+      "path": "bin/shenko/examples/obelisk_native_receipt.rs",
+      "mode": "100644",
+      "git_blob": "797502e11c9ef15efaf5e47c68f4b1f11b7d0701"
+    },
+    {
+      "path": "bin/shenko/src/cli.rs",
+      "mode": "100644",
+      "git_blob": "40a275ad170f07322ef7b4263b02c051e70c1333"
+    },
+    {
+      "path": "bin/shenko/src/cli_browser.rs",
+      "mode": "100644",
+      "git_blob": "a34ba996b5d7f786dcd53745adbe44078df2a27c"
+    },
+    {
+      "path": "bin/shenko/src/cli_dispatch.rs",
+      "mode": "100644",
+      "git_blob": "0c2af3dc529edf282fdb3f0b0a251dbe7dbd3763"
+    },
+    {
+      "path": "bin/shenko/src/cli_root.rs",
+      "mode": "100644",
+      "git_blob": "3f8a06c3f2386e8e834f47285691d55a7b79ac34"
+    },
+    {
+      "path": "bin/shenko/src/cli_tools.rs",
+      "mode": "100644",
+      "git_blob": "e73cef9198941efbf2b70e62cefa4424c94dc680"
+    },
+    {
+      "path": "bin/shenko/src/compat.rs",
+      "mode": "100644",
+      "git_blob": "be33bd847198f147a5ad00908b79d3ff72ad929f"
+    },
+    {
+      "path": "bin/shenko/src/component_runtime.rs",
+      "mode": "100644",
+      "git_blob": "640c1d40502c3037752dcae360564643117723fc"
+    },
+    {
+      "path": "bin/shenko/src/context_policy.rs",
+      "mode": "100644",
+      "git_blob": "4df8f77a2cb0a8eeb95b7a872ff706a2ef2c7147"
+    },
+    {
+      "path": "bin/shenko/src/document_runtime.rs",
+      "mode": "100644",
+      "git_blob": "eb2ccfd7986721f70fb456ed8e6d908bbe1df51e"
+    },
+    {
+      "path": "bin/shenko/src/inference_runtime.rs",
+      "mode": "100644",
+      "git_blob": "7943048f978e1b67dd50156e4ebbafecc973e682"
+    },
+    {
+      "path": "bin/shenko/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "d0f8336f5992f6e26f1f32c2ccc6eedfc38553ec"
+    },
+    {
+      "path": "bin/shenko/src/main.rs",
+      "mode": "100644",
+      "git_blob": "a6b3a40f3a63a793f67455e863effdd702b5e04c"
+    },
+    {
+      "path": "bin/shenko/src/native_ssh_installation_tests.rs",
+      "mode": "100644",
+      "git_blob": "2dfe98c4e3cb1e5687bcbaf43023fe1d0698629a"
+    },
+    {
+      "path": "bin/shenko/src/native_ssh_memory_helper_tests.rs",
+      "mode": "100644",
+      "git_blob": "b3d1cb7fb59fa03944db4ff891ff792af1f80e35"
+    },
+    {
+      "path": "bin/shenko/src/node_cognition_report_tests.rs",
+      "mode": "100644",
+      "git_blob": "16c1bad51c328033d63714122b2e27b083663e4c"
+    },
+    {
+      "path": "bin/shenko/src/node_sync.rs",
+      "mode": "100644",
+      "git_blob": "9c92f0f78196d709bfdab0f4b7b868916ce5ae9c"
+    },
+    {
+      "path": "bin/shenko/src/obelisk.rs",
+      "mode": "100644",
+      "git_blob": "8166579164b11a5b95b053e9c97931651156c879"
+    },
+    {
+      "path": "bin/shenko/src/policy_config.rs",
+      "mode": "100644",
+      "git_blob": "6b6b034c0e8e9dbf1124be530b103a28801a8774"
+    },
+    {
+      "path": "bin/shenko/src/policy_config_tests.rs",
+      "mode": "100644",
+      "git_blob": "3e4c9734c6b42a6a44c27063252de6629a750654"
+    },
+    {
+      "path": "bin/shenko/src/poppy.rs",
+      "mode": "100644",
+      "git_blob": "14e2ed2864f7b6ff45a31971f6a3daa509d24533"
+    },
+    {
+      "path": "bin/shenko/src/recovery_integration_tests.rs",
+      "mode": "100644",
+      "git_blob": "3f44695ccee5cf48d7b01732977aadb2eea5c49c"
+    },
+    {
+      "path": "bin/shenko/src/reply_directive_tests.rs",
+      "mode": "100644",
+      "git_blob": "6576fc7c643a365ce2d6c956a5e21cc96df085d0"
+    },
+    {
+      "path": "bin/shenko/src/runtime_adapters.rs",
+      "mode": "100644",
+      "git_blob": "313da74b4e11beb4857292bc583b99e464cbd211"
+    },
+    {
+      "path": "bin/shenko/src/runtime_authority.rs",
+      "mode": "100644",
+      "git_blob": "01292132f053f11cc5093b46a95fdcbf8fd7d0cf"
+    },
+    {
+      "path": "bin/shenko/src/runtime_authority_tests.rs",
+      "mode": "100644",
+      "git_blob": "6eb0383ab615e7657c9fa193741ed90dc15d8fe0"
+    },
+    {
+      "path": "bin/shenko/src/runtime_bootstrap.rs",
+      "mode": "100644",
+      "git_blob": "cd331738b83beda00b450ad81f03277483010c70"
+    },
+    {
+      "path": "bin/shenko/src/runtime_branches.rs",
+      "mode": "100644",
+      "git_blob": "ea2526e7e021970e6872f0d86ff686e2fe41e2e3"
+    },
+    {
+      "path": "bin/shenko/src/runtime_channels.rs",
+      "mode": "100644",
+      "git_blob": "fa7861a213d1c68c0bd7d4384317826236747a2d"
+    },
+    {
+      "path": "bin/shenko/src/runtime_cognition.rs",
+      "mode": "100644",
+      "git_blob": "4397fb6d3dc647add3390d906c53113b1502182a"
+    },
+    {
+      "path": "bin/shenko/src/runtime_consumers.rs",
+      "mode": "100644",
+      "git_blob": "260e6ff6a2ee85d0a82fe8fb7a6b4c3ac4e67922"
+    },
+    {
+      "path": "bin/shenko/src/runtime_inference.rs",
+      "mode": "100644",
+      "git_blob": "1f251ba7f9e0531dcee489a2f56a4de83fdf94be"
+    },
+    {
+      "path": "bin/shenko/src/runtime_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "fb686de85e42f86feffbace036573e94f2c57f39"
+    },
+    {
+      "path": "bin/shenko/src/runtime_napcat.rs",
+      "mode": "100644",
+      "git_blob": "543432b927443b03c7ea88ced32873442f03c8e4"
+    },
+    {
+      "path": "bin/shenko/src/runtime_owner.rs",
+      "mode": "100644",
+      "git_blob": "f147437881e8876cef63fc59c3c3a1654c5a5a88"
+    },
+    {
+      "path": "bin/shenko/src/runtime_plugins.rs",
+      "mode": "100644",
+      "git_blob": "c42f4a42d47b9f5101a70590d853dee2ce131784"
+    },
+    {
+      "path": "bin/shenko/src/runtime_publications.rs",
+      "mode": "100644",
+      "git_blob": "5ce6c400b72d6801f7b7dbc373b56fdc63095f91"
+    },
+    {
+      "path": "bin/shenko/src/runtime_sessions.rs",
+      "mode": "100644",
+      "git_blob": "e425de61f921a407fbc5a585081224a6e2408007"
+    },
+    {
+      "path": "bin/shenko/src/runtime_start.rs",
+      "mode": "100644",
+      "git_blob": "2fc0e1446917261989cf8c9e2b4717633a96bfb3"
+    },
+    {
+      "path": "bin/shenko/src/ssh_public_identity_tests.rs",
+      "mode": "100644",
+      "git_blob": "1f9382f4395013af6832363d13de91ae53e52a8b"
+    },
+    {
+      "path": "bin/shenko/src/tool_install.rs",
+      "mode": "100644",
+      "git_blob": "c9b611df75b7227c16a76104268f0d52c93da7fb"
+    },
+    {
+      "path": "bin/shenko/src/update_control.rs",
+      "mode": "100644",
+      "git_blob": "887ad2405321c0ed78bfd1c867c281333cb87b96"
+    },
+    {
+      "path": "bin/shenko/src/update_runtime.rs",
+      "mode": "100644",
+      "git_blob": "45c95689a7e0227c3d0b464fa2a759a420dea4e8"
+    },
+    {
+      "path": "bin/shenko/tests/component_process.rs",
+      "mode": "100644",
+      "git_blob": "8049433ce73c0bcc4fc8bd34100a5dfd94c8cd5a"
+    },
+    {
+      "path": "bin/shenko/tests/obelisk_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "3c039de480fe6f032cb40a8f57d7c5b0df5da983"
+    },
+    {
+      "path": "bin/shenko/tests/ssh_wasi_client.rs",
+      "mode": "100644",
+      "git_blob": "cc8a6fc1cacfe447c0d30b67b1711b8d145795a5"
+    },
+    {
+      "path": "bin/shenko/tests/start_boundary.rs",
+      "mode": "100644",
+      "git_blob": "dacb312f35db443b58bcafdcc1b2f3d23f9a6423"
+    },
+    {
+      "path": "bin/shenko/tests/support/history_runtime.rs",
+      "mode": "100644",
+      "git_blob": "73dfc8fc0d230e377037e7a2632d7c54525e5e07"
+    },
+    {
+      "path": "bin/shenko/tests/support/process_runtime.rs",
+      "mode": "100644",
+      "git_blob": "ecc9cc6a5b1a482430f9f5e12cbe26c997fbfaea"
+    },
+    {
+      "path": "crates/shenko-awareness-core/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "710aecdfe755690f021e4e7d4005075b383a8ef8"
+    },
+    {
+      "path": "crates/shenko-awareness-core/src/awareness_host.rs",
+      "mode": "100644",
+      "git_blob": "89b2474ac8805450f5cbb8d5872531015c3f713d"
+    },
+    {
+      "path": "crates/shenko-awareness-core/src/cognition.rs",
+      "mode": "100644",
+      "git_blob": "6bd8dab5fdc7866c6f7f2dd6cae63061b6fc7698"
+    },
+    {
+      "path": "crates/shenko-awareness-core/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "b149b11674981cdea858a850aea5db82e233ddaa"
+    },
+    {
+      "path": "crates/shenko-awareness-core/src/perception.rs",
+      "mode": "100644",
+      "git_blob": "3f008cddbce71c9a439fb271a955b264accc2732"
+    },
+    {
+      "path": "crates/shenko-awareness-core/src/self_knowledge.rs",
+      "mode": "100644",
+      "git_blob": "e3e4dccd0e67cc8cd8b706ad3cf03359e59bc0b9"
+    },
+    {
+      "path": "crates/shenko-broker/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "e76e19a6b5085e2813658d956bf52b9bc14a3c04"
+    },
+    {
+      "path": "crates/shenko-broker/examples/kv_capability_probe.rs",
+      "mode": "100644",
+      "git_blob": "a0320f044c687f15ba4360d67ce5b5c301a019ea"
+    },
+    {
+      "path": "crates/shenko-broker/src/admission.rs",
+      "mode": "100644",
+      "git_blob": "0677e48b9ff5c9c4830b9526c6a32c88d97a2026"
+    },
+    {
+      "path": "crates/shenko-broker/src/anthropic_rules.rs",
+      "mode": "100644",
+      "git_blob": "9db7920a173797dd33f7a581a5dcc1d3b325033b"
+    },
+    {
+      "path": "crates/shenko-broker/src/broker.rs",
+      "mode": "100644",
+      "git_blob": "7742deab985b9d5860f6ddaa872c5b8fa67897bf"
+    },
+    {
+      "path": "crates/shenko-broker/src/capability.rs",
+      "mode": "100644",
+      "git_blob": "9eb94c65f16fb62d56ff314d391160cad16b3b0a"
+    },
+    {
+      "path": "crates/shenko-broker/src/error_sink.rs",
+      "mode": "100644",
+      "git_blob": "8f0128b943f2c582eec7714e6a5e7852055f5b6c"
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "mode": "100644",
+      "git_blob": "0e698f96bae3f59bf8193b35f1fd4ce6f15f42c2"
+    },
+    {
+      "path": "crates/shenko-broker/src/kv.rs",
+      "mode": "100644",
+      "git_blob": "86e820a37f7533f91b356b89a2fd99059356891f"
+    },
+    {
+      "path": "crates/shenko-broker/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "caf94077f0faf677b8a8e0011d2e7e3c8365efb0"
+    },
+    {
+      "path": "crates/shenko-broker/src/local_provider.rs",
+      "mode": "100644",
+      "git_blob": "717b3fe7c166d55f795cfe4b1fd3de9d4d74ddd0"
+    },
+    {
+      "path": "crates/shenko-broker/src/native_provider.rs",
+      "mode": "100644",
+      "git_blob": "7a2fe17f5fa87a0e897e28c2ba10423a46e40c7e"
+    },
+    {
+      "path": "crates/shenko-broker/src/profile.rs",
+      "mode": "100644",
+      "git_blob": "373e9a8b5adc0940f94d3144fbaa727ecb8813bc"
+    },
+    {
+      "path": "crates/shenko-broker/src/provider.rs",
+      "mode": "100644",
+      "git_blob": "1d065c486c5292d44f5c1f71eca10096ab47cfc0"
+    },
+    {
+      "path": "crates/shenko-broker/src/registry.rs",
+      "mode": "100644",
+      "git_blob": "2aada3fbcb424de9982663608c70298b80b84f7a"
+    },
+    {
+      "path": "crates/shenko-broker/src/request.rs",
+      "mode": "100644",
+      "git_blob": "10bd5311561048c23e7f6bf9da46b90dce973a6d"
+    },
+    {
+      "path": "crates/shenko-broker/src/resource.rs",
+      "mode": "100644",
+      "git_blob": "adc7164a527ccc2d8da749b86621a3eda2880859"
+    },
+    {
+      "path": "crates/shenko-broker/src/stream.rs",
+      "mode": "100644",
+      "git_blob": "055db00290eed2d46c0023131558c720bb09fe08"
+    },
+    {
+      "path": "crates/shenko-broker/tests/kv_capability.rs",
+      "mode": "100644",
+      "git_blob": "8232a5eb92618c2ce65e9edef1b17d1fb5162e1c"
+    },
+    {
+      "path": "crates/shenko-broker/tests/kv_unknown_read.rs",
+      "mode": "100644",
+      "git_blob": "8bed291cafabc45496326561fc5478c3ed0a01b2"
+    },
+    {
+      "path": "crates/shenko-broker/tests/provider_usage.rs",
+      "mode": "100644",
+      "git_blob": "5516ebccffb17e2fef3e98a64abeb21ead6b3b21"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "c7a23e6a1eacf32aa4358f3efb06b6c7b37b6657"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/aes.rs",
+      "mode": "100644",
+      "git_blob": "8f4d531a912ce3085a6b66a58df379031ca19564"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/common.rs",
+      "mode": "100644",
+      "git_blob": "c06ce8b4736898834c656a270353a8c62d288ad8"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/api.rs",
+      "mode": "100644",
+      "git_blob": "9a73d2f2b48f6575b7d893d610067e748b421ad5"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/auth.rs",
+      "mode": "100644",
+      "git_blob": "77b9f533a50fe2fcf1283f91c17683668ed1ccfc"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/capability_tests.rs",
+      "mode": "100644",
+      "git_blob": "8217be053210c9783b5fefe1cc3409af522494ef"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/config.rs",
+      "mode": "100644",
+      "git_blob": "a2e3058b5c5bdfda82eb87591c5b7be4595350c6"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/events.rs",
+      "mode": "100644",
+      "git_blob": "717e7b1180b744eac79cac09b4c2fff55201538d"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/media.rs",
+      "mode": "100644",
+      "git_blob": "c5396d87688d7e888e7d09eb006a792f94cd7ba9"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/mod.rs",
+      "mode": "100644",
+      "git_blob": "8249f2dc36a6221487fb839d61872eabea3258be"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/monitor.rs",
+      "mode": "100644",
+      "git_blob": "6a6b6238bad947d22c21ea51a5e44b9d38351bf7"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/feishu/plugin.rs",
+      "mode": "100644",
+      "git_blob": "b4fbad7383010429d41ee1fc85ce099892e193b9"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/api.rs",
+      "mode": "100644",
+      "git_blob": "a6f1e6d7a397ef0749586de0c9c538eace536f01"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/auth.rs",
+      "mode": "100644",
+      "git_blob": "8adf586038161d38af5745f734d2dbf4fdd11eb5"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/config.rs",
+      "mode": "100644",
+      "git_blob": "cc910531ff2a77432764692b681f749daf8cac3c"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/events.rs",
+      "mode": "100644",
+      "git_blob": "7b3e28b5e4b61c7f6b09693a2e85707156f3b16c"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/media.rs",
+      "mode": "100644",
+      "git_blob": "d3f1517237a8720c81d54bd022b393a9d5072314"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/mod.rs",
+      "mode": "100644",
+      "git_blob": "2abdf82d8652e272649a8793784cb0195152606a"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/monitor.rs",
+      "mode": "100644",
+      "git_blob": "c3a16d2560b9628647cf6dcfe8d6dfbe5b05cdcb"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ilink/plugin.rs",
+      "mode": "100644",
+      "git_blob": "bd9d21dc7fbd39739b6e2e9c7e3ac76beea8a40b"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/ingress.rs",
+      "mode": "100644",
+      "git_blob": "25665276877d6414dad8d3e88987047c3ccd4833"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "fc4d5d7f9d6652ce123ac830fd98eafab3690092"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/api.rs",
+      "mode": "100644",
+      "git_blob": "88f67378e0034ad0581d41b031322769b64773d9"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/capability_tests.rs",
+      "mode": "100644",
+      "git_blob": "2f44dfc50d9b771cbcb1e9f049dc73bc4a67dd1d"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/config.rs",
+      "mode": "100644",
+      "git_blob": "40fc76572afba18e022769f9e7dfdc44bf5fe9d4"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/events.rs",
+      "mode": "100644",
+      "git_blob": "e05123661b9393341914db9c16d2ce2a9053d5c5"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/gateway.rs",
+      "mode": "100644",
+      "git_blob": "b9209c88f4812619dd41460c3d895d4b56ac2046"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/mod.rs",
+      "mode": "100644",
+      "git_blob": "b1f49062f157ff1eef055f40adcec78e9e16e29e"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/outbound.rs",
+      "mode": "100644",
+      "git_blob": "c5a01e22c51051df5aab6a55316ad906596b046b"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/qq_official/plugin.rs",
+      "mode": "100644",
+      "git_blob": "51a74be47a685d176c95d14e7a678d4c0d069bd4"
+    },
+    {
+      "path": "crates/shenko-channel-adapters/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "81223c4c2c95fb7e8ddfa9742a09706ef571178e"
+    },
+    {
+      "path": "crates/shenko-channel-napcat-link/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "6517ba4863a3666301bce7e0ca4701484d6db8e2"
+    },
+    {
+      "path": "crates/shenko-channel-napcat-link/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "00d8790336d223595f4ef6989968f7e841ae92ac"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "6d24bb4f92209a86d555f350f81aa112a67d5860"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/examples/napcat_readonly_probe.rs",
+      "mode": "100644",
+      "git_blob": "bcfe9bb6c6167a852ba53be2e38afa57955ff44d"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/attachments.rs",
+      "mode": "100644",
+      "git_blob": "4e676c4ce6605317011f357bf9df0a1755862a26"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/capability_tests.rs",
+      "mode": "100644",
+      "git_blob": "6a65eee729e92ec1acdb1da7c337180b4c590918"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/channel.rs",
+      "mode": "100644",
+      "git_blob": "c27cd7b56d45c4dc5c55728beae592804d16c019"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/client.rs",
+      "mode": "100644",
+      "git_blob": "270c096688d3d0de5e3742ab0b601d7eb48256c9"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/config.rs",
+      "mode": "100644",
+      "git_blob": "c912989f1561dfc25752c85fa1ae6a907e63f530"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "d1fb9e3f47cd2e17604b3812adf0de11d05c6062"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/napcat_cli.rs",
+      "mode": "100644",
+      "git_blob": "c7b457112c0b5283f53b86e198c1ce3a89a47d9d"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/notice_tests.rs",
+      "mode": "100644",
+      "git_blob": "b3de258a88c349fe1e3d008fa9b9f74b488fa374"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/outbound.rs",
+      "mode": "100644",
+      "git_blob": "82d5b648b412af578edd1dd02c919a648f0d8cdb"
+    },
+    {
+      "path": "crates/shenko-channel-napcat/src/spool.rs",
+      "mode": "100644",
+      "git_blob": "e37c6da3f7841ca02fbf5de3a864314014a5f299"
+    },
+    {
+      "path": "crates/shenko-compact-budget/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "b87a61414f0121552d5891540fc1e6da0ab540bd"
+    },
+    {
+      "path": "crates/shenko-compact-budget/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "520e1e838b7370fde3b3cf805ef0b6c23e79aa83"
+    },
+    {
+      "path": "crates/shenko-compact-budget/tests/budget_plugin.rs",
+      "mode": "100644",
+      "git_blob": "a55e4667839bf616064ce7c98f936b814caaff1d"
+    },
+    {
+      "path": "crates/shenko-compact-budget/tests/store_history.rs",
+      "mode": "100644",
+      "git_blob": "6470f9fff60ef5daed8656193e0c3b85a47147c0"
+    },
+    {
+      "path": "crates/shenko-compact-rollover/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "3656097610b874667ea16465496010d58c08b259"
+    },
+    {
+      "path": "crates/shenko-compact-rollover/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "8a8cffbbee7954865449448d7a5f8a4bd4d0833e"
+    },
+    {
+      "path": "crates/shenko-compact-rollover/src/notebook_task.rs",
+      "mode": "100644",
+      "git_blob": "373359b3641eb8a2808bc0d9dbd0b4db0a4616c5"
+    },
+    {
+      "path": "crates/shenko-compact-rollover/tests/notes_rollover.rs",
+      "mode": "100644",
+      "git_blob": "6b39f0a75486b513e9c4aa9148b73f995cbc6a1c"
+    },
+    {
+      "path": "crates/shenko-compact-snap/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "f30039c0cf5fc2863b08ecc604f5c9cc4de64353"
+    },
+    {
+      "path": "crates/shenko-compact-snap/examples/render_frame.rs",
+      "mode": "100644",
+      "git_blob": "7d79f6da8b15307f85e16714208f3a3f017d400b"
+    },
+    {
+      "path": "crates/shenko-compact-snap/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "05bb4a44a8f6f38712aa033afcff0657fda6dfa6"
+    },
+    {
+      "path": "crates/shenko-compact-snap/src/render.rs",
+      "mode": "100644",
+      "git_blob": "10abd1f7f5d12c04060194ff0be196d2709d8c7d"
+    },
+    {
+      "path": "crates/shenko-compact-snap/tests/independent_plugins.rs",
+      "mode": "100644",
+      "git_blob": "714e086ba0ebed9ed7cdf116d0e3a34b217a8faf"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "5d13c3baa1ad082c3a51a1e999a4e44d658bc6c2"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/src/http.rs",
+      "mode": "100644",
+      "git_blob": "b94158f03a9b677f63a407a4c740c36f3285e8e3"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "672b8d8f1829c15c2871602902e6c0cfdead6240"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/src/native.rs",
+      "mode": "100644",
+      "git_blob": "bc478924830897dab633491ec4b99464f007cb94"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/src/protocol.rs",
+      "mode": "100644",
+      "git_blob": "7d49b0160e50742eb8facb075ae479060535fdfa"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/learning_efficacy.rs",
+      "mode": "100644",
+      "git_blob": "f82bec383c1cfad103cdbbb77e37ac1ecae565e8"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/learning_efficacy/lineage.rs",
+      "mode": "100644",
+      "git_blob": "1f60a64a610cd8b555f1129ec1288c85de67c67a"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/learning_efficacy/world.rs",
+      "mode": "100644",
+      "git_blob": "a97dd1fd9c244291e2845a4667e62a7adecce2a8"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/plugin_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "b4e03110f0cbf258e0b2b3544b294eec232394bd"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/plugin_lifecycle/learning_fixture.rs",
+      "mode": "100644",
+      "git_blob": "c11f7d654636277deb92efffdb5819f99df3e4f8"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/plugin_lifecycle/sandbox_execution.rs",
+      "mode": "100644",
+      "git_blob": "35c1cd4e01d20bcc58350a0795bcd2ad67f34149"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/plugin_lifecycle/unknown_admission.rs",
+      "mode": "100644",
+      "git_blob": "c436f5111722d36f4c0eadc7cb544f2e6f1665f0"
+    },
+    {
+      "path": "crates/shenko-compat-mcp/tests/support/receipt_boundaries.rs",
+      "mode": "100644",
+      "git_blob": "18e216ff245126b85c9ad581437c12ae6988575b"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "50817075021e462a910e5c544b9d97b4f0f13851"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/examples/discover.rs",
+      "mode": "100644",
+      "git_blob": "218062a0db7e91f37718a5d229f162da284995e6"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/src/discovery.rs",
+      "mode": "100644",
+      "git_blob": "2ad4e3795ec2e523186ddb414f2fc64e22796b5a"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/src/discovery/http.rs",
+      "mode": "100644",
+      "git_blob": "2d6fe8b02183b53faa6e79de8477e1d2f18f7536"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "a04446dcf27743d677fd00876b9d8e1cedb7bc4a"
+    },
+    {
+      "path": "crates/shenko-compat-poppy/src/session.rs",
+      "mode": "100644",
+      "git_blob": "1a046225c4700dd4261c43f663d51b12e23650e7"
+    },
+    {
+      "path": "crates/shenko-compat-skill/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "8638d5c6ccf8973f5b7d7f8a6f23f2f2edacf363"
+    },
+    {
+      "path": "crates/shenko-compat-skill/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "bc6242fa342e16fb4aa2db325280a6dd5f3c8497"
+    },
+    {
+      "path": "crates/shenko-compat-skill/src/native.rs",
+      "mode": "100644",
+      "git_blob": "778907c1e95dda908a40da7924fd5225974bcf45"
+    },
+    {
+      "path": "crates/shenko-compat-skill/src/source.rs",
+      "mode": "100644",
+      "git_blob": "60c74a2460b210795f7a998f3af266d54278a8d5"
+    },
+    {
+      "path": "crates/shenko-compat/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "bcf525c7c854e8933a2881a90f60c3f89e4a92c4"
+    },
+    {
+      "path": "crates/shenko-compat/src/artifact.rs",
+      "mode": "100644",
+      "git_blob": "88f51c88d1e10085be67123a6c181cb5ca2c04ee"
+    },
+    {
+      "path": "crates/shenko-compat/src/installation.rs",
+      "mode": "100644",
+      "git_blob": "6836c3bf77645a4c0e511a055d83ff1241a96843"
+    },
+    {
+      "path": "crates/shenko-compat/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "978b474d8c3523ead4ad51c5d12743e71890b17c"
+    },
+    {
+      "path": "crates/shenko-compat/src/recorded.rs",
+      "mode": "100644",
+      "git_blob": "f535896c295250c96a80aa7fc9cc45fb44912775"
+    },
+    {
+      "path": "crates/shenko-compat/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "6566494a537cf6560bee7d25e1630821af9aff21"
+    },
+    {
+      "path": "crates/shenko-compat/src/usage.rs",
+      "mode": "100644",
+      "git_blob": "34f0e857f25e6d9daaf88aa4cd9fbbd14e7a617d"
+    },
+    {
+      "path": "crates/shenko-context-policy/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "8bf088fc37e7449faa6f520211f63da5bd7ae88b"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/contribution.rs",
+      "mode": "100644",
+      "git_blob": "051495b01b71edac6b517ebbf53169fcabb5fc0e"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/history.rs",
+      "mode": "100644",
+      "git_blob": "39a1bca5b2b44a14901785d8bf867add0b9df6a4"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "b93480f0fa8669fa7fbd8fe00c0b5ecea5d4f0cd"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/notes.rs",
+      "mode": "100644",
+      "git_blob": "adc6555dc7699e3b8793b6b404b07df4cffe9aa9"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/policy.rs",
+      "mode": "100644",
+      "git_blob": "fdc1df59de53da153ca7d291b40111a9d04ab91e"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/preparation.rs",
+      "mode": "100644",
+      "git_blob": "d229f803cbba7240524280e410616ec24a05f8f2"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/registry.rs",
+      "mode": "100644",
+      "git_blob": "573e4444965f5053229784748ecf32b37d49bb88"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/store_history.rs",
+      "mode": "100644",
+      "git_blob": "b409ffd61f228133ca9cb49e2ca1372854cab696"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/taste.rs",
+      "mode": "100644",
+      "git_blob": "7a8506b98a6a9c8caccf789693ea2fa4c1564dd7"
+    },
+    {
+      "path": "crates/shenko-context-policy/src/window.rs",
+      "mode": "100644",
+      "git_blob": "381b36bc24496b82a54530a510b3ca7386521991"
+    },
+    {
+      "path": "crates/shenko-context-policy/tests/contribution_registry.rs",
+      "mode": "100644",
+      "git_blob": "5be48a266268f1db3a4be81c09a959e2c95b830e"
+    },
+    {
+      "path": "crates/shenko-context-policy/tests/rollover_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "71994ee035488112c1086a3e3f2d7863e83f6a15"
+    },
+    {
+      "path": "crates/shenko-document/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "39cc6dbc692eec0c585d39621aca2697ee2adfb5"
+    },
+    {
+      "path": "crates/shenko-document/src/attempt.rs",
+      "mode": "100644",
+      "git_blob": "26d0d094128f7b47e35a45c3cb81627379bfc3d0"
+    },
+    {
+      "path": "crates/shenko-document/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "4174e80ad5559dabfccb78cd93318f9ef5ed3663"
+    },
+    {
+      "path": "crates/shenko-document/src/oxr_client.rs",
+      "mode": "100644",
+      "git_blob": "a211af0d2333b3e742721a640ede13e2b45e785c"
+    },
+    {
+      "path": "crates/shenko-document/src/oxr_client_tests.rs",
+      "mode": "100644",
+      "git_blob": "41d4bf9431280a7a9deffe766884c01f80135796"
+    },
+    {
+      "path": "crates/shenko-document/src/provider.rs",
+      "mode": "100644",
+      "git_blob": "0562eca22f17c920aba5fbb95a2261ed6dc81e3f"
+    },
+    {
+      "path": "crates/shenko-document/src/tests.rs",
+      "mode": "100644",
+      "git_blob": "5eea6e4e1f37a896f6f17966f550470db1e4ea3a"
+    },
+    {
+      "path": "crates/shenko-document/src/types.rs",
+      "mode": "100644",
+      "git_blob": "8934c8055cf65442f880ee240940332afa4ef40e"
+    },
+    {
+      "path": "crates/shenko-evidence/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "d8796c1cd5021024ee4cde381c0fcea4fe5159c5"
+    },
+    {
+      "path": "crates/shenko-evidence/src/contract_input.rs",
+      "mode": "100644",
+      "git_blob": "8dfa53af50a4813b63a1a99e0bb17b99755c43ee"
+    },
+    {
+      "path": "crates/shenko-evidence/src/correction.rs",
+      "mode": "100644",
+      "git_blob": "77bbbb8e1cbe15df9c376dd06877216aff33cfc2"
+    },
+    {
+      "path": "crates/shenko-evidence/src/coverage.rs",
+      "mode": "100644",
+      "git_blob": "79716c5e6dd5d380b28add7166e58f15b30762aa"
+    },
+    {
+      "path": "crates/shenko-evidence/src/inventory.rs",
+      "mode": "100644",
+      "git_blob": "2f67d5b47fa1234221f28478929110bf2c76adfc"
+    },
+    {
+      "path": "crates/shenko-evidence/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "f204029280fb5e99ecf50d09574bcbdaf982607e"
+    },
+    {
+      "path": "crates/shenko-evidence/src/longrun.rs",
+      "mode": "100644",
+      "git_blob": "3bf86bdc0c3db603eba2e3ca2b3ca0ab9c95c1be"
+    },
+    {
+      "path": "crates/shenko-evidence/src/main.rs",
+      "mode": "100644",
+      "git_blob": "13ccebe541741c320029415ac2f4191d3b1a6be5"
+    },
+    {
+      "path": "crates/shenko-evidence/src/receipt.rs",
+      "mode": "100644",
+      "git_blob": "7459fa6ef9faa63ea52b792cb0a106f07d61c66e"
+    },
+    {
+      "path": "crates/shenko-evidence/src/scopes.rs",
+      "mode": "100644",
+      "git_blob": "bbede801fd79ea3234490eb2680c908937e4e1f4"
+    },
+    {
+      "path": "crates/shenko-evidence/src/spec_index.rs",
+      "mode": "100644",
+      "git_blob": "343e7e3f820599c7fef185099d83832ac3fe4909"
+    },
+    {
+      "path": "crates/shenko-evidence/tests/admission.rs",
+      "mode": "100644",
+      "git_blob": "70190ef447cdcfc2228cdf0eafe62e87d12e32b9"
+    },
+    {
+      "path": "crates/shenko-evidence/tests/correction_cli.rs",
+      "mode": "100644",
+      "git_blob": "50cbab61d756767f674539c67077fa92ae844f0e"
+    },
+    {
+      "path": "crates/shenko-evidence/tests/report_cli.rs",
+      "mode": "100644",
+      "git_blob": "727c67d797630bd835a4d92bbc70aee34330b8af"
+    },
+    {
+      "path": "crates/shenko-evidence/tests/support/mod.rs",
+      "mode": "100644",
+      "git_blob": "c8ed2def7f525d7a502d495d7697cbd3f5f825eb"
+    },
+    {
+      "path": "crates/shenko-exec-host/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "4bcd1fb71f65be62dbb67105669c4d87c2a71c41"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/awareness_host.rs",
+      "mode": "100644",
+      "git_blob": "fa8cc5964ad1547bc04639fdf6dc96e8dc8c8212"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/actions.rs",
+      "mode": "100644",
+      "git_blob": "00be650f8e1fe9c98bffa258e947eb3867e5496f"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/engine.rs",
+      "mode": "100644",
+      "git_blob": "fb942d762116032a814605fd22028cbb57690e23"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/handlers.rs",
+      "mode": "100644",
+      "git_blob": "161fdcf34d1c0e46cf1bb48b0c4608a9841a20d6"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/mod.rs",
+      "mode": "100644",
+      "git_blob": "3a03a6b94a8d8faae016a1e718b8cc5c8069d6d1"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/protocol.rs",
+      "mode": "100644",
+      "git_blob": "12cbd050b1158f49af14f936ce9c8cbb5f4e8c60"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/protocol_bidi.rs",
+      "mode": "100644",
+      "git_blob": "d03772009d2fafbd921b591d639176f5b98ad02c"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/protocol_cdp.rs",
+      "mode": "100644",
+      "git_blob": "af457da0aabacdfe02733f6d917ff0733aa62121"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/scripts.rs",
+      "mode": "100644",
+      "git_blob": "d0e1d2d61e5897fff4866b3cb8f5d8b15f0d68a6"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/browser/session.rs",
+      "mode": "100644",
+      "git_blob": "80f895affa65dd46575ee5ac8b6166faf067b190"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/build_provider.rs",
+      "mode": "100644",
+      "git_blob": "c132f84d6397f2cf91e99f689025dfa87fd7cef1"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/builtin.rs",
+      "mode": "100644",
+      "git_blob": "490ceebb25d0033d4a27f146ccf06af6a13c6b2a"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_judge.rs",
+      "mode": "100644",
+      "git_blob": "58bf65e809e84928a99d4f091ff7f8668d91efb5"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_judge/tests.rs",
+      "mode": "100644",
+      "git_blob": "c77189d59cddf518e26aa587a65c3eaad595c43a"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_query.rs",
+      "mode": "100644",
+      "git_blob": "cfec0a32480e542acf69f76f75fb4e3981b54cac"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_query/tests.rs",
+      "mode": "100644",
+      "git_blob": "1ca67b195f2d534e45bd624c2395468213a7dc81"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_task.rs",
+      "mode": "100644",
+      "git_blob": "8f8a1ce58a1eba0a065618633e92c253afc025ec"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_trial.rs",
+      "mode": "100644",
+      "git_blob": "96fd58448e7738751f0061ef441aeb78163cd989"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_trial/judge_receipt.rs",
+      "mode": "100644",
+      "git_blob": "54481ce18b1134ecc734279ca0d41c9fcc020ce6"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_trial/preparation.rs",
+      "mode": "100644",
+      "git_blob": "5b6128d925e8dfd5690fa937c7a3ed05af2a7073"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/cognition_trial/tests.rs",
+      "mode": "100644",
+      "git_blob": "17559745e15141787f04004f6346b8d734f223aa"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/computer_use.rs",
+      "mode": "100644",
+      "git_blob": "5ab9e7fa578f62fa02409a4f6026a9ad6152d055"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/contact_task.rs",
+      "mode": "100644",
+      "git_blob": "052f0ec5a0be6d0f0a7f8c2e3b38448f2d268724"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/desktop.rs",
+      "mode": "100644",
+      "git_blob": "88ea6a45d02fedd2e2783bfe3f364b218d1ddceb"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/desktop_macos.rs",
+      "mode": "100644",
+      "git_blob": "e8a47a9cb2a19428a9346f73c1ed727b33c1d912"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/desktop_windows.rs",
+      "mode": "100644",
+      "git_blob": "8ac6db5993b987b8f1007ffad65848318c5e9676"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/executor.rs",
+      "mode": "100644",
+      "git_blob": "ec3288aabff94d113ad899cb2860f96e0f828bb1"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/external_history.rs",
+      "mode": "100644",
+      "git_blob": "ad5b3bb4d989383d0c6cfe8bb261dd31bbe9a2a2"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/history_task.rs",
+      "mode": "100644",
+      "git_blob": "2760a8ed749952b2069f6e8648448fccce9a60ad"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/layerfs.rs",
+      "mode": "100644",
+      "git_blob": "ad1c4f659c9a13b4ea86f5efa0d131bafad7c498"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "38b71b677445893a9b21a28b70ff7926d02b9526"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/life_identity.rs",
+      "mode": "100644",
+      "git_blob": "4cefafb9b724798e95cc10294b277ccd8f44e441"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/memory_task.rs",
+      "mode": "100644",
+      "git_blob": "f065b88a30ca4d059832cdd3995ba0f9d1ce0aef"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/native_task.rs",
+      "mode": "100644",
+      "git_blob": "0037f828cb208b587bd30b132049157c39616111"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/net_fixture.rs",
+      "mode": "100644",
+      "git_blob": "97a7070d10b865cb6696ada6666cc0689dd43597"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/net_probe.rs",
+      "mode": "100644",
+      "git_blob": "7582c1f94a3bb464fd5b7c62237f28efa51c2379"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/node_capabilities_task.rs",
+      "mode": "100644",
+      "git_blob": "11d128726c9efa512ade8f607240ac8d6bc3bd83"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/node_selection_task.rs",
+      "mode": "100644",
+      "git_blob": "175ea3d0b262e35e39d33b15920bdad0b4433b32"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/obelisk_runtime.rs",
+      "mode": "100644",
+      "git_blob": "26ab8568b254d8aff731c16c0c7125eccd84465d"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/obelisk_runtime/tests.rs",
+      "mode": "100644",
+      "git_blob": "81eb55eebd9f4bcbad60fccc48bcc4fb905e98b3"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/person_task.rs",
+      "mode": "100644",
+      "git_blob": "16d9c14a1828aed8391a1382ee21ee3c11710889"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/research_task.rs",
+      "mode": "100644",
+      "git_blob": "5110da3aee8490b171eefb06a412ca9d611a5dd5"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/retention_task.rs",
+      "mode": "100644",
+      "git_blob": "eadef5c3e189b1b2b4b7f57946c1ddd197abc08e"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/runtime_error.rs",
+      "mode": "100644",
+      "git_blob": "f745f3ab144c07fee1d28991bb20398453a31af4"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/self_knowledge_task.rs",
+      "mode": "100644",
+      "git_blob": "25182724ce6466a194748278056db35eea967d53"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/ssh_task.rs",
+      "mode": "100644",
+      "git_blob": "c868f4d52af404673ef58114ac094bc63d764ae8"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/takeover_proof.rs",
+      "mode": "100644",
+      "git_blob": "cbcab0164c68c9092aaf0803225f8cbca9e90aff"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/wasi_task.rs",
+      "mode": "100644",
+      "git_blob": "3511c3ed44d83ad5d177be898e776501f0be5c59"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/awareness_efficacy.rs",
+      "mode": "100644",
+      "git_blob": "f0fa96c61fccd63c1bf884920d7a4fa9cf8c9842"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/awareness_host.rs",
+      "mode": "100644",
+      "git_blob": "507a82f44b64fccf0707afb8e8e405e1cd2fd1d0"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/cognition_self_learning.rs",
+      "mode": "100644",
+      "git_blob": "904f2521eb1d64a7dd0b80fd86c7facd42e709ad"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/cognition_self_learning/facts.rs",
+      "mode": "100644",
+      "git_blob": "2d58c67bd5c05c072e67f1d1648543f19f89b824"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/cognition_self_learning/harness.rs",
+      "mode": "100644",
+      "git_blob": "23129da71f55b52444481f4bf826e6d98172fc4e"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/computer_use_takeover_cli.rs",
+      "mode": "100644",
+      "git_blob": "34a6bbf5e9aae8418baae71aca762ad339214e7b"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/computer_use_takeover_native.rs",
+      "mode": "100644",
+      "git_blob": "0a5a3bf3796b93eb06ad924c888e6a8383c08ebf"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/desktop_native_macos_proof.rs",
+      "mode": "100644",
+      "git_blob": "ccfcf6f388df9cb8ba93812ac964391eee4a6faa"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/desktop_native_windows_proof.rs",
+      "mode": "100644",
+      "git_blob": "8dd0406fd2151e1d6516fd06f44cf620b6f4620c"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/network_change_fixture.rs",
+      "mode": "100644",
+      "git_blob": "4c9c4dc880bffc7bd85bb0486365591a449042e8"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/perception_version_reopen.rs",
+      "mode": "100644",
+      "git_blob": "c2512e6db343bf9ba3b8c1be59511cb11a1e45a3"
+    },
+    {
+      "path": "crates/shenko-exec-host/tests/seat_fleet_behavior.rs",
+      "mode": "100644",
+      "git_blob": "aba6142ee877f8a503acd024eb53feba854efee7"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "f7a84ccc8a4a415d29eaa05be5f55de544f03c0d"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/examples/task_ssh.rs",
+      "mode": "100644",
+      "git_blob": "5008acefbed1a30c90b3a71734caa79ceed170d2"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/executor.rs",
+      "mode": "100644",
+      "git_blob": "0fb22aab3093919cd8f2ffda2c856e82e2c34453"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/identity.rs",
+      "mode": "100644",
+      "git_blob": "71718cdfc666fa9a5b61be0a46da192480d38ba4"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/installed_binding.rs",
+      "mode": "100644",
+      "git_blob": "f2637b83f217bc52f7aeb393e742379bdbe46fb5"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "646d12cb0a72d29b210d6729db283ee3d8b2f577"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native.rs",
+      "mode": "100644",
+      "git_blob": "34848c83e0393bd11ed105d3b4eef169fa0b1271"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native/support.rs",
+      "mode": "100644",
+      "git_blob": "27c76b850262658c695b9ac55dda868917992536"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_installation.rs",
+      "mode": "100644",
+      "git_blob": "0a14bc409b09544dbfbf79cb791b437d7ad60805"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_query_tests.rs",
+      "mode": "100644",
+      "git_blob": "70cb4c5203e1a8a7242d0b6e693926d306f8ae2c"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+      "mode": "100644",
+      "git_blob": "24e7d22b10af2e0c63c989595a7bd2e54f283c0f"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+      "mode": "100644",
+      "git_blob": "63920dc52fe600f6f9cada2124846d59d499efc9"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/stream.rs",
+      "mode": "100644",
+      "git_blob": "ce3cdc603a971512746c6f5ca73528ecdf0c280f"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+      "mode": "100644",
+      "git_blob": "a184a38a19c46bf0693ba6110780a78d0791cdcf"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/trust.rs",
+      "mode": "100644",
+      "git_blob": "96c1dd79fd13dbd159c2d5f6234b2167e49dcde2"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/permission_provider.rs",
+      "mode": "100644",
+      "git_blob": "d4184321965245884138f16415d2b56756932fec"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/claude_sdk.rs",
+      "mode": "100644",
+      "git_blob": "de023d82dca2bccf3de812b8feed3e6e10652915"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/mod.rs",
+      "mode": "100644",
+      "git_blob": "2ee02b1251008e82ac3e1c462c714251a66e131c"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/omp_rpc.rs",
+      "mode": "100644",
+      "git_blob": "e5cdfa6d28c7381a5dd576c8a9d6923617d1bcf0"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/runtime.rs",
+      "mode": "100644",
+      "git_blob": "d780f8b02a2773c66ae7282a6d479bdd00fd6e55"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+      "mode": "100644",
+      "git_blob": "95070420ed66d68915e81e6f6b28bf0d4e281bef"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/tmux.rs",
+      "mode": "100644",
+      "git_blob": "a8c637b46e2180375370f3a8cad5a1816af5a97c"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/selected_task.rs",
+      "mode": "100644",
+      "git_blob": "67217412bd84122d9ce31a89541fe95b9cb5d604"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/ssh_exec.rs",
+      "mode": "100644",
+      "git_blob": "c698ffeabb17c61df2fc31051c32edd33603bac8"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/target_resolution.rs",
+      "mode": "100644",
+      "git_blob": "d8d1260499978e7e436b42a645ff2684bffcf470"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/task_runner.rs",
+      "mode": "100644",
+      "git_blob": "52f1ad0cefd150eda4570514cf0614fa4a331682"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/terminal.rs",
+      "mode": "100644",
+      "git_blob": "a2a9ff8a87626e5cceef8221e001341700721e14"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/tests/real_omp_seat.rs",
+      "mode": "100644",
+      "git_blob": "fdeb23d3e6d214293747ea005cfcbcc40ddcfe1a"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/tests/real_ssh_exec.rs",
+      "mode": "100644",
+      "git_blob": "0e355cb77164ec5954343a3a5ea7dd66a5ffbf76"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/tests/seat_fleet.rs",
+      "mode": "100644",
+      "git_blob": "e97768d1ed349507a743c301b082610f8ada0632"
+    },
+    {
+      "path": "crates/shenko-identity/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "1bae0c99be34fc6bb650a17d102ef4db2e0b42e3"
+    },
+    {
+      "path": "crates/shenko-identity/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "da2e8a0744c4396992c0e27c43c7d488245414f9"
+    },
+    {
+      "path": "crates/shenko-kernel/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "c51a9dd3acdcb9a241a0ebe4a9e25be96fa79071"
+    },
+    {
+      "path": "crates/shenko-kernel/examples/hook_graph.rs",
+      "mode": "100644",
+      "git_blob": "f806207c89a9df67dd6524d9c3235e9e50e91f1e"
+    },
+    {
+      "path": "crates/shenko-kernel/src/contribution.rs",
+      "mode": "100644",
+      "git_blob": "79109cf6718c83e38c825af09816d9bb8dcab09a"
+    },
+    {
+      "path": "crates/shenko-kernel/src/errors.rs",
+      "mode": "100644",
+      "git_blob": "ad14b1e6cabee12267bae6122854c5e224ab891d"
+    },
+    {
+      "path": "crates/shenko-kernel/src/hooks.rs",
+      "mode": "100644",
+      "git_blob": "8b86ae5970ba8029c165068115b383af9d86504c"
+    },
+    {
+      "path": "crates/shenko-kernel/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "c1af636d1ef69430112231d68c73b0787c159e33"
+    },
+    {
+      "path": "crates/shenko-kernel/src/lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "85e4093e9171eab24ee6570c2bdb8e3233b9bed4"
+    },
+    {
+      "path": "crates/shenko-kernel/src/plugin.rs",
+      "mode": "100644",
+      "git_blob": "2e4aa0232315f366a6e5b5561149c8c5ce5dec4f"
+    },
+    {
+      "path": "crates/shenko-kernel/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "09a88b3ab4762f55d2e0d5ca2bd37a22553f4787"
+    },
+    {
+      "path": "crates/shenko-kernel/src/services.rs",
+      "mode": "100644",
+      "git_blob": "2aae0fb594ff26305f99256243b23c105741b40c"
+    },
+    {
+      "path": "crates/shenko-kernel/src/supervisor.rs",
+      "mode": "100644",
+      "git_blob": "157eba51ebb93d6a8dbfc8249e94c180a154c792"
+    },
+    {
+      "path": "crates/shenko-kernel/src/task.rs",
+      "mode": "100644",
+      "git_blob": "1ab7b6609fbcebbf30db742b800641e1881760aa"
+    },
+    {
+      "path": "crates/shenko-kernel/tests/cordis_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "531ab930cc9ebfaffd88774085d914638dd3e78a"
+    },
+    {
+      "path": "crates/shenko-kernel/tests/generation_uninstall.rs",
+      "mode": "100644",
+      "git_blob": "e6d7af721a2e8a6ffb7e79b15ade67a17baa6f44"
+    },
+    {
+      "path": "crates/shenko-kernel/tests/hook_generation_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "72206b3a83b0307ae629822f1267824cda2f0dee"
+    },
+    {
+      "path": "crates/shenko-media/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "cc65319dac450f2e1eaa469913b0f66a5095be0b"
+    },
+    {
+      "path": "crates/shenko-media/src/identify.rs",
+      "mode": "100644",
+      "git_blob": "64e400b1ca5e5e5b5ef7c524edd0e01b5e5c3ceb"
+    },
+    {
+      "path": "crates/shenko-media/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "aa60737c884d51c32099cfc6691f6211f3d5485a"
+    },
+    {
+      "path": "crates/shenko-media/src/provider.rs",
+      "mode": "100644",
+      "git_blob": "49cd897475a028263e69d5d7ab990e5431d9d1a8"
+    },
+    {
+      "path": "crates/shenko-media/src/query.rs",
+      "mode": "100644",
+      "git_blob": "ca2fd3e78c63fb630bba6f2a975222ace312927e"
+    },
+    {
+      "path": "crates/shenko-media/src/recording.rs",
+      "mode": "100644",
+      "git_blob": "8e279a12039ea687e4074af028c007badbbf0e13"
+    },
+    {
+      "path": "crates/shenko-media/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "71a3e6220290b1c76ebda29b0b9661134fe6e56a"
+    },
+    {
+      "path": "crates/shenko-media/tests/recording_controls.rs",
+      "mode": "100644",
+      "git_blob": "2e287fd7beb6c9a97ab2c151d319e5e832f4af73"
+    },
+    {
+      "path": "crates/shenko-media/tests/transcript_lineage.rs",
+      "mode": "100644",
+      "git_blob": "f67db3275fa820d690b56373097502d247d110d3"
+    },
+    {
+      "path": "crates/shenko-memory/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "457e6945b638dab609e880ff879d936c23eeae76"
+    },
+    {
+      "path": "crates/shenko-memory/src/backend.rs",
+      "mode": "100644",
+      "git_blob": "a8eb7ed21cdd44565c292ddb8f143923499c98ef"
+    },
+    {
+      "path": "crates/shenko-memory/src/excerpt.rs",
+      "mode": "100644",
+      "git_blob": "1398517dee9dbb2a267bea9a6b999ce99c192d8e"
+    },
+    {
+      "path": "crates/shenko-memory/src/intervention.rs",
+      "mode": "100644",
+      "git_blob": "64f3439150297a84598fc27bdd48a2f557542112"
+    },
+    {
+      "path": "crates/shenko-memory/src/intervention_runtime.rs",
+      "mode": "100644",
+      "git_blob": "927c406ed0494c03da9911d3a8a0cfa4afe3d558"
+    },
+    {
+      "path": "crates/shenko-memory/src/knowledge.rs",
+      "mode": "100644",
+      "git_blob": "e739ec61faf0db19b04b98bcb333dd8d6ef86802"
+    },
+    {
+      "path": "crates/shenko-memory/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "7cbaccb20c84dd6315ecf6827cb4d1cafed008a1"
+    },
+    {
+      "path": "crates/shenko-memory/src/memory_store.rs",
+      "mode": "100644",
+      "git_blob": "a34a5ffa57fff04f1d9c035c930a18374c502afc"
+    },
+    {
+      "path": "crates/shenko-memory/src/worker.rs",
+      "mode": "100644",
+      "git_blob": "deeee97e0d4344c6ca03342a82f35d21c107f798"
+    },
+    {
+      "path": "crates/shenko-memory/tests/intent_flow.rs",
+      "mode": "100644",
+      "git_blob": "851269d54a09a3a172fcc962d924a5ea2af42acc"
+    },
+    {
+      "path": "crates/shenko-memory/tests/pma_contribution.rs",
+      "mode": "100644",
+      "git_blob": "c7acc3de3aee146b959850dbb30d6da9ad43f563"
+    },
+    {
+      "path": "crates/shenko-mobile/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "33383d2bc59f654cbab1f6b329f63ebbc93a29a0"
+    },
+    {
+      "path": "crates/shenko-mobile/src/backend.rs",
+      "mode": "100644",
+      "git_blob": "6acd33c56c3909a08901c85fe7ff4c54eb2c6eea"
+    },
+    {
+      "path": "crates/shenko-mobile/src/bridge.rs",
+      "mode": "100644",
+      "git_blob": "8411733b6c92b88dfe78e65cb660b4ce70085df2"
+    },
+    {
+      "path": "crates/shenko-mobile/src/facts.rs",
+      "mode": "100644",
+      "git_blob": "cb7ea0a54e3ee8f028ea395b890c801d41c3a876"
+    },
+    {
+      "path": "crates/shenko-mobile/src/fingerprint.rs",
+      "mode": "100644",
+      "git_blob": "b4839b52e32ea1fd0e2a51911039cd54458ff862"
+    },
+    {
+      "path": "crates/shenko-mobile/src/handlers.rs",
+      "mode": "100644",
+      "git_blob": "673303c53fe116c5d820f5fce1a8263c85ad0c4b"
+    },
+    {
+      "path": "crates/shenko-mobile/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "4cb6927b8f21910aecb72736ddccdcf33b17cb3c"
+    },
+    {
+      "path": "crates/shenko-node/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "234a6c620c725c227a7af4d10f3b5bcdee5a7db4"
+    },
+    {
+      "path": "crates/shenko-node/src/admission.rs",
+      "mode": "100644",
+      "git_blob": "d6be9c3b8211568963341116ef5334d35e6a8868"
+    },
+    {
+      "path": "crates/shenko-node/src/authority_guard.rs",
+      "mode": "100644",
+      "git_blob": "6eeeb2bd9c632b6d28f8c1aac07faab349b6c4f5"
+    },
+    {
+      "path": "crates/shenko-node/src/branch_binding.rs",
+      "mode": "100644",
+      "git_blob": "133c6bbbeefa054f61579b2365af6af8200507cf"
+    },
+    {
+      "path": "crates/shenko-node/src/capability.rs",
+      "mode": "100644",
+      "git_blob": "981e3edfc0b8d717417a3e183e8aa95f673ae412"
+    },
+    {
+      "path": "crates/shenko-node/src/cognition.rs",
+      "mode": "100644",
+      "git_blob": "e2392b12f1d425c4aa80a47e01b729c292954dd2"
+    },
+    {
+      "path": "crates/shenko-node/src/component.rs",
+      "mode": "100644",
+      "git_blob": "29af639df1c1060fd1e96bb469434ce5cba90e15"
+    },
+    {
+      "path": "crates/shenko-node/src/control.rs",
+      "mode": "100644",
+      "git_blob": "02ed36939e26ba2d9dd1eb0f652bf8faf5764a13"
+    },
+    {
+      "path": "crates/shenko-node/src/control_transport.rs",
+      "mode": "100644",
+      "git_blob": "b8f54e077cd2e396b697ea25ed2f2d70c9b12e9c"
+    },
+    {
+      "path": "crates/shenko-node/src/election.rs",
+      "mode": "100644",
+      "git_blob": "83f96b49ee80f13b0738e37b274f635a12a3521e"
+    },
+    {
+      "path": "crates/shenko-node/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "ba94e02c2b1e48aaa218fbe9ebe6970b6e310865"
+    },
+    {
+      "path": "crates/shenko-node/src/main.rs",
+      "mode": "100644",
+      "git_blob": "8eeb602bc53b7aa8c5e4905ce9a43307f076a118"
+    },
+    {
+      "path": "crates/shenko-node/src/peers.rs",
+      "mode": "100644",
+      "git_blob": "95a4780fa4bb2c4c0386d9220d4dc6a8d8c4dec0"
+    },
+    {
+      "path": "crates/shenko-node/src/roles.rs",
+      "mode": "100644",
+      "git_blob": "955e71a10db0b2fa356171b960acd18377bf4fd2"
+    },
+    {
+      "path": "crates/shenko-node/src/selection.rs",
+      "mode": "100644",
+      "git_blob": "507b6eb9fd2f43931bcc61bbdcd49c51ef28a6a0"
+    },
+    {
+      "path": "crates/shenko-node/src/units.rs",
+      "mode": "100644",
+      "git_blob": "8a6eccfa09aaf9cac8bb7ee8f3746f1f295eaf25"
+    },
+    {
+      "path": "crates/shenko-node/src/units/adoption.rs",
+      "mode": "100644",
+      "git_blob": "9dec7bb75b4963f0ea40d27e5b0829fb98f09ada"
+    },
+    {
+      "path": "crates/shenko-node/src/units/capabilities.rs",
+      "mode": "100644",
+      "git_blob": "62b714f14264dff9172299ad1b39ca327d49109f"
+    },
+    {
+      "path": "crates/shenko-node/src/units/codec.rs",
+      "mode": "100644",
+      "git_blob": "1d27be4a0126c5cc19870c8fe68a55d4fcfad56f"
+    },
+    {
+      "path": "crates/shenko-node/src/units/environment.rs",
+      "mode": "100644",
+      "git_blob": "2d33bed4bf99cec616a53ab83608a7dadc76e0bd"
+    },
+    {
+      "path": "crates/shenko-node/src/units/installation.rs",
+      "mode": "100644",
+      "git_blob": "edbba424b823b79f065867adb9ed594f019955a6"
+    },
+    {
+      "path": "crates/shenko-node/src/units/materialization.rs",
+      "mode": "100644",
+      "git_blob": "9ec559db25b49ddba81f86cab342bfe398e798ca"
+    },
+    {
+      "path": "crates/shenko-node/src/units/membership.rs",
+      "mode": "100644",
+      "git_blob": "9624d1e1f6240687f1cf9d5666a3931fd577929e"
+    },
+    {
+      "path": "crates/shenko-node/src/units/process.rs",
+      "mode": "100644",
+      "git_blob": "a9620f2efc486cd0575d4ea5cea0c521997e124d"
+    },
+    {
+      "path": "crates/shenko-node/src/units/removal.rs",
+      "mode": "100644",
+      "git_blob": "477d2735afe16f4eee4baa857e3f8c215621fd68"
+    },
+    {
+      "path": "crates/shenko-node/src/units/resolution.rs",
+      "mode": "100644",
+      "git_blob": "01acb805d2894d3c11dcd1c13211d4d4ef2c193b"
+    },
+    {
+      "path": "crates/shenko-node/src/units/schema.rs",
+      "mode": "100644",
+      "git_blob": "c34c05bc76c5f65d93fb4235f26f9b8e1a742e91"
+    },
+    {
+      "path": "crates/shenko-node/src/units/test_support.rs",
+      "mode": "100644",
+      "git_blob": "9f07bc5ed8c23277746aa3001f927661b9f7726d"
+    },
+    {
+      "path": "crates/shenko-node/src/units/transfer.rs",
+      "mode": "100644",
+      "git_blob": "48caf451c93f72f098972afa475101b2ebf4a2f7"
+    },
+    {
+      "path": "crates/shenko-node/src/units/trials.rs",
+      "mode": "100644",
+      "git_blob": "c09bcfb19a35cb82c8e52af43ed081d1ad1c2e64"
+    },
+    {
+      "path": "crates/shenko-node/tests/cognition_report.rs",
+      "mode": "100644",
+      "git_blob": "0ed0785fe1fe8bb84882f7e75f0f872db3dc3dee"
+    },
+    {
+      "path": "crates/shenko-node/tests/component_agreement.rs",
+      "mode": "100644",
+      "git_blob": "56e93487291393d5b782b7086021a9c5d57796b8"
+    },
+    {
+      "path": "crates/shenko-node/tests/partition_rejoin.rs",
+      "mode": "100644",
+      "git_blob": "73504a2eab673da8f5dfe8d1bd6afd212c5b688b"
+    },
+    {
+      "path": "crates/shenko-node/tests/reconciliation_receipts.rs",
+      "mode": "100644",
+      "git_blob": "fa46b73ebafd8574f14d862aa68001fd6f78c6de"
+    },
+    {
+      "path": "crates/shenko-node/tests/unit_uninstall_wire.rs",
+      "mode": "100644",
+      "git_blob": "f2c17cc69a0a8c389b9efee2daef88df7852a5e7"
+    },
+    {
+      "path": "crates/shenko-quota/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "a6418b084e6947acfcc40a9c6fc6a5409049c86d"
+    },
+    {
+      "path": "crates/shenko-quota/src/admission.rs",
+      "mode": "100644",
+      "git_blob": "ae429fb33f7ba546286827296255bd9f8a8ce60f"
+    },
+    {
+      "path": "crates/shenko-quota/src/event.rs",
+      "mode": "100644",
+      "git_blob": "dde02a83321e498aed87cbed23f4fc501a9fe309"
+    },
+    {
+      "path": "crates/shenko-quota/src/forecast.rs",
+      "mode": "100644",
+      "git_blob": "e0f271e62cdcc08b7c125705f5935f8196cdd9e9"
+    },
+    {
+      "path": "crates/shenko-quota/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "85db8f8d3e81ba8ead1fa3e91028169122ebc6a5"
+    },
+    {
+      "path": "crates/shenko-quota/src/model.rs",
+      "mode": "100644",
+      "git_blob": "c370b473fec8d36a5871bf95453efd681d7ecbda"
+    },
+    {
+      "path": "crates/shenko-quota/src/observe.rs",
+      "mode": "100644",
+      "git_blob": "8e792c824feb422f70dbdb29faefcfe4d39f590e"
+    },
+    {
+      "path": "crates/shenko-quota/src/plugin.rs",
+      "mode": "100644",
+      "git_blob": "0169abe2879ca0a642e0c9e3ce0c46aa14643a50"
+    },
+    {
+      "path": "crates/shenko-quota/src/policy.rs",
+      "mode": "100644",
+      "git_blob": "198e7a2418396c630384e9d1639d6b90923cc9f3"
+    },
+    {
+      "path": "crates/shenko-quota/src/scope.rs",
+      "mode": "100644",
+      "git_blob": "02a41d0a0f93186acc672ecc58e941776e9b2310"
+    },
+    {
+      "path": "crates/shenko-quota/src/sources/anthropic.rs",
+      "mode": "100644",
+      "git_blob": "fcead4667636ecfcfa2340429b8fc538c970f845"
+    },
+    {
+      "path": "crates/shenko-quota/src/sources/local_meter.rs",
+      "mode": "100644",
+      "git_blob": "e2be9fc94e51697a4b87b525a1b7b8958e3f1b36"
+    },
+    {
+      "path": "crates/shenko-quota/src/sources/mod.rs",
+      "mode": "100644",
+      "git_blob": "be2708049db92b19cf0fff13bf44809a94facaa1"
+    },
+    {
+      "path": "crates/shenko-quota/src/strategy.rs",
+      "mode": "100644",
+      "git_blob": "9c07d814e1c7c528be851662e244fe3305cbd8a5"
+    },
+    {
+      "path": "crates/shenko-quota/src/view.rs",
+      "mode": "100644",
+      "git_blob": "5642c44ef1f1f99909486a10d431b52b31106b03"
+    },
+    {
+      "path": "crates/shenko-quota/tests/policy_admission.rs",
+      "mode": "100644",
+      "git_blob": "2d108be744350fd000df63c759734d2a58dae807"
+    },
+    {
+      "path": "crates/shenko-quota/tests/policy_planning.rs",
+      "mode": "100644",
+      "git_blob": "8814b34d686f31ed0f9fc9619851ae1ba8614af0"
+    },
+    {
+      "path": "crates/shenko-quota/tests/quota.rs",
+      "mode": "100644",
+      "git_blob": "2a7ddbf258acad85df9d845b8e3e4ecd5164a8f2"
+    },
+    {
+      "path": "crates/shenko-quota/tests/strategy_plugins.rs",
+      "mode": "100644",
+      "git_blob": "c2cc3eb0142e8ee9bd33bf46f42275e3d4d1c9d2"
+    },
+    {
+      "path": "crates/shenko-repl/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "7f1b7fd7e963932fbdc88b712dcf7e172e833a6a"
+    },
+    {
+      "path": "crates/shenko-repl/src/adapters.rs",
+      "mode": "100644",
+      "git_blob": "4f9468b7bf02566c615d5cb580ef9aaee7a56fb2"
+    },
+    {
+      "path": "crates/shenko-repl/src/contract.rs",
+      "mode": "100644",
+      "git_blob": "27347cd821ea866a5d305d0d5434683977e63ca1"
+    },
+    {
+      "path": "crates/shenko-repl/src/entry.rs",
+      "mode": "100644",
+      "git_blob": "fcf5141d6f50c2322d8cbb1a2b12674a63881299"
+    },
+    {
+      "path": "crates/shenko-repl/src/install.rs",
+      "mode": "100644",
+      "git_blob": "52d4633b1281fb1824e700a2c6cbdc3955df4bf1"
+    },
+    {
+      "path": "crates/shenko-repl/src/journal.rs",
+      "mode": "100644",
+      "git_blob": "07e67996c617a72a9393570427257d74fd4cb360"
+    },
+    {
+      "path": "crates/shenko-repl/src/kernel.rs",
+      "mode": "100644",
+      "git_blob": "b87134df1bdecc6332c38f187e5c72d63ff66e25"
+    },
+    {
+      "path": "crates/shenko-repl/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "5d0342ea9bf9233506c1bbfca588bfc7c37c2f88"
+    },
+    {
+      "path": "crates/shenko-repl/src/live.rs",
+      "mode": "100644",
+      "git_blob": "a4cf5469268cb893fd589596e17b9302c56bd7ed"
+    },
+    {
+      "path": "crates/shenko-repl/src/session.rs",
+      "mode": "100644",
+      "git_blob": "a614cb2a4938ae44c01e08c0ca5193114ed80148"
+    },
+    {
+      "path": "crates/shenko-repl/src/state.rs",
+      "mode": "100644",
+      "git_blob": "5c8e5507be1d79fac2e99e9ff3797361659199e3"
+    },
+    {
+      "path": "crates/shenko-repl/src/task.rs",
+      "mode": "100644",
+      "git_blob": "58397d2b09744b927d366d574e31d18a83e20f31"
+    },
+    {
+      "path": "crates/shenko-repl/tests/real_python_wasi.rs",
+      "mode": "100644",
+      "git_blob": "dea5e240adb391297f999cd7529ea2d812b5d92e"
+    },
+    {
+      "path": "crates/shenko-repl/tests/real_quickjs_wasi.rs",
+      "mode": "100644",
+      "git_blob": "ef846f8532804a5522daab20f39d265ebf55d207"
+    },
+    {
+      "path": "crates/shenko-repl/tests/wasi_repl.rs",
+      "mode": "100644",
+      "git_blob": "543d60e384618e9175cdd762216665702a73cb62"
+    },
+    {
+      "path": "crates/shenko-seed/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "73e00d1bc617b633e9e5b6b834df1c6396da16f6"
+    },
+    {
+      "path": "crates/shenko-seed/src/bootstrap.rs",
+      "mode": "100644",
+      "git_blob": "5734ed7426b0910fb4f2f1a9359938cac0ea20d5"
+    },
+    {
+      "path": "crates/shenko-seed/src/launch.rs",
+      "mode": "100644",
+      "git_blob": "526b34b8d2ec4c7d93b6b54ec2e18bb491b4205f"
+    },
+    {
+      "path": "crates/shenko-seed/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "e8605d45c92485e3477f1e54fb0f573e76bb0138"
+    },
+    {
+      "path": "crates/shenko-seed/tests/home_capability_migration.rs",
+      "mode": "100644",
+      "git_blob": "b74d3920985072dee056872b9ec5dd5795ddf9c9"
+    },
+    {
+      "path": "crates/shenko-seed/tests/home_checkpoint_recovery.rs",
+      "mode": "100644",
+      "git_blob": "1c85cdffdd4d3a9d0b824fa752e37a75c5c1d87d"
+    },
+    {
+      "path": "crates/shenko-seed/tests/home_recovery.rs",
+      "mode": "100644",
+      "git_blob": "4e1dd8cee7b19adddce5f1912b3fcd7f8c724ebc"
+    },
+    {
+      "path": "crates/shenko-store/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "3be98831ca9733d965b720b2f426d5a81896366b"
+    },
+    {
+      "path": "crates/shenko-store/examples/notebook_recovery_consumer.rs",
+      "mode": "100644",
+      "git_blob": "29ad763f73a3e05d6609a24c8656457d96e2c8b1"
+    },
+    {
+      "path": "crates/shenko-store/examples/obligation_archive_consumer.rs",
+      "mode": "100644",
+      "git_blob": "c9baa26b5ea65f02f772c89f2d81867fc896373c"
+    },
+    {
+      "path": "crates/shenko-store/src/activation.rs",
+      "mode": "100644",
+      "git_blob": "11a5a51bf0f758f76c35da19df01e72ebfdb910a"
+    },
+    {
+      "path": "crates/shenko-store/src/arming_transition.rs",
+      "mode": "100644",
+      "git_blob": "3ba047675fac5e616a083a74fe4a8f344b1283ad"
+    },
+    {
+      "path": "crates/shenko-store/src/artifacts.rs",
+      "mode": "100644",
+      "git_blob": "5bf87ef04fdc470b25724929f388f5c24ef12215"
+    },
+    {
+      "path": "crates/shenko-store/src/atoms.rs",
+      "mode": "100644",
+      "git_blob": "d4090d7979491d957f3cc20df915cfe5d2349a78"
+    },
+    {
+      "path": "crates/shenko-store/src/authority.rs",
+      "mode": "100644",
+      "git_blob": "77e5bb1762d81c73739d21446e798bedc8fcef08"
+    },
+    {
+      "path": "crates/shenko-store/src/cas.rs",
+      "mode": "100644",
+      "git_blob": "001da469326cbdea4adb7b3da39680f52473af20"
+    },
+    {
+      "path": "crates/shenko-store/src/channel.rs",
+      "mode": "100644",
+      "git_blob": "698f192a449a846e39f13786ff949cdab3e4bdc9"
+    },
+    {
+      "path": "crates/shenko-store/src/child.rs",
+      "mode": "100644",
+      "git_blob": "313c5eed8aff92657754a515de527bf9a0429d74"
+    },
+    {
+      "path": "crates/shenko-store/src/claim_transition.rs",
+      "mode": "100644",
+      "git_blob": "b093df85d1370645de2d476465c23d2ef25dda19"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition.rs",
+      "mode": "100644",
+      "git_blob": "ab653e5b0c8bb430bd89ecc494923983d4242737"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/admission.rs",
+      "mode": "100644",
+      "git_blob": "37ced2277d2d5acdc6f3dbc0b3a212ca2866a024"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/archive_admission_tests.rs",
+      "mode": "100644",
+      "git_blob": "7c92094afc7be97b16246fa3a2be648feabdde5c"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/closure.rs",
+      "mode": "100644",
+      "git_blob": "66b0555ffc88f85b564ee30b674f50332544c1c9"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/files.rs",
+      "mode": "100644",
+      "git_blob": "8a122f582a34a64ac69bc6ae5f09a654c96d2a32"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/import.rs",
+      "mode": "100644",
+      "git_blob": "6776ca4f306845b6e2bae2f6a040e772632724a1"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/memory.rs",
+      "mode": "100644",
+      "git_blob": "bdd1624c8f2751dfff3c6d19518494e600822ed2"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/obligation_merge_tests.rs",
+      "mode": "100644",
+      "git_blob": "d268375ae3ad15ea8a2d64d497b74b4ece79ff0e"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/peers.rs",
+      "mode": "100644",
+      "git_blob": "40bc4214200265ffeb6058ecdd4502fe75a2a1fd"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/reconcile.rs",
+      "mode": "100644",
+      "git_blob": "e8186526db5027d42265cb8d2c2dae467f041321"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/rows.rs",
+      "mode": "100644",
+      "git_blob": "908ff720bec93f3ea26c718d3042ec2a05d445b4"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/snapshot.rs",
+      "mode": "100644",
+      "git_blob": "80c7253624ebd08dd5c2f86179cf6c4f3f41feec"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition/tasks.rs",
+      "mode": "100644",
+      "git_blob": "13a79cc358de02b733a76701f622a2d9223044cb"
+    },
+    {
+      "path": "crates/shenko-store/src/cognition_archive.rs",
+      "mode": "100644",
+      "git_blob": "029cc8e51f15969759f1f96076b3e03e8f62217e"
+    },
+    {
+      "path": "crates/shenko-store/src/cognitive_root.rs",
+      "mode": "100644",
+      "git_blob": "ba66afd7bfd609fbbd3872aa93d38198d65efc18"
+    },
+    {
+      "path": "crates/shenko-store/src/config.rs",
+      "mode": "100644",
+      "git_blob": "66a2dca675a6465378f4f7528b5842ff3221a659"
+    },
+    {
+      "path": "crates/shenko-store/src/contacts.rs",
+      "mode": "100644",
+      "git_blob": "1c428cae9caa4f4e5b7ec1aa5c18ab60fa5658ee"
+    },
+    {
+      "path": "crates/shenko-store/src/content_stream.rs",
+      "mode": "100644",
+      "git_blob": "a21d00cf17b8073b25469276f61bb2c4314ab70a"
+    },
+    {
+      "path": "crates/shenko-store/src/context_correction.rs",
+      "mode": "100644",
+      "git_blob": "cec24ba9ea9ee75a1e8f02aa266ee2125fe79cef"
+    },
+    {
+      "path": "crates/shenko-store/src/context_notes.rs",
+      "mode": "100644",
+      "git_blob": "1f8a18f99ce72dfbbbfc3b4975a2114407b820f0"
+    },
+    {
+      "path": "crates/shenko-store/src/context_windows.rs",
+      "mode": "100644",
+      "git_blob": "ae6cbde843eaabe7a85e333bb44ade42637a896a"
+    },
+    {
+      "path": "crates/shenko-store/src/control_predecessor.rs",
+      "mode": "100644",
+      "git_blob": "eef08efb738db4c58e95a2340e968acdd7ce35d8"
+    },
+    {
+      "path": "crates/shenko-store/src/control_recovery.rs",
+      "mode": "100644",
+      "git_blob": "81917f9613cc3625aaa5c6162e43316fe09725c7"
+    },
+    {
+      "path": "crates/shenko-store/src/control_transition.rs",
+      "mode": "100644",
+      "git_blob": "b2789ba03c0067dbd4aee9f666a2f1822258d5da"
+    },
+    {
+      "path": "crates/shenko-store/src/dispatch_transition.rs",
+      "mode": "100644",
+      "git_blob": "5884008ef80656e6bf51cfa6c0bffa5184dabacb"
+    },
+    {
+      "path": "crates/shenko-store/src/external.rs",
+      "mode": "100644",
+      "git_blob": "a636a9c9517e278556f1d811d628101e654cc28b"
+    },
+    {
+      "path": "crates/shenko-store/src/identity.rs",
+      "mode": "100644",
+      "git_blob": "4f9d95741a3879819513019aa833de7ca92cf8d2"
+    },
+    {
+      "path": "crates/shenko-store/src/intents.rs",
+      "mode": "100644",
+      "git_blob": "6e5809b14120eacd83b8325aad5ad4d0c5d90cba"
+    },
+    {
+      "path": "crates/shenko-store/src/ledger.rs",
+      "mode": "100644",
+      "git_blob": "eb4f45915c08fa4d1f0e4d8cef132eeff826f734"
+    },
+    {
+      "path": "crates/shenko-store/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "4f5f921a60daf58b0327ca4f831b33274b31af93"
+    },
+    {
+      "path": "crates/shenko-store/src/local_installation.rs",
+      "mode": "100644",
+      "git_blob": "3c4772cf2e332374a5efa11bb2fa591ab9e569cf"
+    },
+    {
+      "path": "crates/shenko-store/src/media.rs",
+      "mode": "100644",
+      "git_blob": "8c3fa008fb7aee13cfb07b046fd67db6be8f602e"
+    },
+    {
+      "path": "crates/shenko-store/src/memory.rs",
+      "mode": "100644",
+      "git_blob": "1e19c33e7439af6d3607b20cb8c07603806570b2"
+    },
+    {
+      "path": "crates/shenko-store/src/migrations.rs",
+      "mode": "100644",
+      "git_blob": "a547947cf2887d14db5a777936578456e855d1b0"
+    },
+    {
+      "path": "crates/shenko-store/src/native_evidence.rs",
+      "mode": "100644",
+      "git_blob": "b50b5958806d11410ef5444934ab8f0680592d53"
+    },
+    {
+      "path": "crates/shenko-store/src/native_facts.rs",
+      "mode": "100644",
+      "git_blob": "9f46248f4e84d2ec230ba6f6ad938f11876f8d5e"
+    },
+    {
+      "path": "crates/shenko-store/src/native_transition.rs",
+      "mode": "100644",
+      "git_blob": "09c0a0504b93477b24515806168d2cd58179b14d"
+    },
+    {
+      "path": "crates/shenko-store/src/output_parts.rs",
+      "mode": "100644",
+      "git_blob": "f3147c6c6dfc91f193739f6536c2335f8f0bb308"
+    },
+    {
+      "path": "crates/shenko-store/src/quota.rs",
+      "mode": "100644",
+      "git_blob": "c4ef0bf2b020754d6c530e95b9fc67ae2bfca1c3"
+    },
+    {
+      "path": "crates/shenko-store/src/raw_session.rs",
+      "mode": "100644",
+      "git_blob": "ce07dcbab50501ae2defd16b8fa48f3c70ce1766"
+    },
+    {
+      "path": "crates/shenko-store/src/receipt_admission.rs",
+      "mode": "100644",
+      "git_blob": "01d773e699e6cf0c549aebaf3312b6fcdf373c81"
+    },
+    {
+      "path": "crates/shenko-store/src/reconcile.rs",
+      "mode": "100644",
+      "git_blob": "120d651438e1b50affff7a718fcb45fbc362b7da"
+    },
+    {
+      "path": "crates/shenko-store/src/recovery_sources.rs",
+      "mode": "100644",
+      "git_blob": "8622f8b13e8be9132b3db1a3fc4f08ab162bf0a3"
+    },
+    {
+      "path": "crates/shenko-store/src/research.rs",
+      "mode": "100644",
+      "git_blob": "7411f8aa5cade8476f7df2c67b2ceb658d1c950e"
+    },
+    {
+      "path": "crates/shenko-store/src/runtime_boundary.rs",
+      "mode": "100644",
+      "git_blob": "a8adce77cca965b4b90b068e807424854fe11684"
+    },
+    {
+      "path": "crates/shenko-store/src/seat.rs",
+      "mode": "100644",
+      "git_blob": "3377f7187bf648025b3e1ecd268560937c3fc758"
+    },
+    {
+      "path": "crates/shenko-store/src/semantic_wait.rs",
+      "mode": "100644",
+      "git_blob": "6f099b8a4115fd1f39509c9d2525a96d5efa522f"
+    },
+    {
+      "path": "crates/shenko-store/src/session_events.rs",
+      "mode": "100644",
+      "git_blob": "752ca4cb3d128e1bf80c43fcca90c79efcc5f0fb"
+    },
+    {
+      "path": "crates/shenko-store/src/store.rs",
+      "mode": "100644",
+      "git_blob": "26f48c7c6e65e79eff630cd17f4393ed00379fea"
+    },
+    {
+      "path": "crates/shenko-store/src/subject_branches.rs",
+      "mode": "100644",
+      "git_blob": "8fcccc252c9ad469ad9e46e637439aac61765e2d"
+    },
+    {
+      "path": "crates/shenko-store/src/subject_request.rs",
+      "mode": "100644",
+      "git_blob": "f7ccaed31e3573d15525599ba9c032ca1aa7ac09"
+    },
+    {
+      "path": "crates/shenko-store/src/subject_state.rs",
+      "mode": "100644",
+      "git_blob": "9648d2ee6e4c4540b29506b69098d50821d0d8c9"
+    },
+    {
+      "path": "crates/shenko-store/src/trajectory.rs",
+      "mode": "100644",
+      "git_blob": "c5fe3b2ca0a9c9c5a8ea6c8003f1f464e25179cb"
+    },
+    {
+      "path": "crates/shenko-store/src/web_input.rs",
+      "mode": "100644",
+      "git_blob": "d203e2f8e2ed1a7d24bc16f78ba930a1982f3b33"
+    },
+    {
+      "path": "crates/shenko-store/tests/cognition_memory_retirement.rs",
+      "mode": "100644",
+      "git_blob": "e59cf3d9336897edaddd640a251394e5af261cdf"
+    },
+    {
+      "path": "crates/shenko-store/tests/cognition_replication.rs",
+      "mode": "100644",
+      "git_blob": "cce17932afbc1cf470cbc65e080762314ea81f05"
+    },
+    {
+      "path": "crates/shenko-store/tests/cognitive_root_chain.rs",
+      "mode": "100644",
+      "git_blob": "dee22d17e27f249ec73831f3d3cf186b5fe7d968"
+    },
+    {
+      "path": "crates/shenko-store/tests/identity_profile.rs",
+      "mode": "100644",
+      "git_blob": "68c7dd21ec505c3d4432fbb54de5fb39032b0e06"
+    },
+    {
+      "path": "crates/shenko-store/tests/media_transcript.rs",
+      "mode": "100644",
+      "git_blob": "2dde211d56fb8fdb8e7a895838c77ea93e61a7aa"
+    },
+    {
+      "path": "crates/shenko-store/tests/memory_search.rs",
+      "mode": "100644",
+      "git_blob": "5bd52e37d09c28fb58f88eee5e14d7f5d5e8399e"
+    },
+    {
+      "path": "crates/shenko-store/tests/notebook_recovery.rs",
+      "mode": "100644",
+      "git_blob": "8cc83e162af6da801504d6e0b032f1a95be73f1c"
+    },
+    {
+      "path": "crates/shenko-store/tests/quota_store.rs",
+      "mode": "100644",
+      "git_blob": "f68330836b70bbe290e67f86bd4be1c6ee9488a4"
+    },
+    {
+      "path": "crates/shenko-store/tests/raw_session_writer.rs",
+      "mode": "100644",
+      "git_blob": "56432d8eac0eb956f2841669f43cab03e7c78870"
+    },
+    {
+      "path": "crates/shenko-store/tests/receipt_conflicts.rs",
+      "mode": "100644",
+      "git_blob": "64337d8f272ef80a26e1a037ceeef83ea6b5668f"
+    },
+    {
+      "path": "crates/shenko-store/tests/research_reset_bank.rs",
+      "mode": "100644",
+      "git_blob": "245368d04fbe17d81d63bb8baed3264c22d6a363"
+    },
+    {
+      "path": "crates/shenko-store/tests/runtime_error_journal.rs",
+      "mode": "100644",
+      "git_blob": "987c54a6f50a651104e4dc87276e431764175b28"
+    },
+    {
+      "path": "crates/shenko-store/tests/seat_lifecycle.rs",
+      "mode": "100644",
+      "git_blob": "f4c40f1049972184c5080f6df9498344fd6639fb"
+    },
+    {
+      "path": "crates/shenko-store/tests/session_event_search.rs",
+      "mode": "100644",
+      "git_blob": "ed933db41a362c04238ae5491e3d51bbe1399c8e"
+    },
+    {
+      "path": "crates/shenko-store/tests/store_roundtrip.rs",
+      "mode": "100644",
+      "git_blob": "31916fde377515aab262a4f91947f5dcc52add37"
+    },
+    {
+      "path": "crates/shenko-subject/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "74905d9910da0ddc030dc3da930ce77c538ecb47"
+    },
+    {
+      "path": "crates/shenko-subject/src/authored_controls.rs",
+      "mode": "100644",
+      "git_blob": "1c68fd2016d07002c512293ffff5ca40f24d4fc0"
+    },
+    {
+      "path": "crates/shenko-subject/src/child.rs",
+      "mode": "100644",
+      "git_blob": "1424b3b0d36934e047976a114546f5e93a3695d0"
+    },
+    {
+      "path": "crates/shenko-subject/src/context_projection.rs",
+      "mode": "100644",
+      "git_blob": "ea5c2e851a7467bd3fe50c2ac61677350c6532bb"
+    },
+    {
+      "path": "crates/shenko-subject/src/dispatch.rs",
+      "mode": "100644",
+      "git_blob": "6ea5e396251c3a1ca1fbd6f1286e8a0f3ba9708a"
+    },
+    {
+      "path": "crates/shenko-subject/src/frame_tests.rs",
+      "mode": "100644",
+      "git_blob": "dfe66cb5c34cba5f6b7fc1823a7a4526e3bff09f"
+    },
+    {
+      "path": "crates/shenko-subject/src/inbox.rs",
+      "mode": "100644",
+      "git_blob": "b134f3a1477d868735f028414d3c28253e893f1f"
+    },
+    {
+      "path": "crates/shenko-subject/src/intervention.rs",
+      "mode": "100644",
+      "git_blob": "3fc406bd68ba7c3acc2f6b6c66946e93d8c28a2c"
+    },
+    {
+      "path": "crates/shenko-subject/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "22a776672a715cb32c9b6aae32792d59615b36e9"
+    },
+    {
+      "path": "crates/shenko-subject/src/loop_runner.rs",
+      "mode": "100644",
+      "git_blob": "fc34cb536ecff67b19b145d21ec5b2f84ddd4dcd"
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child.rs",
+      "mode": "100644",
+      "git_blob": "3b4c16ecc061a2a02397ba13eecaa244faf7ba4f"
+    },
+    {
+      "path": "crates/shenko-subject/src/model_child_tests.rs",
+      "mode": "100644",
+      "git_blob": "a3c14e16e53909241e971761f1bf2ee689d99f8b"
+    },
+    {
+      "path": "crates/shenko-subject/src/obligation_partition_tests.rs",
+      "mode": "100644",
+      "git_blob": "f766ed691c1c5ffb6150f2202e6462d45eb41bd8"
+    },
+    {
+      "path": "crates/shenko-subject/src/obligation_tests.rs",
+      "mode": "100644",
+      "git_blob": "c2650a1d9065edab7c4738aec5805df119ea0035"
+    },
+    {
+      "path": "crates/shenko-subject/src/outbox.rs",
+      "mode": "100644",
+      "git_blob": "0c53574fbcdf4a75b81d414cabb0d1f35f1af0b4"
+    },
+    {
+      "path": "crates/shenko-subject/src/output.rs",
+      "mode": "100644",
+      "git_blob": "eb8310b7095d064035f8c7b8adab830cfc0fd305"
+    },
+    {
+      "path": "crates/shenko-subject/src/quota_gate.rs",
+      "mode": "100644",
+      "git_blob": "da64fd73dd544defa345e1df12924c9814926445"
+    },
+    {
+      "path": "crates/shenko-subject/src/quota_runtime.rs",
+      "mode": "100644",
+      "git_blob": "d78f3b908cdce50fe89e0469b17b1ddaaeadc2de"
+    },
+    {
+      "path": "crates/shenko-subject/src/quota_strategies.rs",
+      "mode": "100644",
+      "git_blob": "4f841661ae216513186f1107a445b49c32714e11"
+    },
+    {
+      "path": "crates/shenko-subject/src/recovery_tests.rs",
+      "mode": "100644",
+      "git_blob": "fbdb197dc922ca4c00d2b40824fdea674d65b668"
+    },
+    {
+      "path": "crates/shenko-subject/src/request_recovery_tests.rs",
+      "mode": "100644",
+      "git_blob": "420201e25ded4e410d29a58ddb102a78c29e19e1"
+    },
+    {
+      "path": "crates/shenko-subject/src/stream_journal.rs",
+      "mode": "100644",
+      "git_blob": "e142ebaa538dfce291af6cea2ae16ee7bf4d96f8"
+    },
+    {
+      "path": "crates/shenko-subject/src/subject_receipt.rs",
+      "mode": "100644",
+      "git_blob": "8507b53ba663fbb677daf1a259397839159ac947"
+    },
+    {
+      "path": "crates/shenko-subject/tests/channel_boundary.rs",
+      "mode": "100644",
+      "git_blob": "47003728e5a5aa7a99bd14e47469ab4f316f46e6"
+    },
+    {
+      "path": "crates/shenko-subject/tests/local_model_behavior.rs",
+      "mode": "100644",
+      "git_blob": "df60311f896bf9e1c8a49ef5c942c26f8c0131f1"
+    },
+    {
+      "path": "crates/shenko-subject/tests/pma_decision_settlement.rs",
+      "mode": "100644",
+      "git_blob": "9e622391f63e7624caa887d9d4204ea1dd2ccfa7"
+    },
+    {
+      "path": "crates/shenko-types/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "22242067886077bff0cfeace398947cb8ad06bea"
+    },
+    {
+      "path": "crates/shenko-types/src/activation.rs",
+      "mode": "100644",
+      "git_blob": "6e052438d208de8fc3233e372c05ac358741f35e"
+    },
+    {
+      "path": "crates/shenko-types/src/agent.rs",
+      "mode": "100644",
+      "git_blob": "898b616f1644808c2b41d4064cc010d05c9751af"
+    },
+    {
+      "path": "crates/shenko-types/src/authority.rs",
+      "mode": "100644",
+      "git_blob": "314af640faf14fc345165e4f0505f73f839f6b27"
+    },
+    {
+      "path": "crates/shenko-types/src/capabilities.rs",
+      "mode": "100644",
+      "git_blob": "6d767af38eca6dbc1be74977ec6538539a87a6d6"
+    },
+    {
+      "path": "crates/shenko-types/src/channel.rs",
+      "mode": "100644",
+      "git_blob": "8baf9fe208ebcb868e8b56995555d8aac091de33"
+    },
+    {
+      "path": "crates/shenko-types/src/cognition.rs",
+      "mode": "100644",
+      "git_blob": "191e10f048b0e33e3a55dae9406121fec175e716"
+    },
+    {
+      "path": "crates/shenko-types/src/cognitive_root.rs",
+      "mode": "100644",
+      "git_blob": "cb4cadda206593c0d2439700a4a3bd876191a962"
+    },
+    {
+      "path": "crates/shenko-types/src/commit.rs",
+      "mode": "100644",
+      "git_blob": "f4dae02dd7596a4c11a30ab0c04949c025a0fa09"
+    },
+    {
+      "path": "crates/shenko-types/src/contacts.rs",
+      "mode": "100644",
+      "git_blob": "c942aa1eb46d8bb6c45319b2964a8e83fd30da33"
+    },
+    {
+      "path": "crates/shenko-types/src/effect.rs",
+      "mode": "100644",
+      "git_blob": "a5f9389d72ab43b6715c1e47caeced8b8b55d93b"
+    },
+    {
+      "path": "crates/shenko-types/src/error.rs",
+      "mode": "100644",
+      "git_blob": "74895ab4cf7f2718ad17a9797a831c20664e3548"
+    },
+    {
+      "path": "crates/shenko-types/src/evidence.rs",
+      "mode": "100644",
+      "git_blob": "6ac7604c0ffca449b9aeec2cc4b326dfc591b1b1"
+    },
+    {
+      "path": "crates/shenko-types/src/identity.rs",
+      "mode": "100644",
+      "git_blob": "2322bb7b9f0506d989510f53b50afa5152b9c08e"
+    },
+    {
+      "path": "crates/shenko-types/src/ids.rs",
+      "mode": "100644",
+      "git_blob": "84f7303d3ea566148a8d4b1a283ecc0088f0b121"
+    },
+    {
+      "path": "crates/shenko-types/src/inbox.rs",
+      "mode": "100644",
+      "git_blob": "b73fe518ccbeb25ff49137e8fecb426ddf97cd82"
+    },
+    {
+      "path": "crates/shenko-types/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "b6698b314c5d5a530cbacbbff3eebb65840237cb"
+    },
+    {
+      "path": "crates/shenko-types/src/media.rs",
+      "mode": "100644",
+      "git_blob": "cab6bfa53c534507d834957d97d8c5c99ba74372"
+    },
+    {
+      "path": "crates/shenko-types/src/object.rs",
+      "mode": "100644",
+      "git_blob": "c6d8754553d733d096c96547ac0a54085deca53c"
+    },
+    {
+      "path": "crates/shenko-types/src/operation.rs",
+      "mode": "100644",
+      "git_blob": "75c7b07ed516c12d0d884042035a44bb3a85bbe4"
+    },
+    {
+      "path": "crates/shenko-types/src/output.rs",
+      "mode": "100644",
+      "git_blob": "fc117947f9aa5aa5ada0612ef3bcdbf5047be642"
+    },
+    {
+      "path": "crates/shenko-types/src/plugin_runtime.rs",
+      "mode": "100644",
+      "git_blob": "a5da84ab3332576333730989905f01bcde168687"
+    },
+    {
+      "path": "crates/shenko-types/src/store.rs",
+      "mode": "100644",
+      "git_blob": "542ed2e041821cb7938305aba7ce486969108898"
+    },
+    {
+      "path": "crates/shenko-types/src/subject.rs",
+      "mode": "100644",
+      "git_blob": "736fcd0e57e1410098fa43edc4b58ec03e4dcb6f"
+    },
+    {
+      "path": "crates/shenko-types/src/task.rs",
+      "mode": "100644",
+      "git_blob": "566ce3387fa941ade43e329034dd9680329c64fe"
+    },
+    {
+      "path": "crates/shenko-types/src/wasm_state.rs",
+      "mode": "100644",
+      "git_blob": "83287bc3832c1ecd7e97b92746752130db20ecc7"
+    },
+    {
+      "path": "crates/shenko-ui/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "6ed5b1e37721606d6aee92b7bc4dfca93d0c3080"
+    },
+    {
+      "path": "crates/shenko-ui/build.rs",
+      "mode": "100644",
+      "git_blob": "b9d28f4c4f48524909b84f541b9aebe97b3d1db0"
+    },
+    {
+      "path": "crates/shenko-ui/src/api.rs",
+      "mode": "100644",
+      "git_blob": "60e5fd496eae32f254eb05e88f5c6129a6620716"
+    },
+    {
+      "path": "crates/shenko-ui/src/config_namespaces.rs",
+      "mode": "100644",
+      "git_blob": "616b30488df42a9e61361d5c4b2e119bf330b476"
+    },
+    {
+      "path": "crates/shenko-ui/src/config_service.rs",
+      "mode": "100644",
+      "git_blob": "7ff623afc42e12fd960fc087400a85330e59295b"
+    },
+    {
+      "path": "crates/shenko-ui/src/config_task.rs",
+      "mode": "100644",
+      "git_blob": "b703878263625daf7bdefb9508f8ef732777a296"
+    },
+    {
+      "path": "crates/shenko-ui/src/config_tests.rs",
+      "mode": "100644",
+      "git_blob": "ed1928f6daa4d982c9cbd2fe02b0615c485696f6"
+    },
+    {
+      "path": "crates/shenko-ui/src/input.rs",
+      "mode": "100644",
+      "git_blob": "18e28a882d82bf1c313d96f64bb9575bff72fa75"
+    },
+    {
+      "path": "crates/shenko-ui/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "071c69b700dfa377cb7ebf4d6663c29be1f72e2f"
+    },
+    {
+      "path": "crates/shenko-ui/src/media.rs",
+      "mode": "100644",
+      "git_blob": "1adb92e7b4417342257f002d8f7034637c188501"
+    },
+    {
+      "path": "crates/shenko-ui/src/owner.rs",
+      "mode": "100644",
+      "git_blob": "3f252fa6d9b00def646223804f8a9158a0a75060"
+    },
+    {
+      "path": "crates/shenko-ui/src/owner_control.rs",
+      "mode": "100644",
+      "git_blob": "af3ef6fd86a861933eca4328655b02cc80697d17"
+    },
+    {
+      "path": "crates/shenko-ui/src/playground.rs",
+      "mode": "100644",
+      "git_blob": "889fc841cd97a4e6e3e341152a618b783c662722"
+    },
+    {
+      "path": "crates/shenko-ui/src/playground_backend.rs",
+      "mode": "100644",
+      "git_blob": "317b0c108d716d6816aa30b833a519b23b577522"
+    },
+    {
+      "path": "crates/shenko-ui/src/playground_manage.rs",
+      "mode": "100644",
+      "git_blob": "ab7c1d1e3c0700dc7e696a941c71aa489598c394"
+    },
+    {
+      "path": "crates/shenko-ui/src/playground_manage_tests.rs",
+      "mode": "100644",
+      "git_blob": "bc012389a2f635acd3c00ba732522facfa8b4352"
+    },
+    {
+      "path": "crates/shenko-ui/src/playground_tests.rs",
+      "mode": "100644",
+      "git_blob": "d5d67ee42fa139a3d6f4a273891ca8412a01b696"
+    },
+    {
+      "path": "crates/shenko-ui/src/presentation.rs",
+      "mode": "100644",
+      "git_blob": "9697ab3a933b07a19d89fb4fb909e2110d2229eb"
+    },
+    {
+      "path": "crates/shenko-ui/src/routes.rs",
+      "mode": "100644",
+      "git_blob": "3150df64bcf2c6bcc3384d5d4dc81bb5a20aa2ff"
+    },
+    {
+      "path": "crates/shenko-ui/src/server.rs",
+      "mode": "100644",
+      "git_blob": "0519efb92fd3348f4653a8ab0c80b257ddfa1c76"
+    },
+    {
+      "path": "crates/shenko-ui/src/stream.rs",
+      "mode": "100644",
+      "git_blob": "2920135269e1606b6cd75360e11ce8c2b46ce658"
+    },
+    {
+      "path": "crates/shenko-ui/src/ws.rs",
+      "mode": "100644",
+      "git_blob": "068a46e3a4907d050a79beaeb6b32e7c5a3aef28"
+    },
+    {
+      "path": "crates/shenko-update/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "685f2237179b2dcce19ee7f5561648b0f87101a4"
+    },
+    {
+      "path": "crates/shenko-update/src/build.rs",
+      "mode": "100644",
+      "git_blob": "6efc4576620f2d5ca6e09ba96f5fb7c212023229"
+    },
+    {
+      "path": "crates/shenko-update/src/cli.rs",
+      "mode": "100644",
+      "git_blob": "b96636007b9b359ed134eddf74fc63d7ef408e96"
+    },
+    {
+      "path": "crates/shenko-update/src/handoff.rs",
+      "mode": "100644",
+      "git_blob": "39e2adeadd6e27fe7daeee01601154bcc780045d"
+    },
+    {
+      "path": "crates/shenko-update/src/handoff_tests.rs",
+      "mode": "100644",
+      "git_blob": "4491bbd7980f7836a13709e3ecef7b5601698c58"
+    },
+    {
+      "path": "crates/shenko-update/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "938a6f9112a36f4a60646f98a6b198b006eaec2b"
+    },
+    {
+      "path": "crates/shenko-update/src/migration.rs",
+      "mode": "100644",
+      "git_blob": "509c06431691f9206995703756b24cec2ef7d129"
+    },
+    {
+      "path": "crates/shenko-update/src/native.rs",
+      "mode": "100644",
+      "git_blob": "2abbcc3c9e3c1175c88d9725b429602f6a466e63"
+    },
+    {
+      "path": "crates/shenko-update/src/rollback.rs",
+      "mode": "100644",
+      "git_blob": "bcd65ed9c9d45b9c56ceef8469fdd416a2d0bde3"
+    },
+    {
+      "path": "crates/shenko-update/src/slots.rs",
+      "mode": "100644",
+      "git_blob": "5c3ba4f80fb3a25a03adc1950eb80e4effb164bb"
+    },
+    {
+      "path": "crates/shenko-update/src/smoke.rs",
+      "mode": "100644",
+      "git_blob": "a6e9dc24e03edec05e66793bd60907fb5bb4be75"
+    },
+    {
+      "path": "crates/shenko-update/tests/rollback_append_node.rs",
+      "mode": "100644",
+      "git_blob": "6087a784af7efbf10c0d124eb52722db68a7d97a"
+    },
+    {
+      "path": "crates/shenko-update/tests/rollback_migration.rs",
+      "mode": "100644",
+      "git_blob": "e80e52d9e192856e69c64c35c5f049c7eb1c508b"
+    },
+    {
+      "path": "crates/shenko-wasm/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "a53513f1bb166eb47913b76381db0dd7ca1a91ca"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/Cargo.lock",
+      "mode": "100644",
+      "git_blob": "8e231746d0520c2f4105bd0c3f5010ec5681b996"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "ceec6b0340b71e70b381cfa53a7705ad8dddd351"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "a00b5d9db9bd346a242da6abb331bcd8119cf47e"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "ba4302eb21452c4bac876a263cc9e17380d224de"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "ecee5b757b3c78bfab40136f88eeb5a80538588b"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/runtime-support/src/time.rs",
+      "mode": "100644",
+      "git_blob": "7f256cfb4b58967927d27fdf0bd51890e39c4afb"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/main.rs",
+      "mode": "100644",
+      "git_blob": "c5b1ef45cf363d652d3c520b974ac5f97ec79d11"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/sftp.rs",
+      "mode": "100644",
+      "git_blob": "9d70db2f333862f64d43c887781a8fcf40307908"
+    },
+    {
+      "path": "crates/shenko-wasm/ports/ssh-wasi/src/transport.rs",
+      "mode": "100644",
+      "git_blob": "e1e78991595511553994c0c7a04b9aeda043903a"
+    },
+    {
+      "path": "crates/shenko-wasm/src/artifact.rs",
+      "mode": "100644",
+      "git_blob": "aa9ff64de2540794f45413c701d7da9f525d5626"
+    },
+    {
+      "path": "crates/shenko-wasm/src/checkpoint.rs",
+      "mode": "100644",
+      "git_blob": "262f727b9850b80850b2f7d2893173c0b0197d5f"
+    },
+    {
+      "path": "crates/shenko-wasm/src/cow.rs",
+      "mode": "100644",
+      "git_blob": "72ad916f811abfad433419e9b80e8279fb9a2e96"
+    },
+    {
+      "path": "crates/shenko-wasm/src/fsx.rs",
+      "mode": "100644",
+      "git_blob": "889e98d00528f9b7896c2c6a9ebfb026571a81b5"
+    },
+    {
+      "path": "crates/shenko-wasm/src/gc.rs",
+      "mode": "100644",
+      "git_blob": "15f5b70de6c30c5e09fb2cc395ee802a3bb19f8a"
+    },
+    {
+      "path": "crates/shenko-wasm/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "a1b5b006a6c43d88390b0dd47627cdaedc591b30"
+    },
+    {
+      "path": "crates/shenko-wasm/src/manifest.rs",
+      "mode": "100644",
+      "git_blob": "c5d26c4a47f6dcb72b165826ebde8364bd937964"
+    },
+    {
+      "path": "crates/shenko-wasm/src/mount.rs",
+      "mode": "100644",
+      "git_blob": "453093e2bd9e728f0648520b29bf6184ba6ae6ff"
+    },
+    {
+      "path": "crates/shenko-wasm/src/net.rs",
+      "mode": "100644",
+      "git_blob": "2ada640d2cd70e4b2e7a973371f68730776f57c3"
+    },
+    {
+      "path": "crates/shenko-wasm/src/p1.rs",
+      "mode": "100644",
+      "git_blob": "7e8a4b1a3a83e7d07ac365fad2c9808fdb07837e"
+    },
+    {
+      "path": "crates/shenko-wasm/src/replay_io.rs",
+      "mode": "100644",
+      "git_blob": "c7fbd4f9e5e6fedec76e9604acd240d768345c02"
+    },
+    {
+      "path": "crates/shenko-wasm/src/revoke.rs",
+      "mode": "100644",
+      "git_blob": "f78e1d9a47d58d8c68db662eacbd1f330a2fa68c"
+    },
+    {
+      "path": "crates/shenko-wasm/src/runtime.rs",
+      "mode": "100644",
+      "git_blob": "25be240126c916a5d354af7e14dcf12a7c1134ed"
+    },
+    {
+      "path": "crates/shenko-wasm/src/state.rs",
+      "mode": "100644",
+      "git_blob": "5fdf052e7a165727cfa920e4a29b045d903625d0"
+    },
+    {
+      "path": "crates/shenko-wasm/src/tool.rs",
+      "mode": "100644",
+      "git_blob": "539e6da6dd44178f002cc51e38bcd458d1fd2ff7"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/checkpoint_closure.rs",
+      "mode": "100644",
+      "git_blob": "711048bc6daadee1a26bc6b212e06381976ad05d"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/guests/ssh_banner.rs",
+      "mode": "100644",
+      "git_blob": "9b8daa126d4e3b0138192c539b561438dbfacd4e"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/home_mounts.rs",
+      "mode": "100644",
+      "git_blob": "fdb68f041b5746260e86558b30cfd00cb0ec4600"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/mount_admission.rs",
+      "mode": "100644",
+      "git_blob": "ac5af88c28c7b7dde995d529a9484336463dcaf2"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/network.rs",
+      "mode": "100644",
+      "git_blob": "584e4334c1a71330a9cb09fa1cbf84adc665ed22"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/real_ssh_wasm.rs",
+      "mode": "100644",
+      "git_blob": "bab759154e6111610e63d602ae7285d77262c658"
+    },
+    {
+      "path": "crates/shenko-wasm/tests/wasm_state.rs",
+      "mode": "100644",
+      "git_blob": "387aaebdf1ab21f2dad31aa3d36e92a9cce6b2ca"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-awareness-core/src/awareness_unit.rs",
+      "mode": "100644",
+      "git_blob": "052bb1f0e68ee2af69e6d7526bcce5c08f68d0ca"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-channel-napcat/src/adapter.rs",
+      "mode": "100644",
+      "git_blob": "bdb3af1f509b968b59a9e85e339dc7460fc6c687"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-channel-napcat/src/outbound.rs",
+      "mode": "100644",
+      "git_blob": "57b01f88a57e4d5ea21a4f5660e82b97ccc8cdf4"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-kernel/src/capability.rs",
+      "mode": "100644",
+      "git_blob": "41676f7baee0ef4fe85787ea8bdc2fe6d81ad37c"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-kernel/src/effect_contract.rs",
+      "mode": "100644",
+      "git_blob": "db478dc533c66f18caa7756fffc00ff53386728a"
+    },
+    {
+      "path": "docs/history/retired-source/2026-11-01/crates/shenko-memory/src/session.rs",
+      "mode": "100644",
+      "git_blob": "d71296ba8d223be7f5371fd70738b9ab34a8fa10"
+    },
+    {
+      "path": "mobile/rust-shell/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "a7ab7cf7e55a902b608739013e0e577f96ba4204"
+    },
+    {
+      "path": "mobile/rust-shell/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "616f3aba059012b59ab2ec9aa677ea6c8d9bcf38"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "mode": "100644",
+      "git_blob": "885a4b7cf7a1d6aa33e6da54e0d8b4353de08e23"
+    },
+    {
+      "path": "scripts/pma_legacy_reminder_consumer/producer/src/main.rs",
+      "mode": "100644",
+      "git_blob": "27fb0373ba24ce8abf76ffa74d98c923025f6b95"
+    },
+    {
+      "path": "scripts/pma_legacy_reminder_consumer/reader/src/main.rs",
+      "mode": "100644",
+      "git_blob": "121f1ac8812a83b280ef015b5e5bdf75d2a337af"
+    },
+    {
+      "path": "third-party/russh-duplex/Cargo.lock",
+      "mode": "100644",
+      "git_blob": "f1d59ead2dc19b94f1d348c2b9283d66a335cc3e"
+    },
+    {
+      "path": "third-party/russh-duplex/Cargo.toml",
+      "mode": "100644",
+      "git_blob": "871871fc5960a5e95fc3eb28f1404b3c1a61087b"
+    },
+    {
+      "path": "third-party/russh-duplex/benches/ciphers.rs",
+      "mode": "100755",
+      "git_blob": "7d2543dde88b51bec6cee916324359948406acc5"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_exec_interactive.rs",
+      "mode": "100644",
+      "git_blob": "14d1ebd6dd0653b7918bcf4e41f913deddebbb16"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_exec_simple.rs",
+      "mode": "100644",
+      "git_blob": "1e5c3f0e2db296e227b8b9873c3331b98cee3f36"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/client_open_direct_tcpip.rs",
+      "mode": "100644",
+      "git_blob": "75f8a6decc1961a10c684c0fe4dbbb1c6f03f223"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/echoserver.rs",
+      "mode": "100644",
+      "git_blob": "9ccb5b7dc2599547e4ba654ce2a8737fa66d0fee"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/echoserver_certificates.rs",
+      "mode": "100644",
+      "git_blob": "15419a1e14539bc9fad1bcde6b414816134b78c4"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/ratatui_app.rs",
+      "mode": "100644",
+      "git_blob": "64288fd6a6758f8fc22a4136f3d8844c07f0d858"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/ratatui_shared_app.rs",
+      "mode": "100644",
+      "git_blob": "3a546436e596c24ff63bc60bac00042089f510fa"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/sftp_client.rs",
+      "mode": "100644",
+      "git_blob": "b8080c51f462c288ad9fbe36e4d5c5917f795c38"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/sftp_server.rs",
+      "mode": "100644",
+      "git_blob": "f96c15c845efa53790687ec20a848254fe98abde"
+    },
+    {
+      "path": "third-party/russh-duplex/examples/test.rs",
+      "mode": "100644",
+      "git_blob": "ba1eb5f072acd18429fb75449a245d6b14a6e089"
+    },
+    {
+      "path": "third-party/russh-duplex/src/auth.rs",
+      "mode": "100644",
+      "git_blob": "3c464598e05089f0c0b24f47839747ac18e226c7"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cert.rs",
+      "mode": "100644",
+      "git_blob": "696e81d050e8a9c72d25415ab9f75333572c287c"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/channel_ref.rs",
+      "mode": "100644",
+      "git_blob": "d7f937cde981ea2b56b09cad1111dea03c546568"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/channel_stream.rs",
+      "mode": "100644",
+      "git_blob": "9e8d14bed6edcfa758d208e496b9ab794b3af208"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/mod.rs",
+      "mode": "100644",
+      "git_blob": "95aeab50d7ab96e1d65c36ac3e490c8a84e82213"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/rx.rs",
+      "mode": "100644",
+      "git_blob": "57080db5d72d9cf7b06654e9f03846a16c57c0b3"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/io/tx.rs",
+      "mode": "100644",
+      "git_blob": "7b8a56fc3995a787e9a51761c79a3b5baccadc83"
+    },
+    {
+      "path": "third-party/russh-duplex/src/channels/mod.rs",
+      "mode": "100644",
+      "git_blob": "03e9ed22fcdcd9bcb98b782be2c865e5b1ca3d32"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/benchmark.rs",
+      "mode": "100644",
+      "git_blob": "85511cb0fdcb7277ce3f46a35a1aaae37418bdcf"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/block.rs",
+      "mode": "100644",
+      "git_blob": "8618978d3d85d39a9e39cee0d22531c4c2fd4d30"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/cbc.rs",
+      "mode": "100644",
+      "git_blob": "100c93bd6bdefb6f3cbccc20ebefe6c3b6796f45"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/chacha20poly1305.rs",
+      "mode": "100644",
+      "git_blob": "8e288b737f2aa4274fa85e1f992096a17ef9d9c6"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/clear.rs",
+      "mode": "100644",
+      "git_blob": "955a4e80f5fa726d6ec1ee9079c2d81d95d97acb"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/gcm.rs",
+      "mode": "100644",
+      "git_blob": "9afbdbb3b94c1103a4956521af347f68c339b958"
+    },
+    {
+      "path": "third-party/russh-duplex/src/cipher/mod.rs",
+      "mode": "100644",
+      "git_blob": "662d99741ee0c6b999924c19167e72b4cb9b4241"
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/encrypted.rs",
+      "mode": "100644",
+      "git_blob": "bd00b12857bcebdb5a59c2bf0112ab78610d304e"
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/kex.rs",
+      "mode": "100644",
+      "git_blob": "d96cc7850f9330257669f9806d52d44852907ea1"
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/mod.rs",
+      "mode": "100644",
+      "git_blob": "8c70c0303c668bced52f19a6d20f8331836ef466"
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/session.rs",
+      "mode": "100644",
+      "git_blob": "b18c052812171490e373933d267ea67b67c3d5a3"
+    },
+    {
+      "path": "third-party/russh-duplex/src/client/test.rs",
+      "mode": "100644",
+      "git_blob": "7f376644e345ed5f985e34286e65d6227f66fbca"
+    },
+    {
+      "path": "third-party/russh-duplex/src/compression.rs",
+      "mode": "100644",
+      "git_blob": "744865ec37fe50a763c32b451fee2c3063329bd8"
+    },
+    {
+      "path": "third-party/russh-duplex/src/helpers.rs",
+      "mode": "100644",
+      "git_blob": "cc55676d9f7f6a78324000243ead9865c71d7707"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/curve25519.rs",
+      "mode": "100644",
+      "git_blob": "6ae884d5cd6919e0193651e14caf3bf886ad7c33"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/dh/groups.rs",
+      "mode": "100644",
+      "git_blob": "2294f6604eedcb7db50e8ceb6a1fabccec274dc2"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/dh/mod.rs",
+      "mode": "100644",
+      "git_blob": "250d5c19a172b1ad0eada6d2ca912d89196edc15"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/ecdh_nistp.rs",
+      "mode": "100644",
+      "git_blob": "335f2c6414b9ccf7ae8b58da9ce5dabf9fc6b597"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/hybrid_mlkem.rs",
+      "mode": "100644",
+      "git_blob": "158bdf16f447d713363569539794a2f688896a85"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/mod.rs",
+      "mode": "100644",
+      "git_blob": "b7b925d89b94a4b8e0f99153bae03bd01df51828"
+    },
+    {
+      "path": "third-party/russh-duplex/src/kex/none.rs",
+      "mode": "100644",
+      "git_blob": "fcf967a68a3443c65515d1e462b4dcd9b4a7e8c5"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/client.rs",
+      "mode": "100644",
+      "git_blob": "809b94f54850c447636ed5ed92bfb65d9241dafc"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/mod.rs",
+      "mode": "100644",
+      "git_blob": "ea9db60f82af74ba78d2ec3208ee8c3045ede876"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/msg.rs",
+      "mode": "100644",
+      "git_blob": "861c13335b74df01bfedc536f3c59f0373350853"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/agent/server.rs",
+      "mode": "100644",
+      "git_blob": "73f2a7494dbf9a6b0df41c89dc17c41c5fafd6eb"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/mod.rs",
+      "mode": "100644",
+      "git_blob": "09f731652f421d1265118e0afc97ff2617b8b562"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/openssh.rs",
+      "mode": "100644",
+      "git_blob": "cdcbb98ad3a4b790e2a5e067f732d5f840d4e4a8"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/pkcs5.rs",
+      "mode": "100644",
+      "git_blob": "6771ac855b3f25d742f2c6e75006de4206c8f5ea"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/pkcs8.rs",
+      "mode": "100644",
+      "git_blob": "4fbbaab6214d610279510abf8b7bb694b1ca9b08"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/format/tests.rs",
+      "mode": "100644",
+      "git_blob": "9c4e54e2fb648c578d1ce1a43e9b963b73277e5e"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/key.rs",
+      "mode": "100644",
+      "git_blob": "20a805d11382e984268398565ace1f46f89b26e1"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/known_hosts.rs",
+      "mode": "100644",
+      "git_blob": "d0e0ba413a00f5d0bf0b90b4639dbc4728b8ad1e"
+    },
+    {
+      "path": "third-party/russh-duplex/src/keys/mod.rs",
+      "mode": "100644",
+      "git_blob": "46a025e50c34a9c86b0a2be6b87cc9d74a1929b3"
+    },
+    {
+      "path": "third-party/russh-duplex/src/lib.rs",
+      "mode": "100644",
+      "git_blob": "e7667e5eacec9835fe7fffa1dfa7f8a73a7aea02"
+    },
+    {
+      "path": "third-party/russh-duplex/src/lib_inner.rs",
+      "mode": "100644",
+      "git_blob": "5bb73a1521a39200891cd51e0fc33acb8e7b6f20"
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/crypto.rs",
+      "mode": "100644",
+      "git_blob": "af44add919774ec8c80727ef62e64958cb4fe3a2"
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/crypto_etm.rs",
+      "mode": "100644",
+      "git_blob": "7c1f71c8a5c2161a2a3f4d84b0333e6a40ab22e6"
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/mod.rs",
+      "mode": "100644",
+      "git_blob": "67220d1fc60b7ea502f5bb724fecbac9894e8aed"
+    },
+    {
+      "path": "third-party/russh-duplex/src/mac/none.rs",
+      "mode": "100644",
+      "git_blob": "82cf5231bc5147ca4a0b8630412eefe83638c932"
+    },
+    {
+      "path": "third-party/russh-duplex/src/msg.rs",
+      "mode": "100644",
+      "git_blob": "4f5e48289c5840a709b698aef6322eb3c3b1aa07"
+    },
+    {
+      "path": "third-party/russh-duplex/src/negotiation.rs",
+      "mode": "100644",
+      "git_blob": "42f86747669fa2cf93a3a177de2e622c430749d0"
+    },
+    {
+      "path": "third-party/russh-duplex/src/parsing.rs",
+      "mode": "100644",
+      "git_blob": "d73490ab5e2f50d3c8e16ba8a07912892cc17577"
+    },
+    {
+      "path": "third-party/russh-duplex/src/pty.rs",
+      "mode": "100755",
+      "git_blob": "6ee8b4eaf31071523a55e7ca488f2c874eb42404"
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/encrypted.rs",
+      "mode": "100644",
+      "git_blob": "c4daede4c6328d290614d39f7132b96a57e1f38b"
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/kex.rs",
+      "mode": "100644",
+      "git_blob": "1f365b3594d390c47a9b217a4f73888a37efb471"
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/mod.rs",
+      "mode": "100644",
+      "git_blob": "3b4ab6996f2bab54f436c1ce0ecfe87c2530b991"
+    },
+    {
+      "path": "third-party/russh-duplex/src/server/session.rs",
+      "mode": "100644",
+      "git_blob": "823746366dd995ecc745b8dfda776a86e5fa48b2"
+    },
+    {
+      "path": "third-party/russh-duplex/src/session.rs",
+      "mode": "100644",
+      "git_blob": "df11ef432fc6b4a3bcc985c2d756dc5395ef8f44"
+    },
+    {
+      "path": "third-party/russh-duplex/src/ssh_read.rs",
+      "mode": "100644",
+      "git_blob": "0342039194ab31bcbc5d4d6421bd1bbb92bd9d32"
+    },
+    {
+      "path": "third-party/russh-duplex/src/sshbuffer.rs",
+      "mode": "100644",
+      "git_blob": "c4a419598ca8168c29b6b94a572020d407f460db"
+    },
+    {
+      "path": "third-party/russh-duplex/src/sshbuffer/pending_write_tests.rs",
+      "mode": "100644",
+      "git_blob": "1dedaf7cf78b9e01935dc1a595df5d0ae61e52fa"
+    },
+    {
+      "path": "third-party/russh-duplex/src/tests.rs",
+      "mode": "100644",
+      "git_blob": "e41df94d31db7f4059b6dc99d5193537d6750294"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_agent_req_channel_reply.rs",
+      "mode": "100644",
+      "git_blob": "378dc38700ef83c3c6e2f28235f6046565928ff5"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_partial_success.rs",
+      "mode": "100644",
+      "git_blob": "b9441a0be8580cefd23e1372e8d4c787a03dd01d"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_signer_failure.rs",
+      "mode": "100644",
+      "git_blob": "0ec88edc60304181fdbc69b067e6b1a7253037e1"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/auth_state_reset.rs",
+      "mode": "100644",
+      "git_blob": "8bfe5a79059ae63a685845d694fe187e95135784"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_agent_session_bind.rs",
+      "mode": "100644",
+      "git_blob": "ed83ca2ffd4af5e71abdf89ba9c57a7ba105e36b"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_backpressure.rs",
+      "mode": "100644",
+      "git_blob": "926972ea959b6e14acfcf035fc98a0623905f8dd"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_contention.rs",
+      "mode": "100644",
+      "git_blob": "2c2d8bee032be82d3ed4e2712c58469d13aadc36"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_data_stream.rs",
+      "mode": "100644",
+      "git_blob": "9728cae1ea14b452e93d1365600b1e21189db007"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_keepalive_before_auth.rs",
+      "mode": "100644",
+      "git_blob": "8901c6961ae48775a3f49ccfe72babb308971359"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_kex_shared_secret.rs",
+      "mode": "100644",
+      "git_blob": "8c4a800cac9fe5916e40256442e9e0368b0626ca"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_max_channel_packet_size.rs",
+      "mode": "100644",
+      "git_blob": "9b7671c9ece85e7b2920ee08f94efe51cada5093"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_mlkem_kex.rs",
+      "mode": "100644",
+      "git_blob": "f2b8f6ce7e60411109e3933a756d461b3f316b3d"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_rekey_strict_kex.rs",
+      "mode": "100644",
+      "git_blob": "65d245177b9c3deeafce40544469ad228bdaccc4"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_server_cert.rs",
+      "mode": "100644",
+      "git_blob": "9dd514ffba669b523a24ac1f45841c35abfae314"
+    },
+    {
+      "path": "third-party/russh-duplex/tests/test_window_adjust.rs",
+      "mode": "100644",
+      "git_blob": "878125bc6434c4ad965cb2ac8ff733548fc9a7e1"
+    }
+  ]
+}

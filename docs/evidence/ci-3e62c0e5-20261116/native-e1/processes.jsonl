@@ -1,0 +1,46 @@
+{"label":"000-keygen","observation":{"event":"spawned"},"pid":17696}
+{"label":"000-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17696}
+{"label":"001-keygen","observation":{"event":"spawned"},"pid":17697}
+{"label":"001-keygen","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17697}
+{"label":"002-account","observation":{"event":"spawned"},"pid":17698}
+{"label":"002-account","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17698}
+{"label":"sshd","observation":{"event":"spawned"},"pid":17699}
+{"label":"003-source-page","observation":{"event":"spawned"},"pid":17701}
+{"label":"003-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17701}
+{"label":"004-source-page","observation":{"event":"spawned"},"pid":17713}
+{"label":"004-source-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":17713}
+{"label":"005-sync-evidence","observation":{"event":"spawned"},"pid":17725}
+{"label":"005-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17725}
+{"label":"006-sync-evidence","observation":{"event":"spawned"},"pid":17757}
+{"label":"006-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17757}
+{"label":"007-sync-evidence","observation":{"event":"spawned"},"pid":18843}
+{"label":"007-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18843}
+{"label":"008-sync-evidence","observation":{"event":"spawned"},"pid":18864}
+{"label":"008-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18864}
+{"label":"009-receiver-page","observation":{"event":"spawned"},"pid":18885}
+{"label":"009-receiver-page","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":18885}
+{"label":"010-receiver-page","observation":{"event":"spawned"},"pid":18897}
+{"label":"010-receiver-page","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":18897}
+{"label":"011-sync-evidence","observation":{"event":"spawned"},"pid":18909}
+{"label":"011-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":18909}
+{"label":"012-sync-evidence","observation":{"event":"spawned"},"pid":19995}
+{"label":"012-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":19995}
+{"label":"013-sync-evidence","observation":{"event":"spawned"},"pid":20046}
+{"label":"013-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":20046}
+{"label":"014-sync-evidence","observation":{"event":"spawned"},"pid":20067}
+{"label":"014-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":20067}
+{"label":"015-sync-evidence","observation":{"event":"spawned"},"pid":21153}
+{"label":"015-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":21153}
+{"label":"016-sync-evidence","observation":{"event":"spawned"},"pid":21204}
+{"label":"016-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":21204}
+{"label":"017-sync-evidence","observation":{"event":"spawned"},"pid":21236}
+{"label":"017-sync-evidence","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":21236}
+{"label":"018-sync-evidence","observation":{"event":"spawned"},"pid":21287}
+{"label":"018-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":21287}
+{"label":"019-sync-evidence","observation":{"event":"spawned"},"pid":21308}
+{"label":"019-sync-evidence","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":21308}
+{"label":"020-capture-originals","observation":{"event":"spawned"},"pid":21329}
+{"label":"020-capture-originals","observation":{"event":"joined","exit_code":0,"status":"exit status: 0"},"pid":21329}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17699}
+{"label":"sshd","observation":{"event":"signal_requested","signal":9},"pid":17699}
+{"label":"sshd","observation":{"event":"joined","exit_code":null,"status":"signal: 9 (SIGKILL)"},"pid":17699}

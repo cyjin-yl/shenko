@@ -1,0 +1,182 @@
+[
+  {
+    "stream": "clippy/candidate-production.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/crates/shenko-broker#0.1.0",
+    "code": "unused_imports",
+    "message": "unused import: `Context`",
+    "spans": [
+      {
+        "byte_end": 779,
+        "byte_start": 772,
+        "column_end": 21,
+        "column_start": 14,
+        "expansion": null,
+        "file_name": "crates/shenko-broker/src/broker.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 14,
+        "line_start": 14,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 21,
+            "highlight_start": 14,
+            "text": "use anyhow::{Context, Result, anyhow, ensure};"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: unused import: `Context`\n  --> crates/shenko-broker/src/broker.rs:14:14\n   |\n14 | use anyhow::{Context, Result, anyhow, ensure};\n   |              ^^^^^^^\n   |\n   = note: requested on the command line with `--force-warn unused-imports`\n\n"
+  },
+  {
+    "stream": "clippy/candidate-all-targets.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/crates/shenko-broker#0.1.0",
+    "code": "unused_imports",
+    "message": "unused import: `Context`",
+    "spans": [
+      {
+        "byte_end": 779,
+        "byte_start": 772,
+        "column_end": 21,
+        "column_start": 14,
+        "expansion": null,
+        "file_name": "crates/shenko-broker/src/broker.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 14,
+        "line_start": 14,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 21,
+            "highlight_start": 14,
+            "text": "use anyhow::{Context, Result, anyhow, ensure};"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: unused import: `Context`\n  --> crates/shenko-broker/src/broker.rs:14:14\n   |\n14 | use anyhow::{Context, Result, anyhow, ensure};\n   |              ^^^^^^^\n   |\n   = note: requested on the command line with `--force-warn unused-imports`\n\n"
+  },
+  {
+    "stream": "clippy/candidate-all-targets.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/bin/shenko#0.1.0",
+    "code": "clippy::needless_range_loop",
+    "message": "the loop variable `index` is used to index `NODES`",
+    "spans": [
+      {
+        "byte_end": 26245,
+        "byte_start": 26231,
+        "column_end": 32,
+        "column_start": 18,
+        "expansion": null,
+        "file_name": "bin/shenko/tests/component_process.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 685,
+        "line_start": 685,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 32,
+            "highlight_start": 18,
+            "text": "    for index in 0..NODES.len() {"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: the loop variable `index` is used to index `NODES`\n   --> bin/shenko/tests/component_process.rs:685:18\n    |\n685 |     for index in 0..NODES.len() {\n    |                  ^^^^^^^^^^^^^^\n    |\n    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#needless_range_loop\n    = note: `--force-warn clippy::needless-range-loop` implied by `--force-warn clippy::all`\nhelp: consider using an iterator and enumerate()\n    |\n685 -     for index in 0..NODES.len() {\n685 +     for (index, <item>) in NODES.iter().enumerate() {\n    |\n\n"
+  },
+  {
+    "stream": "clippy/candidate-all-targets.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/crates/shenko-subject#0.1.0",
+    "code": "unused_variables",
+    "message": "unused variable: `outcome`",
+    "spans": [
+      {
+        "byte_end": 88875,
+        "byte_start": 88868,
+        "column_end": 24,
+        "column_start": 17,
+        "expansion": null,
+        "file_name": "crates/shenko-subject/src/recovery_tests.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 1707,
+        "line_start": 1707,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 24,
+            "highlight_start": 17,
+            "text": "                outcome = &mut pending => anyhow::bail!(\"correction did not wait for owned preparation: {outcome:?}\"),"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: unused variable: `outcome`\n    --> crates/shenko-subject/src/recovery_tests.rs:1707:17\n     |\n1707 |                 outcome = &mut pending => anyhow::bail!(\"correction did not wait for owned preparation: {outcome:?}\"),\n     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_outcome`\n\n"
+  },
+  {
+    "stream": "clippy/candidate-all-targets.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/crates/shenko-subject#0.1.0",
+    "code": "unused_variables",
+    "message": "unused variable: `entered`",
+    "spans": [
+      {
+        "byte_end": 88994,
+        "byte_start": 88987,
+        "column_end": 24,
+        "column_start": 17,
+        "expansion": null,
+        "file_name": "crates/shenko-subject/src/recovery_tests.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 1708,
+        "line_start": 1708,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 24,
+            "highlight_start": 17,
+            "text": "                entered = tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()) => { entered?; }"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: unused variable: `entered`\n    --> crates/shenko-subject/src/recovery_tests.rs:1708:17\n     |\n1708 |                 entered = tokio::time::timeout(std::time::Duration::from_secs(5), gate.entered.notified()) => { entered?; }\n     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_entered`\n\n"
+  },
+  {
+    "stream": "clippy/candidate-all-targets.jsonl",
+    "package_id": "path+file:///__w/shenko/shenko/crates/shenko-broker#0.1.0",
+    "code": "unused_imports",
+    "message": "unused import: `Context`",
+    "spans": [
+      {
+        "byte_end": 779,
+        "byte_start": 772,
+        "column_end": 21,
+        "column_start": 14,
+        "expansion": null,
+        "file_name": "crates/shenko-broker/src/broker.rs",
+        "is_primary": true,
+        "label": null,
+        "line_end": 14,
+        "line_start": 14,
+        "suggested_replacement": null,
+        "suggestion_applicability": null,
+        "text": [
+          {
+            "highlight_end": 21,
+            "highlight_start": 14,
+            "text": "use anyhow::{Context, Result, anyhow, ensure};"
+          }
+        ]
+      }
+    ],
+    "rendered": "warning: unused import: `Context`\n  --> crates/shenko-broker/src/broker.rs:14:14\n   |\n14 | use anyhow::{Context, Result, anyhow, ensure};\n   |              ^^^^^^^\n   |\n   = note: requested on the command line with `--force-warn unused-imports`\n\n"
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "source": "original-artifact.zip!compile.stderr",
+  "source_bytes": 15267585,
+  "source_sha256": "baf6a5ebf074765c0722777e2be65325706c4ea61efddce60ec755d646284ac2",
+  "lines": [
+    {
+      "line": 250666,
+      "text": "make: printf: Argument list too long"
+    },
+    {
+      "line": 250667,
+      "text": "make: *** [deps/openssl/openssl.target.mk:1107: /home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/source/out/Release/obj.target/deps/openssl/libopenssl.a] Error 127"
+    }
+  ]
+}

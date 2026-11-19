@@ -1,0 +1,48 @@
+{
+  "kind": "source_checkpoint_followup_only",
+  "recorded_at_utc": "2026-11-16T19:53:39.248957+00:00",
+  "previous_checkpoint_commit": "e4d45747d53f7701aea4a293310192dac2126205",
+  "previous_checkpoint_tree": "e66a53cbfaf3722e22e985ed26aa7c68c4eddf45",
+  "previous_checkpoint_preserved_byte_identical": true,
+  "fixes": [
+    "Store each observed managed close error in the original owner before any subsequent await or handle removal.",
+    "Retain the first PTY pump timeout before the abort/join await.",
+    "Compose the original seven NativeTaskHandlerPlugin registrations directly into the seat owner generation journal."
+  ],
+  "rust_compiler_available": false,
+  "cargo_available": false,
+  "rust_compile_or_tests_ran": false,
+  "docs_check_rerun": false,
+  "git_diff_check_exit": 0,
+  "additional_test_functions": 1,
+  "total_new_test_functions_in_increment": 5,
+  "new_or_extended_distinct_scenarios_in_increment": 6,
+  "additional_journey": "Actual Cordis owner Fiber restart, disposal and fresh reinstallation; seven native definitions and live provider/capability/help withdrawal. No external coding process or model.",
+  "source_files": [
+    {
+      "path": "bin/shenko/src/runtime_sessions.rs",
+      "bytes": 10045,
+      "sha256": "9754548e37e8820a5787616a0438373b97e5075ba2290203bd65d68d23a1505b"
+    },
+    {
+      "path": "bin/shenko/src/runtime_sessions_tests.rs",
+      "bytes": 4669,
+      "sha256": "3786035c280925826d0dc3ce3f4ca5b43d331365a450f8515ce0165a10c23594"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/managed_process.rs",
+      "bytes": 10030,
+      "sha256": "2ab83dc4f3a6d076853f98f489e84aee470672c3fdb464ef3b10f83e08a22207"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+      "bytes": 15354,
+      "sha256": "62b1f397b777842fb4834403616159f1b46b7aa699270aab7e27d6f4de5f4268"
+    },
+    {
+      "path": "docs/specs/remote-seats.md",
+      "bytes": 40983,
+      "sha256": "d0f5d8ebdc0b2b359de81b5df415ba344fe2da9b22eecdd888e19896f91a920e"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "zip_bytes": 230,
+  "zip_sha256": "7f08d900eba8b7e613704a391cad157e92d7d3e9aee9007661f7483d83cf8408",
+  "entries": [
+    {
+      "path": "base.json",
+      "bytes": 120,
+      "compressed_bytes": 98,
+      "crc32": "6ef6be1a",
+      "sha256": "1b712aa2ab01ef23cb1c7b2026eb68ed0e1409c3499f65f47eaa5db1ade9ee0c"
+    }
+  ]
+}

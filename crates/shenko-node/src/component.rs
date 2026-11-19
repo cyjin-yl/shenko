@@ -66,7 +66,9 @@ pub struct ComponentPresence {
 pub struct ComponentObservation {
     pub presence: ComponentPresence,
     /// Every authenticated configured member that answered this observation,
-    /// including refusals. An unusable response prevents agreement.
+    /// including refusals and this node itself. This is the node's direct
+    /// neighbourhood, not a claim that it can contact every component member.
+    /// An unusable response prevents agreement.
     pub reachable: Vec<EntityId>,
     pub complete: bool,
 }
@@ -144,8 +146,20 @@ impl ComponentProposal {
         for observation in &self.observations {
             let presence = &observation.presence;
             ensure!(
-                observation.complete && observation.reachable == members,
-                "component view is incomplete, asymmetric or omits an observed member"
+                observation.complete
+                    && observation
+                        .reachable
+                        .windows(2)
+                        .all(|pair| pair[0] < pair[1])
+                    && observation
+                        .reachable
+                        .binary_search(&presence.node_id)
+                        .is_ok()
+                    && observation
+                        .reachable
+                        .iter()
+                        .all(|member| members.binary_search(member).is_ok()),
+                "component view is incomplete, unordered or omits an observed member"
             );
             ensure!(
                 presence.identity.agent_id == first.identity.agent_id
@@ -168,6 +182,25 @@ impl ComponentProposal {
                 "component candidate is not bound to its observed runtime"
             );
         }
+        // Each endpoint retains its own complete neighbourhood. No observer
+        // may erase an inconvenient neighbour to make a smaller certificate,
+        // and one-way contact does not establish a reciprocal component.
+        for observation in &self.observations {
+            for peer in &self.observations {
+                if observation
+                    .reachable
+                    .binary_search(&peer.presence.node_id)
+                    .is_ok()
+                {
+                    ensure!(
+                        peer.reachable
+                            .binary_search(&observation.presence.node_id)
+                            .is_ok(),
+                        "component observations disagree about a reciprocal route"
+                    );
+                }
+            }
+        }
         let selected = self
             .observations
             .iter()
@@ -187,6 +220,15 @@ impl ComponentProposal {
         ensure!(
             self.coordinator == selected,
             "component coordinator differs from the agreed preference and stable tie break"
+        );
+        let coordinator = self
+            .observations
+            .iter()
+            .find(|observation| observation.presence.node_id == self.coordinator)
+            .context("component coordinator has no observation")?;
+        ensure!(
+            coordinator.reachable == members,
+            "preferred component coordinator cannot directly confirm every member"
         );
         ensure!(
             self.branch_id

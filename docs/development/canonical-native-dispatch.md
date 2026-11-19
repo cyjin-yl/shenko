@@ -99,5 +99,13 @@ unchanged constructs; the new dispatch module and journey emitted no new
 rustc warning. The document integrity check passed with `errors=[]` and
 `product_tested=false`. These checks did not execute the journey. Test code
 generation was left to subsequent CI because the shared local filesystem had
-approximately 747 MiB free. The test windows remain unexecuted until that
-candidate produces runtime evidence.
+approximately 747 MiB free. At that point the test windows had not yet executed.
+
+Subsequent [CI 43872078834](https://github.com/cyjin-yl/shenko/actions/runs/43872078834)
+actually passed `canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart`
+on candidate `bb27f6542e3c37c693a973b5cc26ca8d2ec8fccf`. The original
+workspace excerpts and the two unrelated assertion failures are retained in
+[`ci-bb27f65-20261116`](../evidence/ci-bb27f65-20261116/observation.json).
+This establishes the controlled Store recovery journey for that exact source;
+it does not establish the real network/provider and foreign predecessor
+boundaries described above, and the overall Rust job remained failed.

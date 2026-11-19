@@ -1,0 +1,7 @@
+{
+  "tracked_files": 41100,
+  "tracked_file_bytes": 648431593,
+  "git_directory_bytes": 161408976,
+  "network_transfer_bytes": null,
+  "note": "on-disk Git objects do not measure bytes transmitted on the network"
+}

@@ -1,0 +1,313 @@
+{
+  "subject_branch_heads": [
+    {
+      "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+      "committed_step_no": 0,
+      "committed_step_id": null,
+      "next_step_id": "584da021-4418-42a4-b638-3d7fc4b5c0e1",
+      "mode": "paused",
+      "record_revision": 2,
+      "data": {
+        "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+        "subject_root_task_id": "a32ed0c8-209b-4a68-984e-46c61e24f720",
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "genesis_ref": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "genesis_id": "f2069d8a-7434-4754-9d0a-0581a6f23f84"
+        },
+        "committed_step_no": 0,
+        "committed_step_id": null,
+        "committed_at": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 1
+        },
+        "next_step_id": "584da021-4418-42a4-b638-3d7fc4b5c0e1",
+        "mode": "paused",
+        "mode_reason_ref": null,
+        "record_revision": 2
+      },
+      "updated_commit_seq": 7,
+      "created_at": "2026-11-16 14:33:29"
+    }
+  ],
+  "subject_steps": [
+    {
+      "step_id": "584da021-4418-42a4-b638-3d7fc4b5c0e1",
+      "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+      "step_no": 1,
+      "state": "planned",
+      "record_revision": 1,
+      "data": {
+        "step_id": "584da021-4418-42a4-b638-3d7fc4b5c0e1",
+        "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+        "step_no": 1,
+        "expected_parent_commit": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 1
+        },
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "state": "planned",
+        "input_plan_ref": null,
+        "context_revision": null,
+        "active_request_id": null,
+        "active_attempt_id": null,
+        "model_result_ref": null,
+        "model_outcome_ref": null,
+        "decision_ref": null,
+        "commit_ref": null,
+        "retry_reason_ref": null,
+        "record_revision": 1,
+        "created_by_step_id": null
+      },
+      "updated_commit_seq": 5,
+      "created_at": "2026-11-16 14:33:29"
+    }
+  ],
+  "subject_genesis": [
+    {
+      "genesis_id": "f2069d8a-7434-4754-9d0a-0581a6f23f84",
+      "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "bootstrap_id": "4d16ef1c-8fc3-42ce-93f1-586a9e0a1bf2",
+      "data": {
+        "genesis_id": "f2069d8a-7434-4754-9d0a-0581a6f23f84",
+        "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "bootstrap_id": "4d16ef1c-8fc3-42ce-93f1-586a9e0a1bf2",
+        "launch_id": "16955b9b-891a-4cd3-bd04-1a2e8bfeea13",
+        "seed_manifest_ref": {
+          "digest": "blake3:6131fedbc0224ac342f18bfadb382491797339cd8ab1988596150886df195987",
+          "bytes": 1117,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/61/31/6131fedbc0224ac342f18bfadb382491797339cd8ab1988596150886df195987",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "initial_profile_ref": {
+          "digest": "blake3:8bc05ace859e6c743980c103706ed33c6eadefa98d99bbcdeba4f91110c93743",
+          "bytes": 88,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/8b/c0/8bc05ace859e6c743980c103706ed33c6eadefa98d99bbcdeba4f91110c93743",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "home_manifest_ref": {
+          "digest": "blake3:bd2ddd2ce6d6ae85e5f45c9d30fda979740867e4abdbc5786fe7fa6f0dd28619",
+          "bytes": 1900,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/bd/2d/bd2ddd2ce6d6ae85e5f45c9d30fda979740867e4abdbc5786fe7fa6f0dd28619",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "bootstrap_event_ref": {
+          "digest": "blake3:4125d9e60bc19cd6c7d80aba404529301b51710dc57f9035219daf4ce79cd4dc",
+          "bytes": 1026,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/41/25/4125d9e60bc19cd6c7d80aba404529301b51710dc57f9035219daf4ce79cd4dc",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "created_commit": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 1
+        }
+      },
+      "created_commit_seq": 1,
+      "created_at": "2026-11-16 14:33:29"
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "a32ed0c8-209b-4a68-984e-46c61e24f720",
+      "record_revision": 0,
+      "data": {
+        "record_schema_version": 1,
+        "task_id": "a32ed0c8-209b-4a68-984e-46c61e24f720",
+        "task_revision": 0,
+        "record_revision": 0,
+        "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "conversation_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "owner": {
+          "kind": "task",
+          "id": "a32ed0c8-209b-4a68-984e-46c61e24f720"
+        },
+        "background": false,
+        "kind": "subject_root",
+        "definition_version": 1,
+        "implementation_ref": {
+          "plugin_id": "00000000-0000-0000-0000-000000000000",
+          "artifact_digest": "blake3:87bc81b8d1da7fad87ee3aabb7a8e794b38f899d7dfd0b16c1229333eaeddf10",
+          "registry_revision": 1
+        },
+        "input_ref": {
+          "digest": "blake3:6131fedbc0224ac342f18bfadb382491797339cd8ab1988596150886df195987",
+          "bytes": 1117,
+          "media_type": "application/json",
+          "store_namespace": "seed",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/real-single-node/installation/cas/61/31/6131fedbc0224ac342f18bfadb382491797339cd8ab1988596150886df195987",
+          "codec": {
+            "name": "json",
+            "major": 1,
+            "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a"
+          }
+        },
+        "state": {
+          "status": "pending",
+          "checkpoint_ref": null
+        },
+        "dispatch_eligibility": {
+          "status": "ready"
+        },
+        "no_progress_crashes": 0,
+        "created_commit": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 0
+        },
+        "updated_commit": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 0
+        }
+      },
+      "updated_commit_seq": 1,
+      "created_at": "2026-11-16 14:33:29"
+    }
+  ],
+  "task_results": [],
+  "operations": [],
+  "attempts": [],
+  "evidence_receipts": [],
+  "web_input_submissions": [
+    {
+      "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "submission_id": "53c227b8-fe98-4427-9937-eda2e9c7c3ad",
+      "event_id": "44308963-7b98-4a94-bfd1-f82b28e06b97",
+      "payload": {
+        "attachment_refs": [],
+        "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-bb70977b5cd6。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+        "message_id": "9bd3c97f-3059-4fda-bf66-e029217ec6aa",
+        "mode": "append",
+        "observed_request_id": null,
+        "observed_step_id": null,
+        "rich_content_ref": null,
+        "schema_version": 2,
+        "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "submission_id": "53c227b8-fe98-4427-9937-eda2e9c7c3ad",
+        "type": "submit"
+      },
+      "accepted_commit_seq": 9,
+      "created_at": "2026-11-16 14:33:32"
+    }
+  ],
+  "subject_intents": [],
+  "session_events": [],
+  "inbox_events": [
+    {
+      "event_id": "4eea9ea7-831b-4352-bf5d-209f375124be",
+      "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "kind": "system_event",
+      "source": "commit-authority",
+      "consumed": 0,
+      "data": {
+        "event_id": "4eea9ea7-831b-4352-bf5d-209f375124be",
+        "kind": "system_event",
+        "payload": {
+          "binding": {
+            "committed_at": {
+              "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+              "seq": 5
+            },
+            "controller_epoch": 2,
+            "schema_version": 1,
+            "software_generation": "seed",
+            "stamp": {
+              "branch_id": "e680043b-1dff-48b3-b868-edc6b350b20d",
+              "holder_id": "3ab1152e-98e1-454d-9205-23b11140ac52",
+              "revision": "blake3:0d297093cdbd5f9ddf8e80ddda68ce0276523d19c45a6d8e3ba4dec2066c81b0",
+              "source_id": "node:3ab1152e-98e1-454d-9205-23b11140ac52",
+              "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4"
+            },
+            "writer_incarnation": "e49fd28c-e98e-48c4-8633-0180898c4026"
+          },
+          "kind": "authority.bound",
+          "previous": null,
+          "previous_boundary": null
+        },
+        "created_at": "2026-11-16T14:33:30.083017930Z",
+        "source": "commit-authority"
+      },
+      "created_at": "2026-11-16 14:33:30"
+    },
+    {
+      "event_id": "44308963-7b98-4a94-bfd1-f82b28e06b97",
+      "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "kind": "message",
+      "source": "web_ui",
+      "consumed": 0,
+      "data": {
+        "event_id": "44308963-7b98-4a94-bfd1-f82b28e06b97",
+        "kind": "message",
+        "payload": {
+          "attachment_refs": [],
+          "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-bb70977b5cd6。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+          "message_id": "9bd3c97f-3059-4fda-bf66-e029217ec6aa",
+          "mode": "append",
+          "observed_request_id": null,
+          "observed_step_id": null,
+          "role": "user",
+          "subject_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+          "submission_id": "53c227b8-fe98-4427-9937-eda2e9c7c3ad"
+        },
+        "created_at": "2026-11-16T14:33:32.055788992Z",
+        "source": "web_ui"
+      },
+      "created_at": "2026-11-16 14:33:32"
+    }
+  ],
+  "subject_request_attempts": [],
+  "content_streams": [],
+  "content_stream_units": [],
+  "subject_quiesce_requests": [
+    {
+      "request_id": "f81e4ed2-d14f-4a07-bd3e-ce3f42ce56f0",
+      "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+      "state": "paused",
+      "data": {
+        "request_id": "f81e4ed2-d14f-4a07-bd3e-ce3f42ce56f0",
+        "agent_id": "e48eddc1-7690-4f06-963d-b018904debb4",
+        "generation": "seed",
+        "epoch": 2,
+        "state": "paused",
+        "requested_at": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 6
+        },
+        "boundary_at": {
+          "ledger_id": "c93511cc-c1dc-4601-9d49-41861f5a549c",
+          "seq": 7
+        },
+        "closed_at": null
+      },
+      "updated_commit_seq": 7
+    }
+  ],
+  "decisions": [],
+  "subject_request_results": []
+}

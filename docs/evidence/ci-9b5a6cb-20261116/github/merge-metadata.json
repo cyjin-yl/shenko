@@ -1,0 +1,43 @@
+{
+  "source_url": "https://api.github.com/repos/cyjin-yl/shenko/commits/6621968fbb2528475157d30488215ec16fa62e90",
+  "extraction": "selected metadata fields; not the full patch response",
+  "sha": "6621968fbb2528475157d30488215ec16fa62e90",
+  "commit": {
+    "author": {
+      "name": "cyjin.yl",
+      "email": "chenyejin2004@foxmail.com",
+      "date": "2026-11-16T15:11:17Z"
+    },
+    "committer": {
+      "name": "GitHub",
+      "email": "noreply@github.com",
+      "date": "2026-11-16T15:11:17Z"
+    },
+    "message": "Merge 9b5a6cb8987806879b8cfb713321744bd087bc0e into a574705ca742c11aa7b0a05203c3473a6c4103fe",
+    "tree": {
+      "sha": "6d48becc87eacfb1f00c2b050e6b27987b663e86",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/trees/6d48becc87eacfb1f00c2b050e6b27987b663e86"
+    },
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/6621968fbb2528475157d30488215ec16fa62e90",
+    "comment_count": 0,
+    "verification": {
+      "verified": true,
+      "reason": "valid",
+      "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq+x0VCRC1aQ7uu5UhlAAARRUQADuONdCY7zJXGtun8D78yTDr\nQJeB7wEBMHVpjdpuYYOu+T/NpWZuUw4Cqka/decwDLuuXNWx8ol+kMPemcuLNKgc\nDnXjBQKbqYLa2Jrl4AJrBSyP6WRhX2TKxo2yR3WnLSz5JpKxLSWTf3xZM1i8m99U\nwh/4m5Dgx7QvMpJ3wXUFjkDSULQHXnEZpQiqsNJBl4/8DRGTo5TbCS/sVmE5nJOv\npbzTJKoiLVMdyV4DakJ5W5v7rCibvCBT2+03OSsxRRNflrqD7+fojw+TjEEj1Vs0\nzwsXsvibZq2ornoF+j5l8DJ+5UB7HMSioEYew8OQg4p0tuEmiIopVywtWK3VIw0G\n2O0v82NUfNCgdXC7XzwR9IL2LkP++PorGm8FEfBIY/3w5oKwIPfO+NgJGNy+o4xp\nq/CGLv66ON0bZcqp3dlt15ZmC6K4SehEnm6o3AQC7htR3qsum07Mp1hDhCGoRLWI\nDtudGZHieGfMOorpoFP34PIdqlOLBFpVuaypnQyyg/hVLxTbCls72fwsbuJ8qjHv\nX+RlHdtiGFoyDDiNXUS5vxTPXTvi0IZCHih5D6RZ2RAoBJN/WJgxQnagUIObYjtL\nn3POleCqJ3ZPUD1ppBlarGlWUhezeSbSunfyVoKMg0qkScF6kURjQJWIIsegkQnE\n6kWbcw2h8WrdzoKsSvTm\n=oSMb\n-----END PGP SIGNATURE-----\n",
+      "payload": "tree 6d48becc87eacfb1f00c2b050e6b27987b663e86\nparent a574705ca742c11aa7b0a05203c3473a6c4103fe\nparent 9b5a6cb8987806879b8cfb713321744bd087bc0e\nauthor cyjin.yl <chenyejin2004@foxmail.com> 1794841877 +0000\ncommitter GitHub <noreply@github.com> 1794841877 +0000\n\nMerge 9b5a6cb8987806879b8cfb713321744bd087bc0e into a574705ca742c11aa7b0a05203c3473a6c4103fe\n",
+      "verified_at": "2026-11-16T15:11:18Z"
+    }
+  },
+  "parents": [
+    {
+      "sha": "a574705ca742c11aa7b0a05203c3473a6c4103fe",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/commits/a574705ca742c11aa7b0a05203c3473a6c4103fe",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/a574705ca742c11aa7b0a05203c3473a6c4103fe"
+    },
+    {
+      "sha": "9b5a6cb8987806879b8cfb713321744bd087bc0e",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/commits/9b5a6cb8987806879b8cfb713321744bd087bc0e",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/9b5a6cb8987806879b8cfb713321744bd087bc0e"
+    }
+  ]
+}
