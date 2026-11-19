@@ -383,7 +383,7 @@ def _external_observe(tmp, command):
         [sys.executable, "-I", str(Path(ol.__file__).resolve()), command,
          "--dir", str(tmp)] +
         (["--reason", "completed"] if command == "stop" else []),
-        text=True, capture_output=True, check=False,
+        text=True, capture_output=True, check=False, timeout=15,
     )
 
 
