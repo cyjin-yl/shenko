@@ -2802,6 +2802,77 @@ fn canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch
     let watermark = reopened.current_commit_seq()?;
     assert_eq!(reopened.recover_control_admission(&grant,&objects,false)?,ControlRecoveryOutcome::Applied);
     assert_eq!(watermark,reopened.current_commit_seq()?);
+    let predecessor = rusqlite::Connection::open(dir.join("canonical-follower.db"))?;
+    // A receipt on the current ledger still requires its exact physical commit.
+    let local_raw: String = predecessor.query_row(
+        "SELECT data FROM control_materializations WHERE action_id=?1",
+        [grant.admission.action_id.to_string()], |row| row.get(0))?;
+    let mut damaged: serde_json::Value = serde_json::from_str(&local_raw)?;
+    damaged["committed_at"]["seq"] = serde_json::json!(i64::MAX);
+    predecessor.execute("UPDATE control_materializations SET data=?1 WHERE action_id=?2",
+        rusqlite::params![serde_json::to_string(&damaged)?, grant.admission.action_id.to_string()])?;
+    assert!(matches!(reopened.get_existing_agent_id(), Err(error)
+        if error.to_string().contains("installation subject lacks its exact local control application receipt")));
+    assert!(reopened.installation_binding().is_err());
+    predecessor.execute("UPDATE control_materializations SET data=?1 WHERE action_id=?2",
+        rusqlite::params![local_raw, grant.admission.action_id.to_string()])?;
+    assert_eq!(reopened.get_existing_agent_id()?, Some(agent));
+    // A real consistent slot copy keeps immutable predecessor receipts, but
+    // rotating its physical writer identity must not adopt those receipts.
+    drop(reopened);
+    let original_rows = {
+        let mut query = predecessor.prepare(
+            "SELECT conflict_key,action_id,data,updated_commit_seq FROM control_materializations ORDER BY conflict_key")?;
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    assert!(!original_rows.is_empty());
+    let original_event: String = predecessor.query_row(
+        "SELECT data FROM inbox_events WHERE event_id=?1", [applied_id.to_string()], |row| row.get(0))?;
+    let original_commits = {
+        let mut query = predecessor.prepare("SELECT ledger_id,seq FROM commit_log ORDER BY ledger_id,seq")?;
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let copied_path = dir.join("canonical-copied-slot.db");
+    predecessor.backup(rusqlite::DatabaseName::Main, &copied_path, None)?;
+    predecessor.close().map_err(|(_, error)| error)?;
+    let copied_ledger = EntityId::new();
+    let copied_conn = rusqlite::Connection::open(&copied_path)?;
+    assert_eq!(copied_conn.execute("UPDATE ledger_identity SET ledger_id=?1 WHERE singleton=1",
+        [copied_ledger.to_string()])?, 1);
+    copied_conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
+    copied_conn.close().map_err(|(_, error)| error)?;
+    let copied_conn = rusqlite::Connection::open(&copied_path)?;
+    let copied = Store::open(copied_path, dir.join("follower-cas"))?;
+    assert_eq!(copied.ledger.ledger_id(), copied_ledger);
+    assert_eq!(copied.get_existing_agent_id()?, None,
+        "copied physical receipts belong to the predecessor writer, not this slot");
+    assert!(copied.installation_binding()?.subject.is_none());
+    let preserved_rows = {
+        let mut query = copied_conn.prepare(
+            "SELECT conflict_key,action_id,data,updated_commit_seq FROM control_materializations ORDER BY conflict_key")?;
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?, row.get::<_, i64>(3)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    assert_eq!(preserved_rows, original_rows);
+    assert_eq!(copied_conn.query_row("SELECT data FROM inbox_events WHERE event_id=?1",
+        [applied_id.to_string()], |row| row.get::<_, String>(0))?, original_event);
+    let copied_commits = {
+        let mut query = copied_conn.prepare("SELECT ledger_id,seq FROM commit_log ORDER BY ledger_id,seq")?;
+        query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    assert_eq!(copied_commits, original_commits);
+    assert_eq!(serde_json::to_value(copied.load_subject(agent)?.0)?, serde_json::to_value(&follower_head)?);
+    assert!(copied.control_admission_applied(&grant.admission)?, "the copied source fact remains historical evidence");
+    assert_eq!(copied_conn.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
+    assert_eq!(copied_conn.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
+    drop(copied_conn);
+    drop(copied);
+    let reopened = Store::open(dir.join("canonical-follower.db"), dir.join("follower-cas"))?;
     let other = initialize_subject_in(&reopened,b"{\"other_local_genesis\":true}");
     assert_ne!(other,agent);
     assert!(matches!(reopened.get_existing_agent_id(),

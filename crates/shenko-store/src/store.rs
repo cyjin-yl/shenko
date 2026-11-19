@@ -1988,9 +1988,12 @@ pub(crate) fn read_local_subject_id(
 }
 
 fn locally_materialized_subject(conn: &Connection, subject: EntityId, ledger: EntityId) -> Result<bool, ShenkoError> {
+    // Slot copies retain their predecessor writer's immutable receipts. Only
+    // this ledger's newest physical receipt can establish local identity.
     let raw: Option<String> = conn.query_row(
         "SELECT data FROM control_materializations WHERE json_extract(data,'$.admission.subject_id')=?1
-         ORDER BY updated_commit_seq DESC LIMIT 1", [subject.to_string()], |row| row.get(0),
+         AND json_extract(data,'$.committed_at.ledger_id')=?2
+         ORDER BY updated_commit_seq DESC LIMIT 1", [subject.to_string(), ledger.to_string()], |row| row.get(0),
     ).optional().map_err(storage_error)?;
     let Some(raw) = raw else { return Ok(false); };
     let receipt: serde_json::Value = serde_json::from_str(&raw)?;
