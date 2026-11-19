@@ -953,9 +953,16 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         },
         route_authority_ref: route,
     };
-    // The linearization point commits, then the old process dies before it
-    // mirrors the selection or fences its own writer.
-    candidate.activate_successor(0, &next, &copied).unwrap();
+    // The linearization point commits. A first owner advances only the
+    // candidate's Observing phase, then dies before mirroring the selection
+    // or fencing the retired writer. This is a real partial cross-DB write,
+    // not a fabricated success receipt.
+    let (_, activated, _) = candidate.activate_successor(0, &next, &copied).unwrap();
+    let mut half_observed = activated.clone();
+    half_observed.phase = ActivationPhase::Observing;
+    candidate.update_activation_record(
+        &half_observed, RecordRevision(activated.record_revision),
+    ).unwrap();
     drop(candidate);
 
     let answer = fixture
@@ -997,6 +1004,20 @@ async fn reconcile_fences_the_retired_writer_of_a_committed_selection() {
         SubjectQuiesceState::Paused,
         "a committed selection must not resume the retired boundary"
     );
+    let reopened = Store::open(slot.join(SLOT_DB_FILENAME), fixture.data_dir.join("cas")).unwrap();
+    let source_record = fixture.store.activation_record(record.activation_id).unwrap().unwrap();
+    let selected_record = reopened.activation_record(record.activation_id).unwrap().unwrap();
+    assert_eq!(selected_record.phase, ActivationPhase::Observing);
+    assert_eq!(source_record, selected_record,
+        "the earlier one-sided Observing write must converge after recovery");
+    let original_revision = source_record.record_revision;
+    fixture.service.finish_committed_handoff(fixture.agent_id).unwrap();
+    assert_eq!(
+        fixture.store.activation_record(record.activation_id).unwrap().unwrap().record_revision,
+        original_revision,
+        "reopening and finishing again must not manufacture an extra revision"
+    );
+    drop(reopened);
     fixture.cleanup();
 }
 
@@ -1221,6 +1242,22 @@ async fn reconcile_refuses_to_revive_a_fenced_retired_writer() {
 async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
     let fixture = installation();
     let target = RuntimeGeneration::new("gen-b");
+    let initial_selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
+    let retained_route: RouteAuthority = serde_json::from_value(
+        read_build_json(&fixture.store, &initial_selector.route_authority_ref).unwrap(),
+    ).unwrap();
+    slots::write_slot_manifest(
+        &fixture.live_slot,
+        &slots::SlotManifest {
+            schema_version: slots::SlotManifest::SCHEMA_VERSION,
+            generation: fixture.generation.0.clone(),
+            cas_dir: fixture.data_dir.join("cas").to_string_lossy().into_owned(),
+            artifact_path: Some(retained_route.artifact_path),
+            artifact_digest: Some(retained_route.artifact_digest),
+            copied_through_seq: None,
+            created_at: "2026-11-19T00:00:00Z".to_string(),
+        },
+    ).unwrap();
     let live = AbSlot {
         generation: fixture.generation.clone(),
         slot_dir: fixture.live_slot.clone(),
@@ -1334,7 +1371,160 @@ async fn activate_commits_a_new_generation_and_fences_the_retired_writer() {
             .is_none(),
         "no launch receipt exists before a process actually starts the selection"
     );
-    fixture.cleanup();
+
+    // A real successor owns this same subject before producing its first S1;
+    // the historical committed_at and genesis still belong to A.
+    assert_eq!(new_head.committed_step_no, 0);
+    assert_ne!(selected.ledger.ledger_id(), new_head.committed_at.ledger_id);
+    assert_eq!(selected.get_existing_agent_id().unwrap(), Some(fixture.agent_id));
+    assert_eq!(selected.installation_binding().unwrap().subject.unwrap().agent_id, fixture.agent_id);
+    assert_eq!(Store::inspect_installation_binding(&slot.db_path).unwrap().subject.unwrap().agent_id, fixture.agent_id);
+
+    // A candidate backup carries the local witness as bytes but rekeys its
+    // writer. Neither that copied witness nor the old route grants identity.
+    let copied = slots::copy_slot(
+        &slot, &SlotLayout::new(fixture.data_dir.clone()), &RuntimeGeneration::new("unselected-copy"),
+    ).unwrap();
+    let copied_store = Store::open(copied.db_path, fixture.data_dir.join("cas")).unwrap();
+    assert_ne!(copied_store.ledger.ledger_id(), selected.ledger.ledger_id());
+    assert_eq!(copied_store.get_existing_agent_id().unwrap(), None);
+    drop(copied_store);
+
+    // Ordinary peer replication retains the exact foreign subject history,
+    // including activation facts, without the local materialization witness.
+    let mut archive = Vec::new();
+    selected.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    let peer_db = fixture.data_dir.join("peer.db");
+    let peer = Store::open(peer_db.clone(), fixture.data_dir.join("cas")).unwrap();
+    let imported = peer.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert!(imported.conflicts.is_empty(), "foreign history must remain readable: {:?}", imported.conflicts);
+    assert_eq!(peer.get_existing_agent_id().unwrap(), None);
+    drop(peer);
+    let peer = Store::open(peer_db, fixture.data_dir.join("cas")).unwrap();
+    assert_eq!(peer.get_existing_agent_id().unwrap(), None);
+    drop(peer);
+
+    // Reconstruct the exact older on-disk shape: the selector CAS and both
+    // records exist, but its producer had no local successor witness table.
+    drop(selected);
+    let legacy = rusqlite::Connection::open(&slot.db_path).unwrap();
+    legacy.execute_batch("DROP TABLE local_successor_materializations").unwrap();
+    drop(legacy);
+    let detached_root = fixture.data_dir.join("detached-legacy");
+    fs::create_dir(&detached_root).unwrap();
+    let detached_db = detached_root.join(SLOT_DB_FILENAME);
+    slots::backup_database(&slot.db_path, &detached_db).unwrap();
+    let detached = Store::open(detached_db, detached_root.join("cas")).unwrap();
+    assert_eq!(detached.get_existing_agent_id().unwrap(), None);
+    drop(detached);
+    let withheld_source = fixture.data_dir.join("withheld-retired-slot");
+    fs::rename(&fixture.live_slot, &withheld_source).unwrap();
+    let missing_source = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas"));
+    fs::rename(&withheld_source, &fixture.live_slot).unwrap();
+    assert!(missing_source.is_err(), "legacy identity cannot be recovered without its retained physical source");
+    let selected = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap();
+    assert_eq!(selected.get_existing_agent_id().unwrap(), Some(fixture.agent_id));
+    assert_eq!(selected.activation_selector(fixture.agent_id).unwrap().as_ref(), Some(&outcome.selector));
+    assert_eq!(selected.activation_record(record.activation_id).unwrap().as_ref(), Some(&outcome.record));
+    let (recovered_head, recovered_step) = selected.load_subject(fixture.agent_id).unwrap();
+    assert_eq!(serde_json::to_value(&recovered_head).unwrap(), serde_json::to_value(&new_head).unwrap());
+    assert_eq!(serde_json::to_value(&recovered_step).unwrap(), serde_json::to_value(&new_step).unwrap());
+    let recovered_commit = selected.current_commit_seq().unwrap();
+    drop(selected);
+    let selected = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap();
+    assert_eq!(selected.get_existing_agent_id().unwrap(), Some(fixture.agent_id));
+    assert_eq!(selected.current_commit_seq().unwrap(), recovered_commit,
+        "legacy identity materialization must not repeat on the next reopen");
+
+    // The actual selected generation now rolls back through the retained
+    // executable and typed import. Keep the forward recovery closure's frozen
+    // bindings; rollback adds only its current authority and original identity.
+    let selected = Arc::new(selected);
+    let rollback_service = UpdateService::new(
+        fixture.data_dir.clone(), slot.slot_dir.clone(), Arc::clone(&selected),
+        Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+        Arc::new(crate::build::CargoBuildProvider::default()),
+    ).with_claim_source(Arc::new(FixtureAuthority));
+    let mut expected_recovery = read_build_json(&selected, &selected_activation.recovery_closure_ref).unwrap();
+    expected_recovery["authority"] = authority_json();
+    expected_recovery["rollback_of"] = serde_json::json!(record.activation_id);
+    let rollback = rollback_service.rollback(record.activation_id, 1).await
+        .expect("the retained generation must accept the successful rollback");
+    assert_ne!(rollback.record.activation_id, record.activation_id);
+    assert_eq!(rollback.selector.selector_revision, 2);
+    assert_eq!(rollback.selector.active_epoch, 3);
+    assert_eq!(rollback.selector.generation, fixture.generation);
+    assert_eq!(rollback.selector.state_ref, record.from_state_ref);
+    assert_eq!(rollback.selector.origin, ActivationOrigin::Activation {
+        activation_id: rollback.record.activation_id,
+    });
+    assert_eq!(rollback.record.phase, ActivationPhase::Observing);
+    assert_eq!(rollback.record.record_revision, 2,
+        "each ledger commits Activated revision 1, then Observing revision 2");
+    assert!(rollback.record.w1.is_some());
+    assert_eq!(rollback.record.imported_through, rollback.record.w1);
+    assert_eq!(rollback.record.rollback_plan_ref, selected_activation.rollback_plan_ref);
+    assert_eq!(rollback.record.pending_operations_ref, selected_activation.pending_operations_ref);
+    assert_eq!(rollback.record.inference_allocations_ref, selected_activation.inference_allocations_ref);
+    assert_eq!(read_build_json(&selected, &rollback.record.recovery_closure_ref).unwrap(), expected_recovery);
+    assert_eq!(rollback.fenced_head.mode, SubjectMode::Handoff);
+    assert_eq!(rollback.fenced_head.software_generation, target);
+    assert_eq!(selected.activation_record(rollback.record.activation_id).unwrap().as_ref(), Some(&rollback.record));
+    assert_eq!(fixture.store.activation_record(rollback.record.activation_id).unwrap().as_ref(), Some(&rollback.record));
+
+    // Finish through B, the retired source of this new B -> A activation.
+    // The previous one-sided Activated rewrite made this call fail with
+    // OBSERVING_REVISION_CONFLICT despite a successfully committed rollback.
+    rollback_service.finish_committed_handoff(fixture.agent_id).unwrap();
+    let source_commit = selected.current_commit_seq().unwrap();
+    let destination_commit = fixture.store.current_commit_seq().unwrap();
+    let data_dir = fixture.data_dir.clone();
+    let destination_slot = fixture.live_slot.clone();
+    let agent_id = fixture.agent_id;
+    drop(rollback_service);
+    drop(selected);
+    drop(fixture);
+
+    // Close every original handle, reopen both durable ledgers, and complete
+    // again through a fresh retired-source service. Neither record nor ledger
+    // watermark may change on this second completion.
+    let source = Arc::new(Store::open(slot.db_path, data_dir.join("cas")).unwrap());
+    let destination = Store::open(destination_slot.join(SLOT_DB_FILENAME), data_dir.join("cas")).unwrap();
+    assert_eq!(source.get_existing_agent_id().unwrap(), Some(agent_id),
+        "local identity survives retirement without reviving the source writer");
+    assert_eq!(destination.get_existing_agent_id().unwrap(), Some(agent_id));
+    let retired_source = UpdateService::new(
+        data_dir.clone(), slot.slot_dir, Arc::clone(&source),
+        Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()),
+        Arc::new(crate::build::CargoBuildProvider::default()),
+    ).with_claim_source(Arc::new(FixtureAuthority));
+    for store in [source.as_ref(), &destination] {
+        assert_eq!(store.activation_selector(agent_id).unwrap().as_ref(), Some(&rollback.selector));
+        assert_eq!(store.activation_record(rollback.record.activation_id).unwrap().as_ref(), Some(&rollback.record));
+    }
+    retired_source.finish_committed_handoff(agent_id).unwrap();
+    for store in [source.as_ref(), &destination] {
+        assert_eq!(store.activation_selector(agent_id).unwrap().as_ref(), Some(&rollback.selector));
+        assert_eq!(store.activation_record(rollback.record.activation_id).unwrap().as_ref(), Some(&rollback.record));
+    }
+    assert_eq!(source.current_commit_seq().unwrap(), source_commit);
+    assert_eq!(destination.current_commit_seq().unwrap(), destination_commit);
+    let (source_head, _) = source.load_subject(agent_id).unwrap();
+    assert_eq!(source_head.mode, SubjectMode::Handoff);
+    assert_eq!(source_head.software_generation, target);
+    let (destination_head, destination_step) = destination.load_subject(agent_id).unwrap();
+    assert_eq!(destination_head.mode, SubjectMode::Active);
+    assert_eq!(destination_head.software_generation, initial_selector.generation);
+    assert_eq!(destination_head.next_step_id, destination_step.step_id);
+    assert_eq!(destination_step.state, SubjectStepState::Planned);
+    let pointer: serde_json::Value = serde_json::from_slice(
+        &fs::read(data_dir.join(slots::CURRENT_SLOT_FILENAME)).unwrap(),
+    ).unwrap();
+    assert_eq!(pointer["slot_dir"], serde_json::json!(destination_slot));
+    drop(retired_source);
+    drop(source);
+    drop(destination);
+    fs::remove_dir_all(data_dir).unwrap();
 }
 
 
