@@ -2385,10 +2385,6 @@
     height: var(--proto-ui-available-height);
   }
 
-  :where([data-pui-style~="h-[var(--proto-ui-available-region-height,100vh)]"]) {
-    height: var(--proto-ui-available-region-height,100vh);
-  }
-
   :where([data-pui-style~="h-auto"]) {
     height: auto;
   }
@@ -2479,14 +2475,6 @@
 
   :where([data-pui-style~="left-[-3rem]"]) {
     left: -3rem;
-  }
-
-  :where([data-pui-style~="left-[calc(var(--proto-ui-available-region-center-x,50vw)_+_var(--proto-ui-available-region-width,100vw)/2_-_min(20rem,var(--proto-ui-available-region-width,100vw))*var(--pui-drag-progress))]"]) {
-    left: calc(var(--proto-ui-available-region-center-x,50vw) + var(--proto-ui-available-region-width,100vw)/2 - min(20rem,var(--proto-ui-available-region-width,100vw))*var(--pui-drag-progress));
-  }
-
-  :where([data-pui-style~="left-[calc(var(--proto-ui-available-region-center-x,50vw)_-_var(--proto-ui-available-region-width,100vw)/2)]"]) {
-    left: calc(var(--proto-ui-available-region-center-x,50vw) - var(--proto-ui-available-region-width,100vw)/2);
   }
 
   :where([data-pui-style~="left-[calc(var(--pui-display-percentage)*1%)]"]) {
@@ -3727,10 +3715,6 @@
     top: calc(var(--proto-ui-available-region-center-y,50vh) - var(--proto-ui-available-region-height,100vh)*0.35);
   }
 
-  :where([data-pui-style~="top-[calc(var(--proto-ui-available-region-center-y,50vh)_-_var(--proto-ui-available-region-height,100vh)/2)]"]) {
-    top: calc(var(--proto-ui-available-region-center-y,50vh) - var(--proto-ui-available-region-height,100vh)/2);
-  }
-
   :where([data-pui-style~="top-[calc(var(--proto-ui-available-region-center-y,50vh)_-_var(--proto-ui-available-region-height,100vh)/6)]"]) {
     top: calc(var(--proto-ui-available-region-center-y,50vh) - var(--proto-ui-available-region-height,100vh)/6);
   }
@@ -4029,10 +4013,6 @@
 
   :where([data-pui-style~="w-[calc(100%_-_var(--proto-ui-scroll-track-end-inset,0px))]"]) {
     width: calc(100% - var(--proto-ui-scroll-track-end-inset,0px));
-  }
-
-  :where([data-pui-style~="w-[calc(min(20rem,var(--proto-ui-available-region-width,100vw))*var(--pui-drag-progress))]"]) {
-    width: calc(min(20rem,var(--proto-ui-available-region-width,100vw))*var(--pui-drag-progress));
   }
 
   :where([data-pui-style~="w-[calc(var(--pui-display-percentage)*1%)]"]) {
