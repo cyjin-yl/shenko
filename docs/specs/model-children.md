@@ -87,6 +87,10 @@ child 运行永远有界，三条预算同时生效（`ModelChildBudget`）：
 child 的每步预算、工具选择、上下文与语义 prompt 全部**独立于主体**：child 不会
 机械继承主体的 prompt、性格或模型。
 
+[工作区工具 profile](workspace-tools.md)只决定节点装配哪组实际工具，不改写上述作者选择。
+`tools: []` 仍表示纯文本 child；作者需显式授予当前已注册的读取、搜索、创建或编辑定义。
+profile 的持久配置在下次 runtime start 装配，不修改已经冻结的工具集或回放旧调用。
+
 ---
 
 ## 3. 冻结合同与指纹
@@ -151,6 +155,14 @@ attempt、evidence 与 T2，走的是主体委派时完全相同的 handler、au
 同一事务中认领；认领失败时创建也回滚，不留下可被另一 dispatcher 抢走的中间任务。
 已有调用身份不再新建任务：重启、恢复或继续讨论时读取、协调原任务的持久结果，
 未知效果不能被当作一次新调用。
+
+**没有 T2 不等于没有观察。** 原生子任务的原尝试可能已经保存 E1，却仍没有可接受的
+任务结果。下一模型步按原工具子任务绑定的 operation / attempt 读取并核验这份回执，
+把 normalized 诊断和原始 `evidence_ref` 一起放进 `[tool_result:…]`，外层结果保持
+`unknown`。这样，模型能看到已有错误与不确定性细节，避免因泛化的“没有结果”而误判
+原调用从未发生。该投影只读 Store / CAS，不要求 handler 仍安装，不调用 `execute`
+或 `reconcile`，不创建 T2、不重放效果。原始引用先于有界诊断正文；正文超限仍按工具
+结果预算裁剪，完整证据由引用指认。没有 E1 时才保留“尚无持久结果”的未知提示。
 
 ### 4.1 嵌套的模型 child
 
@@ -460,6 +472,13 @@ Store 在 T1 准入时复核这份计划：计划里的每一项都必须属于�
 ---
 
 ## 9. 验证范围与未通过的边界
+
+2026-11-17 的 `unresolved_tool_e1_reaches_the_next_child_wire_without_t2_or_replay`
+通过真实 Store / subject S1、broker HTTP、控制行 parser 与 native T1/E1，验证下一轮
+provider 输入和封存 payload 都保留未决观察的诊断，wire 同时保留原始证据引用。
+修复前同一场景只得到泛化的“尚无持久结果”；修复后工具仍为 `Reconciling` / `Unknown`，
+工具与等待它的父任务均无 T2，只有一次执行和一个 attempt。该单条机制测试在项目
+Rust 1.98.1 容器通过；provider 与未决工具由夹具提供，不是真实模型行为或实际文件故障验收。
 
 2026-11-02 的集成记录已覆盖 Linux 工作区构建，以及真实 Store/parser/broker 配合
 脚本 loopback 响应的限定机制验证。它们不是实际模型行为验收，不证明下列全部行为。

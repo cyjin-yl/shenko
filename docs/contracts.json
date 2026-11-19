@@ -42,6 +42,7 @@
     "docs/specs/verification.md",
     "docs/specs/wasm-home.md",
     "docs/specs/wasm-tools.md",
-    "docs/specs/web-interface.md"
+    "docs/specs/web-interface.md",
+    "docs/specs/workspace-tools.md"
   ]
 }

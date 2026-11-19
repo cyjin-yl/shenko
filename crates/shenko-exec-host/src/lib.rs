@@ -6,6 +6,8 @@ pub use build_provider::*;
 pub mod native_task;
 pub use native_task::*;
 
+pub mod workspace_tools;
+
 pub mod computer_use;
 pub use computer_use::*;
 

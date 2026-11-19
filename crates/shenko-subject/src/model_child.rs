@@ -37,7 +37,7 @@ use shenko_broker::{
 };
 use shenko_store::{
     Store,
-    child::{DialogueDelivery, MAX_CHILD_DIALOGUE_BYTES, PeerMessage, PeerSend},
+    child::{DialogueDelivery, MAX_CHILD_DIALOGUE_BYTES, NATIVE_OPERATION_ID, PeerMessage, PeerSend, memo_uuid},
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
@@ -2676,18 +2676,13 @@ impl ModelChildHandler {
                         format!("{} {}", task_outcome_name(&result.outcome), payload)
                     }
                     None => {
-                        // No subtask at all means the call was refused before
-                        // any execution, so its reason is a durable fact. A
-                        // subtask that exists without a result is genuinely
-                        // unresolved and stays unknown.
                         if !record.protocol_errors.is_empty() {
                             "not_executed: the generation contained invalid controls".into()
                         } else if let Some(refusal) = self.store.model_child_tool_refusal(contract.task_id, subtask)? {
                             format!("failed: {refusal}")
-                        } else { match refused_tool_reason(contract, call) {
-                            Some(reason) if self.store.get_task(subtask)?.is_none() => reason,
-                            _ => "unknown: the tool subtask has no durable result yet".to_string(),
-                        } }
+                        } else {
+                            self.unsettled_tool_text(contract, call)?
+                        }
                     }
                 };
                 let body = if body.len() > MAX_TOOL_RESULT_BYTES {
@@ -2708,6 +2703,48 @@ impl ModelChildHandler {
             results.push(step_results);
         }
         Ok(results)
+    }
+
+    /// Missing T2 is not missing evidence. Read the original E1 without
+    /// dispatching or reconciling the tool, and keep its outcome unknown.
+    fn unsettled_tool_text(
+        &self,
+        contract: &FrozenModelChild,
+        call: &ModelChildToolCall,
+    ) -> Result<String> {
+        let missing = || "unknown: the tool subtask has no durable result yet".to_string();
+        let task_id = tool_task_id(&call.call_id);
+        let Some(task) = self.store.get_task(task_id)? else {
+            // A call refused before any execution has no subtask at all.
+            return Ok(refused_tool_reason(contract, call).unwrap_or_else(missing));
+        };
+        let Some(operation_id) = memo_uuid(&task, NATIVE_OPERATION_ID) else {
+            return Ok(missing());
+        };
+        let Some(operation) = self.store.get_operation(operation_id)? else {
+            return Ok(missing());
+        };
+        let observation = crate::child::NativeChildService::unsettled_tool_outcome(
+            &self.store,
+            &ChildToolCall {
+                call_id: call.call_id.clone(),
+                task_id,
+                kind: call.kind.clone(),
+                definition_version: call.definition_version,
+                input: call.input.clone(),
+            },
+            &operation,
+        )?;
+        let Some(evidence_ref) = observation.evidence_ref else {
+            return Ok(missing());
+        };
+        // Put the original reference before potentially bounded diagnostic
+        // text, so the display limit cannot hide where the full E1 lives.
+        Ok(format!("unknown {}", serde_json::json!({
+            "evidence_ref": evidence_ref,
+            "operation_id": observation.operation_id,
+            "result": observation.result,
+        })))
     }
 
     /// Commit the child's own run operation and its result evidence. This is
