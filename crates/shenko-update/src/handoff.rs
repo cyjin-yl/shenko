@@ -1786,7 +1786,7 @@ impl UpdateService {
             record_revision: 0,
             expected_primary_claim: self.current_primary_claim()?,
         };
-        let mut rollback_record = self.store.create_activation_record(&rollback_record)?;
+        let rollback_record = self.store.create_activation_record(&rollback_record)?;
 
         // 4. Swap the selector back in the older copy — its authority.
         let old_store = Store::open(
@@ -1822,11 +1822,9 @@ impl UpdateService {
             },
             route_authority_ref: rollback_route_ref,
         };
-        let (swapped, mut activated, commit) = old_store
+        let (swapped, _, commit) = old_store
             .activate_successor(current.selector_revision, &next, &rollback_record)
             .map_err(UpdateError::CandidateStore)?;
-        drop(old_store);
-        let _ = &mut activated;
 
         // 5. The newer copy mirrors the swap back and is fenced.
         let (head, head_revision) = {
@@ -1846,10 +1844,9 @@ impl UpdateService {
             "activation",
             "handoff-reason",
         )?;
-        let (_, mirrored, _) = self.store
+        self.store
             .swap_activation_selector(current.selector_revision, &swapped, &rollback_record)
             .map_err(UpdateError::CandidateStore)?;
-        rollback_record = mirrored;
         let fenced = self
             .store
             .fence_head_for_handoff(&head, head_revision, &reason)
@@ -1859,12 +1856,11 @@ impl UpdateService {
         slots::publish_current_slot(&self.data_dir, &previous_slot)
             .map_err(anyhow::Error::from)?;
 
-        // 7. Mark both records.
-        rollback_record.phase = ActivationPhase::Activated;
-        rollback_record = self
-            .store
-            .update_activation_record(&rollback_record, RecordRevision(rollback_record.record_revision))
-            .map_err(UpdateError::CandidateStore)?;
+        // 7. Converge the same Activated -> Observing projection as a forward
+        // activation. Either interrupted phase write can be completed from
+        // the committed selector without changing the rollback's bindings.
+        let rollback_record = self.converge_observing_activation(
+            &old_store, &swapped, rollback_record.activation_id)?;
 
         tracing::info!(
             activation_id = %rollback_record.activation_id,

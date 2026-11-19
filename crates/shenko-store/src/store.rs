@@ -161,7 +161,7 @@ impl Store {
 
         let conn = Arc::new(Mutex::new(conn));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
-        let cas = Arc::new(ContentStore::new(cas_dir)?);
+        let cas = Arc::new(ContentStore::new(cas_dir.clone())?);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
         let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
@@ -183,6 +183,7 @@ impl Store {
         if let Err(error) = crate::channel::migrate_publication_targets(&store) {
             tracing::warn!(error = %error, "publication target migration did not complete");
         }
+        store.recover_legacy_successor_identity(&cas_dir)?;
         Ok(store)
     }
 
@@ -1858,7 +1859,9 @@ fn inspect_database_once<T>(
 /// local work (a takeover writes this installation's commits onto the adopted
 /// branch head). A canonical S1 keeps the source head coordinate, so its
 /// validated nonreplicated physical materialization receipt also establishes
-/// this installation's subject. Imported source receipts satisfy none of
+/// this installation's subject. A successor CAS similarly leaves sealed
+/// history untouched and records its own local materialization witness, valid
+/// before the first S1. Imported source receipts satisfy none of
 /// these conditions. Identity here grants no primary or dispatch authority.
 /// More than one qualifying subject is an integrity error, never a coin flip.
 pub(crate) fn read_local_subject_id(
@@ -1883,6 +1886,10 @@ pub(crate) fn read_local_subject_id(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_materializations')",
         [], |row| row.get(0),
     ).map_err(storage_error)?;
+    let has_successor_materializations: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_successor_materializations')",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
     for (id, json) in rows {
         let agent_id: EntityId = id
             .parse()
@@ -1899,17 +1906,16 @@ pub(crate) fn read_local_subject_id(
             )
             .optional()
             .map_err(storage_error)?;
-        let committed_here = match head_ledger {
-            Some(head_json) => {
-                let head: SubjectBranchHead = serde_json::from_str(&head_json)?;
-                head.committed_at.ledger_id == ledger_id
-            }
-            None => false,
-        };
+        let head = head_ledger.map(|json| serde_json::from_str::<SubjectBranchHead>(&json)).transpose()?;
+        let committed_here = head.as_ref().is_some_and(|head| head.committed_at.ledger_id == ledger_id);
         let applied_here = if has_materializations {
             locally_materialized_subject(conn, agent_id, ledger_id)?
         } else { false };
-        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here {
+        let selected_here = genesis.created_commit.ledger_id != ledger_id && !committed_here && !applied_here
+            && has_successor_materializations
+            && head.as_ref().map(|head| crate::activation::locally_materialized_successor(conn, ledger_id, head))
+                .transpose()?.unwrap_or(false);
+        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here || selected_here {
             local.push(agent_id);
         }
     }
