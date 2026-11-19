@@ -77,6 +77,12 @@ keeps its dedicated representation: the operation is `save`, the knowledge
 kind is `note`, and a missing binding sidecar is that representation's
 shape, not corruption.
 
+Software-slot backups retain predecessor control application receipts with
+their original physical commit coordinates. For installation identity based
+on control application, Store selects the newest receipt on the current
+ledger and verifies its exact commit and applied event. Predecessor receipts
+remain historical evidence in the copy.
+
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 
 `ARCHIVE_SCHEMA` is 5. Readers admit schemas 2–5; an archive naming a fact
