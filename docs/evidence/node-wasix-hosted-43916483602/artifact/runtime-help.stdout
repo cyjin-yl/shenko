@@ -1,0 +1,289 @@
+Run a WebAssembly file or Wasmer container
+
+Usage: wasmer run [OPTIONS] <INPUT> [ARGS]...
+
+Arguments:
+  <INPUT>
+          The file, URL, or package to run
+
+  [ARGS]...
+          Command-line arguments passed to the package
+
+Options:
+      --wasmer-dir <WASMER_DIR>
+          Set Wasmer's home directory
+          
+          [env: WASMER_DIR=/home/runner/work/_temp/shenko-node-wasix-43916483602-1/runtime-home]
+          [default: /home/runner/work/_temp/shenko-node-wasix-43916483602-1/runtime-home]
+
+      --cache-dir <CACHE_DIR>
+          The directory cached artefacts are saved to
+          
+          [env: WASMER_CACHE_DIR=/home/runner/work/_temp/shenko-node-wasix-43916483602-1/cache]
+          [default: /home/runner/work/_temp/shenko-node-wasix-43916483602-1/runtime-home/cache]
+
+  -v, --verbose...
+          Generate verbose output (repeat for more verbosity)
+
+  -q, --quiet
+          Do not print progress messages
+
+      --registry <REGISTRY>
+          Change the current registry
+          
+          [env: WASMER_REGISTRY=]
+
+      --log-format <LOG_FORMAT>
+          The format to use when generating logs
+
+          Possible values:
+          - text: Human-readable logs
+          - json: Machine-readable logs
+          
+          [env: LOG_FORMAT=]
+          [default: text]
+
+      --token <TOKEN>
+          The API token to use when communicating with the registry (inferred from the environment by default)
+          
+          [env: WASMER_TOKEN=]
+
+      --log-events <LOG_EVENTS>
+          Which span events to log
+          
+          [env: LOG_EVENTS=]
+          [default: close]
+          [possible values: new, close, all]
+
+  -s, --singlepass
+          Use Singlepass compiler
+
+  -c, --cranelift
+          Use Cranelift compiler
+
+      --color <COLOR>
+          When to display colored output
+          
+          [default: auto]
+          [possible values: auto, always, never]
+
+  -l, --llvm
+          Use LLVM compiler
+
+      --v8
+          Use the V8 runtime
+
+      --experimental-artifact
+          Use the experimental artifact format
+
+      --enable-verifier
+          Enable compiler internal verification.
+          
+          Available for Cranelift (enabled always for LLVM).
+
+      --compiler-debug-dir <COMPILER_DEBUG_DIR>
+          Debug directory, where IR and object files will be written to.
+          
+          Available for Cranelift, LLVM and Singlepass.
+
+      --profiler <PROFILER>
+          Enable a profiler.
+          
+          Available for Cranelift, LLVM and Singlepass.
+
+      --disable-m0-pass-param-opt
+          For the LLVM compiler, disable passing the pointer to the first memory as a hidden argument
+
+      --compiler-threads <COMPILER_THREADS>
+          Sets the number of threads used to compile the input module(s)
+
+      --enable-nan-canonicalization
+          Enable NaN canonicalization during compilation to produce deterministic canonical quiet NaNs (QNaNs) across architectures
+
+      --disable-non-volatile-memops
+          Disable LLVM non-volatile memory operations.
+          
+          Available for LLVM.
+
+      --enable-experimental-unaligned-memory-accesses
+          Allow unaligned memory accesses.
+          
+          This feature is experimental and currently supports only Cranelift scalar types and Singlepass on RISC-V for integral types.
+
+      --enable-simd
+          Enable support for the SIMD proposal
+
+      --disable-threads
+          Disable support for the threads proposal
+
+      --enable-threads
+          Deprecated, threads are enabled by default
+
+      --enable-reference-types
+          Enable support for the reference types proposal
+
+      --enable-multi-value
+          Enable support for the multi-value proposal. Singlepass support for multi-value is experimental and does not include integration with host functions returning multiple values
+
+      --enable-bulk-memory
+          Enable support for the bulk memory proposal
+
+      --enable-tail-call
+          Enable support for the tail call proposal
+
+      --enable-module-linking
+          Enable support for the module linking proposal
+
+      --enable-multi-memory
+          Deprecated, multi memory is enabled by default
+
+      --enable-memory64
+          Enable support for the memory64 proposal
+
+      --enable-exceptions
+          Enable support for the exceptions proposal
+
+      --enable-relaxed-simd
+          Enable support for the relaxed SIMD proposal
+
+      --enable-extended-const
+          Enable support for the extended constant expressions proposal
+
+      --wide-arithmetic
+          Enable support for the wide arithmetic proposal
+
+      --enable-all
+          Enable support for all pre-standard proposals
+
+      --volume <[HOST_DIR:]GUEST_DIR>
+          Map a host directory to a different location for the Wasm module
+
+      --cwd <CWD>
+          Set the module's initial CWD to this path; does not work with WASI preview 1 modules
+
+      --env <KEY=VALUE>
+          Pass custom environment variables
+
+      --env-file <PATH>
+          Load environment variables from a dotenv file
+
+      --forward-host-env
+          Forward all host env variables to guest
+          
+          [env: FORWARD_HOST_ENV=]
+
+      --use <USE>
+          List of other containers this module depends on
+
+      --include-webc <WEBC>
+          Webc packages that are explicitly included for execution, taking precedence over the registry ones: either a `*.webc` file, or a directory laid out `<namespace>/<name>/<version>.webc` and queried on demand like a registry. Resolves named dependencies from local files, offline
+
+      --offline
+          Resolve only from local sources (`--include-webc`, filesystem paths), never the registry. Needed offline, where a registry query would fail resolution
+
+      --map-command <MAPCMD>
+          List of injected atoms
+
+      --net[=<NETWORKING>]
+          Enable networking with the host network.
+          
+          Allows WASI modules to open TCP and UDP connections, create sockets, ...
+          
+          Optionally, a set of network filters could be defined which allows fine-grained control over the network sandbox.
+          
+          Rule Syntax:
+          
+          <rule-type>:<allow|deny>=<rule-expression>
+          
+          Examples:
+          
+          - Allow a specific domain and port: dns:allow=example.com:80
+          
+          - Deny a domain and all its subdomains on all ports: dns:deny=*danger.xyz:*
+          
+          - Allow opening ipv4 sockets only on a specific IP and port: ipv4:allow=127.0.0.1:80/in.
+
+      --no-tty
+          Disables the TTY bridge
+
+      --enable-async-threads[=<ENABLE_ASYNC_THREADS>]
+          Enables or disables asynchronous threading.
+          
+          If omitted, the runtime default is used.
+          
+          [possible values: true, false]
+
+      --enable-cpu-backoff <ENABLE_CPU_BACKOFF>
+          Enables an exponential backoff (measured in milli-seconds) of the process CPU usage when there are no active run tokens (when set holds the maximum amount of time that it will pause the CPU) (default = off)
+
+      --journal <READ_ONLY_JOURNALS>
+          Specifies one or more journal files that Wasmer will use to restore the state of the WASM process as it executes.
+          
+          The state of the WASM process and its sandbox will be reapplied using the journals in the order that you specify here.
+
+      --journal-writable <WRITABLE_JOURNALS>
+          Specifies one or more journal files that Wasmer will use to restore and save the state of the WASM process as it executes.
+          
+          The state of the WASM process and its sandbox will be reapplied using the journals in the order that you specify here.
+          
+          The last journal file specified will be created if it does not exist and opened for read and write. New journal events will be written to this file
+
+      --enable-compaction
+          Flag that indicates if the journal will be automatically compacted as it fills up and when the process exits
+
+      --without-compact-on-drop
+          Tells the compactor not to compact when the journal log file is closed
+
+      --with-compact-on-growth <WITH_COMPACT_ON_GROWTH>
+          Tells the compactor to compact when it grows by a certain factor of its original size. (i.e. '0.2' would be it compacts after the journal has grown by 20 percent)
+          
+          Default is to compact on growth that exceeds 15%
+          
+          [default: 0.15]
+
+      --snapshot-on <SNAPSHOT_ON>
+          Indicates what events will cause a snapshot to be taken and written to the journal file.
+          
+          If not specified, the default is to snapshot when the process idles, when the process exits or periodically if an interval argument is also supplied, as well as when the process requests a snapshot explicitly.
+          
+          Additionally if the snapshot-on is not specified it will also take a snapshot on the first stdin, environ or socket listen - this can be used to accelerate the boot up time of WASM processes.
+
+      --snapshot-period <SNAPSHOT_INTERVAL>
+          Adds a periodic interval (measured in milli-seconds) that the runtime will automatically take snapshots of the running process and write them to the journal. When specifying this parameter it implies that `--snapshot-on interval` has also been specified
+
+      --stop-after-snapshot
+          If specified, the runtime will stop executing the WASM module after the first snapshot is taken
+
+      --skip-journal-stdio
+          Skip writes to stdout and stderr when replying journal events to bootstrap a module
+
+      --http-client
+          Allow instances to send http requests.
+          
+          Access to domains is granted by default.
+
+      --deny-multiple-wasi-versions
+          Require WASI modules to only import 1 version of WASI
+
+      --disable-cache
+          Disable the cache for the compiled modules.
+          
+          Cache is used to speed up the loading of modules, as the generated artifacts are cached.
+
+      --stack-size <STACK_SIZE>
+          Set the default stack size (default is 1048576)
+
+  -e, --entrypoint <ENTRYPOINT>
+          The entrypoint module for webc packages
+
+  -i, --invoke <INVOKE>
+          The function to invoke
+
+      --COREDUMP_PATH <COREDUMP_PATH>
+          Generate a coredump at this path if a WebAssembly trap occurs
+
+      --experimental-napi
+          Enable experimental N-API imports for modules that require them
+
+  -h, --help
+          Print help (see a summary with '-h')

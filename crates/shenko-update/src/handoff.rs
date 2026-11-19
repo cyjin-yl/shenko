@@ -47,7 +47,7 @@ use shenko_types::ids::{ControllerEpoch, EntityId, RecordRevision, RuntimeGenera
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionRef};
 use shenko_types::subject::{SubjectBranchHead, SubjectMode};
 
-use crate::build::{self, BuildOutcome, BuildProvider, CandidateArtifact};
+use crate::build::{BuildOutcome, BuildProvider, CandidateArtifact};
 use crate::migration::{self, ImportReport};
 use crate::slots::{self, AbSlot, SlotLayout, SLOT_DB_FILENAME};
 use crate::smoke::{self, SmokeReport};
@@ -184,7 +184,7 @@ impl HandoffParticipantRegistry {
 }
 
 /// Where a candidate artifact comes from.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum CandidateSource {
     /// Build it with the configured build provider.
     Build {
@@ -198,7 +198,7 @@ pub enum CandidateSource {
 }
 
 /// One prepare request.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PrepareRequest {
     pub agent_id: EntityId,
     /// The generation the candidate becomes.
@@ -322,6 +322,14 @@ pub struct UpdateService {
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
     #[error(transparent)]
+    Build(#[from] crate::build::BuildError),
+    #[error("{original}; retaining the build evidence also failed: {detail}")]
+    BuildEvidence {
+        #[source]
+        original: Box<UpdateError>,
+        detail: String,
+    },
+    #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error("no activation selector; the launch must create the first one")]
     SelectorMissing,
@@ -348,6 +356,32 @@ pub enum UpdateError {
 }
 
 pub type UpdateResult<T, E = UpdateError> = std::result::Result<T, E>;
+
+struct PreparationEvidence<'a> {
+    smoke: &'a SmokeReport,
+    build: &'a ObjectRef,
+}
+
+#[derive(Deserialize)]
+struct PreparedProgram {
+    path: PathBuf,
+    digest: Digest,
+}
+
+#[derive(Deserialize)]
+struct PreparedRecoveryClosure {
+    schema_version: u32,
+    to_slot: PathBuf,
+    to_artifact: PreparedProgram,
+}
+
+#[derive(Deserialize)]
+struct PreparedStateCopy {
+    schema_version: u32,
+    generation: RuntimeGeneration,
+    slot_dir: PathBuf,
+    db_path: PathBuf,
+}
 
 impl UpdateService {
     pub fn new(
@@ -759,17 +793,52 @@ impl UpdateService {
     /// authority while the working runtime has already stopped.
     fn verified_candidate_program(&self, record: &ActivationRecord) -> UpdateResult<(PathBuf, Digest)> {
         let slot_dir = self.layout().slot_dir(&record.to_generation);
+        let closure_bytes = self.store.cas.read_object(&record.recovery_closure_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&closure_bytes) == record.recovery_closure_ref.digest
+                && closure_bytes.len() as u64 == record.recovery_closure_ref.bytes,
+            "the prepared recovery closure does not match its sealed reference");
+        let prepared: PreparedRecoveryClosure = serde_json::from_slice(&closure_bytes)
+            .context("the prepared recovery closure has no readable artifact binding")?;
+        ensure!(prepared.schema_version == 1, "unsupported prepared recovery closure schema");
+        let state_bytes = self.store.cas.read_object(&record.to_state_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&state_bytes) == record.to_state_ref.digest
+                && state_bytes.len() as u64 == record.to_state_ref.bytes,
+            "the prepared state copy does not match its sealed reference");
+        let state: PreparedStateCopy = serde_json::from_slice(&state_bytes)
+            .context("the prepared state copy has no readable slot binding")?;
+        ensure!(state.schema_version == 1, "unsupported prepared state-copy schema");
+        ensure!(state.generation == record.to_generation
+                && same_slot_path(&prepared.to_slot, &slot_dir)
+                && same_slot_path(&state.slot_dir, &slot_dir)
+                && same_slot_path(&state.db_path, &slot_dir.join(SLOT_DB_FILENAME)),
+            "the sealed prepared artifact and state copy do not name this activation's generation and slot");
+
         let manifest = slots::read_slot_manifest(&slot_dir).map_err(anyhow::Error::from)?;
+        ensure!(manifest.schema_version == slots::SlotManifest::SCHEMA_VERSION,
+            "unsupported candidate slot manifest schema");
         ensure!(manifest.generation == record.to_generation.0,
             "the candidate slot manifest names generation {}, not this activation's target {}",
             manifest.generation, record.to_generation.0);
-        let executable = manifest.artifact_path.context("candidate artifact path missing")?;
-        let digest = manifest.artifact_digest.context("candidate artifact digest missing")?;
+        // The manifest can change with the executable. Only the immutable
+        // preparation receipt says which program the old smoke qualified.
+        let resolve_program = |path: PathBuf| {
+            if path.is_absolute() { path } else { slot_dir.join(path) }
+        };
+        let declared = resolve_program(PathBuf::from(
+            manifest.artifact_path.context("candidate artifact path missing")?));
+        let executable = resolve_program(prepared.to_artifact.path);
+        ensure!(same_slot_path(&declared, &executable),
+            "the candidate slot manifest does not name the sealed prepared artifact path");
+        let digest = prepared.to_artifact.digest;
+        ensure!(manifest.artifact_digest.as_ref() == Some(&digest),
+            "the candidate slot manifest does not match the sealed prepared artifact digest");
         let bytes = std::fs::read(&executable)
-            .with_context(|| format!("candidate executable {executable} is unreadable"))?;
+            .with_context(|| format!("candidate executable {} is unreadable", executable.display()))?;
         ensure!(Digest::blake3(&bytes) == digest,
-            "candidate executable {executable} does not match its prepared artifact digest");
-        Ok((PathBuf::from(executable), digest))
+            "candidate executable {} does not match its prepared artifact digest", executable.display());
+        Ok((executable, digest))
     }
 
     fn authority_snapshot(&self) -> UpdateResult<serde_json::Value> {
@@ -925,11 +994,158 @@ impl UpdateService {
         })
     }
 
+    /// A completed activation may later carry the selected runtime's live
+    /// rollback request and resource receipts. Those writes do not reopen the
+    /// old handoff or authorize changing any of its selection facts.
+    fn verify_completed_observing_activation(
+        &self,
+        source: &ActivationRecord,
+        selected: &ActivationRecord,
+        selector: &ActivationSelector,
+    ) -> UpdateResult<()> {
+        ensure!(source.phase == ActivationPhase::Observing
+            && selected.phase == ActivationPhase::Observing,
+            "SELECTED_RECOVERY_RECORD_CONFLICT: selected and retired activation facts did not converge");
+        if source == selected {
+            return Ok(());
+        }
+        let mut historical = selected.clone();
+        historical.record_revision = source.record_revision;
+        historical.recovery_closure_ref = source.recovery_closure_ref.clone();
+        historical.pending_operations_ref = source.pending_operations_ref.clone();
+        historical.inference_allocations_ref = source.inference_allocations_ref.clone();
+        ensure!(historical == *source && selected.record_revision > source.record_revision,
+            "SELECTED_RECOVERY_RECORD_CONFLICT: completed activation selection facts changed");
+
+        let read_json = |reference: &ObjectRef| -> UpdateResult<serde_json::Value> {
+            let bytes = self.store.cas.read_object(&reference.digest).map_err(anyhow::Error::from)?;
+            ensure!(Digest::blake3(&bytes) == reference.digest && bytes.len() as u64 == reference.bytes,
+                "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback reference integrity mismatch");
+            Ok(serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?)
+        };
+        let original = read_json(&source.recovery_closure_ref)?;
+        let mut updated = read_json(&selected.recovery_closure_ref)?;
+        let reference: ObjectRef = serde_json::from_value(updated.get("process_handoff_request_ref")
+            .cloned().context("completed activation changed without a frozen rollback request")?)
+            .map_err(anyhow::Error::from)?;
+        let request = read_json(&reference)?;
+        let command: crate::cli::UpdateCommand = serde_json::from_value(request.get("command")
+            .cloned().context("frozen rollback command missing")?).map_err(anyhow::Error::from)?;
+        let frozen: FrozenProcessHandoff = serde_json::from_value(request)
+            .map_err(anyhow::Error::from)?;
+        ensure!(matches!(command, crate::cli::UpdateCommand::Rollback {
+            activation, expected_selector_revision,
+        } if activation == selected.activation_id
+            && expected_selector_revision == selector.selector_revision)
+            && frozen.schema_version == 1 && frozen.agent_id == selector.agent_id
+            && frozen.installation_id == self.store.installation_id_for_subject(selector.agent_id)?
+            && frozen.source_selector == *selector
+            && same_slot_path(&frozen.source_slot, &self.state_slot(&selector.state_ref)?),
+            "SELECTED_RECOVERY_RECORD_CONFLICT: frozen request is not this selected activation's rollback");
+        let updated = updated.as_object_mut().context("updated recovery closure is not an object")?;
+        match original.get("process_handoff_request_ref") {
+            Some(previous) => { updated.insert("process_handoff_request_ref".into(), previous.clone()); }
+            None => { updated.remove("process_handoff_request_ref"); }
+        }
+        ensure!(original.as_object() == Some(&*updated),
+            "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback changed the original recovery closure");
+        if selected.pending_operations_ref != source.pending_operations_ref
+            || selected.inference_allocations_ref != source.inference_allocations_ref
+        {
+            ensure!(selected.pending_operations_ref == selected.inference_allocations_ref,
+                "SELECTED_RECOVERY_RECORD_CONFLICT: live rollback resource references disagree");
+            let reference = selected.pending_operations_ref.as_ref()
+                .context("live rollback removed its resource receipts")?;
+            let _: Vec<HandoffParticipantReceipt> = serde_json::from_value(read_json(reference)?)
+                .map_err(anyhow::Error::from)?;
+        }
+        Ok(())
+    }
+
+    /// Complete the non-authoritative Activated -> Observing projection after
+    /// the selector and launcher pointer have committed. The two independent
+    /// ledgers cannot update this phase in one SQLite transaction. Either
+    /// write may have been interrupted; the selected generation is determined
+    /// by its selector, never by whichever phase happened to be written first.
+    ///
+    /// No new selection or external work is allowed here. An unfamiliar
+    /// revision/record is a conflict, not permission to overwrite history.
+    fn converge_observing_activation(
+        &self,
+        candidate: &Store,
+        selector: &ActivationSelector,
+        activation_id: EntityId,
+    ) -> UpdateResult<ActivationRecord> {
+        let source_selector = self.store.activation_selector(selector.agent_id)?
+            .ok_or(UpdateError::SelectorMissing)?;
+        let selected_selector = candidate.activation_selector(selector.agent_id)?
+            .ok_or(UpdateError::SelectorMissing)?;
+        ensure!(source_selector == *selector && selected_selector == *selector
+            && selector.origin == (ActivationOrigin::Activation { activation_id }),
+            "OBSERVING_SELECTOR_CONFLICT: both ledgers must agree on the committed activation");
+        let mut source = self.store.activation_record(activation_id)?
+            .ok_or(UpdateError::ActivationNotFound(activation_id))?;
+        let mut selected = candidate.activation_record(activation_id)?
+            .ok_or(UpdateError::ActivationNotFound(activation_id))?;
+        if source.phase == ActivationPhase::Observing && selected.phase == ActivationPhase::Observing {
+            self.verify_completed_observing_activation(&source, &selected, selector)?;
+            return Ok(selected);
+        }
+        let mut source_facts = source.clone();
+        let mut selected_facts = selected.clone();
+        source_facts.phase = ActivationPhase::Activated;
+        selected_facts.phase = ActivationPhase::Activated;
+        source_facts.record_revision = 0;
+        selected_facts.record_revision = 0;
+        ensure!(source_facts == selected_facts,
+            "OBSERVING_FACT_CONFLICT: the two activation records differ beyond phase/revision");
+
+        let next_source = source.record_revision.checked_add(1)
+            .ok_or_else(|| anyhow!("source activation revision exhausted"))?;
+        let next_selected = selected.record_revision.checked_add(1)
+            .ok_or_else(|| anyhow!("selected activation revision exhausted"))?;
+        match (source.phase, selected.phase) {
+            (ActivationPhase::Activated, ActivationPhase::Activated) => {
+                ensure!(source.record_revision == selected.record_revision,
+                    "OBSERVING_REVISION_CONFLICT: equal phases have different revisions");
+            }
+            (ActivationPhase::Activated, ActivationPhase::Observing) => {
+                ensure!(next_source == selected.record_revision,
+                    "OBSERVING_REVISION_CONFLICT: selected phase is not the next revision");
+            }
+            (ActivationPhase::Observing, ActivationPhase::Activated) => {
+                ensure!(source.record_revision == next_selected,
+                    "OBSERVING_REVISION_CONFLICT: retired phase is not the next revision");
+            }
+            _ => bail!("OBSERVING_PHASE_CONFLICT: an unexpected activation phase cannot be reconciled"),
+        }
+
+        // Write the selected authority first. A crash after either individual
+        // update leaves one Observing and one Activated, which this exact
+        // comparison can finish after reopening without incrementing twice.
+        if selected.phase == ActivationPhase::Activated {
+            selected.phase = ActivationPhase::Observing;
+            selected = candidate.update_activation_record(
+                &selected, RecordRevision(selected.record_revision))?;
+        }
+        if source.phase == ActivationPhase::Activated {
+            source.phase = ActivationPhase::Observing;
+            source = self.store.update_activation_record(
+                &source, RecordRevision(source.record_revision))?;
+        }
+        ensure!(source == selected,
+            "OBSERVING_POST_COMMIT_CONFLICT: both ledgers did not converge");
+        Ok(selected)
+    }
+
     /// Complete only an already committed candidate selection. Never infer
     /// success/abandonment from the last error or from the launcher pointer.
     /// The caller holds the runtime's control lane or exclusive offline owner.
     pub fn finish_committed_handoff(&self, agent_id: EntityId) -> UpdateResult<()> {
-        for source_record in self.store.activation_records(agent_id)? {
+        // B may still select A->B after C commits B->C. Finish committed
+        // successors before following B's historical predecessor: returning
+        // through A would hide C and could let reconciliation resume B.
+        for source_record in self.store.activation_records(agent_id)?.into_iter().rev() {
             let target_slot = self.state_slot(&source_record.to_state_ref)?;
             if target_slot == self.live_slot || !target_slot.join(SLOT_DB_FILENAME).is_file() { continue; }
             let candidate = Store::open(target_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?;
@@ -959,7 +1175,60 @@ impl UpdateService {
                 self.store.fence_head_for_handoff(&head, head.record_revision, &selected.route_authority_ref)?;
             }
             slots::publish_current_slot(&self.data_dir, &target_slot).map_err(anyhow::Error::from)?;
+            // Completion also repairs a crash between the two Observing
+            // projections. A Retired historical record is not reopened here.
+            if matches!(committed.phase, ActivationPhase::Activated | ActivationPhase::Observing) {
+                self.converge_observing_activation(&candidate, &selected, source_record.activation_id)?;
+            }
+            let mirrored = self.store.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
+            let committed_selector = candidate.activation_selector(agent_id)?.ok_or(UpdateError::SelectorMissing)?;
+            ensure!(mirrored == selected && committed_selector == selected,
+                "COMMITTED_RECOVERY_SELECTOR_CONFLICT: completion did not retain the exact selected authority");
             return Ok(());
+        }
+
+        // A cold start can instead open selected B while retired A still
+        // needs its mirror, fence or phase projection completed. Recovery
+        // through A must prove those exact postconditions before admitting B.
+        if let Some(selected) = self.store.activation_selector(agent_id)?
+            && let ActivationOrigin::Activation { activation_id } = &selected.origin
+            && let Some(record) = self.store.activation_record(*activation_id)?
+            && selected.generation == record.to_generation
+            && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
+        {
+            ensure!(selected.state_ref == record.to_state_ref,
+                "SELECTED_RECOVERY_STATE_CONFLICT: selected state differs from committed activation");
+            let source_slot = self.state_slot(&record.from_state_ref)?;
+            if !same_slot_path(&source_slot, &self.live_slot) {
+                let versions = self.data_dir.join("versions");
+                ensure!(same_slot_path(&source_slot, &self.data_dir)
+                    || source_slot.parent().is_some_and(|parent| same_slot_path(parent, &versions)),
+                    "SELECTED_RECOVERY_SOURCE_CONFLICT: retired slot is outside this installation");
+                ensure!(source_slot.join(SLOT_DB_FILENAME).is_file(),
+                    "SELECTED_RECOVERY_SOURCE_MISSING: retired ledger is not available");
+                let source = Arc::new(Store::open(
+                    source_slot.join(SLOT_DB_FILENAME), self.cas_dir.clone())?);
+                let retired = UpdateService::new(
+                    self.data_dir.clone(), source_slot, source,
+                    Arc::clone(&self.participants), Arc::clone(&self.builder));
+                retired.finish_committed_handoff(agent_id)?;
+                let retired_selector = retired.store.activation_selector(agent_id)?
+                    .ok_or(UpdateError::SelectorMissing)?;
+                let selected_selector = self.store.activation_selector(agent_id)?
+                    .ok_or(UpdateError::SelectorMissing)?;
+                ensure!(retired_selector == selected && selected_selector == selected,
+                    "SELECTED_RECOVERY_SELECTOR_CONFLICT: retired ledger has not mirrored selected authority");
+                let (retired_head, _) = retired.store.load_subject(agent_id)?;
+                ensure!(retired_head.mode == SubjectMode::Handoff
+                    && retired_head.software_generation == record.from_generation,
+                    "SELECTED_RECOVERY_UNFENCED: retired writer still has an admissible head");
+                let retired_record = retired.store.activation_record(*activation_id)?
+                    .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                let selected_record = self.store.activation_record(*activation_id)?
+                    .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
+                self.verify_completed_observing_activation(&retired_record, &selected_record, &selected)?;
+                return Ok(());
+            }
         }
         Ok(())
     }
@@ -1008,17 +1277,11 @@ impl UpdateService {
             created_at: chrono::Utc::now().to_rfc3339(),
         }).map_err(anyhow::Error::from)?;
 
-        // 1. The candidate artifact, with a real content identity.
+        // The receipt names the original source of this preparation even if
+        // the subject advances while the bounded compiler process is running.
+        let original_head = self.store.load_subject(request.agent_id)?.0;
         let outcome = match &request.source {
-            CandidateSource::Prebuilt { path } => BuildOutcome {
-                artifact: Some(
-                    build::describe_artifact(path, &request.generation).map_err(anyhow::Error::from)?,
-                ),
-                exit_code: 0,
-                stdout_tail: String::new(),
-                stderr_tail: String::new(),
-                command: vec![path.to_string_lossy().to_string()],
-            },
+            CandidateSource::Prebuilt { path } => BuildOutcome::prebuilt(path, &request.generation),
             CandidateSource::Build {
                 source_dir,
                 profile,
@@ -1033,15 +1296,102 @@ impl UpdateService {
                     extra_args: extra_args.clone(),
                     binary_name: "shenko".to_string(),
                 };
-                self.builder
-                    .build(&build_request)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("{error}"))?
+                self.builder.build(&build_request).await
             }
         };
-        let artifact = outcome
-            .artifact
-            .ok_or_else(|| anyhow!("the build produced no artifact"))?;
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                let receipt = self.seal_build_observation(&request, &current, &authority,
+                    &original_head, error.outcome(), Some(error.to_string()));
+                let original = UpdateError::Build(error);
+                return Err(match receipt {
+                    Ok(receipt) => self.retain_prepare_failure(request.agent_id, Some(&receipt), original),
+                    Err(error) => self.retain_prepare_failure(request.agent_id, None,
+                        UpdateError::BuildEvidence { original: Box::new(original), detail: error.to_string() }),
+                });
+            }
+        };
+        let receipt = self.seal_build_observation(&request, &current, &authority,
+            &original_head, Some(&outcome), None)
+            .map_err(|error| self.retain_prepare_failure(request.agent_id, None, error))?;
+        // A completed build is an observation, not a tool-effect settlement.
+        // Root it before copying or launching the candidate; cancellation after
+        // this boundary cannot make the completed compiler output unreachable.
+        let rooted = (|| -> UpdateResult<()> {
+            let observed_head = self.store.load_subject(request.agent_id)?.0;
+            self.store.append_subject_raw_fact(&observed_head, outcome.build_id,
+                "update_build_observation", &serde_json::json!({
+                    "schema_version": 1, "build_id": outcome.build_id,
+                    "build_receipt_ref": receipt,
+                    "native_operation_settled": false,
+                }))?;
+            Ok(())
+        })();
+        if let Err(error) = rooted {
+            return Err(self.retain_prepare_failure(request.agent_id, Some(&receipt), error));
+        }
+        let result = self.prepare_built_candidate(&request, &current, &outcome, &receipt).await;
+        result.map_err(|error| self.retain_prepare_failure(request.agent_id, Some(&receipt), error))
+    }
+
+    fn seal_build_observation(
+        &self,
+        request: &PrepareRequest,
+        current: &ActivationSelector,
+        authority: &serde_json::Value,
+        original_head: &SubjectBranchHead,
+        outcome: Option<&BuildOutcome>,
+        failure: Option<String>,
+    ) -> UpdateResult<ObjectRef> {
+        let outcome_ref = outcome.map(|outcome| outcome.seal(&self.store.cas)).transpose()
+            .map_err(UpdateError::Other)?;
+        self.seal_json(&serde_json::json!({
+            "schema_version": 1, "prepare_request": request,
+            "original_selector": current, "original_authority": authority,
+            "original_branch_head": original_head, "build_outcome_ref": outcome_ref,
+            "provider_error": failure,
+            "source_snapshot_frozen": false, "native_operation_settled": false,
+        }), "activation", "prepare-build-observation")
+    }
+
+    fn retain_prepare_failure(
+        &self,
+        agent_id: EntityId,
+        receipt: Option<&ObjectRef>,
+        original: UpdateError,
+    ) -> UpdateError {
+        // The journal's bounded extra stays small; complete streams and the
+        // original request belong to the typed CAS closure, not inline text.
+        let receipt = receipt.cloned().map(|mut reference| {
+            reference.locator.clear();
+            reference
+        });
+        let context = shenko_store::raw_session::RuntimeErrorContext {
+            kind: "update_prepare".into(),
+            source_module: module_path!().into(),
+            message: original.to_string(),
+            extra: serde_json::json!({ "build_receipt_ref": receipt }),
+            ..Default::default()
+        };
+        match self.store.record_runtime_error(agent_id, context) {
+            Ok(_) => original,
+            Err(error) => UpdateError::BuildEvidence {
+                original: Box::new(original), detail: format!("durable error journal: {error}"),
+            },
+        }
+    }
+
+    async fn prepare_built_candidate(
+        &self,
+        request: &PrepareRequest,
+        current: &ActivationSelector,
+        outcome: &BuildOutcome,
+        receipt: &ObjectRef,
+    ) -> UpdateResult<ActivationRecord> {
+        let artifact = outcome.artifact.as_ref().ok_or_else(|| anyhow!("the build produced no artifact"))?;
+        ensure!(outcome.exit_code == 0 && artifact.generation == request.generation,
+            "the provider outcome does not qualify the requested candidate generation");
 
         // 2. Copy the live slot into the candidate slot.
         let live = self.live_slot_handle(&current.generation);
@@ -1097,7 +1447,8 @@ impl UpdateService {
         .map_err(|error| UpdateError::SmokeFailed(format!("{error}")))?;
 
         // 6. Persist the activation record with its sealed references.
-        let record = self.build_record(&current, &request, &live, &slot, &import, &report)?;
+        let record = self.build_record(current, request, &live, &slot, &import,
+            PreparationEvidence { smoke: &report, build: receipt })?;
         let record = self.store.create_activation_record(&record)?;
         tracing::info!(
             activation_id = %record.activation_id,
@@ -1115,7 +1466,7 @@ impl UpdateService {
         live: &AbSlot,
         slot: &AbSlot,
         import: &ImportReport,
-        report: &SmokeReport,
+        evidence: PreparationEvidence<'_>,
     ) -> UpdateResult<ActivationRecord> {
         let copied = slots::read_slot_manifest(&slot.slot_dir).map_err(anyhow::Error::from)?;
         let live_watermark = copied.copied_through_seq.map(|seq|
@@ -1143,7 +1494,7 @@ impl UpdateService {
             "activation",
             "state-copy",
         )?;
-        let smoke_evidence = self.seal_json(report, "activation", "smoke-report")?;
+        let smoke_evidence = self.seal_json(evidence.smoke, "activation", "smoke-report")?;
 
         let rollback_plan = self.seal_json(
             &serde_json::json!({
@@ -1167,6 +1518,7 @@ impl UpdateService {
                 "from_slot": live.slot_dir.to_string_lossy(),
                 "to_slot": slot.slot_dir.to_string_lossy(),
                 "from_artifact": current.route_authority_ref,
+                "build_receipt_ref": evidence.build,
                 "to_artifact": {
                     "path": slot.artifact_path,
                     "digest": slot.artifact_digest,
@@ -1365,7 +1717,7 @@ impl UpdateService {
             route_authority_ref: route_ref,
             ..next
         };
-        let (swapped_selector, activated_record, commit) = candidate_store
+        let (swapped_selector, _, commit) = candidate_store
             .activate_successor(expected_selector_revision, &next, &candidate_record)
             .map_err(UpdateError::CandidateStore)?;
         drop(candidate_store);
@@ -1399,7 +1751,7 @@ impl UpdateService {
         )?;
         let (_, mirrored_record, _) = self
             .store
-            .swap_activation_selector(expected_selector_revision, &swapped_selector, &record)
+            .swap_activation_selector(expected_selector_revision, &swapped_selector, &candidate_record)
             .map_err(UpdateError::CandidateStore)?;
         let fenced = self
             .store
@@ -1412,16 +1764,12 @@ impl UpdateService {
         slots::publish_current_slot(&self.data_dir, slot.parent().unwrap())
             .map_err(anyhow::Error::from)?;
 
-        let mut observed = activated_record.clone();
-        if observed.phase == ActivationPhase::Activated {
-            observed.phase = ActivationPhase::Observing;
-            observed = self
-                .store
-                .update_activation_record(&observed, RecordRevision(activated_record.record_revision))
-                .map_err(UpdateError::CandidateStore)?;
-            let selected_store = Store::open(slot.clone(), self.cas_dir.clone())?;
-            selected_store.update_activation_record(&observed, RecordRevision(activated_record.record_revision))?;
-        }
+        // A crash between the two non-atomic phase writes is recoverable
+        // from the selected authority and the original activation identity.
+        // Never report Observing if the ledger pair does not agree.
+        let selected_store = Store::open(slot.clone(), self.cas_dir.clone())?;
+        let observed = self.converge_observing_activation(
+            &selected_store, &swapped_selector, activation_id)?;
 
         tracing::info!(
             activation_id = %record.activation_id,
@@ -1560,7 +1908,7 @@ impl UpdateService {
             record_revision: 0,
             expected_primary_claim: self.current_primary_claim()?,
         };
-        let mut rollback_record = self.store.create_activation_record(&rollback_record)?;
+        let rollback_record = self.store.create_activation_record(&rollback_record)?;
 
         // 4. Swap the selector back in the older copy — its authority.
         let old_store = Store::open(
@@ -1596,11 +1944,9 @@ impl UpdateService {
             },
             route_authority_ref: rollback_route_ref,
         };
-        let (swapped, mut activated, commit) = old_store
+        let (swapped, _, commit) = old_store
             .activate_successor(current.selector_revision, &next, &rollback_record)
             .map_err(UpdateError::CandidateStore)?;
-        drop(old_store);
-        let _ = &mut activated;
 
         // 5. The newer copy mirrors the swap back and is fenced.
         let (head, head_revision) = {
@@ -1620,10 +1966,9 @@ impl UpdateService {
             "activation",
             "handoff-reason",
         )?;
-        let (_, mirrored, _) = self.store
+        self.store
             .swap_activation_selector(current.selector_revision, &swapped, &rollback_record)
             .map_err(UpdateError::CandidateStore)?;
-        rollback_record = mirrored;
         let fenced = self
             .store
             .fence_head_for_handoff(&head, head_revision, &reason)
@@ -1633,12 +1978,11 @@ impl UpdateService {
         slots::publish_current_slot(&self.data_dir, &previous_slot)
             .map_err(anyhow::Error::from)?;
 
-        // 7. Mark both records.
-        rollback_record.phase = ActivationPhase::Activated;
-        rollback_record = self
-            .store
-            .update_activation_record(&rollback_record, RecordRevision(rollback_record.record_revision))
-            .map_err(UpdateError::CandidateStore)?;
+        // 7. Converge the same Activated -> Observing projection as a forward
+        // activation. Either interrupted phase write can be completed from
+        // the committed selector without changing the rollback's bindings.
+        let rollback_record = self.converge_observing_activation(
+            &old_store, &swapped, rollback_record.activation_id)?;
 
         tracing::info!(
             activation_id = %rollback_record.activation_id,

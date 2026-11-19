@@ -1,0 +1,43 @@
+{
+  "base": "3e62c0e517a246872101cd1e61a694b2156bc919",
+  "paths": [
+    {
+      "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+      "base_sha256": "1929f98690a24570be1d39dab44046cebbea3b7c8cb142b365e2b712a0f550c5",
+      "candidate_sha256": "849d6cec9e80d8cf08815ab38742a5a426cf8d23a07c1bcd972096c86fd08ca2",
+      "binding_renames": 4,
+      "inverse_rename_restores_exact_original_bytes": true
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+      "base_sha256": "c0da4d1a763e8277a87b7bcc298ae9ae34290ea2f4c90d22309fc6cd1498653c",
+      "candidate_sha256": "9d55204063814422dae4da06230b1cd156fcdb11339138085d2f3600e7ffd6f7",
+      "binding_renames": 1,
+      "inverse_rename_restores_exact_original_bytes": true
+    }
+  ],
+  "changed_files_exact": [
+    "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+    "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs"
+  ],
+  "new_scenarios": 0,
+  "tokio_locked": [
+    "1.54.1"
+  ],
+  "toolchain": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null
+  },
+  "rust_compiled": false,
+  "tests_executed": false,
+  "clippy_rerun": false,
+  "diff_check_exit": 0,
+  "claim": "source-only five binding alpha-renames; no change to select branches, priority, futures, handler values, assertions or rendered error message",
+  "candidate_commit": "ebc39d1da7b6edf7b09929ac214bc3b7e49dca72",
+  "candidate_tree": "e822ee3c9bcddcdd44839b8984ecaba21c2a1497",
+  "worktree_clean": true,
+  "original_ci_toolchain": "1.98.1",
+  "macro_source": "https://docs.rs/tokio/1.54.1/src/tokio/macros/select.rs.html",
+  "macro_source_note": "source lines725-730 copy the branch binding into a pattern-only readiness match; lines749-752 bind again for the actual handler; original JSON primary spans contain expansion:null"
+}

@@ -1,0 +1,12 @@
+tree e822ee3c9bcddcdd44839b8984ecaba21c2a1497
+parent 3e62c0e517a246872101cd1e61a694b2156bc919
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868182 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868182 +0000
+
+fix(ssh): retain select values without duplicate binding warnings
+
+Tokio 1.54.1 select expands branch bindings into both a pattern-only readiness match and the actual handler. CI force-warn unused_variables overrides the macro readiness match allowance, reporting the otherwise consumed identifiers.
+
+Rename only the five new PTY select bindings and their real uses. Preserve branch order, biased/default polling policy, futures, exact error values, all five journey windows, and every assertion. No allow, ignore, baseline, dependency, or gate changes.
+
+Validation: git diff --check and inverse rename byte comparison passed. No Rust toolchain is available locally, so no compile, Clippy rerun, or runtime test is claimed.

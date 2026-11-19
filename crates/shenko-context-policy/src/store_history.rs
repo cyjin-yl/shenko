@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use serde::Deserialize;
 use shenko_store::{
-    ContextWindowAppend, Store, StoredContextWindow, StoredDerivative, StoredSessionEvent,
+    ContextWindowAppend, Store, StoredContextWindow, StoredDerivative, StoredSessionEvent, StoredWindowPage,
 };
 use shenko_types::ids::EntityId;
 use shenko_types::object::ObjectRef;
@@ -230,6 +230,52 @@ pub struct WindowMetaPage {
     pub windows: Vec<CommittedWindowMeta>,
 }
 
+impl WindowMetaPage {
+    /// Decode the committed metadata with exactly the live window reader's
+    /// format and entry validation. The input carries no derivative payloads.
+    pub fn from_stored(page: StoredWindowPage) -> Result<Self, StorageError> {
+        let mut windows = Vec::with_capacity(page.windows.len());
+        for stored in page.windows {
+            let window: CommittedWindow =
+                serde_json::from_str(&stored.body).map_err(storage)?;
+            if window.id != stored.window_id {
+                return Err(storage(format!(
+                    "window row {} holds body of {}",
+                    stored.window_id, window.id
+                )));
+            }
+            // The metadata page decodes the same committed bodies, so it
+            // applies the same admission: a newer format is refused instead
+            // of being reported as a window this reader cannot represent,
+            // and a mixed notebook never reaches a reader.
+            if window.body_version > WINDOW_BODY_VERSION {
+                return Err(storage(format!(
+                    "window row {} holds body version {}, this reader understands up to {}",
+                    stored.window_id, window.body_version, WINDOW_BODY_VERSION
+                )));
+            }
+            crate::window::validate_entries(&window.entries)?;
+            windows.push(CommittedWindowMeta {
+                window,
+                derivatives: stored
+                    .derivatives
+                    .into_iter()
+                    .map(|d| DerivativeMeta {
+                        media_type: d.media_type,
+                        blake3: d.blake3,
+                        bytes: d.bytes,
+                    })
+                    .collect(),
+            });
+        }
+        Ok(WindowMetaPage {
+            total: u64::try_from(page.total).map_err(storage)?,
+            has_older: page.has_older,
+            windows,
+        })
+    }
+}
+
 impl StoreWindowLog {
     pub fn new(store: Arc<Store>, scope_id: EntityId) -> Self {
         Self { store, scope_id }
@@ -287,45 +333,7 @@ impl StoreWindowLog {
             .store
             .context_window_meta_page(self.scope_id, before, limit)
             .map_err(storage)?;
-        let mut windows = Vec::with_capacity(page.windows.len());
-        for stored in page.windows {
-            let window: CommittedWindow =
-                serde_json::from_str(&stored.body).map_err(storage)?;
-            if window.id != stored.window_id {
-                return Err(storage(format!(
-                    "window row {} holds body of {}",
-                    stored.window_id, window.id
-                )));
-            }
-            // The metadata page decodes the same committed bodies, so it
-            // applies the same admission: a newer format is refused instead
-            // of being reported as a window this reader cannot represent,
-            // and a mixed notebook never reaches a reader.
-            if window.body_version > WINDOW_BODY_VERSION {
-                return Err(storage(format!(
-                    "window row {} holds body version {}, this reader understands up to {}",
-                    stored.window_id, window.body_version, WINDOW_BODY_VERSION
-                )));
-            }
-            crate::window::validate_entries(&window.entries)?;
-            windows.push(CommittedWindowMeta {
-                window,
-                derivatives: stored
-                    .derivatives
-                    .into_iter()
-                    .map(|d| DerivativeMeta {
-                        media_type: d.media_type,
-                        blake3: d.blake3,
-                        bytes: d.bytes,
-                    })
-                    .collect(),
-            });
-        }
-        Ok(WindowMetaPage {
-            total: u64::try_from(page.total).map_err(storage)?,
-            has_older: page.has_older,
-            windows,
-        })
+        WindowMetaPage::from_stored(page)
     }
 }
 

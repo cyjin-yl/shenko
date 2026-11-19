@@ -34,6 +34,12 @@ pub struct ExternalEvidenceFold {
     pub terminal_content_conflict: bool,
 }
 
+fn evidence_storage_failure(error: &anyhow::Error) -> bool {
+    error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+        || error.downcast_ref::<shenko_types::error::ShenkoError>()
+            .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_)))
+}
+
 pub(crate) fn validate_original_event(
     event_id: EntityId, kind: &str, source: &str, data: &serde_json::Value,
 ) -> Result<()> {
@@ -269,6 +275,27 @@ impl Store {
                 "native_dispatch": native_dispatch})).map_err(Into::into)
     }
 
+    fn arm_canonical_native_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        native_dispatch: bool,
+    ) -> Result<Option<OperationRecord>> {
+        match self.canonical_native_arm(ctx, op, att, native_dispatch) {
+            Ok(result) => Ok(result),
+            Err(error) if matches!(error, shenko_types::error::ShenkoError::Conflict(_))
+                || shenko_types::authority::is_authority_fenced(&error) => {
+                // Another caller can commit the matching original between
+                // the public fast read and this source's final CAS. A factual
+                // duplicate still precedes stale-invocation refusal, and can
+                // only return Some. Storage/corrupt-seal errors remain fatal.
+                if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? {
+                    return Ok(Some(old));
+                }
+                Err(error.into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub fn arm_external_operation(
         &self,
         ctx: &TaskInvocation,
@@ -276,6 +303,9 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        if self.canonical_native_arm_applicable(ctx.task_id)? {
+            return self.arm_canonical_native_operation(ctx, op, att, false);
+        }
         let authority = self.prepare_external_authority(ctx, op, att, None, false)?;
         self.ledger.with_mutation(
             || self.try_arm_external_operation(ctx, op, att, None, false, &authority),
@@ -292,6 +322,9 @@ impl Store {
         &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        if self.canonical_native_arm_applicable(ctx.task_id)? {
+            return self.arm_canonical_native_operation(ctx, op, att, true);
+        }
         let authority = self.prepare_external_authority(ctx, op, att, None, true)?;
         self.ledger.with_mutation(
             || self.try_arm_external_operation(ctx, op, att, None, true, &authority),
@@ -603,7 +636,7 @@ impl Store {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, None)
                 .and_then(|operation| operation.ok_or_else(|| anyhow::anyhow!("unconditional evidence write unexpectedly stale"))),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            evidence_storage_failure,
         )
     }
 
@@ -624,7 +657,7 @@ impl Store {
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
-            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            evidence_storage_failure,
         )
     }
 
@@ -696,6 +729,7 @@ impl Store {
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        let original = (op.clone(), att.clone());
         if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
             return Ok(None);
         }
@@ -805,6 +839,12 @@ impl Store {
                 3
             ],
         )?;
+        self.seal_native_evidence(&tx, &original, &ev, &op, &att,
+            crate::native_evidence::NativeEvidenceFold {
+                expected_revision: fold.map(|fold| fold.expected_revision),
+                outcome, effect,
+                terminal_content_conflict: fold.is_some_and(|fold| fold.terminal_content_conflict),
+            })?;
         tx.commit()?;
         Ok(Some(op))
     }

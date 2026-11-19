@@ -1,0 +1,314 @@
+{
+  "schema_version": 1,
+  "repo": "cyjin-yl/shenko",
+  "proposed_directory": "docs/evidence/pr315-inventory-20261116",
+  "observation_interval_utc": {
+    "first": "2026-11-16T23:41:46.114Z",
+    "last": "2026-11-16T23:44:45.865Z"
+  },
+  "serialization": "Each original file is JSON.stringify(the complete returned tool object, null, 2) followed by one LF. Embedded original API body text is unchanged; this is not a claim to possess the original HTTP wire framing.",
+  "signed_url_scan": "No URL query matching temporary signature/token fields was found in the uploaded originals.",
+  "upload_action": "Only Git Data blobs were created; no tree, commit, branch/ref, PR, comment, or workflow was changed.",
+  "records": [
+    {
+      "key": "open_items",
+      "filename": "open_items.tool-response.original.json",
+      "sha": "c0fe179b399d16762ab4b29da67ea79851ddc3f0",
+      "utf8_bytes": 463306,
+      "characters": 409094,
+      "observed_at": "2026-11-16T23:41:46.367Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/issues?state=open&per_page=100&sort=created&direction=asc",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/open_items.tool-response.original.json"
+    },
+    {
+      "key": "pr315",
+      "filename": "pr-315.tool-response.original.json",
+      "sha": "018c13fe20f7b76dbc33d8e807a0aa0db2ec659a",
+      "utf8_bytes": 38035,
+      "characters": 38011,
+      "observed_at": "2026-11-16T23:41:46.257Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/pr-315.tool-response.original.json"
+    },
+    {
+      "key": "pr305",
+      "filename": "pr-305.tool-response.original.json",
+      "sha": "972bc98bb82ed92f3b1a4e4e0c8e03724393283e",
+      "utf8_bytes": 93609,
+      "characters": 93497,
+      "observed_at": "2026-11-16T23:41:46.336Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/pr-305.tool-response.original.json"
+    },
+    {
+      "key": "pr313",
+      "filename": "pr-313.tool-response.original.json",
+      "sha": "c76f44b1ed586da36f25a11b8463cbd8b2cd8dd1",
+      "utf8_bytes": 39195,
+      "characters": 39171,
+      "observed_at": "2026-11-16T23:42:18.871Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/pr-313.tool-response.original.json"
+    },
+    {
+      "key": "pr314",
+      "filename": "pr-314.tool-response.original.json",
+      "sha": "5b2df24937f90667c4931a413133b0c0bd46680d",
+      "utf8_bytes": 37893,
+      "characters": 37865,
+      "observed_at": "2026-11-16T23:42:18.990Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/pr-314.tool-response.original.json"
+    },
+    {
+      "key": "files315",
+      "filename": "files-315.tool-response.original.json",
+      "sha": "3c766f6aab7239b2c573e8059dd89c146b41e536",
+      "utf8_bytes": 6792,
+      "characters": 6792,
+      "observed_at": "2026-11-16T23:42:18.883Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/files?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/files-315.tool-response.original.json"
+    },
+    {
+      "key": "commits315",
+      "filename": "commits-315.tool-response.original.json",
+      "sha": "7f3f875ef44e0c0b7d56823190ede90e9a3084b4",
+      "utf8_bytes": 14708,
+      "characters": 14708,
+      "observed_at": "2026-11-16T23:42:18.778Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/commits?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/commits-315.tool-response.original.json"
+    },
+    {
+      "key": "compare315_41d",
+      "filename": "compare-315_41d.tool-response.original.json",
+      "sha": "f5468131a6f6bfa923e63d3c0688727320158740",
+      "utf8_bytes": 2669785,
+      "characters": 2664765,
+      "observed_at": "2026-11-16T23:42:19.665Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/compare/04a765c6496036b3122c457c81c977b4f2447855...41d785ae8f968a3e81cd632223cadb356c44a224",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/compare-315_41d.tool-response.original.json"
+    },
+    {
+      "key": "git315head",
+      "filename": "git-315head.tool-response.original.json",
+      "sha": "5647942e4bd96718a2fb238fbe3633ac47d3bf14",
+      "utf8_bytes": 3229,
+      "characters": 3229,
+      "observed_at": "2026-11-16T23:42:56.012Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/git-315head.tool-response.original.json"
+    },
+    {
+      "key": "git41d_fix",
+      "filename": "git-41d_fix.tool-response.original.json",
+      "sha": "262ba774675f6ee4611de42d49e795a1b1a35dfe",
+      "utf8_bytes": 4891,
+      "characters": 4891,
+      "observed_at": "2026-11-16T23:42:56.055Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/b02dd0c624219d24e9879beb7287e5b7fec71eee",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/git-41d_fix.tool-response.original.json"
+    },
+    {
+      "key": "run315",
+      "filename": "run-315.tool-response.original.json",
+      "sha": "7b70c84a2bbe58045e97b31c274f24cc74ffb6e3",
+      "utf8_bytes": 26790,
+      "characters": 26774,
+      "observed_at": "2026-11-16T23:41:46.114Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43975166203",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/run-315.tool-response.original.json"
+    },
+    {
+      "key": "jobs315",
+      "filename": "jobs-315.tool-response.original.json",
+      "sha": "3254aeadbe61e6cc7d3b647858397bd4470248ed",
+      "utf8_bytes": 40555,
+      "characters": 40555,
+      "observed_at": "2026-11-16T23:42:56.745Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43975166203/jobs?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/jobs-315.tool-response.original.json"
+    },
+    {
+      "key": "conversation305",
+      "filename": "conversation-305.tool-response.original.json",
+      "sha": "c9b1456edfeb7f8769eed0e0acc3dfa1c6e07575",
+      "utf8_bytes": 623,
+      "characters": 623,
+      "observed_at": "2026-11-16T23:42:56.009Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/issues/305/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/conversation-305.tool-response.original.json"
+    },
+    {
+      "key": "reviews305",
+      "filename": "reviews-305.tool-response.original.json",
+      "sha": "f709772dfba85f10921f7a31e47703d983c2352e",
+      "utf8_bytes": 614,
+      "characters": 614,
+      "observed_at": "2026-11-16T23:42:56.136Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305/reviews?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/reviews-305.tool-response.original.json"
+    },
+    {
+      "key": "inline305",
+      "filename": "inline-305.tool-response.original.json",
+      "sha": "8d4ff3b6601f212e747effc7cf018225a855cd12",
+      "utf8_bytes": 620,
+      "characters": 620,
+      "observed_at": "2026-11-16T23:42:56.055Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/305/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/inline-305.tool-response.original.json"
+    },
+    {
+      "key": "conversation313",
+      "filename": "conversation-313.tool-response.original.json",
+      "sha": "1b210f57858e4db28f207d4d2fdad7601afe6874",
+      "utf8_bytes": 623,
+      "characters": 623,
+      "observed_at": "2026-11-16T23:42:56.218Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/issues/313/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/conversation-313.tool-response.original.json"
+    },
+    {
+      "key": "reviews313",
+      "filename": "reviews-313.tool-response.original.json",
+      "sha": "85533c8906410e6d83af950aa61160b5faee11d2",
+      "utf8_bytes": 614,
+      "characters": 614,
+      "observed_at": "2026-11-16T23:42:56.108Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313/reviews?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/reviews-313.tool-response.original.json"
+    },
+    {
+      "key": "inline313",
+      "filename": "inline-313.tool-response.original.json",
+      "sha": "797c327a3675a324306719db0d2342e2d87f1324",
+      "utf8_bytes": 620,
+      "characters": 620,
+      "observed_at": "2026-11-16T23:42:56.009Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/313/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/inline-313.tool-response.original.json"
+    },
+    {
+      "key": "conversation314",
+      "filename": "conversation-314.tool-response.original.json",
+      "sha": "9300090e5e80e14ade6ce715463c98d36c28b5f1",
+      "utf8_bytes": 623,
+      "characters": 623,
+      "observed_at": "2026-11-16T23:42:56.218Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/issues/314/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/conversation-314.tool-response.original.json"
+    },
+    {
+      "key": "reviews314",
+      "filename": "reviews-314.tool-response.original.json",
+      "sha": "6a9d1157675810d9f48b81c5a8d09fce218bbd75",
+      "utf8_bytes": 614,
+      "characters": 614,
+      "observed_at": "2026-11-16T23:42:56.192Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314/reviews?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/reviews-314.tool-response.original.json"
+    },
+    {
+      "key": "inline314",
+      "filename": "inline-314.tool-response.original.json",
+      "sha": "848bf0825a6d58e001a5aebdbc0cea23eda5d5a7",
+      "utf8_bytes": 620,
+      "characters": 620,
+      "observed_at": "2026-11-16T23:42:56.022Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/314/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/inline-314.tool-response.original.json"
+    },
+    {
+      "key": "conversation315",
+      "filename": "conversation-315.tool-response.original.json",
+      "sha": "74bb195b9a6b7cfad6954dc4314f6effd02343e3",
+      "utf8_bytes": 623,
+      "characters": 623,
+      "observed_at": "2026-11-16T23:42:56.019Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/issues/315/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/conversation-315.tool-response.original.json"
+    },
+    {
+      "key": "reviews315",
+      "filename": "reviews-315.tool-response.original.json",
+      "sha": "15e2b5a8df75aa2dc27d939c7e8d91b540ac3541",
+      "utf8_bytes": 614,
+      "characters": 614,
+      "observed_at": "2026-11-16T23:42:56.086Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/reviews?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/reviews-315.tool-response.original.json"
+    },
+    {
+      "key": "inline315",
+      "filename": "inline-315.tool-response.original.json",
+      "sha": "e3c6b83027b7ef6579db0a9290d0f0e6a3dd6a8d",
+      "utf8_bytes": 620,
+      "characters": 620,
+      "observed_at": "2026-11-16T23:42:56.049Z",
+      "source_url": "https://api.github.com/repos/cyjin-yl/shenko/pulls/315/comments?per_page=100",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/inline-315.tool-response.original.json"
+    },
+    {
+      "key": "clippy41d_once",
+      "filename": "clippy-41d_once.tool-response.original.json",
+      "sha": "c701e3d00536096d456f8b2730f755914e32ebeb",
+      "utf8_bytes": 210,
+      "characters": 210,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "source_url": null,
+      "path": "docs/evidence/pr315-inventory-20261116/originals/clippy-41d_once.tool-response.original.json",
+      "tool_request": {
+        "tool": "mcp__codex_apps__github_fetch_workflow_job_logs",
+        "arguments": {
+          "job_id": 133693798953,
+          "repo_full_name": "cyjin-yl/shenko"
+        }
+      }
+    },
+    {
+      "key": "clippy315",
+      "filename": "clippy-315.tool-response.original.json",
+      "sha": "c701e3d00536096d456f8b2730f755914e32ebeb",
+      "utf8_bytes": 210,
+      "characters": 210,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "source_url": null,
+      "path": "docs/evidence/pr315-inventory-20261116/originals/clippy-315.tool-response.original.json",
+      "tool_request": {
+        "tool": "mcp__codex_apps__github_fetch_workflow_job_logs",
+        "arguments": {
+          "job_id": 133677169529,
+          "repo_full_name": "cyjin-yl/shenko"
+        }
+      }
+    },
+    {
+      "key": "agents41d",
+      "filename": "agents-41d.tool-response.original.json",
+      "sha": "dfd2ed1038ec01c69e079de9866a59d35fc4548c",
+      "utf8_bytes": 8661,
+      "characters": 8657,
+      "observed_at": "2026-11-16T23:42:18.928Z",
+      "source_url": "https://raw.githubusercontent.com/cyjin-yl/shenko/41d785ae8f968a3e81cd632223cadb356c44a224/AGENTS.md",
+      "path": "docs/evidence/pr315-inventory-20261116/originals/agents-41d.tool-response.original.json"
+    },
+    {
+      "key": "development41d",
+      "filename": "development-41d.tool-response.original.json",
+      "sha": "85e14d6dc1869abf8bc5fabfba71b14e4ede8724",
+      "utf8_bytes": 38459,
+      "characters": 38323,
+      "observed_at": "2026-11-16T23:44:45.865Z",
+      "source_url": null,
+      "path": "docs/evidence/pr315-inventory-20261116/originals/development-41d.tool-response.original.json",
+      "tool_request": {
+        "tool": "mcp__codex_apps__github_fetch",
+        "arguments": {
+          "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/41d785ae8f968a3e81cd632223cadb356c44a224/DEVELOPMENT.md"
+        }
+      }
+    }
+  ]
+}

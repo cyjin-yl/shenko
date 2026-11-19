@@ -1,0 +1,208 @@
+[
+  {
+    "label": "make-version",
+    "command": [
+      "/usr/bin/make",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:31:37.689903+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:37.693712+00:00",
+    "elapsed_seconds": 0.003796859999965818,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 300,
+      "sha256": "cb84250d994234272d0a465014ce2931be76e9e0cb114b9bffa078c3c211e8eb"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "ar-version",
+    "command": [
+      "/usr/bin/ar",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:31:37.693814+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:37.697386+00:00",
+    "elapsed_seconds": 0.003575977999389579,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 283,
+      "sha256": "aef15107335caff84acdf0ee8d6b3be67cfb486a3351fc0056a91c1a9cd5945d"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "gcc-version",
+    "command": [
+      "/usr/bin/gcc",
+      "--version"
+    ],
+    "started_at": "2026-11-16T19:31:37.697478+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:37.701414+00:00",
+    "elapsed_seconds": 0.003943970999898738,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 232,
+      "sha256": "4dc9a4e32fd9e06d42fb307688c59d6d889f0ff90ce034cbefed21b0d451fd81"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "native-object",
+    "command": [
+      "/usr/bin/gcc",
+      "-c",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/probe.c",
+      "-o",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/probe.o"
+    ],
+    "started_at": "2026-11-16T19:31:37.701762+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:37.733850+00:00",
+    "elapsed_seconds": 0.03210224299982656,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "legacy",
+    "command": [
+      "/usr/bin/make",
+      "--no-print-directory",
+      "-f",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/legacy.mk",
+      "V=1",
+      "-j1",
+      "AR.target=/usr/bin/ar",
+      "builddir=/workspace/scratch/faaa3ccca531/node-command-length-probe-2/build",
+      "all"
+    ],
+    "started_at": "2026-11-16T19:31:37.772921+00:00",
+    "exit_code": 2,
+    "finished_at": "2026-11-16T19:31:37.805415+00:00",
+    "elapsed_seconds": 0.03240231599920662,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr": {
+      "bytes": 214,
+      "sha256": "70a3ac6bdc02b5200e9f7a2563c22666d71c73f5f18bb60f19016c4359bdbbf2"
+    }
+  },
+  {
+    "label": "response-normal",
+    "command": [
+      "/usr/bin/make",
+      "--no-print-directory",
+      "-f",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-normal.mk",
+      "V=1",
+      "-j1",
+      "AR.target=/usr/bin/ar",
+      "builddir=/workspace/scratch/faaa3ccca531/node-command-length-probe-2/build",
+      "all"
+    ],
+    "started_at": "2026-11-16T19:31:37.806907+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:39.891202+00:00",
+    "elapsed_seconds": 2.084313825999743,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 514,
+      "sha256": "92c6a669b77b95286a93f74b3d6443a5ef741aa99a6f88cff12ad803fee1ef37"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "response-normal-members",
+    "command": [
+      "/usr/bin/ar",
+      "t",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-normal/libopenssl.a"
+    ],
+    "started_at": "2026-11-16T19:31:39.892580+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:39.908541+00:00",
+    "elapsed_seconds": 0.01598122199993668,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 11017,
+      "sha256": "9c1dde2d297662a099585c32c9f14497709e0b50a135f336e36ace81d3a8832e"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "response-thin",
+    "command": [
+      "/usr/bin/make",
+      "--no-print-directory",
+      "-f",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin.mk",
+      "V=1",
+      "-j1",
+      "AR.target=/usr/bin/ar",
+      "builddir=/workspace/scratch/faaa3ccca531/node-command-length-probe-2/build",
+      "all"
+    ],
+    "started_at": "2026-11-16T19:31:39.913289+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:41.546573+00:00",
+    "elapsed_seconds": 1.6350724820003961,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 418,
+      "sha256": "4439260698f5f2f2fadabd64affe56ba1e47dc0bdd91b19ec722dbeff36be063"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  {
+    "label": "response-thin-members",
+    "command": [
+      "/usr/bin/ar",
+      "t",
+      "/workspace/scratch/faaa3ccca531/node-command-length-probe-2/response-thin/libopenssl.a"
+    ],
+    "started_at": "2026-11-16T19:31:41.603990+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-11-16T19:31:41.670965+00:00",
+    "elapsed_seconds": 0.0668396440005381,
+    "leader_reaped": true,
+    "stdout": {
+      "bytes": 142987,
+      "sha256": "fc5ef14eacf16db233de0b7547673b48b6e17ac32e501263c94aa28f32b140d5"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+]

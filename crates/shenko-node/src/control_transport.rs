@@ -784,13 +784,56 @@ impl Node {
         root: &ObjectRef,
         exchange: &mut impl FnMut(crate::Request) -> Result<serde_json::Value>,
     ) -> Result<()> {
+        self.pull_objects_bounded(root, exchange, usize::MAX, u64::MAX)
+    }
+
+    /// Reuse immutable CAS transport without adding an admission, vote, log
+    /// entry, execution receipt or grant. The Store adapter selects the root
+    /// from its actual source observations before calling this method.
+    pub fn retain_native_evidence_objects(&mut self, root: &ObjectRef, objects: &[CommitAdmissionObject]) -> Result<()> {
+        use shenko_types::native_evidence::{NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS};
+        ensure!(objects.len() <= NATIVE_EVIDENCE_CLOSURE_OBJECTS, "native E1 closure object budget exceeded");
+        let bytes = objects.iter().try_fold(0u64, |total, object| total.checked_add(object.reference.bytes));
+        ensure!(bytes.is_some_and(|bytes| bytes <= NATIVE_EVIDENCE_CLOSURE_BYTES), "native E1 closure byte budget exceeded");
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        Self::store_admission_objects_tx(&tx, objects)?;
+        Self::verify_admission_closure_tx(&tx, root)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn pull_native_evidence_objects(
+        &mut self,
+        root: &ObjectRef,
+        exchange: &mut impl FnMut(crate::Request) -> Result<serde_json::Value>,
+    ) -> Result<Vec<CommitAdmissionObject>> {
+        use shenko_types::native_evidence::{NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS};
+        self.pull_objects_bounded(root, exchange, NATIVE_EVIDENCE_CLOSURE_OBJECTS, NATIVE_EVIDENCE_CLOSURE_BYTES)?;
+        self.admission_objects(root)
+    }
+
+    fn pull_objects_bounded(
+        &mut self,
+        root: &ObjectRef,
+        exchange: &mut impl FnMut(crate::Request) -> Result<serde_json::Value>,
+        max_objects: usize,
+        max_bytes: u64,
+    ) -> Result<()> {
         let mut pending = vec![root.clone()];
         let mut seen = BTreeSet::new();
+        let mut counted = BTreeSet::new();
+        let mut total = 0u64;
         while let Some(reference) = pending.pop() {
+            ensure!(pending.len() < max_objects, "factual CAS reference budget exceeded");
             if !seen.insert((reference.digest.clone(), reference.media_type.clone())) {
                 continue;
             }
-            if self.control_closure_present(&reference)? {
+            if counted.insert(reference.digest.clone()) {
+                ensure!(counted.len() <= max_objects, "factual CAS object budget exceeded");
+                total = total.checked_add(reference.bytes).filter(|bytes| *bytes <= max_bytes)
+                    .context("factual CAS byte budget exceeded")?;
+            }
+            if max_objects == usize::MAX && self.control_closure_present(&reference)? {
                 continue;
             }
             let mut progress = self.control_object_progress(&reference.digest, reference.bytes)?;

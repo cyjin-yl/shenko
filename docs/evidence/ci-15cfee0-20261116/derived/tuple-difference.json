@@ -1,0 +1,52 @@
+{
+  "source": "artifact/workspace-test.log",
+  "source_sha256": "69ad82d230a0ee96c42418cd59e8a748c41080a3c0aabc76035cd1269a1b4585",
+  "panic_lines": {
+    "left": 2962,
+    "right": 2963
+  },
+  "ordering": "assert_eq!(read_tuple()?, before): left is after, right is before",
+  "members": [
+    {
+      "member": "head.db",
+      "index": 0,
+      "left_bytes": 1323008,
+      "right_bytes": 1323008,
+      "equal": true,
+      "left_sha256": "886005e14b249a38bb671b089a8a28adbdd990134929fa011b73087799d74396",
+      "right_sha256": "886005e14b249a38bb671b089a8a28adbdd990134929fa011b73087799d74396",
+      "different_offsets": [],
+      "byte_changes": []
+    },
+    {
+      "member": "head.db-wal",
+      "index": 1,
+      "left_bytes": 82432,
+      "right_bytes": 82432,
+      "equal": true,
+      "left_sha256": "511d43bdedabfb934a3be29bd861c53efe8fe06a7ecc772c5d1125bc25afdb00",
+      "right_sha256": "511d43bdedabfb934a3be29bd861c53efe8fe06a7ecc772c5d1125bc25afdb00",
+      "different_offsets": [],
+      "byte_changes": []
+    },
+    {
+      "member": "head.db-shm",
+      "index": 2,
+      "left_bytes": 32768,
+      "right_bytes": 32768,
+      "equal": false,
+      "left_sha256": "649ea1ebaeec312bc832bd2edaeef1d3eb09021ade82d9f5bf9fa2e67f719acf",
+      "right_sha256": "b9e65bb1a3b561ff94999725b1943af2d021ae27b49de9d1ff1bd8acc5899e8b",
+      "different_offsets": [
+        104
+      ],
+      "byte_changes": [
+        {
+          "offset": 104,
+          "before_right": 9,
+          "after_left": 20
+        }
+      ]
+    }
+  ]
+}

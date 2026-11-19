@@ -1,0 +1,467 @@
+{
+  "label": "configure",
+  "command": [
+    "/usr/bin/python3",
+    "configure.py",
+    "--dest-cpu=wasm32",
+    "--dest-os=wasi",
+    "--cross-compiling",
+    "--openssl-no-asm"
+  ],
+  "environment": {
+    "PATH": "/usr/bin:/bin",
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "TMPDIR": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/tmp",
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_GLOBAL": "/dev/null",
+    "GIT_TERMINAL_PROMPT": "0",
+    "MAKEFLAGS": "-j1",
+    "CMAKE_BUILD_PARALLEL_LEVEL": "1",
+    "BINARYEN_CORES": "1",
+    "RAYON_NUM_THREADS": "1",
+    "WASIXCC_LLVM_LOCATION": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/llvm",
+    "WASIXCC_BINARYEN_LOCATION": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/binaryen/binaryen-version_128",
+    "WASIXCC_SYSROOT": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/sysroot/wasix-sysroot/sysroot",
+    "WASIXCC_SYSROOT_PREFIX": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/toolchains/sysroot",
+    "WASIXCC_WASM_EXCEPTIONS": "no",
+    "WASIXCC_RUN_WASM_OPT": "yes",
+    "WASIXCC_GENERATE_SHELL_SCRIPT": "no",
+    "WASIXCC_LINKER_FLAGS": "--threads=1",
+    "CC": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixcc",
+    "CXX": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasix++",
+    "AR": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixar",
+    "RANLIB": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixranlib",
+    "NM": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixnm",
+    "CC_host": "/usr/bin/gcc",
+    "CXX_host": "/usr/bin/g++",
+    "AR_host": "/usr/bin/ar",
+    "CC_target": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixcc",
+    "CXX_target": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasix++",
+    "AR_target": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/bin/wasixar"
+  },
+  "cwd": "/home/runner/work/_temp/shenko-node-wasix-source-43922989826-1/source",
+  "denied_network_syscalls": [
+    "socket",
+    "connect",
+    "bind",
+    "listen",
+    "accept",
+    "accept4",
+    "sendto",
+    "sendmsg",
+    "sendmmsg"
+  ],
+  "network_policy": "denied by seccomp",
+  "limits": {
+    "rss_monitor_bytes": 10737418240,
+    "available_memory_reserve_bytes": 3901464576,
+    "free_disk_reserve_bytes": 8589934592,
+    "address_space_hard_bytes": 25769803776,
+    "cpu_soft_seconds": 7200,
+    "file_hard_bytes": 2147483648,
+    "monitor_interval_seconds": 0.2,
+    "output_monitor_bytes": 134217728,
+    "basis": "actual visible headroom; reserve max(2 GiB, one quarter); sampled group RSS remainder capped at 10 GiB; this is an experimental budget, not a measured compiler requirement",
+    "enforcement": "per-process hard AS/CPU/file limits, sampled group RSS/headroom/disk/output guards; one make job and one Binaryen worker; total build-stage wall budget 7200 seconds",
+    "wall_seconds": 300,
+    "sample_seconds": 5
+  },
+  "started_at": "2026-11-16T17:53:35.018402+00:00",
+  "resources_before": {
+    "observed_at": "2026-11-16T17:53:35.018458+00:00",
+    "memory_bytes": {
+      "MemTotal": 16760348672,
+      "MemAvailable": 15605858304,
+      "SwapTotal": 3221221376,
+      "SwapFree": 3221221376,
+      "CommitLimit": 11601395712,
+      "Committed_AS": 2322415616
+    },
+    "disk_free_bytes": 89900105728,
+    "process_cgroup": "0::/system.slice/hosted-compute-agent.service\n",
+    "cgroup_mounts": [
+      {
+        "root": "/",
+        "mountpoint": "/sys/fs/cgroup"
+      }
+    ],
+    "cgroup_levels": [
+      {
+        "path": "/sys/fs/cgroup/system.slice/hosted-compute-agent.service",
+        "files": {
+          "memory.current": {
+            "value": "2160652288"
+          },
+          "memory.max": {
+            "value": "max"
+          },
+          "memory.high": {
+            "value": "max"
+          },
+          "memory.events": {
+            "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+          },
+          "memory.swap.max": {
+            "value": "max"
+          },
+          "cpu.max": {
+            "value": "max 100000"
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory pids"
+          }
+        }
+      },
+      {
+        "path": "/sys/fs/cgroup/system.slice",
+        "files": {
+          "memory.current": {
+            "value": "2993586176"
+          },
+          "memory.max": {
+            "value": "max"
+          },
+          "memory.high": {
+            "value": "max"
+          },
+          "memory.events": {
+            "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+          },
+          "memory.swap.max": {
+            "value": "max"
+          },
+          "cpu.max": {
+            "value": "max 100000"
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory pids"
+          }
+        }
+      },
+      {
+        "path": "/sys/fs/cgroup",
+        "files": {
+          "memory.current": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.high": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.events": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.swap.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "cpu.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory hugetlb pids rdma misc dmem"
+          }
+        },
+        "hierarchy_root_without_limit_files": true
+      }
+    ],
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "scope": "system memory and visible cgroup v2 ancestors; unexposed host ancestors are not observed",
+    "error": null,
+    "effective_headroom_bytes": 15605858304
+  },
+  "rss_peak_bytes_observed": 43274240,
+  "samples": [
+    {
+      "seconds": 0.022,
+      "rss_bytes": 10190848,
+      "members": [
+        {
+          "pid": 2234,
+          "VmSize": 18348,
+          "VmRSS": 9952,
+          "Threads": 1
+        }
+      ],
+      "resources": {
+        "observed_at": "2026-11-16T17:53:35.062686+00:00",
+        "memory_bytes": {
+          "MemTotal": 16760348672,
+          "MemAvailable": 15605280768,
+          "SwapTotal": 3221221376,
+          "SwapFree": 3221221376,
+          "CommitLimit": 11601395712,
+          "Committed_AS": 2327715840
+        },
+        "disk_free_bytes": 89900097536,
+        "process_cgroup": "0::/system.slice/hosted-compute-agent.service\n",
+        "cgroup_mounts": [
+          {
+            "root": "/",
+            "mountpoint": "/sys/fs/cgroup"
+          }
+        ],
+        "cgroup_levels": [
+          {
+            "path": "/sys/fs/cgroup/system.slice/hosted-compute-agent.service",
+            "files": {
+              "memory.current": {
+                "value": "2164256768"
+              },
+              "memory.max": {
+                "value": "max"
+              },
+              "memory.high": {
+                "value": "max"
+              },
+              "memory.events": {
+                "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+              },
+              "memory.swap.max": {
+                "value": "max"
+              },
+              "cpu.max": {
+                "value": "max 100000"
+              },
+              "cpuset.cpus.effective": {
+                "value": "0-3"
+              },
+              "cgroup.controllers": {
+                "value": "cpuset cpu io memory pids"
+              }
+            }
+          },
+          {
+            "path": "/sys/fs/cgroup/system.slice",
+            "files": {
+              "memory.current": {
+                "value": "2997190656"
+              },
+              "memory.max": {
+                "value": "max"
+              },
+              "memory.high": {
+                "value": "max"
+              },
+              "memory.events": {
+                "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+              },
+              "memory.swap.max": {
+                "value": "max"
+              },
+              "cpu.max": {
+                "value": "max 100000"
+              },
+              "cpuset.cpus.effective": {
+                "value": "0-3"
+              },
+              "cgroup.controllers": {
+                "value": "cpuset cpu io memory pids"
+              }
+            }
+          },
+          {
+            "path": "/sys/fs/cgroup",
+            "files": {
+              "memory.current": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "memory.max": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "memory.high": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "memory.events": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "memory.swap.max": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "cpu.max": {
+                "error": "FileNotFoundError",
+                "errno": 2
+              },
+              "cpuset.cpus.effective": {
+                "value": "0-3"
+              },
+              "cgroup.controllers": {
+                "value": "cpuset cpu io memory hugetlb pids rdma misc dmem"
+              }
+            },
+            "hierarchy_root_without_limit_files": true
+          }
+        ],
+        "cpu_affinity": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "scope": "system memory and visible cgroup v2 ancestors; unexposed host ancestors are not observed",
+        "error": null,
+        "effective_headroom_bytes": 15605280768
+      }
+    }
+  ],
+  "spawn_requested": true,
+  "owned_pid": 2234,
+  "exit_code": 0,
+  "leader_reaped": true,
+  "group_remaining": [],
+  "stopped": null,
+  "cleanup_attempts": [],
+  "elapsed_seconds": 3.3236523710000014,
+  "finished_at": "2026-11-16T17:53:38.359275+00:00",
+  "resources_after": {
+    "observed_at": "2026-11-16T17:53:38.359351+00:00",
+    "memory_bytes": {
+      "MemTotal": 16760348672,
+      "MemAvailable": 15620042752,
+      "SwapTotal": 3221221376,
+      "SwapFree": 3221221376,
+      "CommitLimit": 11601395712,
+      "Committed_AS": 2322415616
+    },
+    "disk_free_bytes": 89865682944,
+    "process_cgroup": "0::/system.slice/hosted-compute-agent.service\n",
+    "cgroup_mounts": [
+      {
+        "root": "/",
+        "mountpoint": "/sys/fs/cgroup"
+      }
+    ],
+    "cgroup_levels": [
+      {
+        "path": "/sys/fs/cgroup/system.slice/hosted-compute-agent.service",
+        "files": {
+          "memory.current": {
+            "value": "2204024832"
+          },
+          "memory.max": {
+            "value": "max"
+          },
+          "memory.high": {
+            "value": "max"
+          },
+          "memory.events": {
+            "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+          },
+          "memory.swap.max": {
+            "value": "max"
+          },
+          "cpu.max": {
+            "value": "max 100000"
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory pids"
+          }
+        }
+      },
+      {
+        "path": "/sys/fs/cgroup/system.slice",
+        "files": {
+          "memory.current": {
+            "value": "3036696576"
+          },
+          "memory.max": {
+            "value": "max"
+          },
+          "memory.high": {
+            "value": "max"
+          },
+          "memory.events": {
+            "value": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+          },
+          "memory.swap.max": {
+            "value": "max"
+          },
+          "cpu.max": {
+            "value": "max 100000"
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory pids"
+          }
+        }
+      },
+      {
+        "path": "/sys/fs/cgroup",
+        "files": {
+          "memory.current": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.high": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.events": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "memory.swap.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "cpu.max": {
+            "error": "FileNotFoundError",
+            "errno": 2
+          },
+          "cpuset.cpus.effective": {
+            "value": "0-3"
+          },
+          "cgroup.controllers": {
+            "value": "cpuset cpu io memory hugetlb pids rdma misc dmem"
+          }
+        },
+        "hierarchy_root_without_limit_files": true
+      }
+    ],
+    "cpu_affinity": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "scope": "system memory and visible cgroup v2 ancestors; unexposed host ancestors are not observed",
+    "error": null,
+    "effective_headroom_bytes": 15620042752
+  }
+}

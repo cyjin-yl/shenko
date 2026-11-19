@@ -1,0 +1,37 @@
+{
+  "wasixcc": {
+    "path": "/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/toolchains/wasixcc/wasixccenv",
+    "sha256": "4d540f47c2d293901ef1251b3f16711756c2555ac0b59a96c3e11892e115721a",
+    "bytes": 8353680
+  },
+  "clang": {
+    "path": "/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/toolchains/llvm/bin/clang",
+    "sha256": "3b7f7a9c7607d49eea3fe7c7709bdef5ca7d664b8425b217c72a303c689ae891",
+    "bytes": 109115112
+  },
+  "binaryen": {
+    "path": "/home/runner/work/_temp/shenko-node-wasix-source-43945415290-1/toolchains/binaryen/binaryen-version_128/bin/wasm-opt",
+    "sha256": "1fab40c470a4b340101dc1ecf7ef8c64617b948e4570d97bcdd798526ecde733",
+    "bytes": 20636576
+  },
+  "host-gcc": {
+    "path": "/usr/bin/gcc",
+    "sha256": "1b99826121ae6682a634e5efe09bd3e3df58ce58e0b28f849114ab5b89139c26",
+    "bytes": 1023032
+  },
+  "host-g++": {
+    "path": "/usr/bin/g++",
+    "sha256": "1353e9bdd29a7295c7226bf6c63abccce056d8cac31f112e5cdbecc3f28c2769",
+    "bytes": 1027128
+  },
+  "make": {
+    "path": "/usr/bin/make",
+    "sha256": "d78b8f1d099fbcfb6f2f49ab87223b9b68fb3956642f92d6ec6de812e8afa965",
+    "bytes": 259808
+  },
+  "python": {
+    "path": "/usr/bin/python3",
+    "sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+    "bytes": 8020928
+  }
+}

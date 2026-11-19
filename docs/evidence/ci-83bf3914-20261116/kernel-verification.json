@@ -1,0 +1,14 @@
+{
+  "artifact_id": 14264666777,
+  "artifact_bytes": 232,
+  "sha256": "0f52504475f18fac7036e73009574aefce392982f804144c99fa551eff01dfde",
+  "all_member_crc_read_ok": true,
+  "members": [
+    {
+      "name": "base.json",
+      "bytes": 120,
+      "sha256": "1c94e4d6f9cde204fb7cd7a725e135c3d5fc7a1f2adde06946d86ebcae03b890",
+      "crc32": 3471761356
+    }
+  ]
+}

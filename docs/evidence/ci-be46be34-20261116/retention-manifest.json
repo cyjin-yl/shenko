@@ -1,0 +1,392 @@
+{
+  "files": [
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/run-initial.json",
+      "source_bytes": 12644,
+      "source_sha256": "3d00d79ec31fede83a570e50177b87639894de75770d1524deba1758dcf5a860",
+      "stored": "run-initial.json",
+      "encoding": "original bytes",
+      "stored_bytes": 12644,
+      "stored_sha256": "3d00d79ec31fede83a570e50177b87639894de75770d1524deba1758dcf5a860"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/run-final.json",
+      "source_bytes": 12647,
+      "source_sha256": "3933942ac17aa9f21c9fe8e6f0c1436654041079a045e703b3589f700c12bb12",
+      "stored": "run-final.json",
+      "encoding": "original bytes",
+      "stored_bytes": 12647,
+      "stored_sha256": "3933942ac17aa9f21c9fe8e6f0c1436654041079a045e703b3589f700c12bb12"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/jobs-final.json",
+      "source_bytes": 17647,
+      "source_sha256": "74404b71197ede5168d199c34130c27d844a663128daedeb040adf79c9747dc6",
+      "stored": "jobs-final.json",
+      "encoding": "original bytes",
+      "stored_bytes": 17647,
+      "stored_sha256": "74404b71197ede5168d199c34130c27d844a663128daedeb040adf79c9747dc6"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/duplicate-cancelled-run.json",
+      "source_bytes": 12649,
+      "source_sha256": "11504f05b44ea7c14fa8d4668ca19a6db8f302c3859db7aedaee1fd54e72f5e5",
+      "stored": "duplicate-cancelled-run.json",
+      "encoding": "original bytes",
+      "stored_bytes": 12649,
+      "stored_sha256": "11504f05b44ea7c14fa8d4668ca19a6db8f302c3859db7aedaee1fd54e72f5e5"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/checkout-head.json",
+      "source_bytes": 1811,
+      "source_sha256": "be453ae2d673281e813c7a232c46fa5b0e9c0fa8ade5cebe364743415f84ba64",
+      "stored": "checkout-head.json",
+      "encoding": "original bytes",
+      "stored_bytes": 1811,
+      "stored_sha256": "be453ae2d673281e813c7a232c46fa5b0e9c0fa8ade5cebe364743415f84ba64"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/checkout-merge.json",
+      "source_bytes": 2594,
+      "source_sha256": "cf51e7ec3c2216095bcd316c0871d9cf8e7e93ff56555e7e18c914a56273296e",
+      "stored": "checkout-merge.json",
+      "encoding": "original bytes",
+      "stored_bytes": 2594,
+      "stored_sha256": "cf51e7ec3c2216095bcd316c0871d9cf8e7e93ff56555e7e18c914a56273296e"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/source-observation.json",
+      "source_bytes": 633,
+      "source_sha256": "0947a898e5e809785cf384fb386285adc120e7180fe0f2e34e4d3251b1458d0f",
+      "stored": "source-observation.json",
+      "encoding": "original bytes",
+      "stored_bytes": 633,
+      "stored_sha256": "0947a898e5e809785cf384fb386285adc120e7180fe0f2e34e4d3251b1458d0f"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/artifacts-final.json",
+      "source_bytes": 3296,
+      "source_sha256": "15d3a0517123e2a759514b03520609b62ae7e66689b5150628987158998f886e",
+      "stored": "artifacts-final.json",
+      "encoding": "original bytes",
+      "stored_bytes": 3296,
+      "stored_sha256": "15d3a0517123e2a759514b03520609b62ae7e66689b5150628987158998f886e"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/ci-workflow.yml",
+      "source_bytes": 10331,
+      "source_sha256": "4e126472ceb7be5d7636607711b2a66f557475511ee96ee5f96956d1c1b95346",
+      "stored": "ci-workflow.yml",
+      "encoding": "original bytes",
+      "stored_bytes": 10331,
+      "stored_sha256": "4e126472ceb7be5d7636607711b2a66f557475511ee96ee5f96956d1c1b95346"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/observation.json",
+      "source_bytes": 8378,
+      "source_sha256": "7fe522067f6c4c5bbc34028d33ce5a40e73758ed682630b51bf87727c6e585c7",
+      "stored": "observation.json",
+      "encoding": "original bytes",
+      "stored_bytes": 8378,
+      "stored_sha256": "7fe522067f6c4c5bbc34028d33ce5a40e73758ed682630b51bf87727c6e585c7"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/workspace-results-derived.json",
+      "source_bytes": 336854,
+      "source_sha256": "3afca0517137c63d4849dc63055f6af16947f8e107a55cb3d3bd16b3c1e37ad6",
+      "stored": "workspace-results-derived.json",
+      "encoding": "original bytes",
+      "stored_bytes": 336854,
+      "stored_sha256": "3afca0517137c63d4849dc63055f6af16947f8e107a55cb3d3bd16b3c1e37ad6"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy-job-log-error-1.json",
+      "source_bytes": 210,
+      "source_sha256": "94706eab5bc599a6309f59bd5b1923c166c13dc39ca3a08038dbaf0b15c51b01",
+      "stored": "clippy-job-log-error-1.json",
+      "encoding": "original bytes",
+      "stored_bytes": 210,
+      "stored_sha256": "94706eab5bc599a6309f59bd5b1923c166c13dc39ca3a08038dbaf0b15c51b01"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy-job-log-error-2.json",
+      "source_bytes": 210,
+      "source_sha256": "94706eab5bc599a6309f59bd5b1923c166c13dc39ca3a08038dbaf0b15c51b01",
+      "stored": "clippy-job-log-error-2.json",
+      "encoding": "original bytes",
+      "stored_bytes": 210,
+      "stored_sha256": "94706eab5bc599a6309f59bd5b1923c166c13dc39ca3a08038dbaf0b15c51b01"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/rust-manifest.json",
+      "source_bytes": 626997,
+      "source_sha256": "61a6774accb75dc5ffe973c79f1505b873311aa06e5ff3f489692c0e8f21622a",
+      "stored": "artifact-manifests/rust-manifest.json",
+      "encoding": "original bytes",
+      "stored_bytes": 626997,
+      "stored_sha256": "61a6774accb75dc5ffe973c79f1505b873311aa06e5ff3f489692c0e8f21622a"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy-manifest.json",
+      "source_bytes": 4277,
+      "source_sha256": "32b44e5dbcb00d5129247366190d7687242b67ec1d031414e60c1f97c43a0068",
+      "stored": "artifact-manifests/clippy-manifest.json",
+      "encoding": "original bytes",
+      "stored_bytes": 4277,
+      "stored_sha256": "32b44e5dbcb00d5129247366190d7687242b67ec1d031414e60c1f97c43a0068"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/web-manifest.json",
+      "source_bytes": 11243,
+      "source_sha256": "d47853006dd70948159d23c555c73ec86af6208ff1e5be1ec1158ef78780f269",
+      "stored": "artifact-manifests/web-manifest.json",
+      "encoding": "original bytes",
+      "stored_bytes": 11243,
+      "stored_sha256": "d47853006dd70948159d23c555c73ec86af6208ff1e5be1ec1158ef78780f269"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/kernel-manifest.json",
+      "source_bytes": 326,
+      "source_sha256": "0aeaa4e8ec25f10a2a3ba972db83dfb79d830432fe0882801676905e4cc131ce",
+      "stored": "artifact-manifests/kernel-manifest.json",
+      "encoding": "original bytes",
+      "stored_bytes": 326,
+      "stored_sha256": "0aeaa4e8ec25f10a2a3ba972db83dfb79d830432fe0882801676905e4cc131ce"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/docs-job.log",
+      "source_bytes": 62008,
+      "source_sha256": "457fd1ecf838a61cb31a110b661e3929f35c8be4b5fce2e68a258729e1ab427c",
+      "stored": "job-logs/docs-job.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 12795,
+      "stored_sha256": "63006df5abddce2d10de8e8f605f92d5e58f66ae2d3571f606674e67f3a22922"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/docs-migration-job.log",
+      "source_bytes": 62128,
+      "source_sha256": "7c6fdad54f12ce01ebd19e49467a24ba9c17137979fd7c8b19f3990e21577de1",
+      "stored": "job-logs/docs-migration-job.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 12818,
+      "stored_sha256": "fdae7e3603e2ffa25770b855f527106a73e228163e368544b9807cdd6c2dd09b"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/kernel-job.log",
+      "source_bytes": 61726,
+      "source_sha256": "83a998d9656b13576d277f284f6861479a4fae358bc192fc455074dad3ca63aa",
+      "stored": "job-logs/kernel-job.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 12991,
+      "stored_sha256": "4734034e9761ea5d1a1e62bfc39ce5edcc94cd610fbc0756c828cf673b07a681"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/web-job.log",
+      "source_bytes": 45253,
+      "source_sha256": "58fdee20ef070600597da3a48b43285b17fa66d91e74db8fb877eacc295c49e1",
+      "stored": "job-logs/web-job.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 12105,
+      "stored_sha256": "dce194362e47a062e106b1442a4013b9c5724a74000d32cc95134f764728d64c"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/rust-job.log",
+      "source_bytes": 479568,
+      "source_sha256": "2aabc73a8cb3687317aec37c107cf1f2f1a23ea4f6c49a9e08fe47ad7be6e633",
+      "stored": "job-logs/rust-job.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 101774,
+      "stored_sha256": "2acd21f1c660ed71fd4db986d7adee8e86df8714961787e3a7f14ff9338dde27"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/rust/workspace-test.log",
+      "source_bytes": 182671,
+      "source_sha256": "2ccf30af36d8e03e6ad0cb0459265d364a70adca1370736c850f05a2a75a28ec",
+      "stored": "workspace-test.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 39134,
+      "stored_sha256": "f6149f067a6e1f5848ea4d3818e3f1114ae0920ae6b2857444fb588b0324db3b"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy.zip",
+      "source_bytes": 2731960,
+      "source_sha256": "48fa5639d783023b960367912e0a76ea5b89d811bcf3e04642fbf1c2a038392c",
+      "stored": "clippy-original.zip",
+      "encoding": "original bytes",
+      "stored_bytes": 2731960,
+      "stored_sha256": "48fa5639d783023b960367912e0a76ea5b89d811bcf3e04642fbf1c2a038392c"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy/count-comparison-derived.json",
+      "source_bytes": 1179,
+      "source_sha256": "16e1522846ee63d675560ffb910c1cc4b884f2fa0e244099279a205dc2e8bd5a",
+      "stored": "clippy/count-comparison-derived.json",
+      "encoding": "original bytes",
+      "stored_bytes": 1179,
+      "stored_sha256": "16e1522846ee63d675560ffb910c1cc4b884f2fa0e244099279a205dc2e8bd5a"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/clippy/lint-policy.json",
+      "source_bytes": 32927,
+      "source_sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584",
+      "stored": "clippy/lint-policy.json",
+      "encoding": "original bytes",
+      "stored_bytes": 32927,
+      "stored_sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/prior-scoped-review-correction.json",
+      "source_bytes": 9666,
+      "source_sha256": "2432091d1b245b80c4d5a4a404d2fc8397ac898fc1fd48234a9c68df12cc5095",
+      "stored": "followup/prior-scoped-review-correction.json",
+      "encoding": "original bytes",
+      "stored_bytes": 9666,
+      "stored_sha256": "2432091d1b245b80c4d5a4a404d2fc8397ac898fc1fd48234a9c68df12cc5095"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/pin-fix-clippy-observation.json",
+      "source_bytes": 8344,
+      "source_sha256": "6d29a736ff4d57c9700968e8a94a2858698e815075f8c970d6b887eacc9656ba",
+      "stored": "followup/pin-fix-clippy-observation.json",
+      "encoding": "original bytes",
+      "stored_bytes": 8344,
+      "stored_sha256": "6d29a736ff4d57c9700968e8a94a2858698e815075f8c970d6b887eacc9656ba"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/pin-fix-diagnostic-review.json",
+      "source_bytes": 586,
+      "source_sha256": "ba6e74728b1aae6a228e9d2bb62e88122962f3b9530add2738546b2fa77cd694",
+      "stored": "followup/pin-fix-diagnostic-review.json",
+      "encoding": "original bytes",
+      "stored_bytes": 586,
+      "stored_sha256": "ba6e74728b1aae6a228e9d2bb62e88122962f3b9530add2738546b2fa77cd694"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/pin-fix.patch",
+      "source_bytes": 1021,
+      "source_sha256": "1c14fd0165c6a1e67285a5780a02eecf5abdfa2fed9426a94b3a49d7050d55a0",
+      "stored": "followup/pin-fix.patch",
+      "encoding": "original bytes",
+      "stored_bytes": 1021,
+      "stored_sha256": "1c14fd0165c6a1e67285a5780a02eecf5abdfa2fed9426a94b3a49d7050d55a0"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/prior-scoped-unreachable-original.jsonl",
+      "source_bytes": 9984,
+      "source_sha256": "23a913bcb07238fc796efa8752e4fe70e0d46485daa95e1e3705e05c2d2f5b70",
+      "stored": "followup/prior-scoped-unreachable-original.jsonl.gz",
+      "encoding": "gzip",
+      "stored_bytes": 1090,
+      "stored_sha256": "b05159f1d1378bdb0b86776fdc5d4fef25785db77cbd883167ca2c69ecd87245"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/pin-fix-clippy.jsonl",
+      "source_bytes": 716077,
+      "source_sha256": "959d70f29fcfd0f87ff6d2a189f4e5b2e8b4baf0dbcaeb22928be360cb979296",
+      "stored": "followup/pin-fix-clippy.jsonl.gz",
+      "encoding": "gzip",
+      "stored_bytes": 56991,
+      "stored_sha256": "528122d1a8bdb2648b185c95fa002ab63af67929627917eecfa0a9045e84e05e"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/pin-fix-clippy.stderr.log",
+      "source_bytes": 3544,
+      "source_sha256": "9d32e3d2fffc3b4320089ba7ffaa8c682c73591cdf2c814a3e2d6791c9c2ed08",
+      "stored": "followup/pin-fix-clippy.stderr.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 490,
+      "stored_sha256": "e788d91340af1afe3ce5907e8e9532df4d1a55c91e9d018dbbfb30b2de02656b"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final.jsonl",
+      "source_bytes": 1004860,
+      "source_sha256": "2659cfb9749b50e00a6aa7dc24e2f542e0488bf29e4b4c7c27a0f8535cb58fbf",
+      "stored": "followup/prior/bf49-metadata-stop-clippy-final.jsonl.gz",
+      "encoding": "gzip",
+      "stored_bytes": 82386,
+      "stored_sha256": "3bab5392565a3fa485fa10ab15ea2ac8cff91b785a33ebae4d8c62a7e8740980"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final.log",
+      "source_bytes": 159,
+      "source_sha256": "9e70202adb2c555807770396c9bf696dd907cb5546ff03946c4483e79aa1d43a",
+      "stored": "followup/prior/bf49-metadata-stop-clippy-final.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 152,
+      "stored_sha256": "eadb1515ee70ad024da1fb76352f792a0c0c7bc0a7981b24aa15711439b033f1"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final-observation.json",
+      "source_bytes": 8174,
+      "source_sha256": "79edcd0a89392d791cd48d0450c1cdb79df8ac8cd00efe6c3e24b2b41e5bfbed",
+      "stored": "followup/prior/bf49-metadata-stop-clippy-final-observation.json",
+      "encoding": "original bytes",
+      "stored_bytes": 8174,
+      "stored_sha256": "79edcd0a89392d791cd48d0450c1cdb79df8ac8cd00efe6c3e24b2b41e5bfbed"
+    },
+    {
+      "source_artifact_id": 14253760054,
+      "source_zip_sha256": "5167fe27a87d30bcfcc1b8656224825e4ce501c0ce58308b0ad946d7b4e81524",
+      "stored": "runtime-originals.tar.gz",
+      "encoding": "tar with byte-identical selected original members, gzip",
+      "stored_bytes": 81452,
+      "stored_sha256": "b02250f5cbaa0fe231a371c677d33569d7f1e82d834363b31f9fdfbced84531d",
+      "member_manifest": "runtime-originals-members.json"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-clippy-observation.json",
+      "source_bytes": 8742,
+      "source_sha256": "7d597a775264fe4f56640eeff7f60be446de2ae15895a2a34301e4a17e78f7f5",
+      "stored": "followup/runtime-identity-clippy-observation.json",
+      "encoding": "original bytes",
+      "stored_bytes": 8742,
+      "stored_sha256": "7d597a775264fe4f56640eeff7f60be446de2ae15895a2a34301e4a17e78f7f5"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-diagnostic-review.json",
+      "source_bytes": 769,
+      "source_sha256": "dbe41aea9b41d9c6c1d6e6b39a60476b7c472de7dd89f32d67489804eda52f02",
+      "stored": "followup/runtime-identity-diagnostic-review.json",
+      "encoding": "original bytes",
+      "stored_bytes": 769,
+      "stored_sha256": "dbe41aea9b41d9c6c1d6e6b39a60476b7c472de7dd89f32d67489804eda52f02"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-fix.patch",
+      "source_bytes": 4562,
+      "source_sha256": "392ded7a658e94bde46f3a49de7f0fdcbc243061bdb35e4233d80a7c71e0bbb0",
+      "stored": "followup/runtime-identity-fix.patch",
+      "encoding": "original bytes",
+      "stored_bytes": 4562,
+      "stored_sha256": "392ded7a658e94bde46f3a49de7f0fdcbc243061bdb35e4233d80a7c71e0bbb0"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-clippy.jsonl",
+      "source_bytes": 721723,
+      "source_sha256": "78d6ddd1d8449db289cfecd191c22fc6cf6499f842115686c02ca93021c65a10",
+      "stored": "followup/runtime-identity-clippy.jsonl.gz",
+      "encoding": "gzip",
+      "stored_bytes": 57147,
+      "stored_sha256": "56877baaaef06db65a8ef5e8b90bbf5c976017200e76e8ea0af401b23a9a3e58"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-clippy.stderr.log",
+      "source_bytes": 3823,
+      "source_sha256": "44004d827188248bd2463b6fe805cee31ff9fe02c78450859206b6135e7fc763",
+      "stored": "followup/runtime-identity-clippy.stderr.log.gz",
+      "encoding": "gzip",
+      "stored_bytes": 491,
+      "stored_sha256": "b53fa634f2d39b8b7fbcaaf3ade4c8f499b6312f1832801e7e7b85dc7a196f71"
+    },
+    {
+      "source_path": "/workspace/scratch/faaa3ccca531/ci-be46/runtime-identity-docs.json",
+      "source_bytes": 497,
+      "source_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "stored": "followup/runtime-identity-docs.json",
+      "encoding": "original bytes",
+      "stored_bytes": 497,
+      "stored_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de"
+    }
+  ],
+  "original_zip_location": "Original ZIPs remain under /workspace/scratch/faaa3ccca531/ci-be46; GitHub artifact IDs, digests and expiry are in artifacts-final.json. No compatibility databases or guest WASM have been duplicated into this evidence directory."
+}

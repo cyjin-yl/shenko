@@ -1,0 +1,49 @@
+[2m2026-11-16T13:30:30.406781Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m quota strategies installed [3mstrategies[0m[2m=[0m[StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: "shenko.quota.rolling_baseline", version: "1", kind: Cadence }]
+[2m2026-11-16T13:30:30.407062Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m Shenko starting [3mdata_dir[0m[2m=[0m/__w/shenko/shenko/.ci/evidence/real-single-node/installation [3mport[0m[2m=[0m17860 [3mname[0m[2m=[0m"(unnamed)"
+[2m2026-11-16T13:30:30.591627Z[0m [32m INFO[0m [2mshenko_store::store[0m[2m:[0m store opened [3mfts5[0m[2m=[0mtrue [3mwal[0m[2m=[0mtrue [3msqlite[0m[2m=[0m3.46.0
+[2m2026-11-16T13:30:30.593975Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m store ready [3msqlite[0m[2m=[0m3.46.0 [3mwal[0m[2m=[0mtrue [3mfts5[0m[2m=[0mtrue
+[2m2026-11-16T13:30:30.595774Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m owner claim available through the private installation control file [3mcontrol_file[0m[2m=[0m/__w/shenko/shenko/.ci/evidence/real-single-node/installation/bootstrap/claim-secret.json
+[2m2026-11-16T13:30:30.601398Z[0m [32m INFO[0m [2mshenko_wasm::runtime[0m[2m:[0m WASM runtime init (wasmtime-45)
+[2m2026-11-16T13:30:30.645012Z[0m [32m INFO[0m [2mshenko_seed::bootstrap[0m[2m:[0m published home checkpoint closure [3mcheckpoint[0m[2m=[0mblake3:77603c214488c3720003da731b835476796e5b764e76cf918f416c4d62952f25 [3mobjects[0m[2m=[0m18 [3mbytes[0m[2m=[0m23954
+[2m2026-11-16T13:30:30.645067Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m WASM home ready [3mmanifest[0m[2m=[0m/__w/shenko/shenko/.ci/evidence/real-single-node/installation/home-manifest.json
+[2m2026-11-16T13:30:30.890643Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m genesis created [3magent_id[0m[2m=[0mf902ff15-2cf4-452f-9852-e1b998cb2ee0 [3mname[0m[2m=[0m"(unnamed)" [3mcommit[0m[2m=[0m1358b9e6-4b71-464e-b1ee-a0b9650e703a/1
+[2m2026-11-16T13:30:30.891618Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m identity ready [3mrevision[0m[2m=[0m1 [3mname[0m[2m=[0m"(unnamed)" [3mnaming[0m[2m=[0mUnnamed
+[2m2026-11-16T13:30:30.892600Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m launch bound to control authority [3mgeneration[0m[2m=[0mseed [3mselector_revision[0m[2m=[0m0 [3mselector_epoch[0m[2m=[0m1
+[2m2026-11-16T13:30:31.232647Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m startup paused at a durable subject boundary; use runtime resume to continue [3mrequest_id[0m[2m=[0m3af089d4-5981-4a35-aa95-10d1ba16540a [3mboundary[0m[2m=[0mSome(CommitRef { ledger_id: EntityId(1358b9e6-4b71-464e-b1ee-a0b9650e703a), seq: LedgerSeq(7) })
+[2m2026-11-16T13:30:31.253059Z[0m [32m INFO[0m [2mshenko_awareness_core::self_knowledge[0m[2m:[0m self-knowledge provider seeded with 3 resources
+[2m2026-11-16T13:30:31.275384Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m seat runtime reattached durable seat records [3mreattached[0m[2m=[0m0 [3mincarnation_bumped[0m[2m=[0m0 [3mskipped[0m[2m=[0m0
+[2m2026-11-16T13:30:31.293510Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0mawareness.network-change [3mrevision[0m[2m=[0m0.2.0
+[2m2026-11-16T13:30:31.298621Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0mawareness.capability-gap [3mrevision[0m[2m=[0m0.2.0
+[2m2026-11-16T13:30:31.303758Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0mawareness.general-principles [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.308991Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0mperception.installation-units [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.313978Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0msubject.frame [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.318844Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0msubject.idle [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.323719Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0msubject.attention [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.329123Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition seed installed [3munit[0m[2m=[0msubject.child-frame [3mrevision[0m[2m=[0m0.1.0
+[2m2026-11-16T13:30:31.335299Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m cognition perception sources bound [3munits[0m[2m=[0m["perception.installation-units@0.1.0"]
+[2m2026-11-16T13:30:31.337660Z[0m [32m INFO[0m [2mshenko::compat[0m[2m:[0m optional ecosystem adapter installation observer started [3munit_id[0m[2m=[0m"compat.mcp" [3mpurpose[0m[2m=[0m"external MCP protocol client; no bundled server"
+[2m2026-11-16T13:30:31.339527Z[0m [32m INFO[0m [2mshenko::compat[0m[2m:[0m optional ecosystem adapter installation observer started [3munit_id[0m[2m=[0m"compat.skill" [3mpurpose[0m[2m=[0m"Agent Skills source reader; no bundled Skill, no execution"
+[2m2026-11-16T13:30:31.365402Z[0m [33m WARN[0m [2mshenko::node_sync[0m[2m:[0m cognition report not published; peers keep the last real report [3merror[0m[2m=[0mcognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting
+[2m2026-11-16T13:30:31.402355Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m context strategies installed from the unit records [3madopted[0m[2m=[0m[] [3munknown[0m[2m=[0m["budget-compact", "snapcompact", "notes-rollover-compact"]
+[2m2026-11-16T13:30:31.404937Z[0m [32m INFO[0m [2mshenko::context_policy[0m[2m:[0m context strategy installation observer started [3munit_id[0m[2m=[0m"budget-compact"
+[2m2026-11-16T13:30:31.407147Z[0m [32m INFO[0m [2mshenko::context_policy[0m[2m:[0m context strategy installation observer started [3munit_id[0m[2m=[0m"snapcompact"
+[2m2026-11-16T13:30:31.409534Z[0m [32m INFO[0m [2mshenko::context_policy[0m[2m:[0m context strategy installation observer started [3munit_id[0m[2m=[0m"notes-rollover-compact"
+[2m2026-11-16T13:30:31.409706Z[0m [32m INFO[0m [2mshenko_broker::broker[0m[2m:[0m local model provider selected (docs/specs/nodes.md#spec-22-1) [3mmodel[0m[2m=[0mQwen3-0.6B-Q4_K_M
+[2m2026-11-16T13:30:31.412638Z[0m [32m INFO[0m [2mshenko_broker::broker[0m[2m:[0m inference broker running
+[2m2026-11-16T13:30:31.413528Z[0m [32m INFO[0m [2mshenko_subject::loop_runner[0m[2m:[0m subject loop started [3magent_id[0m[2m=[0mf902ff15-2cf4-452f-9852-e1b998cb2ee0
+[2m2026-11-16T13:30:31.424727Z[0m [32m INFO[0m [2mshenko[0m[2m:[0m subject loop started
+Shenko UI: http://127.0.0.1:17860
+  Subject task: supervised (durable boundary pause may be active)
+  Inference: Qwen3-0.6B-Q4_K_M (configured; probe/capability evidence separate)
+[2m2026-11-16T13:30:31.426375Z[0m [32m INFO[0m [2mshenko_ui::server[0m[2m:[0m UI server starting [3maddr[0m[2m=[0m127.0.0.1:17860 [3mplayground[0m[2m=[0m/__w/shenko/shenko/.ci/evidence/real-single-node/installation/playground
+[2m2026-11-16T13:30:32.613542Z[0m [32m INFO[0m [2mshenko_ui::ws[0m[2m:[0m ws client connected
+[2m2026-11-16T13:30:33.078765Z[0m [32m INFO[0m [2mshenko_ui::ws[0m[2m:[0m ws client connected
+[2m2026-11-16T13:50:33.619325Z[0m [33m WARN[0m [2mshenko_broker::execution[0m[2m:[0m provider request did not complete [3mrequest_id[0m[2m=[0md37d7b66-dc66-4294-873e-84cb30ce8b49 [3mcode[0m[2m=[0m"INFERENCE_TRANSPORT_TIMEOUT" [3mdetail[0m[2m=[0mprovider HTTP request timed out after the sealed 1200000 ms observation limit; remote termination is unconfirmed and the original request must be reconciled
+[2m2026-11-16T13:50:33.622950Z[0m [33m WARN[0m [2mshenko_broker::execution[0m[2m:[0m provider inference did not produce a successful terminal result [3mstatus[0m[2m=[0mFailed
+[2m2026-11-16T13:50:33.640694Z[0m [33m WARN[0m [2mshenko_subject::loop_runner[0m[2m:[0m 主体恢复阻塞，停止新决定，等待重开和对账 [3mseq[0m[2m=[0m1 [3merr[0m[2m=[0mmodel outcome not conclusive; preserve original awaiting_model for reconciliation
+[2m2026-11-16T13:50:33.641828Z[0m [32m INFO[0m [2mshenko_subject::loop_runner[0m[2m:[0m subject loop terminated
+[2m2026-11-16T13:50:33.661968Z[0m [32m INFO[0m [2mshenko_broker::broker[0m[2m:[0m inference broker stopped
+Error: supervisor cleanup also failed: Cordis reported a lifecycle failure; reconcile external outcomes before reusing this host (see diagnostics)
+
+Caused by:
+    model outcome not conclusive; preserve original awaiting_model for reconciliation

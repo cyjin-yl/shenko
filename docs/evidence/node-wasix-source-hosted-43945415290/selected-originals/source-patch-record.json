@@ -1,0 +1,11 @@
+{
+  "path": "crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch",
+  "sha256": "93970b459d28ad3ac6af9c6446bc175220b4ea3b2f9ab29f5330710454d5fee9",
+  "source_path": "tools/gyp/pylib/gyp/generator/make.py",
+  "before_sha256": "29092beb6082ee2170676449f74204f73a9843486e2468f073bca75468ce2245",
+  "after_sha256": "da8c30caf420fcbd795a8ed9d06b1bb730aec1d138c555d558f5b8f6b0ba3b02",
+  "purpose": "use the existing per-object response-file archive recipes for wasi/wasm instead of one oversized command argument",
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "effective_diff_sha256": "0e35f7accf0fa809a3fa0023579b02582673b494306e286e31cf115aa895c63c"
+}

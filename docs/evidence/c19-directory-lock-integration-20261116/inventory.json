@@ -1,0 +1,120 @@
+{
+  "recorded_at": "2026-11-16T21:23:39.407822+00:00",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4820,
+      "sha256": "5f3ad510dde6eddb19062a5c94e3ce016e1a70f9b5cea1a419c0cd0357bf7eee"
+    },
+    {
+      "path": "integrated-check/observation.json",
+      "bytes": 1528,
+      "sha256": "06c873b3d9eec4f0814af9d3ace5502d747ffc11e4ef1c4b9d7dc7546a61fe73"
+    },
+    {
+      "path": "integrated-check/stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "integrated-check/stdout.log",
+      "bytes": 54,
+      "sha256": "1794ae62aa8ed66f3b1154a421c32ef5a2515d9c3548a655d4a267d7ee066982"
+    },
+    {
+      "path": "prior-independent-comparison/pr313/inputs.json",
+      "bytes": 621,
+      "sha256": "68b4ae73a243a776df5661643343a79e96cfd1856bbd0ee5dbf17a9711df4b66"
+    },
+    {
+      "path": "prior-independent-comparison/pr313/observation.json",
+      "bytes": 1607,
+      "sha256": "4866158dbeb26591aabeb0b1bd6d6638ddd28be3d8fd7363387e9e757b3b078e"
+    },
+    {
+      "path": "prior-independent-comparison/pr313/stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "prior-independent-comparison/pr313/stdout.log",
+      "bytes": 54,
+      "sha256": "9657a251526c83bb9a1b1cdbecefa87e8b7d117b9ad408091c3790736236c9de"
+    },
+    {
+      "path": "prior-independent-comparison/pr314/inputs.json",
+      "bytes": 621,
+      "sha256": "c9a693548a99f394561e48f065aea2b1c58b6bcea052b82adf2e725f9b7d0e48"
+    },
+    {
+      "path": "prior-independent-comparison/pr314/observation.json",
+      "bytes": 1608,
+      "sha256": "acc2922f813b5b6aab6835cf0c8e971b10c9baef1d5d45464d52235d8d13fb59"
+    },
+    {
+      "path": "prior-independent-comparison/pr314/stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "prior-independent-comparison/pr314/stdout.log",
+      "bytes": 54,
+      "sha256": "1794ae62aa8ed66f3b1154a421c32ef5a2515d9c3548a655d4a267d7ee066982"
+    },
+    {
+      "path": "source/245a846ba0109a0916bad7a4a30ee7f66e2c2d01.commit",
+      "bytes": 730,
+      "sha256": "9ed279a5d16c493c42c766709fc6d24e44629866b3a087595ba12fc0effeb1de"
+    },
+    {
+      "path": "source/25734cd78cbb800ebecedef814aace9a9a860387.blob",
+      "bytes": 19836,
+      "sha256": "819be116e1ad4c2c59bf3aef633774a1728d1f9f13b88399872d4da486951340"
+    },
+    {
+      "path": "source/29e89bf9fc309b11789fe15a0f318be6cc7a4956.blob",
+      "bytes": 12499,
+      "sha256": "f817b6e51caa26591f8f51dce77d92ebd63c46737129eb6b8d82df34378cbfd4"
+    },
+    {
+      "path": "source/c69389f1f1106b9bb15f4157e7f1a0629806a270.commit",
+      "bytes": 1074,
+      "sha256": "ab5a8c8a1dd0ac307885e5a8d05574dc2a43b5f86cd580c8493c0d9d4d8104bf"
+    },
+    {
+      "path": "source/e2ede43c2224803f5d3f733a8c5bff34cd6d0063.blob",
+      "bytes": 19645,
+      "sha256": "fd6ea44ff0be9ad650f298cc3bdbd630ba79aa158db64cc85f7fa3b6f6db87cb"
+    },
+    {
+      "path": "source/ef546ed6dd135dba81b14ed9181ddf058dc92fcd.blob",
+      "bytes": 10225,
+      "sha256": "cc683d366bb1f75f38bad6cb1887bf3980daee4446961a547d8ed6859d31e6a5"
+    },
+    {
+      "path": "source/fff3423dfb6fb999261e690e4f02dc766707b99d.blob",
+      "bytes": 59747,
+      "sha256": "1abc5dade2e6a4acd1eb7bc9da905a4e786c98f0b9845187187d6529a3161b4f"
+    },
+    {
+      "path": "source/original-gitdata.json",
+      "bytes": 4781,
+      "sha256": "db51b7b26c78d21e4b25aee284743ecc03f4b8780dff45121f2f943a6699e957"
+    },
+    {
+      "path": "source/original-tree-deltas.json",
+      "bytes": 1086,
+      "sha256": "9e84a897ec9eddc1463c2e4ce774c3dd7a6556471aab8b6ccbffcb61534de6d5"
+    },
+    {
+      "path": "source/pr314-api-changes.patch.gz",
+      "bytes": 6006,
+      "sha256": "427e7422cd7263b4f97ae409eafa19f4027f20fc48577850e54e499b9c78ed87"
+    },
+    {
+      "path": "source/source-comparison-before-bounded-test-fix.json",
+      "bytes": 955,
+      "sha256": "2e57196715ff71ffea6d209f30dbe2fee7786fd033c8d31719670d41bdc20105"
+    }
+  ]
+}

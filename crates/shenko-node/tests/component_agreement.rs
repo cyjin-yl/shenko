@@ -51,8 +51,12 @@ fn elect(leader: &mut Node, peers: &mut [Node]) -> Result<()> {
     publish(leader, peers)
 }
 
-fn proposal(a: &Node, b: &Node, coordinator: EntityId) -> Result<ComponentProposal> {
-    let mut observations = vec![a.component_presence()?, b.component_presence()?];
+fn proposal(a: &Node, b: &Node, c: &Node, coordinator: EntityId) -> Result<ComponentProposal> {
+    let mut observations = vec![
+        a.component_presence()?,
+        b.component_presence()?,
+        c.component_presence()?,
+    ];
     observations.sort_by_key(|observation| observation.node_id);
     let members = observations
         .iter()
@@ -70,9 +74,16 @@ fn proposal(a: &Node, b: &Node, coordinator: EntityId) -> Result<ComponentPropos
             .into_iter()
             .map(|mut presence| {
                 presence.committed = None;
+                let reachable = if presence.node_id == coordinator {
+                    members.clone()
+                } else {
+                    let mut neighbours = vec![presence.node_id, coordinator];
+                    neighbours.sort();
+                    neighbours
+                };
                 ComponentObservation {
                     presence,
-                    reachable: members.clone(),
+                    reachable,
                     complete: true,
                 }
             })
@@ -81,9 +92,17 @@ fn proposal(a: &Node, b: &Node, coordinator: EntityId) -> Result<ComponentPropos
 }
 
 fn observed(node: &Node, proposal: &ComponentProposal) -> Result<ComponentObservation> {
+    let presence = node.component_presence()?;
+    let reachable = proposal
+        .observations
+        .iter()
+        .find(|observation| observation.presence.node_id == presence.node_id)
+        .context("fixture observation missing")?
+        .reachable
+        .clone();
     Ok(ComponentObservation {
-        presence: node.component_presence()?,
-        reachable: proposal.members(),
+        presence,
+        reachable,
         complete: true,
     })
 }
@@ -97,7 +116,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
         origin_proof: Digest::blake3(b"component shared origin"),
     };
     let mut nodes = Vec::new();
-    for index in 0..5 {
+    for index in 0..7 {
         let mut node = Node::open(&root.path().join(index.to_string()))?;
         node.handle(Request::Initialize {
             node_id: EntityId::new(),
@@ -105,7 +124,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
         })?;
         nodes.push(node);
     }
-    // Build the actual five-member configuration through both Joint and Final
+    // Build the actual seven-member configuration through both Joint and Final
     // persistence quorums. No direct SQL fixture fabricates global membership.
     let (leader, peers) = nodes.split_first_mut().context("leader missing")?;
     leader.ensure_member_configuration()?;
@@ -119,7 +138,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
             .map(|peer| peer.local_node_id()?.context("member missing"))
             .collect::<Result<Vec<_>>>()?,
         remove: vec![],
-        reason: "five-node durable component fixture".into(),
+        reason: "seven-node durable component fixture".into(),
     })?;
     for peer in peers.iter_mut() {
         let response = peer.handle_vote_request(&joint.request)?;
@@ -139,30 +158,74 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
     persist(leader, peers)?;
     leader.tally_member_change(&final_round.proposal)?;
     publish(leader, peers)?;
-    for node in &mut nodes {
+    for (index, node) in nodes.iter_mut().enumerate() {
         node.campaign()?; // No votes/acceptances: none has a new global fence.
-        node.advertise_component_candidate(ComponentCandidate {
-            runtime_id: EntityId::new(),
-            profile_digest: Digest::blake3(b"configured fixture model, not inference evidence"),
-            preference: None,
-        })?;
+        let runtime_id = EntityId::new();
+        node.advertise_component_runtime(
+            runtime_id,
+            (index != 2).then_some(ComponentCandidate {
+                runtime_id,
+                profile_digest: Digest::blake3(b"configured fixture model, not inference evidence"),
+                preference: None,
+            }),
+        )?;
     }
     let a_id = nodes[0].local_node_id()?.context("a missing")?;
     let b_id = nodes[1].local_node_id()?.context("b missing")?;
     let coordinator = a_id.min(b_id);
     let (a, remaining) = nodes.split_first_mut().context("a missing")?;
-    let b = &mut remaining[0];
+    let (b, remaining) = remaining.split_first_mut().context("b missing")?;
+    let c = &mut remaining[0]; // A model-free resident still participates in agreement.
     a.open_availability_branch(
         identity.branch_id,
         Some(identity.agent_id),
         "previous isolated episode",
     )?;
-    let first = proposal(a, b, coordinator)?;
+    let first = proposal(a, b, c, coordinator)?;
+    first.validate()?;
+    assert_eq!(
+        first
+            .observations
+            .iter()
+            .filter(|observation| observation.reachable.len() == 2)
+            .count(),
+        2,
+        "the two followers cannot directly contact each other"
+    );
     let mut omitted = first.clone();
     omitted.observations[0].reachable.pop();
     assert!(
         omitted.validate().is_err(),
         "a reachable peer cannot be omitted"
+    );
+    let mut open_view = first.clone();
+    open_view.observations[0].reachable.push(EntityId::new());
+    open_view.observations[0].reachable.sort();
+    assert!(
+        open_view.validate().is_err(),
+        "a newly observed outside member prevents a closed agreement"
+    );
+    let mut unreachable_coordinator = first.clone();
+    let preferred_leaf = if coordinator == a_id { b_id } else { a_id };
+    unreachable_coordinator.coordinator = preferred_leaf;
+    unreachable_coordinator
+        .observations
+        .iter_mut()
+        .find(|observation| observation.presence.node_id == preferred_leaf)
+        .context("fixture candidate missing")?
+        .presence
+        .candidate
+        .as_mut()
+        .context("fixture candidate missing")?
+        .preference = Some(shenko_node::ComponentPreference {
+        rank: 1,
+        model_evidence: Digest::blake3(
+            b"supplied fixture preference; not measured model readiness",
+        ),
+    });
+    assert!(
+        unreachable_coordinator.validate().is_err(),
+        "a preferred leaf cannot silently delegate coordinator authority to the hub"
     );
     let a_observed = observed(a, &first)?;
     let a_ack = a.prepare_component(&first, &a_observed)?;
@@ -182,7 +245,16 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
     );
     let b_observed = observed(b, &first)?;
     let b_ack = b.prepare_component(&first, &b_observed)?;
-    let mut acknowledgements = vec![a_ack, b_ack];
+    let two_of_three = ComponentCertificate {
+        proposal: Box::new(first.clone()),
+        acknowledgements: vec![a_ack.clone(), b_ack.clone()],
+    };
+    assert!(
+        a.commit_component(&two_of_three).is_err(),
+        "both candidates still need the model-free follower's acknowledgement"
+    );
+    let c_ack = c.prepare_component(&first, &observed(c, &first)?)?;
+    let mut acknowledgements = vec![a_ack, b_ack, c_ack];
     acknowledgements.sort_by_key(|ack| ack.node_id);
     let certificate = ComponentCertificate {
         proposal: Box::new(first.clone()),
@@ -190,11 +262,14 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
     };
     a.commit_component(&certificate)?;
     b.commit_component(&certificate)?;
+    c.commit_component(&certificate)?;
     drop(nodes);
 
     let mut a = Node::open(&root.path().join("0"))?;
     let mut b = Node::open(&root.path().join("1"))?;
+    let mut c = Node::open(&root.path().join("2"))?;
     assert_eq!(a.component_presence()?.committed, Some(certificate.clone()));
+    assert_eq!(c.component_presence()?.committed, Some(certificate.clone()));
     assert_eq!(
         b.commit_component(&certificate)?,
         certificate,
@@ -219,6 +294,14 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
             )
             .is_err()
     );
+    assert!(
+        c.open_availability_branch(
+            first.branch_id,
+            Some(identity.agent_id),
+            "model-free follower cannot admit work"
+        )
+        .is_err()
+    );
     let historical = coordinator_node.branches()?;
     assert!(
         historical
@@ -228,11 +311,12 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
 
     // Another accepted view supersedes the first; replaying its old complete
     // certificate cannot regain authority after either participant restarts.
-    let second = proposal(&a, &b, coordinator)?;
+    let second = proposal(&a, &b, &c, coordinator)?;
     let next_a = a.prepare_component(&second, &observed(&a, &second)?)?;
     assert!(a.commit_component(&certificate).is_err());
     let next_b = b.prepare_component(&second, &observed(&b, &second)?)?;
-    let mut acknowledgements = vec![next_a, next_b];
+    let next_c = c.prepare_component(&second, &observed(&c, &second)?)?;
+    let mut acknowledgements = vec![next_a, next_b, next_c];
     acknowledgements.sort_by_key(|ack| ack.node_id);
     let next = ComponentCertificate {
         proposal: Box::new(second),
@@ -240,8 +324,11 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
     };
     a.commit_component(&next)?;
     b.commit_component(&next)?;
+    c.commit_component(&next)?;
     assert!(
-        a.fencing_token()?.is_none() && b.fencing_token()?.is_none(),
+        a.fencing_token()?.is_none()
+            && b.fencing_token()?.is_none()
+            && c.fencing_token()?.is_none(),
         "component never creates a global fence"
     );
     let coordinator_node = if coordinator == a_id { &mut a } else { &mut b };
@@ -261,10 +348,11 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
         retirement["operation"]["certificate"],
         serde_json::to_value(&next)?
     );
-    let third = proposal(&a, &b, coordinator)?;
+    let third = proposal(&a, &b, &c, coordinator)?;
     let mut acknowledgements = vec![
         a.prepare_component(&third, &observed(&a, &third)?)?,
         b.prepare_component(&third, &observed(&b, &third)?)?,
+        c.prepare_component(&third, &observed(&c, &third)?)?,
     ];
     acknowledgements.sort_by_key(|ack| ack.node_id);
     let renewed = ComponentCertificate {
@@ -273,6 +361,7 @@ fn minority_agreement_survives_reopen_and_supersession_fences_original_branch() 
     };
     a.commit_component(&renewed)?;
     b.commit_component(&renewed)?;
+    c.commit_component(&renewed)?;
     a.campaign()?;
     assert!(
         a.component_presence()?.committed.is_none(),

@@ -1,0 +1,6722 @@
+{
+  "baseline": "84ae19404f2a17d259362c99091db408b7262e14",
+  "candidate": "cd4b7cc2b03397ec4657b5037e30e8d0c26553f9",
+  "toolchain": "1.98.1",
+  "edition": "2024",
+  "rustc_path": "/usr/local/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "clippy": "clippy 0.1.98 (48a229ceae 2026-09-01)",
+  "lint_discovery_command": [
+    "/usr/local/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "--edition",
+    "2024",
+    "-W",
+    "help"
+  ],
+  "rust_warning_probe": {
+    "discovered_lints": [
+      "aarch64-softfloat-neon",
+      "ambiguous-derive-helpers",
+      "ambiguous-glob-imported-traits",
+      "ambiguous-glob-reexports",
+      "ambiguous-import-visibilities",
+      "ambiguous-panic-imports",
+      "ambiguous-wide-pointer-comparisons",
+      "anonymous-parameters",
+      "array-into-iter",
+      "asm-sub-register",
+      "async-fn-in-trait",
+      "bad-asm-style",
+      "bare-trait-objects",
+      "boxed-slice-into-iter",
+      "break-with-label-and-loop",
+      "c-void-returns",
+      "clashing-extern-declarations",
+      "coherence-leak-check",
+      "confusable-idents",
+      "const-evaluatable-unchecked",
+      "const-item-interior-mutations",
+      "const-item-mutation",
+      "dangling-pointers-from-locals",
+      "dangling-pointers-from-temporaries",
+      "dead-code",
+      "deprecated",
+      "deprecated-where-clause-location",
+      "double-negations",
+      "drop-bounds",
+      "dropping-copy-types",
+      "dropping-references",
+      "duplicate-macro-attributes",
+      "dyn-drop",
+      "ellipsis-inclusive-range-patterns",
+      "exported-private-dependencies",
+      "float-literal-f32-fallback",
+      "for-loops-over-fallibles",
+      "forbidden-lint-groups",
+      "forgetting-copy-types",
+      "forgetting-references",
+      "function-casts-as-integer",
+      "function-item-references",
+      "hidden-glob-reexports",
+      "improper-ctypes",
+      "improper-ctypes-definitions",
+      "improper-gpu-kernel-arg",
+      "incomplete-features",
+      "inline-no-sanitize",
+      "integer-to-ptr-transmutes",
+      "internal-eq-trait-method-impls",
+      "internal-features",
+      "invalid-doc-attributes",
+      "invalid-from-utf8",
+      "invalid-nan-comparisons",
+      "invalid-value",
+      "irrefutable-let-patterns",
+      "large-assignments",
+      "late-bound-lifetime-arguments",
+      "linker-messages",
+      "malformed-diagnostic-attributes",
+      "malformed-diagnostic-format-literals",
+      "map-unit-fn",
+      "mismatched-lifetime-syntaxes",
+      "misplaced-diagnostic-attributes",
+      "missing-abi",
+      "missing-gpu-kernel-export-name",
+      "mixed-script-confusables",
+      "named-arguments-used-positionally",
+      "no-mangle-generic-items",
+      "non-camel-case-types",
+      "non-contiguous-range-endpoints",
+      "non-fmt-panics",
+      "non-local-definitions",
+      "non-shorthand-field-patterns",
+      "non-snake-case",
+      "non-upper-case-globals",
+      "noop-method-call",
+      "opaque-hidden-inferred-bound",
+      "overlapping-range-endpoints",
+      "path-statements",
+      "private-bounds",
+      "private-interfaces",
+      "ptr-to-integer-transmute-in-consts",
+      "redundant-semicolons",
+      "refining-impl-trait-internal",
+      "refining-impl-trait-reachable",
+      "renamed-and-removed-lints",
+      "repr-c-enums-larger-than-int",
+      "rtsan-nonblocking-async",
+      "self-constructor-from-outer-item",
+      "special-module-name",
+      "stable-features",
+      "suspicious-double-ref-op",
+      "suspicious-runtime-symbol-definitions",
+      "tail-call-track-caller",
+      "trivial-bounds",
+      "type-alias-bounds",
+      "tyvar-behind-raw-pointer",
+      "uncommon-codepoints",
+      "unconditional-recursion",
+      "uncovered-param-in-projection",
+      "unexpected-cfgs",
+      "unfulfilled-lint-expectations",
+      "ungated-async-fn-track-caller",
+      "unknown-diagnostic-attributes",
+      "unknown-lints",
+      "unnameable-test-items",
+      "unnecessary-transmutes",
+      "unpredictable-function-pointer-comparisons",
+      "unreachable-cfg-select-predicates",
+      "unreachable-code",
+      "unreachable-patterns",
+      "unsafe-op-in-unsafe-fn",
+      "unstable-name-collisions",
+      "unstable-syntax-pre-expansion",
+      "unsupported-calling-conventions",
+      "unused-allocation",
+      "unused-assignments",
+      "unused-associated-type-bounds",
+      "unused-attributes",
+      "unused-braces",
+      "unused-comparisons",
+      "unused-doc-comments",
+      "unused-features",
+      "unused-imports",
+      "unused-labels",
+      "unused-macros",
+      "unused-must-use",
+      "unused-mut",
+      "unused-parens",
+      "unused-unsafe",
+      "unused-variables",
+      "unused-visibilities",
+      "useless-ptr-null-checks",
+      "uses-power-alignment",
+      "while-true"
+    ],
+    "unavailable_lints": [
+      "tail-call-track-caller"
+    ],
+    "initial": {
+      "command": [
+        "/usr/local/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+        "--edition",
+        "2024",
+        "--crate-name",
+        "shenko_lint_policy_probe",
+        "--crate-type",
+        "lib",
+        "--emit",
+        "metadata",
+        "--error-format",
+        "json",
+        "--force-warn",
+        "aarch64-softfloat-neon",
+        "--force-warn",
+        "ambiguous-derive-helpers",
+        "--force-warn",
+        "ambiguous-glob-imported-traits",
+        "--force-warn",
+        "ambiguous-glob-reexports",
+        "--force-warn",
+        "ambiguous-import-visibilities",
+        "--force-warn",
+        "ambiguous-panic-imports",
+        "--force-warn",
+        "ambiguous-wide-pointer-comparisons",
+        "--force-warn",
+        "anonymous-parameters",
+        "--force-warn",
+        "array-into-iter",
+        "--force-warn",
+        "asm-sub-register",
+        "--force-warn",
+        "async-fn-in-trait",
+        "--force-warn",
+        "bad-asm-style",
+        "--force-warn",
+        "bare-trait-objects",
+        "--force-warn",
+        "boxed-slice-into-iter",
+        "--force-warn",
+        "break-with-label-and-loop",
+        "--force-warn",
+        "c-void-returns",
+        "--force-warn",
+        "clashing-extern-declarations",
+        "--force-warn",
+        "coherence-leak-check",
+        "--force-warn",
+        "confusable-idents",
+        "--force-warn",
+        "const-evaluatable-unchecked",
+        "--force-warn",
+        "const-item-interior-mutations",
+        "--force-warn",
+        "const-item-mutation",
+        "--force-warn",
+        "dangling-pointers-from-locals",
+        "--force-warn",
+        "dangling-pointers-from-temporaries",
+        "--force-warn",
+        "dead-code",
+        "--force-warn",
+        "deprecated",
+        "--force-warn",
+        "deprecated-where-clause-location",
+        "--force-warn",
+        "double-negations",
+        "--force-warn",
+        "drop-bounds",
+        "--force-warn",
+        "dropping-copy-types",
+        "--force-warn",
+        "dropping-references",
+        "--force-warn",
+        "duplicate-macro-attributes",
+        "--force-warn",
+        "dyn-drop",
+        "--force-warn",
+        "ellipsis-inclusive-range-patterns",
+        "--force-warn",
+        "exported-private-dependencies",
+        "--force-warn",
+        "float-literal-f32-fallback",
+        "--force-warn",
+        "for-loops-over-fallibles",
+        "--force-warn",
+        "forbidden-lint-groups",
+        "--force-warn",
+        "forgetting-copy-types",
+        "--force-warn",
+        "forgetting-references",
+        "--force-warn",
+        "function-casts-as-integer",
+        "--force-warn",
+        "function-item-references",
+        "--force-warn",
+        "hidden-glob-reexports",
+        "--force-warn",
+        "improper-ctypes",
+        "--force-warn",
+        "improper-ctypes-definitions",
+        "--force-warn",
+        "improper-gpu-kernel-arg",
+        "--force-warn",
+        "incomplete-features",
+        "--force-warn",
+        "inline-no-sanitize",
+        "--force-warn",
+        "integer-to-ptr-transmutes",
+        "--force-warn",
+        "internal-eq-trait-method-impls",
+        "--force-warn",
+        "internal-features",
+        "--force-warn",
+        "invalid-doc-attributes",
+        "--force-warn",
+        "invalid-from-utf8",
+        "--force-warn",
+        "invalid-nan-comparisons",
+        "--force-warn",
+        "invalid-value",
+        "--force-warn",
+        "irrefutable-let-patterns",
+        "--force-warn",
+        "large-assignments",
+        "--force-warn",
+        "late-bound-lifetime-arguments",
+        "--force-warn",
+        "linker-messages",
+        "--force-warn",
+        "malformed-diagnostic-attributes",
+        "--force-warn",
+        "malformed-diagnostic-format-literals",
+        "--force-warn",
+        "map-unit-fn",
+        "--force-warn",
+        "mismatched-lifetime-syntaxes",
+        "--force-warn",
+        "misplaced-diagnostic-attributes",
+        "--force-warn",
+        "missing-abi",
+        "--force-warn",
+        "missing-gpu-kernel-export-name",
+        "--force-warn",
+        "mixed-script-confusables",
+        "--force-warn",
+        "named-arguments-used-positionally",
+        "--force-warn",
+        "no-mangle-generic-items",
+        "--force-warn",
+        "non-camel-case-types",
+        "--force-warn",
+        "non-contiguous-range-endpoints",
+        "--force-warn",
+        "non-fmt-panics",
+        "--force-warn",
+        "non-local-definitions",
+        "--force-warn",
+        "non-shorthand-field-patterns",
+        "--force-warn",
+        "non-snake-case",
+        "--force-warn",
+        "non-upper-case-globals",
+        "--force-warn",
+        "noop-method-call",
+        "--force-warn",
+        "opaque-hidden-inferred-bound",
+        "--force-warn",
+        "overlapping-range-endpoints",
+        "--force-warn",
+        "path-statements",
+        "--force-warn",
+        "private-bounds",
+        "--force-warn",
+        "private-interfaces",
+        "--force-warn",
+        "ptr-to-integer-transmute-in-consts",
+        "--force-warn",
+        "redundant-semicolons",
+        "--force-warn",
+        "refining-impl-trait-internal",
+        "--force-warn",
+        "refining-impl-trait-reachable",
+        "--force-warn",
+        "renamed-and-removed-lints",
+        "--force-warn",
+        "repr-c-enums-larger-than-int",
+        "--force-warn",
+        "rtsan-nonblocking-async",
+        "--force-warn",
+        "self-constructor-from-outer-item",
+        "--force-warn",
+        "special-module-name",
+        "--force-warn",
+        "stable-features",
+        "--force-warn",
+        "suspicious-double-ref-op",
+        "--force-warn",
+        "suspicious-runtime-symbol-definitions",
+        "--force-warn",
+        "tail-call-track-caller",
+        "--force-warn",
+        "trivial-bounds",
+        "--force-warn",
+        "type-alias-bounds",
+        "--force-warn",
+        "tyvar-behind-raw-pointer",
+        "--force-warn",
+        "uncommon-codepoints",
+        "--force-warn",
+        "unconditional-recursion",
+        "--force-warn",
+        "uncovered-param-in-projection",
+        "--force-warn",
+        "unexpected-cfgs",
+        "--force-warn",
+        "unfulfilled-lint-expectations",
+        "--force-warn",
+        "ungated-async-fn-track-caller",
+        "--force-warn",
+        "unknown-diagnostic-attributes",
+        "--force-warn",
+        "unknown-lints",
+        "--force-warn",
+        "unnameable-test-items",
+        "--force-warn",
+        "unnecessary-transmutes",
+        "--force-warn",
+        "unpredictable-function-pointer-comparisons",
+        "--force-warn",
+        "unreachable-cfg-select-predicates",
+        "--force-warn",
+        "unreachable-code",
+        "--force-warn",
+        "unreachable-patterns",
+        "--force-warn",
+        "unsafe-op-in-unsafe-fn",
+        "--force-warn",
+        "unstable-name-collisions",
+        "--force-warn",
+        "unstable-syntax-pre-expansion",
+        "--force-warn",
+        "unsupported-calling-conventions",
+        "--force-warn",
+        "unused-allocation",
+        "--force-warn",
+        "unused-assignments",
+        "--force-warn",
+        "unused-associated-type-bounds",
+        "--force-warn",
+        "unused-attributes",
+        "--force-warn",
+        "unused-braces",
+        "--force-warn",
+        "unused-comparisons",
+        "--force-warn",
+        "unused-doc-comments",
+        "--force-warn",
+        "unused-features",
+        "--force-warn",
+        "unused-imports",
+        "--force-warn",
+        "unused-labels",
+        "--force-warn",
+        "unused-macros",
+        "--force-warn",
+        "unused-must-use",
+        "--force-warn",
+        "unused-mut",
+        "--force-warn",
+        "unused-parens",
+        "--force-warn",
+        "unused-unsafe",
+        "--force-warn",
+        "unused-variables",
+        "--force-warn",
+        "unused-visibilities",
+        "--force-warn",
+        "useless-ptr-null-checks",
+        "--force-warn",
+        "uses-power-alignment",
+        "--force-warn",
+        "while-true",
+        "-o",
+        "/__w/shenko/shenko/.ci/evidence/clippy/rustc-warning-probe-discovered.rmeta",
+        "/__w/shenko/shenko/.ci/evidence/clippy/rustc-warning-probe.rs"
+      ],
+      "returncode": 0,
+      "diagnostics": "rustc-warning-probe-discovered.jsonl",
+      "source": "pub fn clippy_ratchet_probe() {}\n"
+    },
+    "verified": {
+      "command": [
+        "/usr/local/rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+        "--edition",
+        "2024",
+        "--crate-name",
+        "shenko_lint_policy_probe",
+        "--crate-type",
+        "lib",
+        "--emit",
+        "metadata",
+        "--error-format",
+        "json",
+        "--force-warn",
+        "aarch64-softfloat-neon",
+        "--force-warn",
+        "ambiguous-derive-helpers",
+        "--force-warn",
+        "ambiguous-glob-imported-traits",
+        "--force-warn",
+        "ambiguous-glob-reexports",
+        "--force-warn",
+        "ambiguous-import-visibilities",
+        "--force-warn",
+        "ambiguous-panic-imports",
+        "--force-warn",
+        "ambiguous-wide-pointer-comparisons",
+        "--force-warn",
+        "anonymous-parameters",
+        "--force-warn",
+        "array-into-iter",
+        "--force-warn",
+        "asm-sub-register",
+        "--force-warn",
+        "async-fn-in-trait",
+        "--force-warn",
+        "bad-asm-style",
+        "--force-warn",
+        "bare-trait-objects",
+        "--force-warn",
+        "boxed-slice-into-iter",
+        "--force-warn",
+        "break-with-label-and-loop",
+        "--force-warn",
+        "c-void-returns",
+        "--force-warn",
+        "clashing-extern-declarations",
+        "--force-warn",
+        "coherence-leak-check",
+        "--force-warn",
+        "confusable-idents",
+        "--force-warn",
+        "const-evaluatable-unchecked",
+        "--force-warn",
+        "const-item-interior-mutations",
+        "--force-warn",
+        "const-item-mutation",
+        "--force-warn",
+        "dangling-pointers-from-locals",
+        "--force-warn",
+        "dangling-pointers-from-temporaries",
+        "--force-warn",
+        "dead-code",
+        "--force-warn",
+        "deprecated",
+        "--force-warn",
+        "deprecated-where-clause-location",
+        "--force-warn",
+        "double-negations",
+        "--force-warn",
+        "drop-bounds",
+        "--force-warn",
+        "dropping-copy-types",
+        "--force-warn",
+        "dropping-references",
+        "--force-warn",
+        "duplicate-macro-attributes",
+        "--force-warn",
+        "dyn-drop",
+        "--force-warn",
+        "ellipsis-inclusive-range-patterns",
+        "--force-warn",
+        "exported-private-dependencies",
+        "--force-warn",
+        "float-literal-f32-fallback",
+        "--force-warn",
+        "for-loops-over-fallibles",
+        "--force-warn",
+        "forbidden-lint-groups",
+        "--force-warn",
+        "forgetting-copy-types",
+        "--force-warn",
+        "forgetting-references",
+        "--force-warn",
+        "function-casts-as-integer",
+        "--force-warn",
+        "function-item-references",
+        "--force-warn",
+        "hidden-glob-reexports",
+        "--force-warn",
+        "improper-ctypes",
+        "--force-warn",
+        "improper-ctypes-definitions",
+        "--force-warn",
+        "improper-gpu-kernel-arg",
+        "--force-warn",
+        "incomplete-features",
+        "--force-warn",
+        "inline-no-sanitize",
+        "--force-warn",
+        "integer-to-ptr-transmutes",
+        "--force-warn",
+        "internal-eq-trait-method-impls",
+        "--force-warn",
+        "internal-features",
+        "--force-warn",
+        "invalid-doc-attributes",
+        "--force-warn",
+        "invalid-from-utf8",
+        "--force-warn",
+        "invalid-nan-comparisons",
+        "--force-warn",
+        "invalid-value",
+        "--force-warn",
+        "irrefutable-let-patterns",
+        "--force-warn",
+        "large-assignments",
+        "--force-warn",
+        "late-bound-lifetime-arguments",
+        "--force-warn",
+        "linker-messages",
+        "--force-warn",
+        "malformed-diagnostic-attributes",
+        "--force-warn",
+        "malformed-diagnostic-format-literals",
+        "--force-warn",
+        "map-unit-fn",
+        "--force-warn",
+        "mismatched-lifetime-syntaxes",
+        "--force-warn",
+        "misplaced-diagnostic-attributes",
+        "--force-warn",
+        "missing-abi",
+        "--force-warn",
+        "missing-gpu-kernel-export-name",
+        "--force-warn",
+        "mixed-script-confusables",
+        "--force-warn",
+        "named-arguments-used-positionally",
+        "--force-warn",
+        "no-mangle-generic-items",
+        "--force-warn",
+        "non-camel-case-types",
+        "--force-warn",
+        "non-contiguous-range-endpoints",
+        "--force-warn",
+        "non-fmt-panics",
+        "--force-warn",
+        "non-local-definitions",
+        "--force-warn",
+        "non-shorthand-field-patterns",
+        "--force-warn",
+        "non-snake-case",
+        "--force-warn",
+        "non-upper-case-globals",
+        "--force-warn",
+        "noop-method-call",
+        "--force-warn",
+        "opaque-hidden-inferred-bound",
+        "--force-warn",
+        "overlapping-range-endpoints",
+        "--force-warn",
+        "path-statements",
+        "--force-warn",
+        "private-bounds",
+        "--force-warn",
+        "private-interfaces",
+        "--force-warn",
+        "ptr-to-integer-transmute-in-consts",
+        "--force-warn",
+        "redundant-semicolons",
+        "--force-warn",
+        "refining-impl-trait-internal",
+        "--force-warn",
+        "refining-impl-trait-reachable",
+        "--force-warn",
+        "renamed-and-removed-lints",
+        "--force-warn",
+        "repr-c-enums-larger-than-int",
+        "--force-warn",
+        "rtsan-nonblocking-async",
+        "--force-warn",
+        "self-constructor-from-outer-item",
+        "--force-warn",
+        "special-module-name",
+        "--force-warn",
+        "stable-features",
+        "--force-warn",
+        "suspicious-double-ref-op",
+        "--force-warn",
+        "suspicious-runtime-symbol-definitions",
+        "--force-warn",
+        "trivial-bounds",
+        "--force-warn",
+        "type-alias-bounds",
+        "--force-warn",
+        "tyvar-behind-raw-pointer",
+        "--force-warn",
+        "uncommon-codepoints",
+        "--force-warn",
+        "unconditional-recursion",
+        "--force-warn",
+        "uncovered-param-in-projection",
+        "--force-warn",
+        "unexpected-cfgs",
+        "--force-warn",
+        "unfulfilled-lint-expectations",
+        "--force-warn",
+        "ungated-async-fn-track-caller",
+        "--force-warn",
+        "unknown-diagnostic-attributes",
+        "--force-warn",
+        "unknown-lints",
+        "--force-warn",
+        "unnameable-test-items",
+        "--force-warn",
+        "unnecessary-transmutes",
+        "--force-warn",
+        "unpredictable-function-pointer-comparisons",
+        "--force-warn",
+        "unreachable-cfg-select-predicates",
+        "--force-warn",
+        "unreachable-code",
+        "--force-warn",
+        "unreachable-patterns",
+        "--force-warn",
+        "unsafe-op-in-unsafe-fn",
+        "--force-warn",
+        "unstable-name-collisions",
+        "--force-warn",
+        "unstable-syntax-pre-expansion",
+        "--force-warn",
+        "unsupported-calling-conventions",
+        "--force-warn",
+        "unused-allocation",
+        "--force-warn",
+        "unused-assignments",
+        "--force-warn",
+        "unused-associated-type-bounds",
+        "--force-warn",
+        "unused-attributes",
+        "--force-warn",
+        "unused-braces",
+        "--force-warn",
+        "unused-comparisons",
+        "--force-warn",
+        "unused-doc-comments",
+        "--force-warn",
+        "unused-features",
+        "--force-warn",
+        "unused-imports",
+        "--force-warn",
+        "unused-labels",
+        "--force-warn",
+        "unused-macros",
+        "--force-warn",
+        "unused-must-use",
+        "--force-warn",
+        "unused-mut",
+        "--force-warn",
+        "unused-parens",
+        "--force-warn",
+        "unused-unsafe",
+        "--force-warn",
+        "unused-variables",
+        "--force-warn",
+        "unused-visibilities",
+        "--force-warn",
+        "useless-ptr-null-checks",
+        "--force-warn",
+        "uses-power-alignment",
+        "--force-warn",
+        "while-true",
+        "-o",
+        "/__w/shenko/shenko/.ci/evidence/clippy/rustc-warning-probe-accepted.rmeta",
+        "/__w/shenko/shenko/.ci/evidence/clippy/rustc-warning-probe.rs"
+      ],
+      "returncode": 0,
+      "diagnostics": "rustc-warning-probe-accepted.jsonl",
+      "source": "pub fn clippy_ratchet_probe() {}\n"
+    }
+  },
+  "rust_warning_lints": [
+    "aarch64-softfloat-neon",
+    "ambiguous-derive-helpers",
+    "ambiguous-glob-imported-traits",
+    "ambiguous-glob-reexports",
+    "ambiguous-import-visibilities",
+    "ambiguous-panic-imports",
+    "ambiguous-wide-pointer-comparisons",
+    "anonymous-parameters",
+    "array-into-iter",
+    "asm-sub-register",
+    "async-fn-in-trait",
+    "bad-asm-style",
+    "bare-trait-objects",
+    "boxed-slice-into-iter",
+    "break-with-label-and-loop",
+    "c-void-returns",
+    "clashing-extern-declarations",
+    "coherence-leak-check",
+    "confusable-idents",
+    "const-evaluatable-unchecked",
+    "const-item-interior-mutations",
+    "const-item-mutation",
+    "dangling-pointers-from-locals",
+    "dangling-pointers-from-temporaries",
+    "dead-code",
+    "deprecated",
+    "deprecated-where-clause-location",
+    "double-negations",
+    "drop-bounds",
+    "dropping-copy-types",
+    "dropping-references",
+    "duplicate-macro-attributes",
+    "dyn-drop",
+    "ellipsis-inclusive-range-patterns",
+    "exported-private-dependencies",
+    "float-literal-f32-fallback",
+    "for-loops-over-fallibles",
+    "forbidden-lint-groups",
+    "forgetting-copy-types",
+    "forgetting-references",
+    "function-casts-as-integer",
+    "function-item-references",
+    "hidden-glob-reexports",
+    "improper-ctypes",
+    "improper-ctypes-definitions",
+    "improper-gpu-kernel-arg",
+    "incomplete-features",
+    "inline-no-sanitize",
+    "integer-to-ptr-transmutes",
+    "internal-eq-trait-method-impls",
+    "internal-features",
+    "invalid-doc-attributes",
+    "invalid-from-utf8",
+    "invalid-nan-comparisons",
+    "invalid-value",
+    "irrefutable-let-patterns",
+    "large-assignments",
+    "late-bound-lifetime-arguments",
+    "linker-messages",
+    "malformed-diagnostic-attributes",
+    "malformed-diagnostic-format-literals",
+    "map-unit-fn",
+    "mismatched-lifetime-syntaxes",
+    "misplaced-diagnostic-attributes",
+    "missing-abi",
+    "missing-gpu-kernel-export-name",
+    "mixed-script-confusables",
+    "named-arguments-used-positionally",
+    "no-mangle-generic-items",
+    "non-camel-case-types",
+    "non-contiguous-range-endpoints",
+    "non-fmt-panics",
+    "non-local-definitions",
+    "non-shorthand-field-patterns",
+    "non-snake-case",
+    "non-upper-case-globals",
+    "noop-method-call",
+    "opaque-hidden-inferred-bound",
+    "overlapping-range-endpoints",
+    "path-statements",
+    "private-bounds",
+    "private-interfaces",
+    "ptr-to-integer-transmute-in-consts",
+    "redundant-semicolons",
+    "refining-impl-trait-internal",
+    "refining-impl-trait-reachable",
+    "renamed-and-removed-lints",
+    "repr-c-enums-larger-than-int",
+    "rtsan-nonblocking-async",
+    "self-constructor-from-outer-item",
+    "special-module-name",
+    "stable-features",
+    "suspicious-double-ref-op",
+    "suspicious-runtime-symbol-definitions",
+    "trivial-bounds",
+    "type-alias-bounds",
+    "tyvar-behind-raw-pointer",
+    "uncommon-codepoints",
+    "unconditional-recursion",
+    "uncovered-param-in-projection",
+    "unexpected-cfgs",
+    "unfulfilled-lint-expectations",
+    "ungated-async-fn-track-caller",
+    "unknown-diagnostic-attributes",
+    "unknown-lints",
+    "unnameable-test-items",
+    "unnecessary-transmutes",
+    "unpredictable-function-pointer-comparisons",
+    "unreachable-cfg-select-predicates",
+    "unreachable-code",
+    "unreachable-patterns",
+    "unsafe-op-in-unsafe-fn",
+    "unstable-name-collisions",
+    "unstable-syntax-pre-expansion",
+    "unsupported-calling-conventions",
+    "unused-allocation",
+    "unused-assignments",
+    "unused-associated-type-bounds",
+    "unused-attributes",
+    "unused-braces",
+    "unused-comparisons",
+    "unused-doc-comments",
+    "unused-features",
+    "unused-imports",
+    "unused-labels",
+    "unused-macros",
+    "unused-must-use",
+    "unused-mut",
+    "unused-parens",
+    "unused-unsafe",
+    "unused-variables",
+    "unused-visibilities",
+    "useless-ptr-null-checks",
+    "uses-power-alignment",
+    "while-true"
+  ],
+  "flags": [
+    "--force-warn",
+    "aarch64-softfloat-neon",
+    "--force-warn",
+    "ambiguous-derive-helpers",
+    "--force-warn",
+    "ambiguous-glob-imported-traits",
+    "--force-warn",
+    "ambiguous-glob-reexports",
+    "--force-warn",
+    "ambiguous-import-visibilities",
+    "--force-warn",
+    "ambiguous-panic-imports",
+    "--force-warn",
+    "ambiguous-wide-pointer-comparisons",
+    "--force-warn",
+    "anonymous-parameters",
+    "--force-warn",
+    "array-into-iter",
+    "--force-warn",
+    "asm-sub-register",
+    "--force-warn",
+    "async-fn-in-trait",
+    "--force-warn",
+    "bad-asm-style",
+    "--force-warn",
+    "bare-trait-objects",
+    "--force-warn",
+    "boxed-slice-into-iter",
+    "--force-warn",
+    "break-with-label-and-loop",
+    "--force-warn",
+    "c-void-returns",
+    "--force-warn",
+    "clashing-extern-declarations",
+    "--force-warn",
+    "coherence-leak-check",
+    "--force-warn",
+    "confusable-idents",
+    "--force-warn",
+    "const-evaluatable-unchecked",
+    "--force-warn",
+    "const-item-interior-mutations",
+    "--force-warn",
+    "const-item-mutation",
+    "--force-warn",
+    "dangling-pointers-from-locals",
+    "--force-warn",
+    "dangling-pointers-from-temporaries",
+    "--force-warn",
+    "dead-code",
+    "--force-warn",
+    "deprecated",
+    "--force-warn",
+    "deprecated-where-clause-location",
+    "--force-warn",
+    "double-negations",
+    "--force-warn",
+    "drop-bounds",
+    "--force-warn",
+    "dropping-copy-types",
+    "--force-warn",
+    "dropping-references",
+    "--force-warn",
+    "duplicate-macro-attributes",
+    "--force-warn",
+    "dyn-drop",
+    "--force-warn",
+    "ellipsis-inclusive-range-patterns",
+    "--force-warn",
+    "exported-private-dependencies",
+    "--force-warn",
+    "float-literal-f32-fallback",
+    "--force-warn",
+    "for-loops-over-fallibles",
+    "--force-warn",
+    "forbidden-lint-groups",
+    "--force-warn",
+    "forgetting-copy-types",
+    "--force-warn",
+    "forgetting-references",
+    "--force-warn",
+    "function-casts-as-integer",
+    "--force-warn",
+    "function-item-references",
+    "--force-warn",
+    "hidden-glob-reexports",
+    "--force-warn",
+    "improper-ctypes",
+    "--force-warn",
+    "improper-ctypes-definitions",
+    "--force-warn",
+    "improper-gpu-kernel-arg",
+    "--force-warn",
+    "incomplete-features",
+    "--force-warn",
+    "inline-no-sanitize",
+    "--force-warn",
+    "integer-to-ptr-transmutes",
+    "--force-warn",
+    "internal-eq-trait-method-impls",
+    "--force-warn",
+    "internal-features",
+    "--force-warn",
+    "invalid-doc-attributes",
+    "--force-warn",
+    "invalid-from-utf8",
+    "--force-warn",
+    "invalid-nan-comparisons",
+    "--force-warn",
+    "invalid-value",
+    "--force-warn",
+    "irrefutable-let-patterns",
+    "--force-warn",
+    "large-assignments",
+    "--force-warn",
+    "late-bound-lifetime-arguments",
+    "--force-warn",
+    "linker-messages",
+    "--force-warn",
+    "malformed-diagnostic-attributes",
+    "--force-warn",
+    "malformed-diagnostic-format-literals",
+    "--force-warn",
+    "map-unit-fn",
+    "--force-warn",
+    "mismatched-lifetime-syntaxes",
+    "--force-warn",
+    "misplaced-diagnostic-attributes",
+    "--force-warn",
+    "missing-abi",
+    "--force-warn",
+    "missing-gpu-kernel-export-name",
+    "--force-warn",
+    "mixed-script-confusables",
+    "--force-warn",
+    "named-arguments-used-positionally",
+    "--force-warn",
+    "no-mangle-generic-items",
+    "--force-warn",
+    "non-camel-case-types",
+    "--force-warn",
+    "non-contiguous-range-endpoints",
+    "--force-warn",
+    "non-fmt-panics",
+    "--force-warn",
+    "non-local-definitions",
+    "--force-warn",
+    "non-shorthand-field-patterns",
+    "--force-warn",
+    "non-snake-case",
+    "--force-warn",
+    "non-upper-case-globals",
+    "--force-warn",
+    "noop-method-call",
+    "--force-warn",
+    "opaque-hidden-inferred-bound",
+    "--force-warn",
+    "overlapping-range-endpoints",
+    "--force-warn",
+    "path-statements",
+    "--force-warn",
+    "private-bounds",
+    "--force-warn",
+    "private-interfaces",
+    "--force-warn",
+    "ptr-to-integer-transmute-in-consts",
+    "--force-warn",
+    "redundant-semicolons",
+    "--force-warn",
+    "refining-impl-trait-internal",
+    "--force-warn",
+    "refining-impl-trait-reachable",
+    "--force-warn",
+    "renamed-and-removed-lints",
+    "--force-warn",
+    "repr-c-enums-larger-than-int",
+    "--force-warn",
+    "rtsan-nonblocking-async",
+    "--force-warn",
+    "self-constructor-from-outer-item",
+    "--force-warn",
+    "special-module-name",
+    "--force-warn",
+    "stable-features",
+    "--force-warn",
+    "suspicious-double-ref-op",
+    "--force-warn",
+    "suspicious-runtime-symbol-definitions",
+    "--force-warn",
+    "trivial-bounds",
+    "--force-warn",
+    "type-alias-bounds",
+    "--force-warn",
+    "tyvar-behind-raw-pointer",
+    "--force-warn",
+    "uncommon-codepoints",
+    "--force-warn",
+    "unconditional-recursion",
+    "--force-warn",
+    "uncovered-param-in-projection",
+    "--force-warn",
+    "unexpected-cfgs",
+    "--force-warn",
+    "unfulfilled-lint-expectations",
+    "--force-warn",
+    "ungated-async-fn-track-caller",
+    "--force-warn",
+    "unknown-diagnostic-attributes",
+    "--force-warn",
+    "unknown-lints",
+    "--force-warn",
+    "unnameable-test-items",
+    "--force-warn",
+    "unnecessary-transmutes",
+    "--force-warn",
+    "unpredictable-function-pointer-comparisons",
+    "--force-warn",
+    "unreachable-cfg-select-predicates",
+    "--force-warn",
+    "unreachable-code",
+    "--force-warn",
+    "unreachable-patterns",
+    "--force-warn",
+    "unsafe-op-in-unsafe-fn",
+    "--force-warn",
+    "unstable-name-collisions",
+    "--force-warn",
+    "unstable-syntax-pre-expansion",
+    "--force-warn",
+    "unsupported-calling-conventions",
+    "--force-warn",
+    "unused-allocation",
+    "--force-warn",
+    "unused-assignments",
+    "--force-warn",
+    "unused-associated-type-bounds",
+    "--force-warn",
+    "unused-attributes",
+    "--force-warn",
+    "unused-braces",
+    "--force-warn",
+    "unused-comparisons",
+    "--force-warn",
+    "unused-doc-comments",
+    "--force-warn",
+    "unused-features",
+    "--force-warn",
+    "unused-imports",
+    "--force-warn",
+    "unused-labels",
+    "--force-warn",
+    "unused-macros",
+    "--force-warn",
+    "unused-must-use",
+    "--force-warn",
+    "unused-mut",
+    "--force-warn",
+    "unused-parens",
+    "--force-warn",
+    "unused-unsafe",
+    "--force-warn",
+    "unused-variables",
+    "--force-warn",
+    "unused-visibilities",
+    "--force-warn",
+    "useless-ptr-null-checks",
+    "--force-warn",
+    "uses-power-alignment",
+    "--force-warn",
+    "while-true",
+    "--force-warn",
+    "clippy::all",
+    "--force-warn",
+    "clippy::unwrap_used",
+    "--force-warn",
+    "clippy::expect_used"
+  ],
+  "comparisons": {
+    "production": {
+      "cargo_target_selection": [
+        "--lib",
+        "--bins"
+      ],
+      "production_only_lints_compared": true,
+      "baseline": [
+        {
+          "package": "shenko",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::expect_used",
+          "count": 5
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_return",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_variables",
+          "count": 11
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::should_implement_trait",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::empty_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::expect_used",
+          "count": 11
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::manual_checked_ops",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::map_entry",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unnecessary_map_or",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unused_variables",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::collapsible_if",
+          "count": 11
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_range_patterns",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_rotate",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::redundant_closure",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::single_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_variables",
+          "count": 5
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "unused_variables",
+          "count": 7
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "clippy::diverging_sub_expression",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "unreachable_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::redundant_closure",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::needless_lifetimes",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::collapsible_if",
+          "count": 18
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::expect_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::if_same_then_else",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::io_other_error",
+          "count": 5
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_async_fn",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_inspect",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrow",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::new_without_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::too_many_arguments",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unnecessary_lazy_evaluations",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "private_interfaces",
+          "count": 5
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_imports",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_variables",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::bool_comparison",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::format_in_format_args",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_range_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_strip",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::too_many_arguments",
+          "count": 11
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_cast",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_variables",
+          "count": 3
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::clone_on_copy",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::unwrap_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_variables",
+          "count": 3
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_or_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::map_clone",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::useless_conversion",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "private_interfaces",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::collapsible_if",
+          "count": 19
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::type_complexity",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_or_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::useless_format",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::match_like_matches_macro",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::neg_cmp_op_on_partial_ord",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::bool_comparison",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::collapsible_if",
+          "count": 5
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::expect_used",
+          "count": 10
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::too_many_arguments",
+          "count": 3
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unnecessary_to_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "irrefutable_let_patterns",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "unused_mut",
+          "count": 3
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cmp_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::collapsible_if",
+          "count": 40
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::empty_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::expect_used",
+          "count": 20
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::large_enum_variant",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_unit_value",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_contains",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::never_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::redundant_closure",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::type_complexity",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::unwrap_used",
+          "count": 5
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::useless_conversion",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_doc_comments",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_variables",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::collapsible_if",
+          "count": 16
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::expect_used",
+          "count": 14
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_inspect",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::too_many_arguments",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::while_let_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::inherent_to_string_shadow_display",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::collapsible_if",
+          "count": 13
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::expect_used",
+          "count": 11
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::map_entry",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::redundant_closure",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unnecessary_sort_by",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_variables",
+          "count": 6
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::collapsible_if",
+          "count": 5
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unwrap_used",
+          "count": 5
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::useless_conversion",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::expect_used",
+          "count": 31
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::too_many_arguments",
+          "count": 5
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unneeded_struct_pattern",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::while_let_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_mut",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_variables",
+          "count": 1
+        }
+      ],
+      "candidate": [
+        {
+          "package": "shenko",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::expect_used",
+          "count": 5
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_return",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_variables",
+          "count": 11
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::should_implement_trait",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::empty_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::expect_used",
+          "count": 11
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::manual_checked_ops",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::map_entry",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unnecessary_map_or",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unused_variables",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::collapsible_if",
+          "count": 11
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_range_patterns",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_rotate",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::redundant_closure",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::single_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_variables",
+          "count": 5
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "unused_variables",
+          "count": 7
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "clippy::diverging_sub_expression",
+          "count": 3
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "unreachable_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::redundant_closure",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::expect_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::needless_lifetimes",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::collapsible_if",
+          "count": 18
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::expect_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::if_same_then_else",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::io_other_error",
+          "count": 5
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_async_fn",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_inspect",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrow",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::new_without_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::too_many_arguments",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unnecessary_lazy_evaluations",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "private_interfaces",
+          "count": 5
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_imports",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_variables",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "ambiguous_glob_reexports",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::bool_comparison",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::format_in_format_args",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_range_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_strip",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::too_many_arguments",
+          "count": 11
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_cast",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::collapsible_if",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::clone_on_copy",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::unwrap_used",
+          "count": 3
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_variables",
+          "count": 3
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::collapsible_if",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_or_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::map_clone",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::too_many_arguments",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::useless_conversion",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "private_interfaces",
+          "count": 1
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::collapsible_if",
+          "count": 19
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::type_complexity",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_or_default",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::useless_format",
+          "count": 1
+        },
+        {
+          "package": "shenko-node",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::match_like_matches_macro",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::neg_cmp_op_on_partial_ord",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::bool_comparison",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::collapsible_if",
+          "count": 5
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::expect_used",
+          "count": 10
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::too_many_arguments",
+          "count": 3
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unnecessary_to_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "dead_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "irrefutable_let_patterns",
+          "count": 1
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "unused_mut",
+          "count": 3
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cmp_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::collapsible_if",
+          "count": 40
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::empty_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::expect_used",
+          "count": 20
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::large_enum_variant",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_unit_value",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_contains",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::never_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::redundant_closure",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::type_complexity",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::unwrap_used",
+          "count": 5
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::useless_conversion",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_doc_comments",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_variables",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::collapsible_if",
+          "count": 16
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::expect_used",
+          "count": 13
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_inspect",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::too_many_arguments",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::while_let_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_mut",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::inherent_to_string_shadow_display",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::collapsible_if",
+          "count": 13
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::derivable_impls",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::expect_used",
+          "count": 11
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::let_and_return",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::map_entry",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::needless_question_mark",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::redundant_closure",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unnecessary_sort_by",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_variables",
+          "count": 6
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::collapsible_if",
+          "count": 5
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unwrap_used",
+          "count": 5
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::useless_conversion",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_imports",
+          "count": 1
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_variables",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::expect_used",
+          "count": 31
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::large_enum_variant",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::manual_map",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_borrow",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_match",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::too_many_arguments",
+          "count": 5
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unneeded_struct_pattern",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::while_let_loop",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_mut",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_variables",
+          "count": 1
+        }
+      ],
+      "baseline_uncompared_production_only_diagnostics": [],
+      "candidate_uncompared_production_only_diagnostics": []
+    },
+    "all-targets": {
+      "cargo_target_selection": [
+        "--all-targets"
+      ],
+      "production_only_lints_compared": false,
+      "baseline": [
+        {
+          "package": "shenko",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::type_complexity",
+          "count": 4
+        },
+        {
+          "package": "shenko",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_variables",
+          "count": 23
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::should_implement_trait",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::empty_loop",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::field_reassign_with_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::let_and_return",
+          "count": 3
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::manual_checked_ops",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::map_entry",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::too_many_arguments",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unnecessary_map_or",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dropping_copy_types",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unreachable_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::collapsible_if",
+          "count": 22
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_range_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_rotate",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::needless_borrow",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::redundant_closure",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::single_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_variables",
+          "count": 10
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::collapsible_if",
+          "count": 24
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "unused_variables",
+          "count": 14
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "clippy::diverging_sub_expression",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "unreachable_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "unused_must_use",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::collapsible_if",
+          "count": 7
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::manual_async_fn",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::clone_on_copy",
+          "count": 1
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::collapsible_if",
+          "count": 16
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::items_after_test_module",
+          "count": 1
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 4
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::needless_lifetimes",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::clone_on_copy",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::collapsible_if",
+          "count": 37
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::if_same_then_else",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::io_other_error",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_async_fn",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_inspect",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrow",
+          "count": 8
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::new_without_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::too_many_arguments",
+          "count": 15
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unnecessary_lazy_evaluations",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "dead_code",
+          "count": 9
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "private_interfaces",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_imports",
+          "count": 19
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::bool_comparison",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::byte_char_slices",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_if",
+          "count": 20
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::format_in_format_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::let_and_return",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_range_patterns",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_strip",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::question_mark",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::too_many_arguments",
+          "count": 22
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_cast",
+          "count": 6
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_mut_passed",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_variables",
+          "count": 6
+        },
+        {
+          "package": "shenko-identity",
+          "lint": "clippy::items_after_test_module",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::useless_conversion",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_variables",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::needless_question_mark",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_or_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_imports",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 4
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::map_clone",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::useless_conversion",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "private_interfaces",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::bool_assert_comparison",
+          "count": 3
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::collapsible_if",
+          "count": 38
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::too_many_arguments",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::type_complexity",
+          "count": 8
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_or_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::useless_format",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 17
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::match_like_matches_macro",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::neg_cmp_op_on_partial_ord",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::bool_comparison",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::too_many_arguments",
+          "count": 6
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unnecessary_to_owned",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "irrefutable_let_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "unused_mut",
+          "count": 6
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::ptr_arg",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cmp_owned",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::collapsible_if",
+          "count": 80
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 10
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::empty_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::large_enum_variant",
+          "count": 6
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_unit_value",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_contains",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_question_mark",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::never_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::redundant_closure",
+          "count": 16
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::too_many_arguments",
+          "count": 20
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::type_complexity",
+          "count": 16
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::useless_conversion",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::while_let_loop",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "dead_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_doc_comments",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_imports",
+          "count": 7
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_mut",
+          "count": 5
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::clone_on_copy",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 11
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::collapsible_if",
+          "count": 32
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::err_expect",
+          "count": 3
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_inspect",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::redundant_closure",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "dead_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_imports",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_must_use",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_mut",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_variables",
+          "count": 9
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::inherent_to_string_shadow_display",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::collapsible_if",
+          "count": 26
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::map_entry",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unnecessary_sort_by",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "dead_code",
+          "count": 8
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "private_interfaces",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_variables",
+          "count": 13
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::needless_return",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::useless_conversion",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::cmp_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::collapsible_if",
+          "count": 20
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::err_expect",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::ptr_arg",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unneeded_struct_pattern",
+          "count": 4
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_mut",
+          "count": 7
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_variables",
+          "count": 2
+        }
+      ],
+      "candidate": [
+        {
+          "package": "shenko",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::type_complexity",
+          "count": 4
+        },
+        {
+          "package": "shenko",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko",
+          "lint": "unused_variables",
+          "count": 23
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::should_implement_trait",
+          "count": 2
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::collapsible_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::empty_loop",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::field_reassign_with_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::let_and_return",
+          "count": 3
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::manual_checked_ops",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::map_entry",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::too_many_arguments",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unnecessary_map_or",
+          "count": 2
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "dropping_copy_types",
+          "count": 1
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unreachable_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::collapsible_if",
+          "count": 22
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_range_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::manual_rotate",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::needless_borrow",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::redundant_closure",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::single_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "unused_variables",
+          "count": 10
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 4
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::collapsible_if",
+          "count": 24
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::type_complexity",
+          "count": 1
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "unused_variables",
+          "count": 14
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "clippy::diverging_sub_expression",
+          "count": 6
+        },
+        {
+          "package": "shenko-channel-napcat-link",
+          "lint": "unreachable_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "unused_must_use",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::collapsible_if",
+          "count": 7
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::manual_async_fn",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::clone_on_copy",
+          "count": 1
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::collapsible_if",
+          "count": 16
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::items_after_test_module",
+          "count": 1
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 4
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::collapsible_if",
+          "count": 2
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::needless_lifetimes",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::clone_on_copy",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::collapsible_if",
+          "count": 37
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::if_same_then_else",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::io_other_error",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_async_fn",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_inspect",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrow",
+          "count": 8
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::needless_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::new_without_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::too_many_arguments",
+          "count": 15
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unnecessary_lazy_evaluations",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "dead_code",
+          "count": 9
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "private_interfaces",
+          "count": 10
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_imports",
+          "count": 19
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "ambiguous_glob_reexports",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::bool_comparison",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::byte_char_slices",
+          "count": 1
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_if",
+          "count": 20
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::collapsible_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::diverging_sub_expression",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::format_in_format_args",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::let_and_return",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_range_patterns",
+          "count": 4
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::manual_strip",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::too_many_arguments",
+          "count": 22
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_cast",
+          "count": 6
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unnecessary_mut_passed",
+          "count": 7
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unreachable_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-identity",
+          "lint": "clippy::items_after_test_module",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::collapsible_if",
+          "count": 3
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::useless_conversion",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::clone_on_copy",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_mut",
+          "count": 2
+        },
+        {
+          "package": "shenko-media",
+          "lint": "unused_variables",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::collapsible_if",
+          "count": 8
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::large_enum_variant",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::needless_question_mark",
+          "count": 4
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_or_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_imports",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::chunks_exact_to_as_chunks",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 4
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::map_clone",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::too_many_arguments",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::useless_conversion",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "private_interfaces",
+          "count": 2
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::bool_assert_comparison",
+          "count": 3
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::collapsible_if",
+          "count": 38
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::too_many_arguments",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::type_complexity",
+          "count": 8
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_or_default",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::useless_format",
+          "count": 2
+        },
+        {
+          "package": "shenko-node",
+          "lint": "dead_code",
+          "count": 4
+        },
+        {
+          "package": "shenko-node",
+          "lint": "unused_assignments",
+          "count": 1
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 17
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::collapsible_if",
+          "count": 12
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::match_like_matches_macro",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::neg_cmp_op_on_partial_ord",
+          "count": 2
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "dead_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::bool_comparison",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::too_many_arguments",
+          "count": 6
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unnecessary_to_owned",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "dead_code",
+          "count": 3
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "irrefutable_let_patterns",
+          "count": 2
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "unused_mut",
+          "count": 6
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::collapsible_if",
+          "count": 6
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::ptr_arg",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::cmp_owned",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::collapsible_if",
+          "count": 80
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::doc_lazy_continuation",
+          "count": 10
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::empty_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::large_enum_variant",
+          "count": 6
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::let_unit_value",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_contains",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::needless_question_mark",
+          "count": 3
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::never_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::redundant_closure",
+          "count": 16
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::too_many_arguments",
+          "count": 20
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::type_complexity",
+          "count": 16
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::useless_conversion",
+          "count": 8
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::while_let_loop",
+          "count": 4
+        },
+        {
+          "package": "shenko-store",
+          "lint": "dead_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_doc_comments",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_imports",
+          "count": 7
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_mut",
+          "count": 5
+        },
+        {
+          "package": "shenko-store",
+          "lint": "unused_variables",
+          "count": 8
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::clone_on_copy",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 11
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::collapsible_if",
+          "count": 32
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::err_expect",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::explicit_auto_deref",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_inspect",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::manual_is_multiple_of",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::needless_borrows_for_generic_args",
+          "count": 4
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::redundant_closure",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::type_complexity",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "dead_code",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unreachable_code",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_assignments",
+          "count": 2
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_imports",
+          "count": 6
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_must_use",
+          "count": 1
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_mut",
+          "count": 5
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "unused_variables",
+          "count": 9
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::cloned_ref_to_slice_refs",
+          "count": 1
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::inherent_to_string_shadow_display",
+          "count": 2
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::collapsible_if",
+          "count": 26
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::derivable_impls",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::let_and_return",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::map_entry",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::needless_question_mark",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::redundant_closure",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unnecessary_sort_by",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "dead_code",
+          "count": 8
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "private_interfaces",
+          "count": 2
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "unused_variables",
+          "count": 13
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::collapsible_if",
+          "count": 10
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::needless_return",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unnecessary_unwrap",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::useless_conversion",
+          "count": 4
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_imports",
+          "count": 2
+        },
+        {
+          "package": "shenko-update",
+          "lint": "unused_variables",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::cmp_owned",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::collapsible_if",
+          "count": 20
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::err_expect",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::large_enum_variant",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::manual_map",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_borrow",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::needless_match",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::ptr_arg",
+          "count": 1
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::too_many_arguments",
+          "count": 10
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unneeded_struct_pattern",
+          "count": 4
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::while_let_loop",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "dead_code",
+          "count": 5
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unreachable_code",
+          "count": 2
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_imports",
+          "count": 3
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_mut",
+          "count": 7
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "unused_variables",
+          "count": 2
+        }
+      ],
+      "baseline_uncompared_production_only_diagnostics": [
+        {
+          "package": "shenko",
+          "lint": "clippy::expect_used",
+          "count": 52
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::unwrap_used",
+          "count": 664
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::expect_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::unwrap_used",
+          "count": 49
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::expect_used",
+          "count": 123
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unwrap_used",
+          "count": 160
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::expect_used",
+          "count": 18
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::unwrap_used",
+          "count": 48
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::expect_used",
+          "count": 23
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::unwrap_used",
+          "count": 245
+        },
+        {
+          "package": "shenko-compact-budget",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-budget",
+          "lint": "clippy::unwrap_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::expect_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::unwrap_used",
+          "count": 36
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::expect_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::unwrap_used",
+          "count": 35
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::expect_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::unwrap_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::expect_used",
+          "count": 22
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::unwrap_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::expect_used",
+          "count": 6
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::expect_used",
+          "count": 9
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::unwrap_used",
+          "count": 156
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::expect_used",
+          "count": 17
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::unwrap_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::unwrap_used",
+          "count": 153
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::expect_used",
+          "count": 209
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unwrap_used",
+          "count": 319
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::expect_used",
+          "count": 56
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unwrap_used",
+          "count": 347
+        },
+        {
+          "package": "shenko-identity",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::expect_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::unwrap_used",
+          "count": 44
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::expect_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::unwrap_used",
+          "count": 115
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::expect_used",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_used",
+          "count": 117
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::expect_used",
+          "count": 38
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::unwrap_used",
+          "count": 33
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::expect_used",
+          "count": 9
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_used",
+          "count": 421
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::expect_used",
+          "count": 8
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::unwrap_used",
+          "count": 137
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::expect_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unwrap_used",
+          "count": 58
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::expect_used",
+          "count": 64
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::unwrap_used",
+          "count": 1465
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::expect_used",
+          "count": 237
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unwrap_used",
+          "count": 1528
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::unwrap_used",
+          "count": 12
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::expect_used",
+          "count": 54
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unwrap_used",
+          "count": 219
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::expect_used",
+          "count": 30
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unwrap_used",
+          "count": 206
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::expect_used",
+          "count": 116
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unwrap_used",
+          "count": 9
+        }
+      ],
+      "candidate_uncompared_production_only_diagnostics": [
+        {
+          "package": "shenko",
+          "lint": "clippy::expect_used",
+          "count": 52
+        },
+        {
+          "package": "shenko",
+          "lint": "clippy::unwrap_used",
+          "count": 682
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::expect_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-awareness-core",
+          "lint": "clippy::unwrap_used",
+          "count": 49
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::expect_used",
+          "count": 123
+        },
+        {
+          "package": "shenko-broker",
+          "lint": "clippy::unwrap_used",
+          "count": 160
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::expect_used",
+          "count": 18
+        },
+        {
+          "package": "shenko-channel-adapters",
+          "lint": "clippy::unwrap_used",
+          "count": 48
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::expect_used",
+          "count": 23
+        },
+        {
+          "package": "shenko-channel-napcat",
+          "lint": "clippy::unwrap_used",
+          "count": 245
+        },
+        {
+          "package": "shenko-compact-budget",
+          "lint": "clippy::expect_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-compact-budget",
+          "lint": "clippy::unwrap_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::expect_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compact-rollover",
+          "lint": "clippy::unwrap_used",
+          "count": 36
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::expect_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compact-snap",
+          "lint": "clippy::unwrap_used",
+          "count": 35
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::expect_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat",
+          "lint": "clippy::unwrap_used",
+          "count": 4
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::expect_used",
+          "count": 22
+        },
+        {
+          "package": "shenko-compat-mcp",
+          "lint": "clippy::unwrap_used",
+          "count": 7
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::expect_used",
+          "count": 6
+        },
+        {
+          "package": "shenko-compat-skill",
+          "lint": "clippy::unwrap_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::expect_used",
+          "count": 9
+        },
+        {
+          "package": "shenko-context-policy",
+          "lint": "clippy::unwrap_used",
+          "count": 156
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::expect_used",
+          "count": 17
+        },
+        {
+          "package": "shenko-document",
+          "lint": "clippy::unwrap_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-evidence",
+          "lint": "clippy::unwrap_used",
+          "count": 153
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::expect_used",
+          "count": 209
+        },
+        {
+          "package": "shenko-exec-host",
+          "lint": "clippy::unwrap_used",
+          "count": 319
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::expect_used",
+          "count": 56
+        },
+        {
+          "package": "shenko-exec-ssh",
+          "lint": "clippy::unwrap_used",
+          "count": 347
+        },
+        {
+          "package": "shenko-identity",
+          "lint": "clippy::unwrap_used",
+          "count": 1
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::expect_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-kernel",
+          "lint": "clippy::unwrap_used",
+          "count": 43
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::expect_used",
+          "count": 34
+        },
+        {
+          "package": "shenko-media",
+          "lint": "clippy::unwrap_used",
+          "count": 115
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::expect_used",
+          "count": 6
+        },
+        {
+          "package": "shenko-memory",
+          "lint": "clippy::unwrap_used",
+          "count": 117
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::expect_used",
+          "count": 38
+        },
+        {
+          "package": "shenko-mobile",
+          "lint": "clippy::unwrap_used",
+          "count": 33
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::expect_used",
+          "count": 9
+        },
+        {
+          "package": "shenko-node",
+          "lint": "clippy::unwrap_used",
+          "count": 421
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::expect_used",
+          "count": 8
+        },
+        {
+          "package": "shenko-quota",
+          "lint": "clippy::unwrap_used",
+          "count": 137
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::expect_used",
+          "count": 26
+        },
+        {
+          "package": "shenko-repl",
+          "lint": "clippy::unwrap_used",
+          "count": 58
+        },
+        {
+          "package": "shenko-seed",
+          "lint": "clippy::expect_used",
+          "count": 2
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::expect_used",
+          "count": 64
+        },
+        {
+          "package": "shenko-store",
+          "lint": "clippy::unwrap_used",
+          "count": 1504
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::expect_used",
+          "count": 234
+        },
+        {
+          "package": "shenko-subject",
+          "lint": "clippy::unwrap_used",
+          "count": 1523
+        },
+        {
+          "package": "shenko-types",
+          "lint": "clippy::unwrap_used",
+          "count": 12
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::expect_used",
+          "count": 54
+        },
+        {
+          "package": "shenko-ui",
+          "lint": "clippy::unwrap_used",
+          "count": 219
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::expect_used",
+          "count": 30
+        },
+        {
+          "package": "shenko-update",
+          "lint": "clippy::unwrap_used",
+          "count": 206
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::expect_used",
+          "count": 116
+        },
+        {
+          "package": "shenko-wasm",
+          "lint": "clippy::unwrap_used",
+          "count": 9
+        }
+      ]
+    }
+  },
+  "errors": [
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( clippy : : mutex_atomic ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( clippy : : mutex_atomic , clippy : : arc_with_non_send_sync ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs: # [ allow ( unused_must_use ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( clippy : : should_implement_trait ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( non_snake_case ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( unused_assignments , unused_variables , unused_mut ) ]",
+    "New suppression/ignored test: docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs: # [ allow ( unused_must_use ) ]",
+    "all-targets: shenko-exec-ssh: clippy::diverging_sub_expression increased by 2",
+    "all-targets: shenko-exec-ssh: unreachable_code increased by 3"
+  ],
+  "production_only_lints": [
+    "clippy::expect_used",
+    "clippy::unwrap_used"
+  ]
+}

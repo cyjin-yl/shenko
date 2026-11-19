@@ -6308,6 +6308,11 @@
         "docs/specs/mobile-runtime.md#spec-24-5",
         "docs/specs/plugins.md#spec-44"
       ],
+      "bin/shenko/src/lib.rs#policy_config": [
+        "docs/specs/configuration-playground.md#spec-43-1",
+        "docs/specs/context-policies.md#spec-12-3-1",
+        "docs/specs/quota-resources.md#spec-42"
+      ],
       "bin/shenko/src/lib.rs#recovery_integration_tests": [
         "docs/specs/mobile-runtime.md#spec-24-5",
         "docs/specs/plugins.md#spec-44"
@@ -6406,6 +6411,9 @@
         "docs/specs/nodes.md#spec-5-4"
       ],
       "bin/shenko/src/node_sync.rs#observe": [
+        "docs/specs/nodes.md#spec-5-4-3"
+      ],
+      "bin/shenko/src/node_sync.rs#observe_follower": [
         "docs/specs/nodes.md#spec-5-4-3"
       ],
       "bin/shenko/src/node_sync.rs#publish_cognition_report": [
@@ -10870,7 +10878,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate_with": [
+      "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit": [
@@ -10941,7 +10949,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_docket": [
+      "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait": [
@@ -34986,7 +34994,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#claimed_native_task",
           "crates/shenko-store/tests/store_roundtrip.rs#commit_publication_step",
           "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate",
-          "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate_with",
+          "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with",
           "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#dispatch_cursor_reaches_later_work_and_wraps_without_starving",
           "crates/shenko-store/tests/store_roundtrip.rs#empty_batch_commit_returns_receipt",
@@ -35009,7 +35017,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#publication_state",
           "crates/shenko-store/tests/store_roundtrip.rs#publication_t1_claims_and_arms_in_one_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result",
-          "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_docket",
+          "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait",
           "crates/shenko-store/tests/store_roundtrip.rs#recovery_task",
           "crates/shenko-store/tests/store_roundtrip.rs#s1_commit_advances_branch_head",
@@ -35751,6 +35759,13 @@
           "crates/shenko-ui/web/src/threads.ts": 1
         }
       },
+      "4f24081e09654287483eea7c3f39bb1ef2ba97ef0b053929d40b414dd7a14fbf": {
+        "symbol_refs": [
+          "bin/shenko/src/lib.rs#policy_config"
+        ],
+        "binding_scope": "module_declaration",
+        "citation_locations": {}
+      },
       "4f85ec5aa2d9c4aca7e42cd577c93de924ccf851eb4c90fb6e77732ce90b6e9c": {
         "symbol_refs": [
           "crates/shenko-store/src/media.rs#Store::end_media_stream"
@@ -36018,6 +36033,13 @@
         "citation_locations": {
           "crates/shenko-types/src/inbox.rs": 1
         }
+      },
+      "5550c263492e143a28fee206cf8892c92ea5efc039a7747616c1e1f33f02c887": {
+        "symbol_refs": [
+          "bin/shenko/src/node_sync.rs#observe_follower"
+        ],
+        "binding_scope": "documented_declaration",
+        "citation_locations": {}
       },
       "556defe34d6d50ab45643ed56908e6443c062848269fbe6d1cb83b6f7861405f": {
         "symbol_refs": [
@@ -40291,6 +40313,13 @@
         "citation_locations": {
           "crates/shenko-channel-adapters/src/qq_official/events.rs": 1
         }
+      },
+      "ae4d8ff78df9c0c3a19491a7e1974f7afee25953462f262403b05dd3ff048343": {
+        "symbol_refs": [
+          "bin/shenko/src/lib.rs#policy_config"
+        ],
+        "binding_scope": "module_declaration",
+        "citation_locations": {}
       },
       "ae6010f6d09d3d16d235cc51291ea6a84672976b7b58812f297fc467568e5d05": {
         "symbol_refs": [
@@ -44669,6 +44698,46 @@
           "docs/specs/web-interface.md#spec-21-11"
         ],
         "occurrences": 1
+      },
+      {
+        "source_path": "bin/shenko/src/node_sync.rs",
+        "comment": "/// (docs/specs/nodes.md#spec-5-4-3).\n",
+        "comment_sha256": "b2e76b1cf5b394d2f38412f83e66273a7788ff717d6c51beffaa35007fbadfdb",
+        "binding_scope": "documented_declaration",
+        "symbol_refs": [
+          "bin/shenko/src/node_sync.rs#observe_follower"
+        ],
+        "literal_refs": [
+          "docs/specs/nodes.md#spec-5-4-3"
+        ],
+        "occurrences": 1
+      },
+      {
+        "source_path": "bin/shenko/src/policy_config.rs",
+        "comment": "//! Live policy configuration — docs/specs/configuration-playground.md#spec-43-1,\n",
+        "comment_sha256": "f6208903ba3809c6730a7e1fadcd5725835cdcb3491d0737906da502dac2ee76",
+        "binding_scope": "module_declaration",
+        "symbol_refs": [
+          "bin/shenko/src/lib.rs#policy_config"
+        ],
+        "literal_refs": [
+          "docs/specs/configuration-playground.md#spec-43-1"
+        ],
+        "occurrences": 1
+      },
+      {
+        "source_path": "bin/shenko/src/policy_config.rs",
+        "comment": "//! docs/specs/quota-resources.md#spec-42 and docs/specs/context-policies.md#spec-12-3-1.\n",
+        "comment_sha256": "d17e8e2df283547c63be3609ec6162589261ba411e7ea326e1f1f719989a4379",
+        "binding_scope": "module_declaration",
+        "symbol_refs": [
+          "bin/shenko/src/lib.rs#policy_config"
+        ],
+        "literal_refs": [
+          "docs/specs/quota-resources.md#spec-42",
+          "docs/specs/context-policies.md#spec-12-3-1"
+        ],
+        "occurrences": 1
       }
     ],
     "binding_sources": {
@@ -44697,8 +44766,12 @@
         "sha256": "171697cf5818dd4b85437b6aea2ec0a01924e94da9cad5e035900bd2367e8a29"
       },
       "bin/shenko/src/node_sync.rs": {
-        "bytes": 81834,
-        "sha256": "5ce9b3e13679cde0bea58349c8c537ed4120d8c2db9d891b3902b135d73bb47a"
+        "bytes": 84477,
+        "sha256": "0cc4bfcd6b72adda946dd45b45b3026f2f80826497b317a0488696958fef98e0"
+      },
+      "bin/shenko/src/policy_config.rs": {
+        "bytes": 14274,
+        "sha256": "d4234503fa77e298edc7228a4434f924b2c82b0895556f48cd46b6d338e2a4d1"
       },
       "bin/shenko/src/recovery_integration_tests.rs": {
         "bytes": 109946,

@@ -8,9 +8,11 @@
 //!
 //! * The set of producers is an administrative declaration
 //!   ([`RootRegistry`]: `cas-roots/registry.json`). Reclamation refuses to run
-//!   when a declared producer did not enumerate, when a producer reports
-//!   itself incomplete, or when a producer reports a blocker (a live branch
-//!   writer, an unfinished publication).
+//!   unless the supplied producers and their namespace claims match that
+//!   declaration exactly, and each enumeration reports its own complete
+//!   namespace claim. An incomplete producer or a blocker (a live branch
+//!   writer, an unfinished publication) also refuses reclamation. These
+//!   checks do not limit a root's references to its producer's namespace.
 //! * Every root is enumerated from durable records, never from "what the code
 //!   usually writes": published checkpoint head + journal + pending restore
 //!   intent + restore receipts, and every COW branch's head, journal history,
@@ -82,6 +84,9 @@ pub struct RootRegistry {
 #[derive(Debug)]
 pub struct ProducerRoots {
     pub producer: String,
+    /// The namespaces this producer enumerated, exactly matching its
+    /// `namespace_claims` without duplicates. Roots can also retain objects
+    /// reached through references to other producers' namespaces.
     pub namespaces: Vec<String>,
     pub roots: BTreeSet<Digest>,
     /// Closures/manifests whose objects are included in `roots`; reported for
@@ -139,6 +144,18 @@ pub trait CasRootProducer {
     /// claiming the same namespace (ambiguous ownership).
     fn namespace_claims(&self) -> &'static [&'static str];
     fn enumerate(&self) -> Result<ProducerRoots>;
+}
+
+fn validate_registry_entries(label: &str, entries: &[String]) -> Result<()> {
+    ensure!(
+        !entries.is_empty() && entries.iter().all(|entry| !entry.is_empty()),
+        "CAS_ROOT_REGISTRY_INVALID: {label} must be a nonempty declaration of nonempty names"
+    );
+    ensure!(
+        entries.windows(2).all(|pair| pair[0] < pair[1]),
+        "CAS_ROOT_REGISTRY_INVALID: {label} must be sorted and unique"
+    );
+    Ok(())
 }
 
 /// Why reclamation declined to run.
@@ -278,6 +295,8 @@ impl<'a> CasGc<'a> {
             path.display(),
             registry.format
         );
+        validate_registry_entries("producers", &registry.producers)?;
+        validate_registry_entries("namespaces", &registry.namespaces)?;
         Ok(Some(registry))
     }
 
@@ -361,6 +380,8 @@ impl<'a> CasGc<'a> {
             producers: declared,
             namespaces: declared_namespaces,
         };
+        validate_registry_entries("producers", &registry.producers)?;
+        validate_registry_entries("namespaces", &registry.namespaces)?;
         let dir = self.data_dir.join(CAS_ROOTS_DIR);
         fs::create_dir_all(&dir)
             .with_context(|| format!("create root registry directory {}", dir.display()))?;
@@ -420,16 +441,34 @@ impl<'a> CasGc<'a> {
             }
         }
         for namespace in &registry.namespaces {
-            let covered = producers
-                .iter()
-                .any(|producer| producer.namespace_claims().contains(&namespace.as_str()));
-            if !covered {
+            if !claimed.contains_key(namespace) {
                 return Err(GcRefusal {
                     reason: GcRefusalReason::NamespaceUncovered {
                         namespace: namespace.clone(),
                     },
                     detail: format!(
                         "the registry declares CAS namespace {namespace:?} but no participating producer enumerates it; its objects cannot be proven unreachable"
+                    ),
+                });
+            }
+        }
+        // Coverage is exact: an extra participant must not be silently
+        // ignored, and a producer cannot expand the adopted namespace set.
+        // Check this before enumerating any producer or selecting candidates.
+        for id in supplied.keys() {
+            if !registry.producers.iter().any(|expected| expected.as_str() == *id) {
+                return Err(GcRefusal {
+                    reason: GcRefusalReason::RegistryInvalid,
+                    detail: format!("producer {id} participated but is not in the adopted registry"),
+                });
+            }
+        }
+        for (namespace, producer) in &claimed {
+            if !registry.namespaces.contains(namespace) {
+                return Err(GcRefusal {
+                    reason: GcRefusalReason::RegistryInvalid,
+                    detail: format!(
+                        "producer {producer} claims namespace {namespace:?} outside the adopted registry"
                     ),
                 });
             }
@@ -483,6 +522,24 @@ impl<'a> CasGc<'a> {
                     detail: format!(
                         "producer {id} reports reclamation must not run: {}",
                         enumerated.blockers.join("; ")
+                    ),
+                });
+            }
+            let reported: BTreeSet<&str> =
+                enumerated.namespaces.iter().map(String::as_str).collect();
+            let mut expected = BTreeSet::new();
+            for (namespace, owner) in &claimed {
+                if *owner == id.as_str() {
+                    expected.insert(namespace.as_str());
+                }
+            }
+            if reported.len() != enumerated.namespaces.len() || reported != expected {
+                return Err(GcRefusal {
+                    reason: GcRefusalReason::RegistryInvalid,
+                    detail: format!(
+                        "producer {id} enumerated namespaces {:?}, expected exactly {:?} without duplicates",
+                        enumerated.namespaces,
+                        expected
                     ),
                 });
             }

@@ -147,7 +147,7 @@ impl Store {
                     let existing = fs::read(&target)
                         .with_context(|| format!("read local file {}", target.display()))?;
                     if existing == *bytes {
-                        self.write_file_baseline(conn, 
+                        self.write_file_baseline(conn,
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -167,7 +167,7 @@ impl Store {
                         fs::write(&target, bytes)
                             .with_context(|| format!("write file {}", target.display()))?;
                         verify_restored_file(&target, descriptor)?;
-                        self.write_file_baseline(conn, 
+                        self.write_file_baseline(conn,
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -186,7 +186,7 @@ impl Store {
                 }
                 if let Some(baseline) = baseline {
                     if baseline.state != FileBaselineState::Deleted {
-                        self.write_file_baseline(conn, 
+                        self.write_file_baseline(conn,
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -209,7 +209,7 @@ impl Store {
                 fs::write(&target, bytes)
                     .with_context(|| format!("write file {}", target.display()))?;
                 verify_restored_file(&target, descriptor)?;
-                self.write_file_baseline(conn, 
+                self.write_file_baseline(conn,
                     peer_id,
                     origin,
                     &descriptor.path,
@@ -243,7 +243,7 @@ impl Store {
                     // Both sides now independently agree on absence. Retain a
                     // tombstone so a later source recreation is distinguishable
                     // from an unchanged source file deleted only by the receiver.
-                    self.write_file_baseline(conn, 
+                    self.write_file_baseline(conn,
                         peer_id,
                         origin,
                         &baseline.path,
@@ -275,7 +275,7 @@ impl Store {
                         &target,
                         &baseline.digest,
                     )?;
-                    self.write_file_baseline(conn, 
+                    self.write_file_baseline(conn,
                         peer_id,
                         origin,
                         &baseline.path,

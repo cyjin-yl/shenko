@@ -1,0 +1,11 @@
+{
+  "source": "original/workspace-test.log",
+  "failed_test_lines": [
+    "test original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution ... FAILED",
+    "test control_transition::tests::capture_observes_cached_sql_and_refuses_unrepresented_state ... FAILED",
+    "test canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker ... FAILED",
+    "test canonical_direct_native_chain_retains_original_e1_and_only_one_effect ... FAILED",
+    "test canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receipt ... FAILED",
+    "test canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch ... FAILED"
+  ]
+}

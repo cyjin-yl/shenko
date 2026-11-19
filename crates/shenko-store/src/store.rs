@@ -125,8 +125,7 @@ impl Store {
         configure_sqlite(&conn)?;
 
         // Run migrations
-        crate::migrations::run_migrations(&conn)?;
-        conn.execute_batch(crate::authority::SCHEMA)?;
+        initialize_schema(&conn)?;
 
         let sqlite_version: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         let journal_mode: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
@@ -162,7 +161,7 @@ impl Store {
 
         let conn = Arc::new(Mutex::new(conn));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
-        let cas = Arc::new(ContentStore::new(cas_dir)?);
+        let cas = Arc::new(ContentStore::new(cas_dir.clone())?);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
         let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
@@ -184,6 +183,7 @@ impl Store {
         if let Err(error) = crate::channel::migrate_publication_targets(&store) {
             tracing::warn!(error = %error, "publication target migration did not complete");
         }
+        store.recover_legacy_successor_identity(&cas_dir)?;
         Ok(store)
     }
 
@@ -741,6 +741,7 @@ impl Store {
                 "rejection is not bound to recorded result",
             ));
         }
+        self.validate_correction_projection(&tx, &head, &previous, replacement, &rejection)?;
         // The canonical runtime feedback joins the branch raw history in the
         // SAME transaction as the retirement and the correction step, so
         // rejected or incomplete output is never read as accepted work.
@@ -828,12 +829,10 @@ impl Store {
                         step, expected_head, next_step_id, &authority, false);
                 }
                 Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
-                    // The frozen pre-capture exceeded its memory ceiling for
-                    // this installation, so this transition cannot be frozen.
-                    // The decision is neither dropped nor silently refused:
-                    // the degradation becomes a durable fact of the owning
-                    // subject, and the ordinary original-plan path commits
-                    // the same decision locally.
+                    // Capture exceeded its ceiling before durable preparation
+                    // or choose. Report that observation, then attempt the
+                    // original-plan admission below. Neither the report nor
+                    // this branch proves that admission/COMMIT will succeed.
                     self.journal_capture_budget_refusal(expected_head, step, &error);
                 }
                 Err(error) => return Err(error),
@@ -850,12 +849,10 @@ impl Store {
 
     /// Record that the canonical S1 path could not freeze this transition.
     ///
-    /// The frozen pre-capture exceeded its memory ceiling, so this step used
-    /// the original-plan path. The note is a durable runtime-error fact of
-    /// the owning subject: the
-    /// degradation is visible to the subject instead of being a silent
-    /// refusal. The journal write is fail-soft and never replaces the
-    /// decision this step still commits.
+    /// The separate fail-soft journal reports only the observed capacity
+    /// refusal and intended fallback (SPEC 45.14). Admission or the later
+    /// transaction may still fail; its receipt determines whether the step
+    /// actually committed. A journal failure retains the normal dropped count.
     fn journal_capture_budget_refusal(
         &self,
         head: &SubjectBranchHead,
@@ -866,7 +863,7 @@ impl Store {
             kind: "store_capture_budget".into(),
             source_module: module_path!().into(),
             message: format!(
-                "the canonical S1 transition was not frozen and this step used the original-plan path: {error}"
+                "canonical S1 capture refused before durable preparation; an original-plan admission will be attempted, with no commit yet confirmed: {error}"
             ),
             step_no: Some(step.step_no),
             task_id: None,
@@ -1711,6 +1708,18 @@ impl Store {
     }
 }
 
+/// The same current schema is used by writable opens and by the retention
+/// reader's private, empty schema catalogue. The latter never migrates the
+/// inspected database or creates a Store/writer incarnation.
+pub(crate) fn initialize_schema(conn: &Connection) -> Result<()> {
+    crate::migrations::run_migrations(conn)?;
+    conn.execute_batch(crate::authority::SCHEMA)?;
+    conn.execute_batch(crate::native_evidence::SCHEMA)?;
+    conn.execute_batch(crate::native_evidence_delivery::SCHEMA)?;
+    conn.execute_batch(crate::local_installation::SCHEMA)?;
+    Ok(())
+}
+
 /// Apply required SQLite settings.
 pub fn configure_sqlite(conn: &Connection) -> Result<()> {
     conn.execute_batch(
@@ -1731,7 +1740,7 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 /// acknowledgement; old bytes keep their old meaning instead of
 /// being reinterpreted or rewritten.
 pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
-    matches!(version, Some(12) | Some(13))
+    matches!(version, Some(12..=14))
 }
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
@@ -1740,16 +1749,16 @@ pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
 
 /// Classify one commit failure.
 ///
-/// Foreign-key checks are deferred to COMMIT so a transition can order its
-/// own writes. A deferred violation is therefore not storage damage: the
-/// applied rows reference a predecessor this ledger does not hold, which is
-/// typed reconciliation debt. The receiving ledger has to catch up before the
-/// transition can be applied, so the writer must stay open.
-/// Every other commit failure remains storage damage and keeps its own
-/// consequence.
+/// A foreign-key violation alone does not distinguish a missing predecessor
+/// from an invalid frozen delta. Preserve the actual SQLite diagnostic and
+/// return an invalid-materialization error; recovery must not label it ordinary
+/// catch-up debt. Missing predecessors established by read-condition checks
+/// already have their own Conflict path. Other COMMIT errors remain Storage.
 pub(crate) fn commit_error(error: rusqlite::Error) -> ShenkoError {
     if foreign_key_violation(&error) {
-        ShenkoError::conflict("materialization lacks a required predecessor row")
+        ShenkoError::other(format!(
+            "canonical materialization COMMIT failed foreign-key validation; predecessor absence or invalid delta is not classified: {error}"
+        ))
     } else {
         storage_error(error)
     }
@@ -1765,7 +1774,7 @@ pub(crate) fn foreign_key_violation(error: &rusqlite::Error) -> bool {
     }
 }
 
-fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
+pub(crate) fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     let ledger_id: String = conn.query_row(
         "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
     )?;
@@ -1850,7 +1859,9 @@ fn inspect_database_once<T>(
 /// local work (a takeover writes this installation's commits onto the adopted
 /// branch head). A canonical S1 keeps the source head coordinate, so its
 /// validated nonreplicated physical materialization receipt also establishes
-/// this installation's subject. Imported source receipts satisfy none of
+/// this installation's subject. A successor CAS similarly leaves sealed
+/// history untouched and records its own local materialization witness, valid
+/// before the first S1. Imported source receipts satisfy none of
 /// these conditions. Identity here grants no primary or dispatch authority.
 /// More than one qualifying subject is an integrity error, never a coin flip.
 pub(crate) fn read_local_subject_id(
@@ -1875,6 +1886,10 @@ pub(crate) fn read_local_subject_id(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='control_materializations')",
         [], |row| row.get(0),
     ).map_err(storage_error)?;
+    let has_successor_materializations: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='local_successor_materializations')",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
     for (id, json) in rows {
         let agent_id: EntityId = id
             .parse()
@@ -1891,17 +1906,16 @@ pub(crate) fn read_local_subject_id(
             )
             .optional()
             .map_err(storage_error)?;
-        let committed_here = match head_ledger {
-            Some(head_json) => {
-                let head: SubjectBranchHead = serde_json::from_str(&head_json)?;
-                head.committed_at.ledger_id == ledger_id
-            }
-            None => false,
-        };
+        let head = head_ledger.map(|json| serde_json::from_str::<SubjectBranchHead>(&json)).transpose()?;
+        let committed_here = head.as_ref().is_some_and(|head| head.committed_at.ledger_id == ledger_id);
         let applied_here = if has_materializations {
             locally_materialized_subject(conn, agent_id, ledger_id)?
         } else { false };
-        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here {
+        let selected_here = genesis.created_commit.ledger_id != ledger_id && !committed_here && !applied_here
+            && has_successor_materializations
+            && head.as_ref().map(|head| crate::activation::locally_materialized_successor(conn, ledger_id, head))
+                .transpose()?.unwrap_or(false);
+        if genesis.created_commit.ledger_id == ledger_id || committed_here || applied_here || selected_here {
             local.push(agent_id);
         }
     }

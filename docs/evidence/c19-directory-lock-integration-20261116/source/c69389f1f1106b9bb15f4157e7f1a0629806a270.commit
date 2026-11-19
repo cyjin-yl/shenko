@@ -1,0 +1,20 @@
+tree 2ba49c226841a21ec5d29e1cf2c23391a350899e
+parent 84ae19404f2a17d259362c99091db408b7262e14
+author cyjin.yl <chenyejin2004@foxmail.com> 1794861676 +0800
+committer cyjin.yl <chenyejin2004@foxmail.com> 1794861676 +0800
+
+fix(evidence): serialize concurrent C19 long-run records on directory inode
+
+WHY: Independent sample/run/checkpoint/stop processes previously read the same
+last sequence and could write duplicate or post-seal records despite individually
+fsynced appends. A passing 7/30-day wall-clock report must not depend on a
+single-writer scheduling assumption.
+
+Use Linux directory flock for atomic read/check/append and terminal stop, with
+shared report reads (exclusive when publishing a report), no replaceable
+sidecar file, and fail-closed directory replacement detection. Preserve the
+schema, raw bytes, existing gap/Unknown admission and wall-clock obligations.
+Add two real subprocess concurrency regressions, retaining 15 original cases.
+
+Evidence: code/static review and local Linux flock probe only; exact branch
+CI and multi-day evidence remain required.

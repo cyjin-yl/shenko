@@ -1,0 +1,20 @@
+tree 241909742fd73225b08b88fea967197a74f65334
+parent 713190cfafe1c1b1c7c06b9aecb4aab2f361c894
+author cyjin.yl <chenyejin2004@foxmail.com> 1794853397 +0800
+committer cyjin.yl <chenyejin2004@foxmail.com> 1794853397 +0800
+
+docs: retain actual 51a1 CI results and original Rust log
+
+Archive the complete decoded Rust job log and original run, jobs,
+artifacts, checkout and cancelled-run API records. Bind published head
+51a1 and actual merge checkout 61a8 to their identical f7c39079 tree and
+e5fbf732 event baseline.
+
+Record the 85.61s real component process pass, five passing gates, and
+the first-E1 acknowledgement setup failure before SSH or its nine
+windows. Preserve both Transport closed responses for Clippy log reads.
+
+ZIP hashes remain GitHub-reported: file references and source URLs are
+retained, but independent byte hashing and member archival are pending.
+The parent fixture-only correction has no new compilation or test pass;
+no offline successor-E1 draft is included.

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/__w/shenko/shenko/scripts/real_single_node_journey.py", line 409, in run
+    raise AssertionError("first phase did not satisfy the unchanged child/result/output checks")
+AssertionError: first phase did not satisfy the unchanged child/result/output checks

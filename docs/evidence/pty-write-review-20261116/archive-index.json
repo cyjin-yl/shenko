@@ -1,0 +1,60 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 2941,
+      "sha256": "ed5f01597487108582b474591d5d9678f1557209f82c39bb38ea6919aa46f202"
+    },
+    {
+      "path": "pty-write-docs-check.json",
+      "bytes": 271471,
+      "sha256": "e864f899ed0ac7cc9c4669a3da16df0dfe144bfa198c4a69645c483b10edc2f5"
+    },
+    {
+      "path": "pty-write-docs-check.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-patch-reverse.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-patch-reverse.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-production-range.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-production-range.stdout",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-whole-range.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "pty-write-final-whole-range.stdout",
+      "bytes": 228,
+      "sha256": "37765fa2559db0285911aeb9d81b221d9938b40f015669912064d46ceca8da41"
+    },
+    {
+      "path": "pty-write-static-final.json",
+      "bytes": 5010,
+      "sha256": "faca0a9f27e37db247d8b6820c78bdd652ccdb8095ebab203431c7cf34ac57c1"
+    },
+    {
+      "path": "pty-write-static.json",
+      "bytes": 2368,
+      "sha256": "013d16c6700e3379a0b71217ed77c6eefbbe31f3f731c6e7cc4b103f0263d271"
+    }
+  ],
+  "runtime_executed": false
+}

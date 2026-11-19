@@ -1,0 +1,28 @@
+{
+  "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "harness_sha256": "6218ed78275c4423160c93fbdb384901a7fd89b2a8eaf06f01efcad464abebaa",
+  "driver_path": "crates/shenko-repl/src/drivers/js_cell_driver.mjs",
+  "driver_sha256": "a9419c9aa0abbced7c69145806768153971d37121a8c20e63e0c623f0991f150",
+  "first_input_sha256": "f1c895141dd1cbb589de36e6c93900da14b1f24f96ee24c2016afc303d43c0dc",
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "wasmer": {
+    "version": "7.5.0",
+    "source_commit": "82ff099e082da586b38af79986abbb8b677f8baf",
+    "url": "https://github.com/wasmerio/wasmer/releases/download/v7.5.0/wasmer-linux-amd64.tar.gz",
+    "archive_bytes": 302721336,
+    "archive_sha256": "23f99818deaad93859f8bb8292af81f0c39f25aea19eaccfb72fc7c9e8a3fae9",
+    "executable_sha256": "72c57ef6be45d500cb528c0a684b13159620ddfb4b50d3e429a3a352d0b3f116"
+  },
+  "node": {
+    "url": "https://github.com/Multi-V-VM/node-wasix32/releases/download/wasix32/node.wasm",
+    "bytes": 112379740,
+    "sha256": "3e0b4c9f9c258fef4ecf522bf86c42844d50368138abb86d5c2700775cf84a1d",
+    "release_tag_commit": "0d66fea37737024056983f35e84af3e8448ece08",
+    "source_build_attestation": null,
+    "tag_tracked_binary_differs": true
+  },
+  "product_capability_installed": false,
+  "named_target_acceptance": false,
+  "resource_policy": "observe actual system and visible ancestors before download and execution; no claim about unexposed host ancestors",
+  "inherited_process_limits": "Limit                     Soft Limit           Hard Limit           Units     \nMax cpu time              unlimited            unlimited            seconds   \nMax file size             unlimited            unlimited            bytes     \nMax data size             unlimited            unlimited            bytes     \nMax stack size            16777216             unlimited            bytes     \nMax core file size        0                    unlimited            bytes     \nMax resident set          unlimited            unlimited            bytes     \nMax processes             58121                58121                processes \nMax open files            65536                65536                files     \nMax locked memory         8388608              8388608              bytes     \nMax address space         unlimited            unlimited            bytes     \nMax file locks            unlimited            unlimited            locks     \nMax pending signals       58121                58121                signals   \nMax msgqueue size         819200               819200               bytes     \nMax nice priority         0                    0                    \nMax realtime priority     0                    0                    \nMax realtime timeout      unlimited            unlimited            us        \n"
+}

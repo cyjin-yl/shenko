@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "kind": "real_model_experiment_scheduling_observation",
+  "source_candidate": "a3739f2e581b25e3ca841c8402b3cc118fdeb222",
+  "retained_run": {
+    "id": 43875531168,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43875531168",
+    "observed_status": "completed",
+    "scope": "Original input reached the model and seven provider chunks were journaled, but the sealed deadline expired with Unknown, no child or output, and real shutdown cleanup errors. See the complete original artifact observation.",
+    "conclusion": "failure",
+    "observation": "single-node-hosted-43875531168/observation.json"
+  },
+  "duplicate_run": {
+    "id": 43875531669,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/43875531669",
+    "observed_status": "completed",
+    "conclusion": "cancelled",
+    "jobs": [],
+    "scope": "A second event queued the same candidate. It was normally cancelled before any job started; no runtime outcome was produced."
+  },
+  "control_action": "run-real-model label removed after the retained job started; pending duplicate cancelled through normal Actions UI",
+  "screenshot": {
+    "path": "ship-work-duplicate-pending-cancelled-20261116.png",
+    "bytes": 87695,
+    "sha256": "a1f436d43ad9ead869a072a2e89498b370532bf2d9ff38299372734d0bcc769a"
+  },
+  "followup": "Workflow opt-in now matches only the explicit run-real-model label event or workflow_dispatch. Required six-job CI and all model success predicates are unchanged.",
+  "product_tested_by_this_observation": false
+}

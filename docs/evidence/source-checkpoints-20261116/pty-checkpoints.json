@@ -1,0 +1,430 @@
+{
+  "recorded_at": "2026-11-16T22:10:13.295773+00:00",
+  "source_head": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+  "source_prerequisite": "954512839185dd5dd09fcf26910ca537e7b1559f",
+  "blob_sources": [
+    "68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d",
+    "10d4a325560a1054fbde00162e8e7696007c2eab",
+    "954512839185dd5dd09fcf26910ca537e7b1559f"
+  ],
+  "original_checkpoints": [
+    {
+      "commit": "5309c6a0aba1da49ab201d322edd8915c68deb5d",
+      "tree": "f5d88690515a210afd153c58b90efddf4962acca",
+      "parents": [
+        "954512839185dd5dd09fcf26910ca537e7b1559f"
+      ],
+      "base_tree": "8f4f661072cc82fd6cdc3b2ad5a6ddfe2d4d298e",
+      "raw_commit_path": "pty-commits/5309c6a0aba1da49ab201d322edd8915c68deb5d.commit",
+      "raw_commit_sha256": "838583e5ffc10baff63d53ea956bcf5258c35530e3b6bee14efda504d52cff4d",
+      "changes": [
+        {
+          "path": "docs/evidence/README.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "589e6be753f3346adc0539255f86dbc7b60d9ed1",
+          "sha": "62d4a2d78ab0492e37a998f557137035311b2daa"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/README.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "73ee2a6784fdbd3ae59330d0d32e8d227e9ea94e"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/actual-checkout.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "a55a5d3d3c28362ed8f57164108e534fada7ba3c"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-final.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "98dd914b165c34a53fc7b430c8a75b568a4a76da"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-initial.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "594f4d9a4ea6fabc4957519ca1f044bee109cf4a"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/artifacts-observation2.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "c1ba64a9265e7df3ebd4c3418f2ea00f37a9fada"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/clippy-log.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "edcffee0ad47bdf9608811d0968ec955a4177805"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-final-full.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "970d53ae22aa39bdb13db0a8e8b4fedb04d9a8a8"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-initial.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "68fb3903240103444dab473389fe908f9c212ab3"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-observation2.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7b95da4777f744c4b2e47787ad07f37d40d13d5a"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/jobs-observation3.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3c87104743196d2391bffc118af23919959dd39c"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/run-final.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "606f03f8cecca7e8fcb91d5f965711ab6833751f"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/api/run-initial.tool.json.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3a8be24968406b4edab359451de754a5e76cdfa5"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/clippy.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "b974fc1a5fc37a73d12910913afe8f98344dff8e"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/kernel.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "5f476335648c75346019505e6236302ef73a6a42"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/rust.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3978c9f1e3ad4eb0c2ea406d0da1ac5811d8b256"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/artifact-sources/web.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "05afade03b390244364866dbce9324b5ebbab460"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/clippy-derived-counts.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "1d36ab073423d08a744020b1330a7da84ca712f7"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/derive_clippy_counts.py",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "3571bea958b90c43c2a71de37dbdf8b091d69c9f"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/inventory.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "6bc6a404e4f7c38d19d91fe413ee0d9e99d1a833"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/docs-job.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2f9320244c46f436fc419b34cf24425b43a09d47"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/kernel-job.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "f10aae9c8bb208b65e5f266e4335719f60efb180"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/migration-job.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "5b64ab1ced386ab7c7c8342f327ca7deac391bbe"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/rust-job.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "22b6ff88d5c680907d0bf2b64b341a5b6864c4e8"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/logs/web-job.log.gz",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "e4e49290080a34bbded9eb1e5e839e3cf699c37c"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/observations.json",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "518d29f2e8a4ea0657cd9c8d197f5c28c444f74f"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/clippy-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "0c94a4492348ea6c6b1d82a3b51a3af2609974c8"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/kernel-boundary-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "ac89cff329952746ed0672193712e7bca39d4c4c"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/rust-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7dac9e54a191ba3b792fed76e382ce7d5c3b2b23"
+        },
+        {
+          "path": "docs/evidence/ci-a1d3fa6e-20261116/originals/web-evidence.original.zip",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "7491385b381191e477f216c7b23c2daac7f9bd3e"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    },
+    {
+      "commit": "e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69",
+      "tree": "21997105f08541049068b9f08b4952bc43e569ea",
+      "parents": [
+        "5309c6a0aba1da49ab201d322edd8915c68deb5d"
+      ],
+      "base_tree": "f5d88690515a210afd153c58b90efddf4962acca",
+      "raw_commit_path": "pty-commits/e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69.commit",
+      "raw_commit_sha256": "50431bae164745f0304029e75363f8c7ee8b5ba508dbe66c1668f1306e14cff3",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "899e13db1bff1da92748d5323c9e0f1e77324937",
+          "sha": "66d43a18c19f5a2ec53f43d66cc1f30d6348e855"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/pty.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "25877e64b4d814342b5b5ff3f28b3a872ae07368",
+          "sha": "5e2b3965daee4dab896d4b78323dfe5fcb8be1a4"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/stream.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "ce3cdc603a971512746c6f5ca73528ecdf0c280f",
+          "sha": "2ecb03869bd2397895827d220d7ff63141c68c7e"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "74a4ad16bb3ffaa58d93bdf46fc1031559a5cbcb",
+          "sha": "78befb86ab82c56980470ce931bc09ebf4fd3432"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/seat/ssh_pty/pump.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "8a47200c93c5c9f450a6f7a4ee43798518f30162"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4"
+        },
+        {
+          "path": "third-party/russh-duplex/src/client/mod.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "8c70c0303c668bced52f19a6d20f8331836ef466",
+          "sha": "c756204cb147ebc421606c89c883c57585c240c3"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    },
+    {
+      "commit": "464a130a0b615af11191b082de33099553b08c63",
+      "tree": "cf09e0e03c920a25453c24b0178c622417a64a88",
+      "parents": [
+        "e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69"
+      ],
+      "base_tree": "21997105f08541049068b9f08b4952bc43e569ea",
+      "raw_commit_path": "pty-commits/464a130a0b615af11191b082de33099553b08c63.commit",
+      "raw_commit_sha256": "2ab4918d9269afe3883f22621cb6a8c35338ec85f9e66874cffa8062e4ebb200",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "9c746a0d0fc6d90c37c7e9a79b7a628c82366664",
+          "sha": "cfca6127d451a77c5ac4e59d94887ac17756cca0"
+        },
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "2d8a32abb51b850bc26d592ab4092c77a1c61671"
+        },
+        {
+          "path": "docs/development/pty-write-flush-receipts.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4",
+          "sha": "c7cd3d9116d58a8b75e32035664b1b6e7a445969"
+        },
+        {
+          "path": "third-party/russh-duplex/SHENKO-PATCH.md",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "f6c881858e575e8e9c0f4894d5786a3e6ca8172e",
+          "sha": "a8d0bc2b92b7bd9bc3369d5c4e923d2fa0006662"
+        },
+        {
+          "path": "third-party/russh-duplex/SHENKO-PTY-FLUSH.patch",
+          "old_mode": "000000",
+          "mode": "100644",
+          "old_sha": "0000000000000000000000000000000000000000",
+          "sha": "69c55383cab7b14a7e8e1619ba0b9ae43e4d9959"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    },
+    {
+      "commit": "ee7a8ce59943d443c34017228436302c4dd2de36",
+      "tree": "567e8caeea198bcf308b3e6925235d9fb08424e0",
+      "parents": [
+        "464a130a0b615af11191b082de33099553b08c63"
+      ],
+      "base_tree": "cf09e0e03c920a25453c24b0178c622417a64a88",
+      "raw_commit_path": "pty-commits/ee7a8ce59943d443c34017228436302c4dd2de36.commit",
+      "raw_commit_sha256": "d173472fe67a79296d0d55efc246e08e34afa1211c98df906034c658db84c30b",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "2d8a32abb51b850bc26d592ab4092c77a1c61671",
+          "sha": "fcc2ce4543a90e5444cb79d30c4a148bbfc733f0"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    },
+    {
+      "commit": "2cea04c502246fdabdeaf797bd26e1fe9848904f",
+      "tree": "6dd4a17b677961a3b7b27f419e54caf55451f8d2",
+      "parents": [
+        "ee7a8ce59943d443c34017228436302c4dd2de36"
+      ],
+      "base_tree": "567e8caeea198bcf308b3e6925235d9fb08424e0",
+      "raw_commit_path": "pty-commits/2cea04c502246fdabdeaf797bd26e1fe9848904f.commit",
+      "raw_commit_sha256": "04df2b85e386a830ed0020d5fa7d49dc2462976e6bdb4037bfce617300a0ec1e",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "fcc2ce4543a90e5444cb79d30c4a148bbfc733f0",
+          "sha": "b71eaa79dff3815689125c270f4c430b05e8fdfb"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    },
+    {
+      "commit": "4229b45b8ab33426986540a9a83d22a41a0c9948",
+      "tree": "32045adbbca0899e79ca2f00cf81f94f21845a38",
+      "parents": [
+        "2cea04c502246fdabdeaf797bd26e1fe9848904f"
+      ],
+      "base_tree": "6dd4a17b677961a3b7b27f419e54caf55451f8d2",
+      "raw_commit_path": "pty-commits/4229b45b8ab33426986540a9a83d22a41a0c9948.commit",
+      "raw_commit_sha256": "2faa7ddf1f4d38a9cd827165c062e0b04c98be1403d820551d27698fb50ec64d",
+      "changes": [
+        {
+          "path": "crates/shenko-exec-ssh/src/native_transport/tests/pty_write.rs",
+          "old_mode": "100644",
+          "mode": "100644",
+          "old_sha": "b71eaa79dff3815689125c270f4c430b05e8fdfb",
+          "sha": "ef7372385bad903645c9d678d2858278e092ff77"
+        }
+      ],
+      "reconstructed_tree_matches": true
+    }
+  ],
+  "additional_original_blobs": {
+    "2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4": {
+      "path": "pty-blobs/2ec9dfd6b458391f2e41b7b4b7abffce3f38ead4.blob",
+      "bytes": 3426,
+      "sha256": "e424b39464947fa4e95487c6d1a677dc2db4df4dd08748166de1fceb32ce4c7d"
+    },
+    "2d8a32abb51b850bc26d592ab4092c77a1c61671": {
+      "path": "pty-blobs/2d8a32abb51b850bc26d592ab4092c77a1c61671.blob",
+      "bytes": 24638,
+      "sha256": "6b7d59e0f7b93e5c81b77719d275b95be2967cd94bff06a6f8bc413c713709d1"
+    },
+    "fcc2ce4543a90e5444cb79d30c4a148bbfc733f0": {
+      "path": "pty-blobs/fcc2ce4543a90e5444cb79d30c4a148bbfc733f0.blob",
+      "bytes": 25474,
+      "sha256": "c479a669ce2565fd9f7c3ef3e31f0fd7b99e5f57a0516901c260b007bca795b5"
+    },
+    "b71eaa79dff3815689125c270f4c430b05e8fdfb": {
+      "path": "pty-blobs/b71eaa79dff3815689125c270f4c430b05e8fdfb.blob",
+      "bytes": 28072,
+      "sha256": "482906e718a107e3a0602181d6f53a2c2e49f5dfff100463fe7a7f7c80edecd9"
+    }
+  },
+  "distinct_windows": 5,
+  "runtime_executed": false,
+  "production_source": "e53c1ae6d31fdfa0451e45caa9367ff0c24a4c69"
+}

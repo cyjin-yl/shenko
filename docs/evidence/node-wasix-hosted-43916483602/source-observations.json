@@ -1,0 +1,57 @@
+{
+  "artifact_attestation_boundary": "The published release asset differs from the tag-tracked module; source inspection is a separate pinned observation, not a claim that the asset was rebuilt from that commit.",
+  "files": [
+    {
+      "path": "release-tag-builtins.cc",
+      "url": "https://raw.githubusercontent.com/Multi-V-VM/node-wasix32/0d66fea37737024056983f35e84af3e8448ece08/deps/v8/src/builtins/wasm32/builtins-wasm32.cc",
+      "commit": "0d66fea37737024056983f35e84af3e8448ece08",
+      "git_blob": "4af27a281585277cf272c52aaf97ac2f0224a456",
+      "bytes": 549190,
+      "sha256": "5d255ec5be047875deb02d6b6d34756c8c1accfe61871d5bd4ac92892ac7b109"
+    },
+    {
+      "path": "main-builtins.cc",
+      "url": "https://raw.githubusercontent.com/Multi-V-VM/node-wasix32/20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f/deps/v8/src/builtins/wasm32/builtins-wasm32.cc",
+      "commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+      "git_blob": "699997685d9bea54eec83e301cd9502b9eeb1bff",
+      "bytes": 1150461,
+      "sha256": "c6ea0965a969bb03c614f42c588afbcec3b1e3924ee43ff64a3aa40324bfa649"
+    }
+  ],
+  "driver_dependency": {
+    "source": "https://github.com/cyjin-yl/shenko/blob/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-repl/src/drivers/js_cell_driver.mjs",
+    "lines": [
+      191,
+      196
+    ],
+    "fact": "Both u64be frame lengths use Buffer.readBigUInt64BE."
+  },
+  "release_buffer_dependency": {
+    "source": "https://github.com/Multi-V-VM/node-wasix32/blob/0d66fea37737024056983f35e84af3e8448ece08/lib/internal/buffer.js",
+    "lines": [
+      121,
+      138
+    ],
+    "fact": "readBigUInt64BE converts both halves through BigInt."
+  },
+  "builtin_handler_presence": {
+    "release_tag": {
+      "commit": "0d66fea37737024056983f35e84af3e8448ece08",
+      "BigIntConstructor_occurrences_in_inspected_fallback_file": 0
+    },
+    "main": {
+      "commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+      "handler_start_line": 18157,
+      "fact": "Explicit BigIntConstructor handler calls BigInt::FromNumber or BigInt::FromObject and propagates the exception result."
+    }
+  },
+  "tracked_main_module": {
+    "last_change_commit": "11b2306052634a2b5ea75a400aaf697ffb0b9dd3",
+    "last_change_date": "2026-08-23T04:20:30Z",
+    "bytes": 81079064,
+    "git_blob": "af469358e5972f036137a3eecef2687000228534",
+    "downloaded_or_run_for_this_observation": false,
+    "fixed_builtin_attested": false
+  },
+  "inference": "The unchanged driver has a direct required dependency on the unsupported constructor; without a stack, this does not prove the exact first call that failed. Main source contains a concrete repair path but the old tracked binary is not evidence of that repair."
+}

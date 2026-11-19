@@ -1,0 +1,3 @@
+95e0a2d68b459f3cfee9561d5211a40b3d6a1499 refs/heads/checkpoint/seat-reviewed-20261116
+74ea34d6c6c7f52875a575d74b869480b63aac4b refs/heads/checkpoint/native-e1-successor-reviewed-20261116
+ff771184d8dd05b4c2125483958cfb2c55319bb4 refs/heads/checkpoint/seat-successor-integration-20261116

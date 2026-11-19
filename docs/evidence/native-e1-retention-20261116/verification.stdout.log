@@ -1,0 +1,37 @@
+{
+  "scope": "two synthetic exporter scenarios; no SSH, Store protocol or Rust execution",
+  "exporter_sha256": "a2f20872ff438234842ef0f64e77b67ad9c6d6a68ebc21798215836ef510fea4",
+  "digest_labels": "synthetic 64-hex labels; BLAKE3 verification is not claimed",
+  "runs": [
+    {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "bin/shenko/tests/support/native_e1_snapshot.py",
+        "--root",
+        "/tmp/native-e1-exporter-check-rd2hby4y",
+        "--output",
+        "docs/evidence/native-e1-retention-20261116/exporter-checks/selected-originals.zip",
+        "--source-revision",
+        "synthetic-exporter-check"
+      ],
+      "exit_code": 0,
+      "archive_sha256": "32d798fe591d5baab9a3894805c80861b769275f17f7882b11c82bef68d87375",
+      "assertions": "original text/rows/bytes unchanged; nested Cell::Text reference traversed; missing CAS explicit; secret row/object and unselected table excluded"
+    },
+    {
+      "command": [
+        "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+        "bin/shenko/tests/support/native_e1_snapshot.py",
+        "--root",
+        "/tmp/native-e1-exporter-check-rd2hby4y",
+        "--output",
+        "docs/evidence/native-e1-retention-20261116/exporter-checks/partial-failure.zip",
+        "--source-revision",
+        "synthetic-exporter-check"
+      ],
+      "exit_code": 1,
+      "archive_sha256": "c176855ef983fbe5fcbf061999c79004cfff58a4a50082a953efe8638142a647",
+      "assertions": "missing database and incompatible schema cannot claim successful retention; available originals survive and missing database is not created"
+    }
+  ]
+}

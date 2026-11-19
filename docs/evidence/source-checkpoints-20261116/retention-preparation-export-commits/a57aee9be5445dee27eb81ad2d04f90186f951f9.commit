@@ -1,0 +1,6 @@
+tree 54e739ab4030bfdfb25e1be13fddebfa140a8201
+parent 7bffa671ba11f6877f9f309b30d895619466cfb9
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870568 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870568 +0000
+
+fix(store): bind retained tool manifests to their reading

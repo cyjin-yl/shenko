@@ -31,13 +31,11 @@ fn residency_context(request: &InferenceRequest) -> String {
 
 /// Execute one admitted request and produce its terminal result.
 ///
-/// The result carries the cause this execution already recorded. A typed
-/// cause is the specific fact the transport reported — a sealed HTTP
-/// deadline, a provider rejection, a wire violation — while an unknown
-/// outcome without a typed cause stays a plain observation. The broker's
-/// completion path uses this to write one durable error per failure: a
-/// request that already produced a typed cause is not restated a second
-/// time as a generic "outcome unknown" record.
+/// The result carries whether execution attempted to report a specific cause
+/// such as a sealed HTTP deadline or provider rejection. Completion avoids a
+/// second generic diagnostic for the same cause. This flag is not a durable
+/// write acknowledgement: SPEC 45.14 keeps journal failure fail-soft and
+/// observable through dropped counters. E1 and settlement remain separate.
 pub(crate) async fn execute_request(
     request: &InferenceRequest,
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
@@ -57,7 +55,7 @@ pub(crate) async fn execute_request(
         let mut pool = domain.kv_mut();
         kv.begin_read(&mut pool, &context_id).is_ok()
     };
-    let (result, typed_cause) = execute_admitted(
+    let (result, cause_report_attempted) = execute_admitted(
         request,
         receipt_sink,
         purpose,
@@ -81,15 +79,15 @@ pub(crate) async fn execute_request(
             let _ = kv.end_read(&mut pool, &context_id);
         }
     }
-    ExecutedRequest { result, typed_cause }
+    ExecutedRequest { result, cause_report_attempted }
 }
 
-/// One executed request: its terminal result and the cause it recorded.
+/// One executed request and whether cause reporting was attempted.
 pub(crate) struct ExecutedRequest {
     /// The terminal result of this request.
     pub result: InferenceResult,
-    /// Whether a typed cause for this request was already journalled.
-    pub typed_cause: bool,
+    /// Whether a specific cause was submitted to the fail-soft reporter.
+    pub cause_report_attempted: bool,
 }
 
 /// Dispatch one admitted request and settle its terminal result.
@@ -147,7 +145,7 @@ async fn execute_admitted(
             }
         }
         otherwise => {
-            let mut typed_cause = false;
+            let mut cause_report_attempted = false;
             let status = match otherwise {
                 Ok(DispatchFence::Fenced) => InferenceStatus::Cancelled,
                 Err(error) => {
@@ -161,10 +159,10 @@ async fn execute_admitted(
                             "the dispatch fence could not be checked; the request stays recoverable",
                         ),
                     );
-                    // The unchecked fence is already recorded. The completion
-                    // path must not restate this request as a second,
-                    // less specific unknown outcome.
-                    typed_cause = true;
+                    // The unchecked fence was submitted to the fail-soft
+                    // reporter. Completion must still retain Unknown even
+                    // though it avoids a second generic diagnostic.
+                    cause_report_attempted = true;
                     InferenceStatus::Failed
                 }
                 Ok(DispatchFence::Unknown) => InferenceStatus::Failed,
@@ -189,7 +187,7 @@ async fn execute_admitted(
                     stream: None,
                     quota_headers: Vec::new(),
                 },
-                typed_cause,
+                cause_report_attempted,
             )
         }
     }
@@ -229,12 +227,11 @@ async fn execute_complete(
             )
         }
         Err(error) => {
-            let typed_cause = journal_provider_error(request, purpose, &error, error_sink);
+            let cause_report_attempted = journal_provider_error(request, purpose, &error, error_sink);
             (
                 failure_result(request, purpose, &error, None),
-                // The transport cause is recorded, so this request already has
-                // its one durable error.
-                typed_cause,
+                // This records only the attempt to report the transport cause.
+                cause_report_attempted,
             )
         }
     }
@@ -274,7 +271,7 @@ async fn execute_stream(
         );
     }
     let outcome = runtime.stream(request, &publisher).await;
-    let (response, termination, status, events, batches, quota_headers, typed_cause) = match outcome {
+    let (response, termination, status, events, batches, quota_headers, cause_report_attempted) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
             let termination = termination_evidence(&outcome.response, terminal,
@@ -292,14 +289,13 @@ async fn execute_stream(
             )
         }
         Err(error) => {
-            let typed_cause = journal_provider_error(request, purpose, &error, error_sink);
+            let cause_report_attempted = journal_provider_error(request, purpose, &error, error_sink);
             // Streaming and complete calls classify the same transport facts.
             // In particular a deadline is still unknown, while an explicit
             // provider rejection is not lost behind a generic stream error.
             let failed = failure_result(request, purpose, &error, None);
-            // The transport cause is recorded, so this request already has its
-            // one durable error.
-            (None, failed.termination, failed.status, 0, 0, failed.quota_headers, typed_cause)
+            // Reporting is fail-soft; E1 remains the authority on termination.
+            (None, failed.termination, failed.status, 0, 0, failed.quota_headers, cause_report_attempted)
         }
     };
     // The terminal receipt is written here, independently of the caller.
@@ -319,7 +315,7 @@ async fn execute_stream(
             stream: Some(StreamEvidence { events, batches, public_chunks, journaled }),
             quota_headers,
         },
-        typed_cause,
+        cause_report_attempted,
     )
 }
 
@@ -327,10 +323,10 @@ async fn execute_stream(
 /// provider response text into the error journal. A timeout explains why the
 /// local reader ended; it is never a provider cancellation acknowledgement.
 ///
-/// The report is the one durable error of this request: it names the typed
-/// cause and, for a deadline, the sealed observation limit. The broker's
-/// completion path therefore must not add a second, less specific record for
-/// the same failure.
+/// The report names the cause and, for a deadline, the sealed observation
+/// limit. Returning true records the reporting attempt, including when there
+/// is no sink or its fail-soft write fails; it never confirms persistence.
+/// The original result/stream terminal and retained debt stay independent.
 fn journal_provider_error(
     request: &InferenceRequest,
     purpose: RequestPurpose,
@@ -1211,18 +1207,20 @@ mod tests {
             anyhow::ensure!(result.request_id == request_id && result.effective.provider_binding == binding);
             anyhow::ensure!(result.status == InferenceStatus::Failed && result.termination.kind == TerminationKind::Unknown);
             anyhow::ensure!(receipt.recorded().len() == 1 && receipt.recorded()[0].termination.kind == TerminationKind::Unknown);
+            anyhow::ensure!(observations.terminals.lock().as_slice() == std::slice::from_ref(&result.termination));
             {
                 let errors = observations.errors.lock();
-                // One failure is one durable error. The execution path records
-                // the typed transport cause; the broker's completion path adds
-                // its generic unknown-outcome record only when no typed cause
-                // was recorded, so the same failure is never journalled twice.
+                // This candidate reports the typed transport cause once.
+                // The separate stream/E1 Unknown facts above and the retained
+                // slot/no-redispatch checks below remain independent of that
+                // best-effort diagnostic; no cause report proves settlement.
                 let [timeout] = errors.as_slice() else {
-                    anyhow::bail!("expected exactly one typed timeout report, got {errors:?}");
+                    anyhow::bail!("expected one typed timeout report, got {errors:?}");
                 };
                 anyhow::ensure!(timeout.code == "INFERENCE_TRANSPORT_TIMEOUT"
                     && timeout.request_id == request_id && timeout.agent_id == agent_id
-                    && timeout.message.contains("500 ms"),
+                    && timeout.message.contains("500 ms")
+                    && timeout.message.contains("remote termination is unconfirmed"),
                     "unexpected timeout report: {timeout:?}");
             }
             anyhow::ensure!(handle.active_count() == 1);

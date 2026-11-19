@@ -1,0 +1,49 @@
+{
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 1024,
+      "sha256": "0db157d02ae1bb705b5ae3f3bc7703e2fa59b586f6d0958e036b65e8c83d60d5"
+    },
+    {
+      "path": "clippy-base.json",
+      "bytes": 120,
+      "sha256": "b6ae33a6f650eac4b8bf7bbe08ff48e0f428d2c63d793dd48d7029b86a28040e"
+    },
+    {
+      "path": "clippy-members.json.gz",
+      "bytes": 1074,
+      "sha256": "b7cff8d4cb9e1bd5e030b07d771d382569eaec622431b4d6d294cfc42d037ca1"
+    },
+    {
+      "path": "clippy-original.zip",
+      "bytes": 2768629,
+      "sha256": "f7292c315d1aa5bfe400c8a4ecabe922a4630823e25efe9855a82902d6c76523"
+    },
+    {
+      "path": "clippy-ratchet.json.gz",
+      "bytes": 8571,
+      "sha256": "33163e67babffe8a61746cccc7247e6fce923c520f837ab3299613147fc3fe13"
+    },
+    {
+      "path": "clippy-verified.json",
+      "bytes": 182,
+      "sha256": "864f435d89653835a4335bdc08080310e6dfee4b433ac3f24b9a010a2beae9d5"
+    },
+    {
+      "path": "rust-members.json.gz",
+      "bytes": 125184,
+      "sha256": "745e8c14a177a02f15cbf45c289286c45e5d2d78a1a50bff1cb467f75b0755af"
+    },
+    {
+      "path": "rust-original.zip",
+      "bytes": 8305765,
+      "sha256": "2a8609e899f1858a4d27ab4fc4c63d5f8dda90c909b0fb31804f4ddd42e762b6"
+    },
+    {
+      "path": "rust-verified.json",
+      "bytes": 182,
+      "sha256": "484afb15e2e849fdf19e0d2e632acb2c27e62c65ee624b40d04f330adfd090df"
+    }
+  ]
+}

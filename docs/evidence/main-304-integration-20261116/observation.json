@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "kind": "mainline_integration_and_metadata_observation",
+  "observed_at_utc": "2026-11-16T15:25:56.061253Z",
+  "product_runtime_tested_by_this_observation": false,
+  "source": {
+    "candidate_public_parent": "9b5a6cb8987806879b8cfb713321744bd087bc0e",
+    "integrated_main": "09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+    "main_pull_request": "https://github.com/cyjin-yl/shenko/pull/304",
+    "owner_integration_merge": "8407fe745934cdf7065fe545fa6177212d78c28e",
+    "owner_merge_parents": [
+      "0d3b9e453183ab3b981e7a3bc58c0c7bdc22e3e7",
+      "09cb667a79cc2e2212b8d60afcef97cee7e165f9"
+    ],
+    "root_merge_before_this_evidence": "7baa9da5cac132e48022c2373f85d1bfd2d2a654",
+    "root_merge_tree_before_this_evidence": "27c9acc20c66b19be48a8b04a078aadd7594ff49",
+    "runtime_source_diff_against_owner_merge": []
+  },
+  "resolution": {
+    "preserved": [
+      "Mainline CLI runtime owners, Store cognition owners, Node unit owners, UI modules and content-hashed static chunks",
+      "Candidate local installation provisioning, imported original subject identity and local physical-home identity",
+      "Native claim/arm/dispatch and T2 materialization, minority star coordination and resident heartbeat ownership",
+      "Broker typed settlement failures and retained unknown-outcome guards, plus candidate cause-report-attempt accounting",
+      "All original quota and context inspection assertions and all prior failed receipts"
+    ],
+    "root_conflicts": [
+      "bin/shenko/src/lib.rs",
+      "docs/evidence/README.md",
+      "docs/specs/nodes.md"
+    ],
+    "root_lib_byte_identical_to_owner_merge": true,
+    "root_tree_diff_against_owner_merge": [
+      "docs/evidence/README.md",
+      "docs/evidence/ship-work-continuation-20261116.json",
+      "docs/specs/nodes.md"
+    ]
+  },
+  "checks": {
+    "metadata": {
+      "command": "cargo check --offline --locked -p shenko -p shenko-store -p shenko-broker -p shenko-subject --all-targets -j1",
+      "exit_code": 0,
+      "reported_elapsed": "2m 39s",
+      "log_finished_at_utc": "2026-11-16T15:12:47.443Z",
+      "source_binding": "The final owner worktree is clean. The owner checked every tracked Rust file: no Rust source was changed after metadata completed. Root then compared all bin/crates content against that merge and found no differences. Existing warnings are retained in the full original log.",
+      "log": "main304-metadata.log.gz",
+      "runtime_tests_executed": false
+    },
+    "docs_migration": {
+      "command": "scripts/check_docs.py --verify-migration",
+      "exit_code": 0,
+      "errors": [],
+      "root_repeat_elapsed_seconds": 7.27,
+      "root_result": "main304-root-docs.json"
+    },
+    "kernel_boundary": {
+      "command": "scripts/check_kernel_boundary.py --baseline-ref 09cb667a79cc2e2212b8d60afcef97cee7e165f9",
+      "exit_code": 0,
+      "errors": [],
+      "new_violations": [],
+      "baseline_updated": false,
+      "result": "main304-kernel-boundary.json"
+    },
+    "root_conflict_scope": {
+      "original_scope_proof": "main304-root-conflict-scope.json",
+      "other_index_entries_unchanged": true,
+      "unmerged_paths_after_resolution": [],
+      "diff_check_exit_code": 0
+    }
+  },
+  "runtime_scope": "CI 43894092386 tests the preceding public 9b5a6cb source, not this newly integrated mainline runtime tree. Its results must not be relabelled as execution of this merge. A later exact-candidate CI is still required.",
+  "artifacts": [
+    {
+      "path": "main304-merge.log.gz",
+      "encoding": "gzip",
+      "original_bytes": 2134,
+      "original_sha256": "415f6d616195edaf28690248e31fd571a2f4ce39e943397a29e0841269bb6d2f",
+      "stored_bytes": 491,
+      "stored_sha256": "ff7a6436af5131b506f065df0b9b7d2aac481d4e8752e23b3f2487ef48602e21"
+    },
+    {
+      "path": "main304-metadata.log.gz",
+      "encoding": "gzip",
+      "original_bytes": 45647,
+      "original_sha256": "66f5b3c844155af2e910d27b907ba943068e557fa950ee4011485b0e780867a4",
+      "stored_bytes": 9023,
+      "stored_sha256": "6fd202495e6e75c4359b9cc2da96186ca6f421d624a3ce0935cded183aa54496"
+    },
+    {
+      "path": "main304-docs.json",
+      "encoding": "identity",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "stored_bytes": 497,
+      "stored_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de"
+    },
+    {
+      "path": "main304-kernel-boundary.json",
+      "encoding": "identity",
+      "original_bytes": 411,
+      "original_sha256": "7b56b53ac13291e89fc191887c5986dff7c92b0b034217f7dadcdbd9586442f4",
+      "stored_bytes": 411,
+      "stored_sha256": "7b56b53ac13291e89fc191887c5986dff7c92b0b034217f7dadcdbd9586442f4"
+    },
+    {
+      "path": "main304-root-conflict-scope.json",
+      "encoding": "identity",
+      "original_bytes": 367,
+      "original_sha256": "5f0246eeb99850dc8d6f0532ddf273e8808e60ce3f15f0745c28e0ef82fb9e4f",
+      "stored_bytes": 367,
+      "stored_sha256": "5f0246eeb99850dc8d6f0532ddf273e8808e60ce3f15f0745c28e0ef82fb9e4f"
+    },
+    {
+      "path": "main304-root-docs.json",
+      "encoding": "identity",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "stored_bytes": 497,
+      "stored_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de"
+    }
+  ],
+  "full_ship_work_complete": false
+}

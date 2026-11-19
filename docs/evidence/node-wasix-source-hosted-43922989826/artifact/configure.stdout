@@ -1,0 +1,5 @@
+WARNING: --openssl-no-asm will result in binaries that do not take advantage
+         of modern CPU cryptographic instructions and will therefore be slower.
+         Please refer to BUILDING.md
+WARNING: warnings were emitted in the configure phase
+INFO: configure completed successfully

@@ -1,0 +1,17 @@
+{
+  "run_id": 43927382049,
+  "head": "a9c17717a6effb504c63ff5248401c8857d65558",
+  "url": "https://github.com/cyjin-yl/shenko/actions/runs/43927382049",
+  "method": "Read-only cloud browser accessibility observation of the actual run page",
+  "status": "Failure",
+  "duration_display": "–",
+  "artifacts_display": "–",
+  "annotation_link_label": "Invalid workflow file: .github/workflows/model5-artifact-inspection.yml#L1",
+  "annotation": "(Line: 25, Col: 28): Unrecognized named-value: 'runner'. Located at position 1 within expression: runner.temp",
+  "original_jobs_observed": [],
+  "original_artifacts_observed": [],
+  "python_ran": false,
+  "artifact_download_ran": false,
+  "product_tested": false
+}
+

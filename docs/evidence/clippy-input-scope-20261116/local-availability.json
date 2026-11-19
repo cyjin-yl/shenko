@@ -1,0 +1,91 @@
+{
+  "scope": "local read-only availability and original-byte inspection; no compiler or new ptrace attempt",
+  "observed_at": "2026-11-16T23:05:07.966194+00:00",
+  "source_base": "b10ca4c4064d7cc5d877250f8de834dc4d0dbea5",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "tools": {
+    "cargo": null,
+    "rustc": null,
+    "rustfmt": null,
+    "strace": "/usr/bin/strace",
+    "bpftrace": null,
+    "auditctl": null,
+    "perf": null,
+    "docker": null,
+    "podman": null,
+    "unshare": "/usr/bin/unshare",
+    "setpriv": "/usr/bin/setpriv",
+    "cc": "/usr/bin/cc"
+  },
+  "process_limits": [
+    "Uid:\t1000\t1000\t1000\t1000",
+    "CapInh:\t0000000000000000",
+    "CapPrm:\t0000000000000000",
+    "CapEff:\t0000000000000000",
+    "CapBnd:\t0000000000000000",
+    "CapAmb:\t0000000000000000",
+    "NoNewPrivs:\t1",
+    "Seccomp:\t2"
+  ],
+  "tracked_devcontainer_or_dockerfiles": [],
+  "source_files": {
+    "scripts/ci/clippy_ratchet.py": {
+      "bytes": 17305,
+      "sha256": "757f54faf70e7eddfab32aa0a83260e4a348055680e4492c1a190c10d6454c77",
+      "git_blob": "11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5",
+      "public_3e62_blob": "11e359eb2d0d0d416f74a39cd54ed5f8a7ad79b5"
+    },
+    ".github/workflows/ci.yml": {
+      "bytes": 10563,
+      "sha256": "ea409b123ed0299be13238fbf46fe38fc94065173e1dea82668df8272ae4f40a",
+      "git_blob": "334e4063b2e5355d844b86030fbdf43e05856e3b",
+      "public_3e62_blob": "334e4063b2e5355d844b86030fbdf43e05856e3b"
+    },
+    "crates/shenko-ui/build.rs": {
+      "bytes": 2063,
+      "sha256": "0229a9be31486d85d6ec35191d733c8a2ef3974603e1d226dc268f8fa517c747",
+      "git_blob": "b9d28f4c4f48524909b84f541b9aebe97b3d1db0",
+      "public_3e62_blob": "b9d28f4c4f48524909b84f541b9aebe97b3d1db0"
+    },
+    "crates/shenko-ui/src/routes.rs": {
+      "bytes": 3964,
+      "sha256": "924fc1255aa5c46d541d2000722c076d9fcaea586b43c144a5e1835b13c8e029",
+      "git_blob": "3150df64bcf2c6bcc3384d5d4dc81bb5a20aa2ff",
+      "public_3e62_blob": "3150df64bcf2c6bcc3384d5d4dc81bb5a20aa2ff"
+    },
+    "bin/shenko/tests/native_evidence_delivery.rs": {
+      "bytes": 54251,
+      "sha256": "9f2918ddd8ac7fdebd539448455f7fb9445582bb1af9841e0c063e49caa2ec0a",
+      "git_blob": "b27831676aa1828517f36910df39f4133a702a9b",
+      "public_3e62_blob": "b27831676aa1828517f36910df39f4133a702a9b"
+    }
+  },
+  "unchanged_public_rusqlite_originals": [
+    {
+      "path": "docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-inner_connection.rs",
+      "recorded": {
+        "path": "sources/rusqlite-0.32.1-inner_connection.rs",
+        "bytes": 15025,
+        "sha256": "3c49805fe5a239c89ff512f603c6f3f514061d653e3fcb5e7b46af1887a98382"
+      },
+      "actual": {
+        "bytes": 15025,
+        "sha256": "3c49805fe5a239c89ff512f603c6f3f514061d653e3fcb5e7b46af1887a98382"
+      }
+    },
+    {
+      "path": "docs/evidence/ci-83bf3914-20261116/capture-readonly-review/sources/rusqlite-0.32.1-row.rs",
+      "recorded": {
+        "path": "sources/rusqlite-0.32.1-row.rs",
+        "bytes": 19977,
+        "sha256": "0a246577a097e4304a08baf54bac3c0555e3aa7ea53589d33218e384a76d6789"
+      },
+      "actual": {
+        "bytes": 19977,
+        "sha256": "0a246577a097e4304a08baf54bac3c0555e3aa7ea53589d33218e384a76d6789"
+      }
+    }
+  ],
+  "prior_ptrace_observation_reused": true,
+  "new_product_or_behavior_windows": 0
+}

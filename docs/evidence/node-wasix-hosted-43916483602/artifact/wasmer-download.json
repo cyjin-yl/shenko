@@ -1,0 +1,24 @@
+{
+  "url": "https://github.com/wasmerio/wasmer/releases/download/v7.5.0/wasmer-linux-amd64.tar.gz",
+  "expected_bytes": 302721336,
+  "expected_sha256": "23f99818deaad93859f8bb8292af81f0c39f25aea19eaccfb72fc7c9e8a3fae9",
+  "started_at": "2026-11-16T17:15:47.371186+00:00",
+  "verified": true,
+  "extracted": {
+    "bin/wasmer": {
+      "bytes": 219153104,
+      "sha256": "72c57ef6be45d500cb528c0a684b13159620ddfb4b50d3e429a3a352d0b3f116"
+    },
+    "LICENSE": {
+      "bytes": 1097,
+      "sha256": "76dc7d305458d07478bc62669fe53dbfd3b94b95c5e00fbb45af1f492cbd7284"
+    },
+    "ATTRIBUTIONS": {
+      "bytes": 35351,
+      "sha256": "c92517fb876e2a188276d18856eca0b1f20af2f6caf10c0ac08581d204400f06"
+    }
+  },
+  "actual_bytes": 302721336,
+  "actual_sha256": "23f99818deaad93859f8bb8292af81f0c39f25aea19eaccfb72fc7c9e8a3fae9",
+  "finished_at": "2026-11-16T17:15:52.041785+00:00"
+}

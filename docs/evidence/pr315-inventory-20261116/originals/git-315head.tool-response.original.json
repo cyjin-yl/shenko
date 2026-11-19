@@ -1,0 +1,22 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Action completed."
+    }
+  ],
+  "structuredContent": {
+    "content": "{\"sha\":\"04a765c6496036b3122c457c81c977b4f2447855\",\"node_id\":\"C_kwDOVUFCKtoAKDA0YTc2NWM2NDk2MDM2YjMxMjJjNDU3YzgxYzk3N2I0ZjI0NDc4NTU\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/04a765c6496036b3122c457c81c977b4f2447855\",\"author\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T22:58:29Z\"},\"committer\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T22:58:29Z\"},\"tree\":{\"sha\":\"e822ee3c9bcddcdd44839b8984ecaba21c2a1497\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/trees/e822ee3c9bcddcdd44839b8984ecaba21c2a1497\"},\"message\":\"fix(ssh-seat): preserve used select bindings under forced unused lint\",\"parents\":[{\"sha\":\"8567683255120695643f545d2876242e4232794f\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/8567683255120695643f545d2876242e4232794f\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/8567683255120695643f545d2876242e4232794f\"}],\"verification\":{\"verified\":false,\"reason\":\"unsigned\",\"signature\":null,\"payload\":null,\"verified_at\":null}}",
+    "title": "04a765c6496036b3122c457c81c977b4f2447855",
+    "modified_date": null,
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855",
+    "display_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855",
+    "display_title": "04a765c6496036b3122c457c81c977b4f2447855",
+    "structuredContent": {
+      "title": "04a765c6496036b3122c457c81c977b4f2447855",
+      "content": "{\"sha\":\"04a765c6496036b3122c457c81c977b4f2447855\",\"node_id\":\"C_kwDOVUFCKtoAKDA0YTc2NWM2NDk2MDM2YjMxMjJjNDU3YzgxYzk3N2I0ZjI0NDc4NTU\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/04a765c6496036b3122c457c81c977b4f2447855\",\"author\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T22:58:29Z\"},\"committer\":{\"name\":\"cyjin.yl\",\"email\":\"chenyejin2004@foxmail.com\",\"date\":\"2026-11-16T22:58:29Z\"},\"tree\":{\"sha\":\"e822ee3c9bcddcdd44839b8984ecaba21c2a1497\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/trees/e822ee3c9bcddcdd44839b8984ecaba21c2a1497\"},\"message\":\"fix(ssh-seat): preserve used select bindings under forced unused lint\",\"parents\":[{\"sha\":\"8567683255120695643f545d2876242e4232794f\",\"url\":\"https://api.github.com/repos/cyjin-yl/shenko/git/commits/8567683255120695643f545d2876242e4232794f\",\"html_url\":\"https://github.com/cyjin-yl/shenko/commit/8567683255120695643f545d2876242e4232794f\"}],\"verification\":{\"verified\":false,\"reason\":\"unsigned\",\"signature\":null,\"payload\":null,\"verified_at\":null}}",
+      "display_url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/04a765c6496036b3122c457c81c977b4f2447855"
+    }
+  },
+  "isError": false
+}

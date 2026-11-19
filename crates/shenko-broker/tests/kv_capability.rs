@@ -19,6 +19,81 @@ fn policy_clock() -> u64 {
     POLICY_CLOCK_MS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+#[test]
+fn served_llama_context_is_observed_and_invalid_limits_never_become_unknown() -> anyhow::Result<()>
+{
+    tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        // The first response is the complete retained /v1/models response
+        // from the real hosted attempt. The remaining phases exercise its
+        // missing served limit, conflicting limit and invalid zero value.
+        let actual: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/evidence/single-node-hosted-43885905651/raw/real-single-node/models.json"
+        ))?;
+        let mut training_only = actual.clone();
+        training_only["data"][0]["meta"].as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("retained model metadata is not an object"))?
+            .remove("n_ctx");
+        let mut conflicting = actual.clone();
+        conflicting["data"][0]["context_length"] = json!(40_960);
+        let mut zero = actual.clone();
+        zero["data"][0]["meta"]["n_ctx"] = json!(0);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let provider = LocalModelProvider::new(
+            format!("http://{}", listener.local_addr()?), "Qwen3-0.6B-Q4_K_M".into(),
+        );
+        let (broker, _handle) = Broker::with_local_provider(provider, 1)?;
+        let fixture = tokio::spawn(async move {
+            for metadata in [actual, training_only, conflicting, zero] {
+                for path in ["/v1/models", "/metrics"] {
+                    let (mut stream, _) = tokio::time::timeout(
+                        std::time::Duration::from_secs(5), listener.accept(),
+                    ).await??;
+                    let mut header = Vec::new();
+                    while !header.windows(4).any(|part| part == b"\r\n\r\n") {
+                        let mut bytes = [0_u8; 1024];
+                        let size = tokio::time::timeout(
+                            std::time::Duration::from_secs(5), stream.read(&mut bytes),
+                        ).await??;
+                        anyhow::ensure!(size > 0 && header.len() + size <= 16_384,
+                            "metadata fixture received an incomplete or oversized header");
+                        header.extend_from_slice(&bytes[..size]);
+                    }
+                    let header = String::from_utf8(header)?;
+                    anyhow::ensure!(header.starts_with(&format!("GET {path} HTTP/1.1\r\n")),
+                        "metadata discovery unexpectedly sent a different request: {header}");
+                    let (status, body) = if path == "/v1/models" {
+                        ("200 OK", serde_json::to_string(&metadata)?)
+                    } else {
+                        ("404 Not Found", String::new())
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len(),
+                    );
+                    tokio::time::timeout(std::time::Duration::from_secs(5),
+                        stream.write_all(response.as_bytes())).await??;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        });
+        let served = broker.discover_capabilities().await?;
+        anyhow::ensure!(served.max_context_tokens == Some(16_384),
+            "the live serving limit must not be replaced by n_ctx_train: {served:?}");
+        anyhow::ensure!(broker.discover_capabilities().await?.max_context_tokens.is_none(),
+            "a training-only response does not establish a serving limit");
+        let conflict = broker.discover_capabilities().await.err()
+            .ok_or_else(|| anyhow::anyhow!("conflicting limits were accepted"))?;
+        anyhow::ensure!(conflict.is::<shenko_broker::InvalidModelMetadata>()
+            && conflict.to_string().contains("conflicting context limits"), "{conflict:#}");
+        let zero = broker.discover_capabilities().await.err()
+            .ok_or_else(|| anyhow::anyhow!("zero served context was accepted"))?;
+        anyhow::ensure!(zero.is::<shenko_broker::InvalidModelMetadata>()
+            && zero.to_string().contains("invalid context limit"), "{zero:#}");
+        fixture.await??;
+        Ok(())
+    })
+}
+
 /// One probe fixture: `/v1/models` always answers, `/metrics` only when the
 /// backend has a metrics surface.
 async fn probe_fixture(metrics: Option<String>) -> String {

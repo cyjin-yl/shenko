@@ -1,0 +1,2 @@
+deps/v8/include/wasi/wasi-simdutf-compat.h
+tools/gyp/pylib/gyp/generator/make.py

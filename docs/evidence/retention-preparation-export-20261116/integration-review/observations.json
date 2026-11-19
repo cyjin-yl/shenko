@@ -1,0 +1,137 @@
+{
+  "source": "4394226a443f25be48791fecea918d619490a284",
+  "tree": "d947094f22e8312b7a795271b09e8f5f2777cac7",
+  "reader_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+  "export_source": "a59753d624434c17afc359df18da2b3c6e6ca490",
+  "merged_handoff_equals_export_plus_exact_reader_block": true,
+  "reader_block_bytes": 916,
+  "reader_block_sha256": "a62fc85703e805624ba7beb430bdb8bd19034da2f9918027a4589a5aa0f418f4",
+  "all_original_export_bytes_and_assertions_preserved": true,
+  "all_original_reader_block_bytes_and_assertions_preserved": true,
+  "closed_installation_after_original_reopened_drop": true,
+  "byte_comparisons": [
+    {
+      "path": "crates/shenko-store/src/retained_objects.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 17255,
+      "sha256": "cef81185b845ab07f603acf1b500ce1c838fcbafaf705253d96bb1d547d75a6b"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/artifacts.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 8509,
+      "sha256": "ce1eaf868cbd86bda6ebd6fe2da9e410f1ad4ab845e84f8ce5a4d603b04430e2"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/carriers.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 5107,
+      "sha256": "1dc9de7e9c84cba667535509c61c8aaed68f2ac49df65de08d028c7b638c1269"
+    },
+    {
+      "path": "crates/shenko-store/src/retained_objects/closure.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 13029,
+      "sha256": "b1d19e66b2d51f0052552fb758de75653d6f0854d63c19decfc2514ee14c9cf8"
+    },
+    {
+      "path": "crates/shenko-store/src/cas.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 17730,
+      "sha256": "6d2dd18e62727346d8f3dfe9b2590f8095a891359df4c18f2c0755a3d64ba6df"
+    },
+    {
+      "path": "crates/shenko-store/src/store.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 111913,
+      "sha256": "3260b170054e5acd6b96efb5b8510fefd88d0ce498b72e2e294b872ac2ef5c08"
+    },
+    {
+      "path": "crates/shenko-store/src/lib.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 3272,
+      "sha256": "2712a627d5061e5b988cf49650331f813aa333e01332a117f4c3bb1300931c34"
+    },
+    {
+      "path": "crates/shenko-store/tests/retained_objects.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 3174,
+      "sha256": "a8fcb60bf296dfcf921409ab1760a3e74e24859c32f269757aececdf2b5e9045"
+    },
+    {
+      "path": "bin/shenko/src/lib.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 12841,
+      "sha256": "ef83f4850c2efde5df6241fd9cd8876eb51ba45b02abb4531e70dd508390fe46"
+    },
+    {
+      "path": "bin/shenko/src/cli_dispatch.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 22518,
+      "sha256": "dab82736fe257ab0c9e30070aef1def42e379a6fdf643855235eeee208f27f0d"
+    },
+    {
+      "path": "bin/shenko/tests/native_evidence_delivery.rs",
+      "original_source": "a57aee9be5445dee27eb81ad2d04f90186f951f9",
+      "byte_identical": true,
+      "bytes": 57829,
+      "sha256": "a2a6058bfbc9ef1bde557291355bb8aa5b7b417ace951260fb92175d7582d0ef"
+    },
+    {
+      "path": "crates/shenko-update/src/test_evidence.rs",
+      "original_source": "a59753d624434c17afc359df18da2b3c6e6ca490",
+      "byte_identical": true,
+      "bytes": 8231,
+      "sha256": "94ceb17def71e009965645e3a1950cfd7175677baf7795c57ea96dd6c5166194"
+    },
+    {
+      "path": "crates/shenko-update/src/build_tests.rs",
+      "original_source": "a59753d624434c17afc359df18da2b3c6e6ca490",
+      "byte_identical": true,
+      "bytes": 14340,
+      "sha256": "cc6b108f77f2fd4d01beef1bed10fc32d66f94dfceb6fd9a4ce6c5875ff9412a"
+    },
+    {
+      "path": "crates/shenko-update/src/lib.rs",
+      "original_source": "a59753d624434c17afc359df18da2b3c6e6ca490",
+      "byte_identical": true,
+      "bytes": 1599,
+      "sha256": "2b2ee09129c802a7d348952c362ed14cae5a85ed4aa55107e132d592bc9e9916"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "original_source": "a59753d624434c17afc359df18da2b3c6e6ca490",
+      "byte_identical": true,
+      "bytes": 10741,
+      "sha256": "b8f9af671ec631d2c44c4c028faaea84d4a036f1e724a4da386c5a0ed709fdb6"
+    }
+  ],
+  "git_diff_check_exit": 0,
+  "new_behavioral_windows": 0,
+  "source_edits": false,
+  "checks_not_executed": [
+    "Rust compilation",
+    "Clippy",
+    "runtime or exporter execution"
+  ],
+  "readonly_call_path_review": [
+    "run_owned creates/acquires installation ownership only for Command::Start",
+    "runtime_lifecycle pre-dispatch services do not open this Store or prepare its home",
+    "Check retained_objects branch returns before ordinary open_installation_store/bootstrap prepare",
+    "resolve_live_slot reads/validates convenience pointer and existing paths only",
+    "inspect_retained_objects opens existing CAS and private stable DB/WAL tuple; catalogue is separate in-memory SQLite",
+    "retained_object_snapshot read transaction ends before fixture Store is dropped and copied"
+  ],
+  "limits": "Source composition and read-only path audit; no assertion of executed compile, whole-installation GC or atomic CAS deletion exclusion.",
+  "worktree_status": ""
+}

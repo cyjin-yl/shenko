@@ -1,0 +1,6 @@
+tree bb8391309d79eb4ec66a1fb2e1f3f0518f52cd30
+parent 1123ce99754a2e3186a87bd8c650852eb4638b59
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868308 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868308 +0000
+
+test(update): group prepared fixture evidence without extra arguments

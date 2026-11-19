@@ -1,0 +1,7 @@
+{
+  "source_path": "out/deps/openssl/openssl.target.mk",
+  "sha256": "7fb52da204776037211646c515bacc77281e8a77f6e985d862383c9900804984",
+  "response_file_rule_selected": true,
+  "archive_kind": "thin",
+  "scope": "generated rule check only; not a compiler or guest execution result"
+}

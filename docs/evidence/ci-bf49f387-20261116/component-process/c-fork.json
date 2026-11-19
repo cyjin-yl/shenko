@@ -1,0 +1,117 @@
+{
+  "authority_bindings": 0,
+  "external_attempts": 0,
+  "genesis": {
+    "bootstrap_event_ref": {
+      "bytes": 1082,
+      "codec": {
+        "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a",
+        "major": 1,
+        "name": "json"
+      },
+      "digest": "blake3:9927dabdad17435d99284cf3570952c3edaf92ddb2736aa45b1d534e8b36bcfc",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/b/installation/cas/99/27/9927dabdad17435d99284cf3570952c3edaf92ddb2736aa45b1d534e8b36bcfc",
+      "media_type": "application/json",
+      "store_namespace": "seed"
+    },
+    "bootstrap_id": "7a5f5402-495c-4c52-8bd9-d87d17d6af67",
+    "created_commit": {
+      "ledger_id": "4b01a817-451b-4071-a4b6-ef0f0b017181",
+      "seq": 2
+    },
+    "genesis_id": "aaec68eb-9c50-417a-9ee6-696865b5a7ba",
+    "home_manifest_ref": {
+      "bytes": 1956,
+      "codec": {
+        "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a",
+        "major": 1,
+        "name": "json"
+      },
+      "digest": "blake3:9be57353d464aab7f95c9974d6909588e6462a04adc6f3c9583d85fe67018c65",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/b/installation/cas/9b/e5/9be57353d464aab7f95c9974d6909588e6462a04adc6f3c9583d85fe67018c65",
+      "media_type": "application/json",
+      "store_namespace": "seed"
+    },
+    "initial_profile_ref": {
+      "bytes": 70,
+      "codec": {
+        "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a",
+        "major": 1,
+        "name": "json"
+      },
+      "digest": "blake3:5c355bf365cff7921191cb61c9e3b08bdba3042748fb2d067648157f489c9cbb",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/b/installation/cas/5c/35/5c355bf365cff7921191cb61c9e3b08bdba3042748fb2d067648157f489c9cbb",
+      "media_type": "application/json",
+      "store_namespace": "seed"
+    },
+    "launch_id": "1cc9f18e-c1cd-4cf0-b2fa-fc47365fa9bb",
+    "seed_manifest_ref": {
+      "bytes": 1173,
+      "codec": {
+        "digest": "blake3:a384408d93abe898a69b6ab90c2aef0581ffb78d1eca3d8363a67eb7de4a8f2a",
+        "major": 1,
+        "name": "json"
+      },
+      "digest": "blake3:a72b7ba0198d84284b153a902f4ffbbb4ab247d9366bc04c1b0c776133343a24",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/b/installation/cas/a7/2b/a72b7ba0198d84284b153a902f4ffbbb4ab247d9366bc04c1b0c776133343a24",
+      "media_type": "application/json",
+      "store_namespace": "seed"
+    },
+    "subject_id": "028cb053-3c76-45f0-b811-e941888efb72"
+  },
+  "head": {
+    "agent_id": "028cb053-3c76-45f0-b811-e941888efb72",
+    "branch_id": "089569c6-f729-412f-bf23-de4972f51526",
+    "branch_origin": {
+      "bytes": 1268,
+      "codec": {
+        "digest": "blake3:d97b20729516e52732b0d5259267cd5c4912b3ecf6d04e2ed410d11ac149303e",
+        "major": 1,
+        "name": "subject_branch_fork"
+      },
+      "digest": "blake3:dbc9d5874ed213c085fae4229e5d19bd311d530c7e196c85975c7584b5cc4aa9",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/c/installation/cas/db/c9/dbc9d5874ed213c085fae4229e5d19bd311d530c7e196c85975c7584b5cc4aa9",
+      "media_type": "application/json",
+      "store_namespace": "subject_branch"
+    },
+    "committed_at": {
+      "ledger_id": "c0a92776-2b4a-47df-9735-96fa3296915f",
+      "seq": 3
+    },
+    "committed_step_id": null,
+    "committed_step_no": 0,
+    "controller_epoch": 2,
+    "genesis_ref": {
+      "genesis_id": "aaec68eb-9c50-417a-9ee6-696865b5a7ba",
+      "ledger_id": "4b01a817-451b-4071-a4b6-ef0f0b017181"
+    },
+    "mode": "active",
+    "mode_reason_ref": null,
+    "next_step_id": "d478ff9b-5e9b-40e1-af0d-57a6e8ca1ba7",
+    "record_revision": 2,
+    "software_generation": "seed",
+    "subject_root_task_id": "7c4604ff-741e-4fea-936b-489b85bfc667"
+  },
+  "local_provisioning": {
+    "committed_at": {
+      "ledger_id": "c0a92776-2b4a-47df-9735-96fa3296915f",
+      "seq": 1
+    },
+    "home_manifest_ref": {
+      "bytes": 1956,
+      "codec": {
+        "digest": "blake3:8f05f0da825a3784163ffaae896c50bca4f925f08e2916f2411356a22dbd6ecc",
+        "major": 1,
+        "name": "home-provisioning"
+      },
+      "digest": "blake3:27852649869b10a713b2360efef251e958285f720ccee0238b76329c4dad2f05",
+      "locator": "file:///tmp/shenko-component-process-5bd3a32d-b65a-4bf3-9a2e-6a2a5bf7102d/private/c/installation/cas/27/85/27852649869b10a713b2360efef251e958285f720ccee0238b76329c4dad2f05",
+      "media_type": "application/json",
+      "store_namespace": "shenko.installation"
+    },
+    "installation_id": "c0a92776-2b4a-47df-9735-96fa3296915f",
+    "schema_version": 1,
+    "store_incarnation": "9866b579-eaec-407f-b286-2f82a27ff2af"
+  },
+  "request_attempts": 0
+}

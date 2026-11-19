@@ -1,0 +1,29 @@
+{
+  "kind": "static_source_build_entry_check",
+  "product_tested": false,
+  "upstream_compiled": false,
+  "guest_executed": false,
+  "base_commit": "90e3b5ffc6da0014bc70b7304a7bb276b864ff2f",
+  "python_syntax": [
+    "scripts/real_node_wasix_journey.py",
+    "scripts/build_node_wasix_journey.py"
+  ],
+  "unchanged_original_ast": [
+    "run_journey",
+    "frames",
+    "capture_guest",
+    "groups_settled",
+    "stop_owned",
+    "VisibleResources",
+    "choose_budget",
+    "main"
+  ],
+  "original_driver_input_source_constants_unchanged": true,
+  "single_opt_in_workflow_verified": true,
+  "pinned_asset_metadata_match": true,
+  "script_and_workflow_sha256": {
+    "scripts/real_node_wasix_journey.py": "9e42b06d016f6740ca700b2a7519bdaa763801974143be57fbd3570a299cc11a",
+    "scripts/build_node_wasix_journey.py": "80848f9af2e860ae3cdf6965ea26cfd98fadc286e25ba5ce7b168844e020d495",
+    ".github/workflows/node-wasix-source-build.yml": "2abdf4ebbe9042aa2d7af304ca5a96b71b9585948e6872cd901096fea92ae145"
+  }
+}

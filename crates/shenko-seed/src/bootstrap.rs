@@ -306,6 +306,28 @@ pub struct PreparedHome {
     pub recovered: Vec<HomeRecovery>,
 }
 
+impl PreparedHome {
+    /// Persist this installation's own provisioning only after actual home
+    /// preparation and a second read-only admission of the ready filesystem.
+    /// The imported subject's immutable seed/manifest remains unchanged.
+    pub fn record_local_provisioning(
+        &self,
+        store: &shenko_store::Store,
+    ) -> Result<shenko_store::LocalInstallationProvisioning> {
+        let root = self.manifest_path.parent().context("home manifest has no installation root")?;
+        ensure!(validate_home_for_exec(root)? == self.manifest,
+            "DATA_PATH_CONFLICT: prepared home changed before local provisioning was recorded");
+        let home = store.cas.seal_object(
+            &serde_json::to_vec(&self.manifest)?,
+            "application/json",
+            shenko_store::LOCAL_HOME_NAMESPACE,
+            shenko_store::LOCAL_HOME_CODEC,
+            1,
+        )?.object;
+        Ok(store.record_local_installation_provisioning(self.manifest.installation_id, home)?)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelCapacity {

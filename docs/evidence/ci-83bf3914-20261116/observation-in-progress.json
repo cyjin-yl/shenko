@@ -1,0 +1,13 @@
+{
+  "kind": "in_progress_ci_observation",
+  "run_id": 43944367545,
+  "public_head": "83bf391440adbe3e153b036ba8fd1ecfe5867202",
+  "actual_checkout": "2d275430b103fb0e13316ba51cc5b5c5fdafa262",
+  "same_source_tree": "d695242eb0005a1d06256aab91e9e649f1cb8a86",
+  "pr_base": "84ae19404f2a17d259362c99091db408b7262e14",
+  "clippy_artifact_baseline_not_yet_observed": true,
+  "last_jobs_observation_utc": "2026-11-16T19:59:34Z",
+  "rust_and_clippy_completed": false,
+  "head_contains_seat95_or_successor": false,
+  "scope": "Read-only monitoring; no workflow rerun, source modification, model run, or acceptance inference from the previous CI."
+}

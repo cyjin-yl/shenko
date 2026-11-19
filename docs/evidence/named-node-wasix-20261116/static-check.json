@@ -1,0 +1,26 @@
+{
+  "kind": "static_source_and_retained_evidence_check",
+  "product_tested": false,
+  "node_guest_started": false,
+  "source_base": "4987d098ec981bb9003a5d6a0c12cf69c2892849",
+  "method": "Python compile/AST; literals and framing AST compared with the exact retained local harness; framed bytes and driver hash verified; YAML parsed and opt-in checked; original ZIP and every included entry verified",
+  "python_syntax_valid": true,
+  "original_js_equal": {
+    "FIRST_SOURCE": true,
+    "SECOND_SOURCE": true,
+    "REOPEN_SOURCE": true
+  },
+  "framing_ast_equal": true,
+  "original_input_bytes_equal": true,
+  "original_driver_digest_equal": true,
+  "workflow_yaml_valid": true,
+  "only_explicit_opt_in": true,
+  "artifact_upload_on_failure": true,
+  "original_evidence_zip_digest_and_all_included_entries_valid": true,
+  "unrelated_mount_listing_absent": true,
+  "inputs": {
+    "scripts/real_node_wasix_journey.py": "6218ed78275c4423160c93fbdb384901a7fd89b2a8eaf06f01efcad464abebaa",
+    ".github/workflows/node-wasix-feasibility.yml": "7a2b18a27e1cfb26dbd4e04de9b61c03dd6c6caf9ed895fe713a59c5c8ab8273",
+    "docs/evidence/named-node-wasix-20261116/original-local-evidence.zip": "6dc5f0c0267027e6f5ee36cf32c45d99733fb464b068753ab213d357bc9d0289"
+  }
+}

@@ -31,4 +31,7 @@ pub mod rollback;
 pub mod slots;
 pub mod smoke;
 
+#[cfg(test)]
+mod test_evidence;
+
 pub use slots::SLOT_DB_FILENAME;

@@ -1,0 +1,119 @@
+{
+  "artifact": {
+    "id": 14276888522,
+    "name": "clippy-ratchet-evidence",
+    "size_in_bytes": 2735684,
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14276888522",
+    "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14276888522/zip",
+    "expired": false,
+    "created_at": "2026-11-16T22:22:20Z",
+    "expires_at": "2027-02-14T22:17:03Z",
+    "updated_at": "2026-11-16T22:22:20Z",
+    "digest": "sha256:f6de891ffe2529c1d8de780939ed221bd15d5c5a24dbac33c11f38a04d75f986",
+    "workflow_run": {
+      "id": 43968540714,
+      "repository_id": 1430340138,
+      "head_repository_id": 1430340138,
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919"
+    }
+  },
+  "file_name": "clippy-ratchet-evidence.original.zip",
+  "sha256": "f6de891ffe2529c1d8de780939ed221bd15d5c5a24dbac33c11f38a04d75f986",
+  "size": 2735684,
+  "crc_checked": true,
+  "member_count": 18,
+  "members": [
+    {
+      "path": "base.json",
+      "size": 120,
+      "sha256": "42781f3dbf97c56ea90a077bbc9539855d2b791f7a3bc44e2f62120c2b8de835"
+    },
+    {
+      "path": "clippy/base-all-targets.stderr.log",
+      "size": 3886,
+      "sha256": "1af01a5a981ed1321829493380359312b2ac09621fa33db22cc85fb73ebcd2b5"
+    },
+    {
+      "path": "clippy/base-all-targets.jsonl",
+      "size": 19964547,
+      "sha256": "f880ebc92f667f6ba484a86e98050c3c12ca798d02ef72a42a0a286f294d3bfc"
+    },
+    {
+      "path": "clippy/base-production.jsonl",
+      "size": 2725069,
+      "sha256": "dc83e75cfbc5c11abb7c11e5ec31d4f777d6fd31f3147c5e69ca7c39eb9e8996"
+    },
+    {
+      "path": "clippy/base-production.stderr.log",
+      "size": 3886,
+      "sha256": "ebfefaa188303b786f108da83311b58559dd3c5755e2bc27af0f0c764db0c84b"
+    },
+    {
+      "path": "clippy/candidate-all-targets.stderr.log",
+      "size": 2871,
+      "sha256": "b484f20535d06845da387137b5b55e7b7e6fa50ede7265091254b03fc5d79c6f"
+    },
+    {
+      "path": "clippy/candidate-all-targets.jsonl",
+      "size": 19251435,
+      "sha256": "69839b3a54b964194da1207515a7ded71ab7132c551f630847c9104219b52054"
+    },
+    {
+      "path": "clippy/candidate-production.jsonl",
+      "size": 2654370,
+      "sha256": "caa94c4b324cf208341285e1006f7865dedba2c11e317d8b7558fb8542a0842b"
+    },
+    {
+      "path": "clippy/candidate-production.stderr.log",
+      "size": 2871,
+      "sha256": "a8c70fa1577fd4343230da710b53cc7a0504b7efdcdce4cef838217c6899fb50"
+    },
+    {
+      "path": "clippy/lint-policy.json",
+      "size": 32927,
+      "sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584"
+    },
+    {
+      "path": "clippy/ratchet.json",
+      "size": 172269,
+      "sha256": "4c8908551e09929f87f9a85a6abd165fb1015938c1ae7600017d9456c85e3833"
+    },
+    {
+      "path": "clippy/rustc-lints.log",
+      "size": 35094,
+      "sha256": "fb9eabfa5c0fb4ff879bc20c1529ce68d410b9dbd3e5b5517de5171a162f55fb"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-accepted.json",
+      "size": 7282,
+      "sha256": "2a2c9cdbd3cdad7133959813b008e4f51edb296d3aabd6849dddbde4a3d9a482"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-accepted.jsonl",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-accepted.stdout.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-discovered.json",
+      "size": 7336,
+      "sha256": "b603566e06262f127c194a7f1def0d62bc97647fccd440ccb275b5926fcda27b"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-discovered.jsonl",
+      "size": 1316,
+      "sha256": "b8e53f358811b0003cd6f344de102df114260d53a7f5d84921b5f8f76abd7f78"
+    },
+    {
+      "path": "clippy/rustc-warning-probe-discovered.stdout.log",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "observed_at": "2026-11-16T22:25:49.987891+00:00"
+}

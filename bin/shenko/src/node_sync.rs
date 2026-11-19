@@ -29,6 +29,8 @@ use tokio_util::sync::CancellationToken;
 #[path = "component_runtime.rs"]
 mod component_runtime;
 pub use component_runtime::{RuntimeSelection, establish_runtime, confirm_component_authority};
+#[path = "native_evidence_sync.rs"]
+mod native_evidence_sync;
 
 const MAGIC: &[u8] = b"shenko-node-sync/2\n";
 const MAX_HEADER: u64 = 64 * 1024 * 1024;
@@ -91,6 +93,12 @@ pub enum SyncCommand {
     Ack,
     /// Reconcile configured peers once; an interrupted transfer remains debt.
     Push,
+    /// Pull original first native E1 facts from an authenticated peer. This
+    /// does not claim tasks, choose control actions or repeat external effects.
+    Evidence {
+        #[arg(long)]
+        peer: EntityId,
+    },
     /// Verified election, membership and authority facts of this Node's domain.
     Election {
         #[command(subcommand)]
@@ -459,7 +467,9 @@ fn receive<R: Read>(
         data_dir: data_dir.to_path_buf(),
         ..Default::default()
     });
-    drop(bootstrap.prepare(store.ledger.ledger_id())?);
+    let prepared = bootstrap.prepare(store.installation_id_for_home()?)?;
+    prepared.record_local_provisioning(store)?;
+    drop(prepared);
     // Cognition validates its entire declared closure before publication. A
     // package failure afterwards leaves local cognition durable but no ACK.
     let outcome = store.import_cognition_archive(
@@ -1618,39 +1628,62 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
         report_cognition_publication(&mut status, &cognition);
         return Ok(status);
     }
-    stage_declared_recovery_sources(data_dir, store, &node)?;
-    let (header, units) = header(&mut node)?;
+    let transfer = stage_declared_recovery_sources(data_dir, store, &node)
+        .and_then(|()| header(&mut node));
     let mut results = Vec::with_capacity(peers.len());
     for state in peers {
         if cancel.is_cancelled() {
             break;
         }
         let peer = &state.peer;
+        // Independent E1 intake must still run when ordinary task-closure
+        // import refuses a parked/live predecessor or package export fails.
+        let evidence = native_evidence_sync::pull(store, &mut node, peer, cancel);
         let result: Result<Value> = (|| {
+            let (header, units) = transfer.as_ref().map_err(|error| anyhow::anyhow!("{error:#}"))?;
             let export = store.export_cognition(&options(data_dir, peer.workspaces.clone()))?;
             if state.confirmation.as_ref().is_some_and(|c| {
                 c.cognition_fingerprint == export.manifest.fingerprint
-                    && c.units_fingerprint == units
+                    && &c.units_fingerprint == units
             }) {
                 return Ok(
                     json!({"peer_id":peer.node_id,"outcome":"already_confirmed","confirmation":state.confirmation}),
                 );
             }
             let (sent, response) = exchange(peer, "receive", cancel, |writer| {
-                let sent = write_transfer(writer, &header, &export)?;
+                let sent = write_transfer(writer, header, &export)?;
                 store.note_cognition_export(peer.node_id, &sent)?;
                 Ok(sent)
             })?;
             let received: Receipt =
                 serde_json::from_slice(&response).context("decode peer verification receipt")?;
-            confirm(store, &mut node, peer, &received, &sent, &units)?;
+            confirm(store, &mut node, peer, &received, &sent, units)?;
             Ok(json!({"peer_id":peer.node_id,"outcome":"verified","receipt":received}))
         })();
         match result {
-            Ok(value) => results.push(value),
+            Ok(mut value) => {
+                value["cognition_outcome"] = value["outcome"].clone();
+                match evidence {
+                    Ok(report) => {
+                        if report.has_debt() {
+                            value["native_evidence_debt_retained"] = true.into();
+                            value["outcome"] = "unconfirmed".into();
+                        }
+                        value["native_evidence"] = serde_json::to_value(report)?;
+                    }
+                    Err(error) => {
+                        node.fail_sync_peer(peer, format!("native E1: {error:#}"))?;
+                        value["outcome"] = "unconfirmed".into();
+                        value["native_evidence_error"] = format!("{error:#}").into();
+                        value["native_evidence_debt_retained"] = true.into();
+                    }
+                }
+                results.push(value);
+            }
             Err(error) => {
                 node.fail_sync_peer(peer, format!("{error:#}"))?;
-                results.push(json!({"peer_id":peer.node_id,"outcome":"unconfirmed","error":format!("{error:#}"),"replication_debt_retained":true}));
+                results.push(json!({"peer_id":peer.node_id,"outcome":"unconfirmed","error":format!("{error:#}"),"replication_debt_retained":true,
+                    "native_evidence": evidence.as_ref().ok(), "native_evidence_error": evidence.as_ref().err().map(|error| format!("{error:#}"))}));
             }
         }
     }
@@ -1717,6 +1750,8 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             // publication failure is reported next to it, never replaced by an
             // older value or a default.
             let mut status = json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"cognition_report":node.cognition_report()?,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false});
+            let (evidence_debts, evidence_debt_count) = store.native_evidence_delivery_debts()?;
+            status["native_evidence_delivery_debts"] = json!({"items":evidence_debts,"total":evidence_debt_count,"limit":64});
             report_cognition_publication(&mut status, &published);
             println!("{status}");
         }
@@ -1854,6 +1889,13 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             {
                 bail!("some peers remain unconfirmed; local work and replication debt retained");
             }
+        }
+        SyncCommand::Evidence { peer } => {
+            drop(node);
+            let report = tokio::task::spawn_blocking(move || native_evidence_sync::run_once(&data_dir, &store, peer)).await??;
+            println!("{}", serde_json::to_value(&report)?);
+            if report.has_debt() { bail!("original native E1 facts retained with unresolved delivery gaps or predecessors"); }
+            ensure!(report.scanned(), "native E1 scope is not eligible on this authenticated peer");
         }
         SyncCommand::Election { command } => match command {
             ElectionCommand::Status => {
@@ -2086,6 +2128,8 @@ pub fn node_command(data_dir: &Path) -> Result<()> {
         _ => open_node(data_dir, &store)?,
     };
     let value = match request {
+        shenko_node::Request::NativeEvidencePage { subject_id, origin_proof, scope, cursor, page_items } =>
+            serde_json::to_value(native_evidence_sync::serve(&store, &mut node, subject_id, &origin_proof, &scope, cursor.as_ref(), page_items)?)?,
         shenko_node::Request::ComponentObserve => serde_json::to_value(component_runtime::observe_component(&mut node, &CancellationToken::new())?)?,
         shenko_node::Request::PrepareComponent { proposal } => {
             let observed = component_runtime::observe_component(&mut node, &CancellationToken::new())?;

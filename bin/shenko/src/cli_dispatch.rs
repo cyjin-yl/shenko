@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::Command;
 use crate::cli::{AdminCommand, ContactsCommand, RuntimeCommand};
-use crate::{compat, context_policy, node_sync, obelisk, runtime_channels, runtime_napcat, runtime_start, update_control};
+use crate::{compat, context_policy, node_sync, obelisk, runtime_channels, runtime_lifecycle, runtime_napcat, runtime_start, update_control};
 use crate::cli_browser::browser_batch;
 use crate::cli_root::root_command;
 use crate::cli_tools::tool_command;
@@ -28,7 +28,7 @@ pub(crate) async fn dispatch(
     supervisor: &shenko_kernel::Supervisor,
     identity_context: &cordis_core::Context,
     identity_service: &IdentityService,
-    runtime_state: &mut crate::runtime_lifecycle::RuntimeState,
+    state: &mut runtime_lifecycle::RuntimeState,
 ) -> Result<()> {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -59,6 +59,7 @@ pub(crate) async fn dispatch(
                 ..Default::default()
             });
             let prepared_home = bootstrap.prepare(store.installation_id_for_subject(agent_id)?)?;
+            prepared_home.record_local_provisioning(&store)?;
             let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
             // The same media services the running agent publishes, so a
@@ -301,7 +302,23 @@ pub(crate) async fn dispatch(
             println!("Inference capacity: {:?}", model.capacity);
         }
 
-        Command::Check => {
+        Command::Check { retained_objects } => {
+            if retained_objects {
+                // The pointer only chooses the physical database to audit. Its
+                // path is reported; this does not assert active authority or
+                // coverage of the initial, historical or staged sibling slots.
+                let selected = shenko_update::slots::resolve_live_slot(&data_dir)?
+                    .unwrap_or_else(|| data_dir.clone());
+                let report = shenko_store::Store::inspect_retained_objects(
+                    &selected.join(shenko_update::SLOT_DB_FILENAME),
+                    &data_dir.join("cas"),
+                    shenko_store::RetentionLimits::default(),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                anyhow::ensure!(report.complete,
+                    "Store retention audit is incomplete; the report retains its gaps");
+                return Ok(());
+            }
             info!(data_dir=%data_dir.display(), "check");
             let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
                 data_dir: data_dir.clone(),
@@ -315,17 +332,13 @@ pub(crate) async fn dispatch(
                 store.capabilities.wal_mode,
                 store.capabilities.fts5_available,
             );
-            let (installation_id, subject) = match store.get_existing_agent_id()? {
-                Some(agent_id) => (
-                    store.installation_id_for_subject(agent_id)?,
-                    shenko_seed::BootstrapSubjectState::ExistingGenesis,
-                ),
-                None => (
-                    store.ledger.ledger_id(),
-                    shenko_seed::BootstrapSubjectState::PendingGenesis,
-                ),
+            let subject = match store.get_existing_agent_id()? {
+                Some(_) => shenko_seed::BootstrapSubjectState::ExistingGenesis,
+                None => shenko_seed::BootstrapSubjectState::PendingGenesis,
             };
+            let installation_id = store.installation_id_for_home()?;
             let prepared = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
+            prepared.record_local_provisioning(&store)?;
             println!("Home manifest: {}", prepared.manifest_path.display());
             println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
             for recovery in &prepared.recovered {
@@ -403,7 +416,7 @@ pub(crate) async fn dispatch(
             napcat_file_root, napcat_file_host, napcat_cli_url, channels_config, ssh_targets,
         } => {
             runtime_start::start(
-                supervisor, identity_context, identity_service, runtime_state, data_dir,
+                supervisor, identity_context, identity_service, state, data_dir,
                 runtime_start::StartConfig {
                     port, pause_at_start, name, ssh_targets,
                     channels: runtime_channels::ChannelConfig {

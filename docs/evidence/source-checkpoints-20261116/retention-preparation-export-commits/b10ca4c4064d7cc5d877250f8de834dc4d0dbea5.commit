@@ -1,0 +1,12 @@
+tree c0ebae50248787b2e3050a56008f5e7581e215bd
+parent d78c83d1ced922b26f9fb0ccb23bab21a883f4ba
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868346 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868510 +0000
+
+docs: map pending installation writer permit boundaries
+
+Record the reviewed c9db callsites and required lock order, Current-only physical admission, selected-slot checks and historical-E1 distinction. Keep the permit explicitly unimplemented.
+
+Document original PTY and managed stdin ownership, and the OpenSSH closefrom obstacle to inherited extra lock descriptors. No scenarios, product APIs, contracts or runtime evidence are added.
+
+(cherry picked from commit ae0bcfa103bbed6ff0966930b70f8e49c5a86c8e)

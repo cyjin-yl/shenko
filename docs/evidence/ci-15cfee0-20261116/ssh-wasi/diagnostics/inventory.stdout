@@ -1,0 +1,149 @@
+{
+  "environment": {
+    "generations": [
+      {
+        "closure_version": 2,
+        "created_at": "2026-11-16T14:38:08.128365385+00:00",
+        "digest": "blake3:7dbb549cc44d3d8f3e6e8d767a430e39ab972d70f5f58be8753a5d3c3818c049",
+        "generation": 1,
+        "members": [
+          {
+            "artifact_digest": "blake3:e1a3dc1172fdddaa17994f24c7876c3ded836bbda889c85381d090c8396ad145",
+            "declarations": {
+              "declared": {
+                "atoms": [],
+                "environment": [],
+                "filesystem": [
+                  {
+                    "guest_path": "/home",
+                    "write": true
+                  }
+                ],
+                "host": [
+                  {
+                    "facility": "clock"
+                  },
+                  {
+                    "facility": "random"
+                  }
+                ]
+              }
+            },
+            "edges": [],
+            "revision": "0.1.0",
+            "role": "root",
+            "unit_id": "tool.ssh"
+          }
+        ],
+        "roots": [
+          "tool.ssh"
+        ],
+        "schema": 1
+      }
+    ],
+    "pinned": true,
+    "selector": {
+      "generation": 1,
+      "generation_digest": "blake3:7dbb549cc44d3d8f3e6e8d767a430e39ab972d70f5f58be8753a5d3c3818c049",
+      "previous_generation": null,
+      "revision": 1,
+      "schema": 1,
+      "updated_at": "2026-11-16T14:38:08.129376568+00:00"
+    }
+  },
+  "named_targets": {
+    "gcc-wasm": "unresolved [W0, needs nothing beyond wasi preview1]: no verified WASM-hosted compiler artifact exists yet; the retained wasi-sdk toolchain runs on the host and *produces* wasm32-wasip1 modules, which is the target side of docs/specs/wasm-tools.md#spec-8-2, not a compiler that runs inside WASM. This target stays open until a real artifact exists",
+    "gh": "unresolved [W2, needs cap.network.tcp/1, cap.network.dns/1, cap.process.deny/1]: no verified artifact exists yet: cli/cli is Go, and a GOOS=wasip1 build links without socket support, so its API calls cannot work as built. The preview1 transport now exists (crates/shenko-wasm/ports/wasi-net/), so gh needs a wasip1 build that actually uses admitted sockets, and it still has no substitute for its browser, keyring, editor and aggregation helpers. Acquisition and the open port work are described in crates/shenko-wasm/ports/gh-wasi/. This target stays open until a real artifact exists",
+    "git": "unresolved [W2, needs cap.network.tcp/1, cap.process.deny/1]: no verified wasm32-wasip1 Git client artifact exists yet. This runtime now supplies the missing transport — admitted, target-bound stream sockets (shenko_wasm::NetworkAdmission; guest shim in crates/shenko-wasm/ports/wasi-net/) — so clone/pull/push over http(s) no longer lack sockets. What is still missing is the port: the wasip1 sysroot has no fork/exec, so the credential helper chain and the dashed builtin dispatch must run in-module, and https needs a wasm-built crypto backend. The acquisition and build recipe, with the upstream pin resolved from the project's own repository at acquisition time, is crates/shenko-wasm/ports/git-wasi/. This target stays open until a real artifact exists",
+    "ssh": "installed: ssh@0.1.0 blake3:e1a3dc1172fdddaa17994f24c7876c3ded836bbda889c85381d090c8396ad145 (content_store, Apache-2.0)",
+    "tea": "unresolved [W2, needs cap.network.tcp/1, cap.network.dns/1, cap.process.deny/1]: no verified Gitea CLI WASM artifact exists yet: go-gitea/gitea's tea is Go, and a GOOS=wasip1 build links without sockets, so its API calls cannot work as built; it needs a wasip1 build over the admitted preview1 transport (crates/shenko-wasm/ports/wasi-net/). Acquisition and the open port work are described in crates/shenko-wasm/ports/tea-wasi/. This target stays open until a real artifact exists",
+    "toybox": "unresolved [W0, needs nothing beyond wasi preview1]: the toybox 0.8.15 port's applets exist and the tool-set manifest ships in crates/shenko-wasm/ports/toybox-wasi/, but no toybox applet is installed in this installation yet; install the set with `shenko tool install-set`"
+  },
+  "tools": [
+    {
+      "abi": "wasi_preview1",
+      "artifact": {
+        "bytes": 2552689,
+        "chunk_manifest": {
+          "bytes": 18472,
+          "codec": {
+            "digest": "blake3:61b0fa111918a9b0f3249857725e6fe68372b573846aa11904899f7a5353db4c",
+            "major": 1,
+            "name": "wasm-tool-artifact"
+          },
+          "digest": "blake3:c2c2d18090df9e388425f8e8aa348b2c498e1e61aae568a339849ca532ae7edc",
+          "locator": "file:///tmp/shenko-ssh-client-c1406e31-5900-4fa0-9712-9a837d706a86/installation/cas/c2/c2/c2c2d18090df9e388425f8e8aa348b2c498e1e61aae568a339849ca532ae7edc",
+          "media_type": "application/json",
+          "store_namespace": "wasm-tool-artifact"
+        },
+        "digest": "blake3:8b3c60ee5cd2fce619eb17a0585c7f8bd9dbd0a48a231cd0187c919d240dcc24",
+        "kind": "content_store",
+        "media_type": "application/wasm",
+        "sha256": "446fbc2f21751203bcba27887d13e938f4ed54e75ee465266b57f3345242b988",
+        "store_namespace": "wasm-tool-artifact"
+      },
+      "capabilities": {
+        "declared": {
+          "atoms": [],
+          "environment": [],
+          "filesystem": [
+            {
+              "guest_path": "/home",
+              "write": true
+            }
+          ],
+          "host": [
+            {
+              "facility": "clock"
+            },
+            {
+              "facility": "random"
+            }
+          ]
+        }
+      },
+      "current": true,
+      "digest": "blake3:e1a3dc1172fdddaa17994f24c7876c3ded836bbda889c85381d090c8396ad145",
+      "enabled": true,
+      "entrypoint": "/tools/ssh",
+      "environment": {
+        "digest": "blake3:7dbb549cc44d3d8f3e6e8d767a430e39ab972d70f5f58be8753a5d3c3818c049",
+        "generation": 1,
+        "role": "root",
+        "selector_revision": 1
+      },
+      "imports": [
+        "wasi_snapshot_preview1.clock_time_get",
+        "wasi_snapshot_preview1.environ_get",
+        "wasi_snapshot_preview1.environ_sizes_get",
+        "wasi_snapshot_preview1.fd_close",
+        "wasi_snapshot_preview1.fd_fdstat_get",
+        "wasi_snapshot_preview1.fd_fdstat_set_flags",
+        "wasi_snapshot_preview1.fd_filestat_get",
+        "wasi_snapshot_preview1.fd_prestat_dir_name",
+        "wasi_snapshot_preview1.fd_prestat_get",
+        "wasi_snapshot_preview1.fd_read",
+        "wasi_snapshot_preview1.fd_seek",
+        "wasi_snapshot_preview1.fd_sync",
+        "wasi_snapshot_preview1.fd_write",
+        "wasi_snapshot_preview1.path_filestat_get",
+        "wasi_snapshot_preview1.path_open",
+        "wasi_snapshot_preview1.poll_oneoff",
+        "wasi_snapshot_preview1.proc_exit",
+        "wasi_snapshot_preview1.random_get",
+        "wasi_snapshot_preview1.sock_shutdown"
+      ],
+      "license": "Apache-2.0",
+      "materialized_path": "/tmp/shenko-ssh-client-c1406e31-5900-4fa0-9712-9a837d706a86/installation/tools/units/tool.ssh/0.1.0/blake3_e1a3dc1172fdddaa17994f24c7876c3ded836bbda889c85381d090c8396ad145.f3a06c98/package.bin",
+      "name": "ssh",
+      "selected": true,
+      "source": {
+        "provenance": "source_build:crates/shenko-wasm/ports/ssh-wasi/build.py",
+        "release": "0.1.0",
+        "uri": "https://github.com/cyjin-yl/shenko"
+      },
+      "unit_id": "tool.ssh",
+      "version": "0.1.0"
+    }
+  ]
+}

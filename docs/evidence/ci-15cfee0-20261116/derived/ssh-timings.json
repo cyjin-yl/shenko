@@ -1,0 +1,296 @@
+[
+  {
+    "label": "guest-0",
+    "action": "keygen",
+    "exit_code": 0,
+    "cli_elapsed_secs": 32.958388691,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "{\"fingerprint\":\"SHA256:vgz8Q/ZbQLkFDwqTuJJPJIb8j1zLznKIS2eTP24/6Ok\",\"generated\":\"ed25519\"}\n",
+    "stderr": "",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:38:08.202557Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:38:15.646986Z",
+        "verification_secs": 7.444430576
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:38:15.647540Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:38:15.647917Z",
+        "run_elapsed_secs": 0.00036888
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:38:41.100754Z",
+        "compile_secs": 25.452851538,
+        "run_elapsed_secs": 25.45320599
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:38:41.101918Z",
+        "run_elapsed_secs": 25.454376825
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:38:41.104913Z",
+        "instantiate_secs": 0.00300461,
+        "run_elapsed_secs": 25.457372071
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:38:41.105035Z",
+        "run_elapsed_secs": 25.457502697
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:38:41.108285Z",
+        "execution_secs": 0.003246353,
+        "run_elapsed_secs": 25.460747101
+      }
+    }
+  },
+  {
+    "label": "guest-1",
+    "action": "exec",
+    "exit_code": 7,
+    "cli_elapsed_secs": 31.514040894,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "ssh-wasi-exec\n",
+    "stderr": "ssh-wasi-stderr\n",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:38:41.236369Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:38:47.221771Z",
+        "verification_secs": 5.985404356
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:38:47.222422Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:38:47.222694Z",
+        "run_elapsed_secs": 0.0002749
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:39:12.578864Z",
+        "compile_secs": 25.356162977,
+        "run_elapsed_secs": 25.356432872
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:39:12.580681Z",
+        "run_elapsed_secs": 25.358259048
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:39:12.581212Z",
+        "instantiate_secs": 0.00054505,
+        "run_elapsed_secs": 25.358793599
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:39:12.581291Z",
+        "run_elapsed_secs": 25.358877808
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:39:12.712056Z",
+        "execution_secs": 0.130744413,
+        "run_elapsed_secs": 25.489621001
+      }
+    }
+  },
+  {
+    "label": "guest-2",
+    "action": "put",
+    "exit_code": 0,
+    "cli_elapsed_secs": 31.959517377,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "{\"direction\":\"put\",\"transferred_bytes\":100003}\n",
+    "stderr": "",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:39:12.751896Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:39:18.756571Z",
+        "verification_secs": 6.004677279
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:39:18.757139Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:39:18.757413Z",
+        "run_elapsed_secs": 0.000275692
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:39:44.232949Z",
+        "compile_secs": 25.475527807,
+        "run_elapsed_secs": 25.475799046
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:39:44.234944Z",
+        "run_elapsed_secs": 25.477804544
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:39:44.235431Z",
+        "instantiate_secs": 0.000498294,
+        "run_elapsed_secs": 25.478294513
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:39:44.235500Z",
+        "run_elapsed_secs": 25.478367219
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:39:44.656721Z",
+        "execution_secs": 0.421185005,
+        "run_elapsed_secs": 25.899551274
+      }
+    }
+  },
+  {
+    "label": "guest-3",
+    "action": "get",
+    "exit_code": 0,
+    "cli_elapsed_secs": 31.923872226,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "{\"direction\":\"get\",\"transferred_bytes\":100003}\n",
+    "stderr": "",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:39:44.711983Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:39:50.695919Z",
+        "verification_secs": 5.983936501
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:39:50.696494Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:39:50.696784Z",
+        "run_elapsed_secs": 0.000289769
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:40:16.089063Z",
+        "compile_secs": 25.392272778,
+        "run_elapsed_secs": 25.392556769
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:40:16.091039Z",
+        "run_elapsed_secs": 25.39454336
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:40:16.091559Z",
+        "instantiate_secs": 0.000529665,
+        "run_elapsed_secs": 25.395064365
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:40:16.091646Z",
+        "run_elapsed_secs": 25.395156776
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:40:16.605434Z",
+        "execution_secs": 0.513768678,
+        "run_elapsed_secs": 25.90892395
+      }
+    }
+  },
+  {
+    "label": "guest-4",
+    "action": "exec",
+    "exit_code": 255,
+    "cli_elapsed_secs": 31.517325127,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "",
+    "stderr": "ssh-wasi: Unknown server key\n",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:40:16.636660Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:40:22.668778Z",
+        "verification_secs": 6.032121429
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:40:22.669367Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:40:22.669654Z",
+        "run_elapsed_secs": 0.000287606
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:40:48.056074Z",
+        "compile_secs": 25.386412861,
+        "run_elapsed_secs": 25.38669533
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:40:48.058108Z",
+        "run_elapsed_secs": 25.388740987
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:40:48.058653Z",
+        "instantiate_secs": 0.000553518,
+        "run_elapsed_secs": 25.389286469
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:40:48.058757Z",
+        "run_elapsed_secs": 25.389394785
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:40:48.115687Z",
+        "execution_secs": 0.056910689,
+        "run_elapsed_secs": 25.44630338
+      }
+    }
+  },
+  {
+    "label": "guest-5",
+    "action": "exec",
+    "exit_code": 255,
+    "cli_elapsed_secs": 31.75693463,
+    "run_timeout_secs": 120,
+    "cli_timeout_secs": 180,
+    "stdout": "",
+    "stderr": "ssh-wasi: no host-admitted TCP stream matches 127.0.0.1:34987\n",
+    "phases": {
+      "artifact_verification_started": {
+        "utc": "2026-11-16T14:40:48.154930Z"
+      },
+      "artifact_verification_finished": {
+        "utc": "2026-11-16T14:40:54.482441Z",
+        "verification_secs": 6.327519832
+      },
+      "budget_started": {
+        "utc": "2026-11-16T14:40:54.483111Z"
+      },
+      "compile_started": {
+        "utc": "2026-11-16T14:40:54.483417Z",
+        "run_elapsed_secs": 0.00030541
+      },
+      "compile_finished": {
+        "utc": "2026-11-16T14:41:19.855292Z",
+        "compile_secs": 25.371869486,
+        "run_elapsed_secs": 25.372170191
+      },
+      "instantiate_started": {
+        "utc": "2026-11-16T14:41:19.856329Z",
+        "run_elapsed_secs": 25.373217495
+      },
+      "instantiate_finished": {
+        "utc": "2026-11-16T14:41:19.856829Z",
+        "instantiate_secs": 0.000505667,
+        "run_elapsed_secs": 25.373717455
+      },
+      "start_entered": {
+        "utc": "2026-11-16T14:41:19.856915Z",
+        "run_elapsed_secs": 25.373809665
+      },
+      "start_returned": {
+        "utc": "2026-11-16T14:41:19.859097Z",
+        "execution_secs": 0.002175493,
+        "run_elapsed_secs": 25.375983597
+      }
+    }
+  }
+]

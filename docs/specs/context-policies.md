@@ -61,6 +61,26 @@ shenko context policy disable <id>         # 保留记录，停止运行
 shenko context windows [--limit N]         # 已提交窗口链的元数据（不读派生物载荷）
 ```
 
+`context windows` 读取 launcher 指针选中的槽，经 `Store::inspect_active_subject_context_windows`
+使用身份检查相同的私有稳定副本：主库、journal 和 WAL 必须在复制前后保持一致，
+主体/分支、activation selector、模型 generation/profile 和窗口页在同一副本事务内读取。
+该 selector 引用的不可变 route 从已有 CAS 只读取得，核验 digest/bytes、schema、
+主体、软件 generation、activation 来源以及安装/槽路径；指针本身不是当前槽的证明。
+正常进程接续会递增 selector 的 revision/epoch 而保留原 route，因此 route 的这两个
+字段不得来自未来，但不要求等于接续后的值。缺少 selector、必要 CAS 或 route，
+以及交接中 selector/route 与所选槽不一致，均明确拒绝，不回退为指针已生效。
+若本槽仍保存绑定当前来源 generation 和 expected selector revision 的未决 Handoff，
+也明确要求对账：candidate CAS 已提交、旧槽尚未 mirror 的窗口不能由旧槽内部一致性
+证明当前选路。旧 revision 的历史 Handoff 不会阻断后来已核验的激活或回滚。
+查询不会扫描候选或自行完成交接。它不打开活库做
+迁移、初始化或恢复，不创建原路径的 WAL/SHM 或 CAS，也不会用忽略 WAL 的
+`immutable` 读取掩盖尚未 checkpoint 的窗口。派生物仍只读其已保存身份和长度；
+窗口正文继续经过原来的版本、身份和 entry 校验。缺失/不兼容的已用 schema、
+损坏或持续变化的数据库均明确报错。该稳定副本实现目前依赖 Linux 原语；非 Linux
+明确报告 unsupported，不降级为会改动活库的读取。
+底层 `Store::inspect_subject_context_windows` 仍可在没有 CAS 时观察指定槽的元数据，
+但不声称该槽已激活；命令入口不使用这个未核验当前选路的结果。
+
 ### 生命周期是普通 Cordis 生命周期
 
 每个策略是一个 `Plugin`，`apply` 时向 `PolicyRegistry` 注册，`dispose` 时注销自己那一次注册。注销按 `(manifest id, epoch)` 精确匹配，因此被替换掉的旧 generation 迟到清理不会误删继任者。更新配置是同一 Fiber 的更新，会产生新的安装 epoch。
@@ -72,6 +92,19 @@ shenko context windows [--limit N]         # 已提交窗口链的元数据（�
 ### 慢路径（请求之外）
 
 `PolicyRegistry::prepare_candidate(history, caps, used_tokens)` 读取整段原始历史并渲染新表示。主体持有一个准备任务，使用 `spawn_blocking` 执行这一步；后台任务只返回候选，当前主体负责发布与采纳。`prepare_and_publish(...)` 仍供明确拥有准备与发布生命周期的调用者使用，不能在请求事务中调用。
+
+主体拥有的准备任务同时固定原始 `scope/leaf`，在整个 `prepare_candidate` 调用前后
+核对实际 `commit_seq`。`StoreHistory` 会读取可变的 operation/intent 状态，因此只固定
+原始事件叶子不足以证明压缩观察一致。读取期间发生任何账本提交时，本次候选不发布，
+返回重新观察；持续写入可能延后准备，不能声称这种情况下已完成压缩。
+
+准备器不额外复制全部历史文本；它只记录真正读到的调用事件 `ItemRef → CallStatus`，
+索引最多 65,536 条，超过上限明确拒绝准备。原有策略读取所需原始历史的路径不变。
+采用这个 owned candidate 时，窗口的 `call_states` 使用工作器观察到的基线，不在采用时
+用后来状态覆盖这份基线。最终实时投影仍按下述 `rehydrate` 规则展开后来变化的调用。
+实际采用日志记录 `worker_source_commit_seq`、原始叶子与新窗口 ID；它与最终请求投影
+自己的 `source_commit_seq` 是两个观察，不互相代证。没有新增持久状态表；丢弃主体后，
+已运行的阻塞策略只能结束计算，不能自行发布。
 
 准备结果不是裸窗口，而是一个**绑定到当时修订**的候选：
 

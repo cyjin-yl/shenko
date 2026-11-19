@@ -1,0 +1,63 @@
+{
+  "source_revision": "2d275430b103fb0e13316ba51cc5b5c5fdafa262",
+  "upstream_repository": "https://github.com/Multi-V-VM/node-wasix32.git",
+  "upstream_commit": "20871d1fb49e1af91b1fc729b0cf4e119c0bfd6f",
+  "upstream_tree": "1f91f029db924986b371c4b848fb65ffd080613d",
+  "source_patch": {
+    "path": "crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch",
+    "sha256": "93970b459d28ad3ac6af9c6446bc175220b4ea3b2f9ab29f5330710454d5fee9",
+    "source_path": "tools/gyp/pylib/gyp/generator/make.py",
+    "before_sha256": "29092beb6082ee2170676449f74204f73a9843486e2468f073bca75468ce2245",
+    "after_sha256": "da8c30caf420fcbd795a8ed9d06b1bb730aec1d138c555d558f5b8f6b0ba3b02",
+    "purpose": "use the existing per-object response-file archive recipes for wasi/wasm instead of one oversized command argument"
+  },
+  "source_transfer_bytes": null,
+  "source_transfer_size_note": "Git transfer size is not known in advance; the actual object store and worktree are observed after fetch",
+  "builder_sha256": "179a1ec662498a6e9ad71cd21a3261867c8c5b2980069eb2a6f6a2444f6367c5",
+  "runner_sha256": "9e42b06d016f6740ca700b2a7519bdaa763801974143be57fbd3570a299cc11a",
+  "driver_sha256": "a9419c9aa0abbced7c69145806768153971d37121a8c20e63e0c623f0991f150",
+  "first_input_sha256": "f1c895141dd1cbb589de36e6c93900da14b1f24f96ee24c2016afc303d43c0dc",
+  "toolchain_assets": [
+    {
+      "name": "wasixcc",
+      "version": "0.4.7",
+      "source_commit": "d59389f68277c60b65cb1cc1524de641d845d336",
+      "url": "https://github.com/wasix-org/wasixcc/releases/download/v0.4.7/wasixcc-x86_64-unknown-linux-gnu.tar.gz",
+      "bytes": 3258983,
+      "sha256": "d39db81b6b76d9567e0f61955f390b8586d932ab683816989e23305f27099c2f",
+      "expanded_byte_limit": 33554432
+    },
+    {
+      "name": "llvm",
+      "version": "21.1.206",
+      "source_commit": "98c00cb849c94742b2b29918bb414d236c83ae97",
+      "url": "https://github.com/wasix-org/llvm-project/releases/download/21.1.206/LLVM-Linux-x86_64-gnu.tar.gz",
+      "bytes": 75596113,
+      "sha256": "ab32cf976226dc9478c9cb8331fa877163ff34d78b190fb201d6eac92cb7dab0",
+      "expanded_byte_limit": 1073741824
+    },
+    {
+      "name": "sysroot",
+      "version": "2026-10-02.1",
+      "source_commit": "2025b44a5d2eb22b64ecdbf1bb16f3e7699dfb60",
+      "url": "https://github.com/wasix-org/wasix-libc/releases/download/v2026-10-02.1/sysroot.tar.gz",
+      "bytes": 5951821,
+      "sha256": "ffc1a6f52e81a4945a9df7bb2fee632a051403eb64316b006543ea54cd779c6b",
+      "expanded_byte_limit": 134217728
+    },
+    {
+      "name": "binaryen",
+      "version": "128",
+      "source_commit": "06cc1d9b452df3e7f4d80bb9314a863c69d4aad6",
+      "url": "https://github.com/WebAssembly/binaryen/releases/download/version_128/binaryen-version_128-x86_64-linux.tar.gz",
+      "bytes": 114606053,
+      "sha256": "4ce79586d1c4762502eebe9a1db071fa5e446ef8897f2f766eb1cce5ec6dee9e",
+      "expanded_byte_limit": 1073741824
+    }
+  ],
+  "wasmer_archive_sha256": "23f99818deaad93859f8bb8292af81f0c39f25aea19eaccfb72fc7c9e8a3fae9",
+  "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+  "inherited_process_limits": "Limit                     Soft Limit           Hard Limit           Units     \nMax cpu time              unlimited            unlimited            seconds   \nMax file size             unlimited            unlimited            bytes     \nMax data size             unlimited            unlimited            bytes     \nMax stack size            16777216             unlimited            bytes     \nMax core file size        0                    unlimited            bytes     \nMax resident set          unlimited            unlimited            bytes     \nMax processes             55514                55514                processes \nMax open files            65536                65536                files     \nMax locked memory         8388608              8388608              bytes     \nMax address space         unlimited            unlimited            bytes     \nMax file locks            unlimited            unlimited            locks     \nMax pending signals       55514                55514                signals   \nMax msgqueue size         819200               819200               bytes     \nMax nice priority         0                    0                    \nMax realtime priority     0                    0                    \nMax realtime timeout      unlimited            unlimited            us        \n",
+  "product_capability_installed": false,
+  "named_target_acceptance": false
+}

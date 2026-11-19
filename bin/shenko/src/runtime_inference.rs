@@ -27,7 +27,9 @@ pub(crate) struct InferenceInstall<'a> {
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
 }
 
-pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServices> {
+/// `None` is an observed user stop during read-only metadata discovery. Runtime
+/// failure cancellation remains an error, and neither path starts the broker.
+pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<InferenceServices>> {
     let InferenceInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
         cognition, installed, cancel, consumer_cancel,
@@ -177,8 +179,42 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServ
             Arc::new(quota_runtime).run(quota_stop).await;
         });
     }
-    let capabilities = match broker.discover_capabilities().await {
+    // This read-only observation has no admitted inference to settle. Drop its
+    // HTTP future on stop, instead of delaying shutdown for the provider's
+    // request deadline. Do not interrupt the surrounding plugin installation.
+    let discovered = {
+        use std::{future::Future, task::Poll};
+        let mut cancelled = Box::pin(cancel.cancelled());
+        let mut signal = Box::pin(tokio::signal::ctrl_c());
+        let mut discovery = Box::pin(broker.discover_capabilities());
+        let outcome = std::future::poll_fn(|cx| {
+            if cancelled.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(anyhow::anyhow!(
+                    "runtime stopped during model metadata discovery; reopen for recovery"
+                )));
+            }
+            if let Poll::Ready(signal) = signal.as_mut().poll(cx) {
+                return Poll::Ready(signal.map(|()| None).map_err(anyhow::Error::from));
+            }
+            discovery.as_mut().poll(cx).map(|result| Ok(Some(result)))
+        })
+        .await?;
+        match outcome {
+            None => {
+                info!(
+                    "shutdown signal during model metadata discovery; inference was not admitted"
+                );
+                cancel.cancel();
+                return Ok(None);
+            }
+            Some(result) => result,
+        }
+    };
+    let capabilities = match discovered {
         Ok(capabilities) => Some(capabilities),
+        Err(error) if error.is::<shenko_broker::InvalidModelMetadata>() => {
+            return Err(error.context("provider model metadata was invalid; inference was not admitted"));
+        }
         Err(error) => {
             tracing::warn!(error=%error, "model metadata unavailable; automatic context compaction disabled");
             None
@@ -219,5 +255,5 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<InferenceServ
     // catalog; the self-knowledge snapshot is a registry view and the
     // re-render is idempotent, so refresh it once more here.
     self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
-    Ok(InferenceServices { context_registry, broker_handle, capabilities })
+    Ok(Some(InferenceServices { context_registry, broker_handle, capabilities }))
 }

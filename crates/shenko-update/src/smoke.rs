@@ -405,7 +405,7 @@ type TreeOwner = ();
 
 /// The processes one smoke launch started, and the kernel object that owns
 /// them.
-struct OwnedTree {
+pub(crate) struct OwnedTree {
     owner: TreeOwner,
     /// The tree is stopped at most once: the second stop would report an
     /// error for work the first one already did.
@@ -413,9 +413,18 @@ struct OwnedTree {
 }
 
 impl OwnedTree {
+    /// Build and smoke processes use the same platform ownership boundary.
+    pub(crate) fn configure(command: &mut Command) {
+        command.kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+        #[cfg(windows)]
+        win32::create_suspended(command);
+    }
+
     /// Create the owner before the candidate exists, so nothing the candidate
     /// starts can be created outside the tree.
-    fn before_spawn() -> Result<Self, SmokeError> {
+    pub(crate) fn before_spawn() -> Result<Self, SmokeError> {
         Ok(Self { owner: create_owner()?, stopped: false })
     }
 
@@ -423,7 +432,7 @@ impl OwnedTree {
     ///
     /// On Windows this is where the candidate starts running: it was created
     /// suspended, it is assigned to the job there, and only then resumed.
-    fn adopt(&mut self, child: &tokio::process::Child) -> Result<(), SmokeError> {
+    pub(crate) fn adopt(&mut self, child: &tokio::process::Child) -> Result<(), SmokeError> {
         adopt_owner(&mut self.owner, child)
     }
 
@@ -432,7 +441,7 @@ impl OwnedTree {
     /// Every stream this launch settles asks for the tree to be stopped, so
     /// the first stop is remembered: signalling an already stopped tree would
     /// be reported as a cleanup failure that never happened.
-    fn stop(&mut self, notes: &mut CleanupNotes) {
+    pub(crate) fn stop(&mut self, notes: &mut CleanupNotes) {
         if self.stopped {
             return;
         }
@@ -446,7 +455,7 @@ impl OwnedTree {
     /// after being signalled leaves a process that still holds the state copy,
     /// and a caller that is already failing must see that rather than a silent
     /// success.
-    async fn retire(&mut self, child: &mut tokio::process::Child) -> CleanupNotes {
+    pub(crate) async fn retire(&mut self, child: &mut tokio::process::Child) -> CleanupNotes {
         let mut notes = CleanupNotes::default();
         self.stop(&mut notes);
         // Stopping the tree reaches the leader too — the group signal on Unix,
@@ -498,7 +507,7 @@ fn signal_leader(child: &mut tokio::process::Child) -> Result<(), String> {
 /// after it, so both the primary outcome and the state of the tree reach the
 /// caller.
 #[derive(Debug, Default)]
-struct CleanupNotes(Vec<String>);
+pub(crate) struct CleanupNotes(Vec<String>);
 
 impl CleanupNotes {
     fn add(&mut self, detail: String) {
@@ -506,7 +515,7 @@ impl CleanupNotes {
     }
 
     /// The notes as one fragment, or nothing when stopping did not fail.
-    fn describe(&self) -> Option<String> {
+    pub(crate) fn describe(&self) -> Option<String> {
         (!self.0.is_empty()).then(|| self.0.join("; "))
     }
 

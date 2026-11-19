@@ -1,0 +1,12 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Action completed."
+    }
+  ],
+  "structuredContent": {
+    "content": "#ifndef SIMDUTF_WASI_COMPAT_H_\n#define SIMDUTF_WASI_COMPAT_H_\n\n#ifdef __wasi__\n#include <stddef.h>\n#include <stdint.h>\n// Simdutf WASI compatibility layer\n// Only define what's needed for simdutf specifically\n\n// C++20 concepts fallback\n#ifndef __cpp_concepts\n#define concept bool\n#define requires(...) true ||\n#endif\n\n// Function attributes\n#ifndef simdutf_really_inline\n#define simdutf_really_inline inline\n#endif\n\n#ifndef simdutf_warn_unused\n#define simdutf_warn_unused\n#endif\n\n// Minimal std additions for simdutf\n#ifdef V8_WASI_STD_POLYFILLS_GLOBAL_SCOPE\nnamespace std {\n// Only add things that are missing and needed by simdutf\n#ifndef _LIBCPP_HAS_NO_CONCEPTS\ntemplate <typename T>\nusing remove_cvref_t = T;  // Simple fallback\n#endif\n\n// Byte type compatibility\n// Span fallback if needed\n#if !defined(__cpp_lib_span)\ntemplate <typename T>\nstruct span {\n  T* data_;\n  size_t size_;\n  span(T* data, size_t size) : data_(data), size_(size) {}\n  T* data() const { return data_; }\n  size_t size() const { return size_; }\n  T* begin() const { return data_; }\n  T* end() const { return data_ + size_; }\n};\n#endif\n}  // namespace std\n#endif  // V8_WASI_STD_POLYFILLS_GLOBAL_SCOPE\n\n// Disable problematic simdutf features for WASI\n#define SIMDUTF_IMPLEMENTATION_HASWELL 0\n#define SIMDUTF_IMPLEMENTATION_WESTMERE 0\n#define SIMDUTF_IMPLEMENTATION_ICELAKE 0\n#define SIMDUTF_IMPLEMENTATION_ARM64 0\n\n#endif  // __wasi__\n\n#endif  // SIMDUTF_WASI_COMPAT_H_\n"
+  },
+  "isError": false
+}

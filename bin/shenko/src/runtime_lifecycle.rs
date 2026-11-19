@@ -8,8 +8,8 @@ use crate::{Command, cli_dispatch, runtime_authority};
 
 #[derive(Default)]
 pub(crate) struct RuntimeState {
-    pub(crate) authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
-    pub(crate) heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
+    pub(crate) active_authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
+    pub(crate) authority_heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
     pub(crate) startup_pause_applied: bool,
 }
 
@@ -48,9 +48,9 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
         command, data_dir, &supervisor, &identity_context, &identity_service, &mut state,
     ).await;
     *startup_pause_applied = state.startup_pause_applied;
-    // Startup cancels observations on every exit. Join the last owned write
-    // before releasing the runtime owner or rebuilding its scoped services.
-    let result = match state.heartbeat {
+    // Start's cancellation guard has stopped observations on every normal or
+    // error exit. Join their last blocking write before runtime/owner teardown.
+    let result = match state.authority_heartbeat.take() {
         Some(heartbeat) => match heartbeat.await
             .map_err(anyhow::Error::from)
             .and_then(std::convert::identity)
@@ -66,8 +66,7 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
         },
         None => result,
     };
-    let active_authority = state.authority;
-    let rebuilding = active_authority.as_ref()
+    let rebuilding = state.active_authority.as_ref()
         .is_some_and(|authority| authority.recovery_required().is_some())
         || result.as_ref().err().is_some_and(runtime_authority::requires_reconstruction);
     let result = if rebuilding {
@@ -88,7 +87,7 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
     };
     // Classify once, after cleanup can no longer replace a genuine storage
     // failure with an earlier authority-recovery wrapper.
-    match active_authority {
+    match state.active_authority {
         Some(authority) => authority.finish_result(result),
         None => result,
     }

@@ -1,0 +1,8 @@
+tree dc4411fcf63e33acb21a6117d6725dd1c5c38957
+parent 10d4a325560a1054fbde00162e8e7696007c2eab
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864115 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794864115 +0000
+
+test(seat): return the existing fixture errors without diverging macros
+
+CI43957583118 completed both Clippy target streams and found three async-trait unreachable-code warnings plus two diverging-sub-expression warnings in these fixture methods. Return the same errors as typed Result values. No scenario, assertion, production behavior, lint suppression or baseline is changed.

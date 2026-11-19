@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "source_revision": "synthetic-exporter-check",
+  "scope": "native E1 fixture selected original rows and typed CAS closure; read-only export",
+  "not_a_full_sqlite_backup": true,
+  "tables_selected": [
+    "subject_genesis",
+    "subject_branch_heads",
+    "subject_steps",
+    "tasks",
+    "task_results",
+    "operations",
+    "attempts",
+    "evidence_receipts",
+    "evidence_receipt_conflicts",
+    "evidence_key_conflicts",
+    "reconciliation_cases",
+    "subject_intents",
+    "inbox_events",
+    "session_events",
+    "subject_event_dispositions",
+    "control_prepared_transitions",
+    "control_materializations",
+    "native_evidence_materializations",
+    "native_evidence_seal_debts",
+    "native_evidence_deliveries",
+    "context_windows",
+    "context_window_scopes",
+    "cognition_origins",
+    "commit_log"
+  ],
+  "namespace_allowlist": [
+    "commit-authority",
+    "input_plans",
+    "model_outcomes",
+    "native-e1-fixture",
+    "test"
+  ],
+  "excluded_by_design": [
+    "all Node databases",
+    "owner_admin_tokens and other unselected tables",
+    "SSH keys and configuration",
+    "credential-bearing fields or non-allowlisted CAS namespaces"
+  ],
+  "stores": {
+    "source": {
+      "retained_tables": [
+        "subject_genesis",
+        "subject_branch_heads",
+        "subject_steps",
+        "tasks",
+        "task_results",
+        "operations",
+        "attempts",
+        "evidence_receipts",
+        "evidence_receipt_conflicts",
+        "evidence_key_conflicts",
+        "reconciliation_cases",
+        "subject_intents",
+        "inbox_events",
+        "session_events",
+        "subject_event_dispositions",
+        "control_prepared_transitions",
+        "control_materializations",
+        "native_evidence_materializations",
+        "native_evidence_seal_debts",
+        "native_evidence_deliveries",
+        "context_windows",
+        "context_window_scopes",
+        "cognition_origins",
+        "commit_log"
+      ],
+      "retained_objects": 2,
+      "missing_reference_count": 1,
+      "excluded_object_count": 1,
+      "excluded_row_count": 1
+    },
+    "receiver": {
+      "retained_tables": [
+        "subject_genesis",
+        "subject_branch_heads",
+        "subject_steps",
+        "tasks",
+        "task_results",
+        "operations",
+        "attempts",
+        "evidence_receipts",
+        "evidence_receipt_conflicts",
+        "evidence_key_conflicts",
+        "reconciliation_cases",
+        "subject_intents",
+        "inbox_events",
+        "session_events",
+        "subject_event_dispositions",
+        "control_prepared_transitions",
+        "control_materializations",
+        "native_evidence_materializations",
+        "native_evidence_seal_debts",
+        "native_evidence_deliveries",
+        "context_windows",
+        "context_window_scopes",
+        "cognition_origins"
+      ],
+      "retained_objects": 2,
+      "missing_reference_count": 1,
+      "excluded_object_count": 1,
+      "excluded_row_count": 1
+    },
+    "parked": {
+      "reason": "Store database was not created before failure"
+    }
+  },
+  "errors": [
+    {
+      "store": "receiver",
+      "error": "required Store schema or original commit rows are absent",
+      "missing_required_tables": [
+        "commit_log"
+      ]
+    },
+    {
+      "store": "parked",
+      "error": "Store database was not created before failure"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+tree a7a646b9a183f3b40340cbd75d8dd84dc57103d1
+parent ebc39d1da7b6edf7b09929ac214bc3b7e49dca72
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794867863 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868422 +0000
+
+fix(update): bind candidate admission to sealed preparation artifact
+
+(cherry picked from commit 1123ce99754a2e3186a87bd8c650852eb4638b59)

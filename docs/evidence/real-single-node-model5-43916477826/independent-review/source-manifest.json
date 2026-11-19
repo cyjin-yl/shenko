@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+  "sources": [
+    {
+      "path": "crates/shenko-subject/src/output.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-subject/src/output.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 22467,
+      "sha256": "db8de06cfcb9533628bfc19bb8523d016c9fce12a7dcc5fe2acf3d7968f52431"
+    },
+    {
+      "path": "crates/shenko-subject/src/loop_runner.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-subject/src/loop_runner.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 131642,
+      "sha256": "dbbe7470708875aa7a16e186d924855374af3cc84b938e5b4e9466a1510851f8"
+    },
+    {
+      "path": "crates/shenko-subject/src/child.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-subject/src/child.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 71734,
+      "sha256": "32587ec4b1a8795dbb51afb142e3e7a88a76b2aea4deb82f2d47a29a976cb2ca"
+    },
+    {
+      "path": "crates/shenko-exec-host/src/native_task.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-exec-host/src/native_task.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 17347,
+      "sha256": "b529007c83ee30176a9262b6b0d2e8ebbddf7145c05c775b96a75ad1eb207831"
+    },
+    {
+      "path": "bin/shenko/src/runtime_plugins.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/bin/shenko/src/runtime_plugins.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 16258,
+      "sha256": "69b2387c6dd36e575a3d33e887fa90234b074cfdc6d004248ff5798148a1fc8c"
+    },
+    {
+      "path": "scripts/real_single_node_journey.py",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/scripts/real_single_node_journey.py",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 29054,
+      "sha256": "72d13c644a29521446c3b74bdc341590a82406ed8d037324f37fca4cdd05dda7"
+    },
+    {
+      "path": ".github/workflows/real-single-node.yml",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/.github/workflows/real-single-node.yml",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 8610,
+      "sha256": "7afd9c1474b50ea30ba843f2b2ce28c8718cc210c01a0b0f0c3b017a7659fed0"
+    },
+    {
+      "path": "crates/shenko-broker/src/execution.rs",
+      "source_revision": "5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c",
+      "url": "https://raw.githubusercontent.com/cyjin-yl/shenko/5e7a3d5ade83d21fbc6e86b7eb8c3f19fb3fbe3c/crates/shenko-broker/src/execution.rs",
+      "retrieval": "previous GitHub fetch, full UTF-8 content from tool store",
+      "utf8_bytes": 55103,
+      "sha256": "bb07aae0d6e209745fdf09db500bddef90c901613e3f8b2302c45805386584ec"
+    }
+  ]
+}

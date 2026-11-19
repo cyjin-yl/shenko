@@ -1,0 +1,2 @@
+{"label":"000-capture-originals","observation":{"event":"spawned"},"pid":17694}
+{"label":"000-capture-originals","observation":{"event":"joined","exit_code":1,"status":"exit status: 1"},"pid":17694}

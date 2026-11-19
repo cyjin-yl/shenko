@@ -1,0 +1,8 @@
+tree d8443cd1410e6055bcdb57f9561e97461de7a7b5
+parent 6572f280660a0c26c60363c7299519ce53935868
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794869044 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870210 +0000
+
+fix(ssh): retain native command session cleanup errors
+
+(cherry picked from commit 1d81cc6f052f6e2f14e14e4d87f96a6f1d43630f)

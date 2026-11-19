@@ -1,0 +1,492 @@
+{
+  "schema_version": 1,
+  "kind": "completed_original_ci_and_separate_followup_metadata",
+  "observed_at_utc": "2026-11-16T17:03:52.330180+00:00",
+  "run_id": 43905866500,
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500",
+  "started_at_utc": "2026-11-16T16:17:34Z",
+  "ended_at_utc": "2026-11-16T16:36:17Z",
+  "conclusion": "failure",
+  "head_sha": "bf49f38733bc69975f8825c3f5056b227e83adc0",
+  "head_tree": "e0d8e9fb2b2f472c8f150fc7c62c216db8479a21",
+  "checkout_merge_sha": "92135ff8956c425748baa2560e1fbafed72498d4",
+  "independent_baseline": "f5c6bfa573bf2c96cb84dd2164759329732b9d8e",
+  "jobs": [
+    {
+      "id": 133434391742,
+      "name": "rust",
+      "conclusion": "failure"
+    },
+    {
+      "id": 133434392113,
+      "name": "kernel-boundary",
+      "conclusion": "success"
+    },
+    {
+      "id": 133434392160,
+      "name": "clippy-ratchet",
+      "conclusion": "failure"
+    },
+    {
+      "id": 133434392162,
+      "name": "docs-migration",
+      "conclusion": "success"
+    },
+    {
+      "id": 133434392449,
+      "name": "docs",
+      "conclusion": "success"
+    },
+    {
+      "id": 133434392587,
+      "name": "web",
+      "conclusion": "success"
+    }
+  ],
+  "artifacts": {
+    "rust-evidence": {
+      "id": 14245909487,
+      "bytes": 8143986,
+      "sha256": "f4cbadb9bb082dd01f43f8d5bbf009f12b717237aafc1335d3970e86c5e3fb3b",
+      "entries": 1745,
+      "expanded_bytes": 178468026,
+      "crc_verified_for_every_member": true,
+      "original_zip_retained": true,
+      "github_artifact_url": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14245909487"
+    },
+    "clippy-ratchet-evidence": {
+      "id": 14243989851,
+      "bytes": 2718668,
+      "sha256": "6569942e0c1ad1039bc7b0f3cbc03cc331f34ba61d266d684f28c451a2cc6abb",
+      "entries": 18,
+      "expanded_bytes": 44098079,
+      "crc_verified_for_every_member": true,
+      "original_zip_retained": true,
+      "github_artifact_url": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14243989851"
+    },
+    "kernel-boundary-evidence": {
+      "id": 14244851919,
+      "bytes": 231,
+      "sha256": "7869429d8097a9df28541490af906a8003a5cbc3d3f805883c653a7a3313477d",
+      "entries": 1,
+      "expanded_bytes": 120,
+      "crc_verified_for_every_member": true,
+      "original_zip_retained": true,
+      "github_artifact_url": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14244851919"
+    }
+  },
+  "actual_runtime": {
+    "store_roundtrip": {
+      "passed": 40,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 8.69
+    },
+    "subject": {
+      "passed": 116,
+      "failed": 0,
+      "ignored": 7,
+      "seconds": 44.97,
+      "ignored_scope": "existing ignored tests, no new ignores"
+    },
+    "installed_ssh_wasi": {
+      "passed": true,
+      "seconds": 246.55
+    },
+    "start_boundary": {
+      "passed": true,
+      "seconds": 1.89
+    },
+    "component_process": {
+      "passed": false,
+      "seconds": 270.89,
+      "error": "b readiness timed out; original logs retained",
+      "reached": "Seven-member metadata/frontier/reopen and A/C fork setup; real B pause, A/C resident Starts.",
+      "not_reached": "Successful B UI readiness, subsequent common-certificate/final-authority and renewal assertions.",
+      "shutdown_inference": "Readiness error returns and drops the never-accept listener before fixture SIGINT cleanup. This run does not prove that SIGINT cancels metadata GET."
+    }
+  },
+  "clippy": {
+    "conclusion": "failure",
+    "ratchet": "clippy/ratchet.json",
+    "errors": [
+      "production: shenko-broker: unused_imports increased by 1",
+      "all-targets: shenko: clippy::needless_range_loop increased by 1",
+      "all-targets: shenko-broker: unused_imports increased by 2",
+      "all-targets: shenko-subject: unused_variables increased by 2"
+    ],
+    "complete_streams": "clippy-original.zip; four complete compiler JSONL/stderr pairs and discovery/policy",
+    "job_log": "Two API Transport closed failures retained; no claim of obtaining that job log"
+  },
+  "followup": {
+    "lint_source": "ce18c5ec89163d19f07037e5e9489ef33c376fc9",
+    "lint_metadata_exit": 0,
+    "metadata_stop_source": "8253eab6ec59357399e5d50da0fec013595bb613",
+    "integrated_source": "8ebf3ecf391796b6093f092591f05d79059ca294",
+    "metadata_stop_initial_exit": 101,
+    "metadata_stop_final_exit": 0,
+    "metadata_only": true,
+    "new_runtime_journeys_run": false,
+    "full_two_tree_ratchet_run": false,
+    "retention_source": "a4eb2be1a886dc181c776d3b8bd7a216397ca15a",
+    "retention_scope": "Retain top-level Start boundary diagnostics after original owned cleanup on success and failure; one CI evidence export. Static checks only, no execution."
+  },
+  "limitations": [
+    "No fifth real-model run occurred in this evidence.",
+    "No standalone original E1/Unknown delivery or Store-aware GC acceptance.",
+    "No real user browser/accessibility, named Node/Bun WASM, physical multi-device or 7/30-day acceptance.",
+    "Full source Rust ZIP is retained in scratch and GitHub artifact; this directory includes all component and non-binary SSH members, not duplicate compatibility DBs or the guest binary."
+  ],
+  "files": {
+    "rust-artifact-manifest.json": {
+      "bytes": 630709,
+      "sha256": "a0b5128b637915c029b1076b37c5834643bf11888535de424d7ad5024ecbde35",
+      "source": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14245909487",
+      "original_bytes": 630709,
+      "original_sha256": "a0b5128b637915c029b1076b37c5834643bf11888535de424d7ad5024ecbde35",
+      "transformation": "none"
+    },
+    "clippy-artifact-manifest.json": {
+      "bytes": 4332,
+      "sha256": "77617aacfe998a4b531a8cd2eecc508ea6f44934916e2580d544541271450f9e",
+      "source": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14243989851",
+      "original_bytes": 4332,
+      "original_sha256": "77617aacfe998a4b531a8cd2eecc508ea6f44934916e2580d544541271450f9e",
+      "transformation": "none"
+    },
+    "kernel-artifact-manifest.json": {
+      "bytes": 216,
+      "sha256": "e0673680ad4875cb63fa8593b80e4a247e1d0eee93ca23213864ab7b880e432b",
+      "source": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14244851919",
+      "original_bytes": 216,
+      "original_sha256": "e0673680ad4875cb63fa8593b80e4a247e1d0eee93ca23213864ab7b880e432b",
+      "transformation": "none"
+    },
+    "github/run-initial.json": {
+      "bytes": 12869,
+      "sha256": "dcbd0a86137f039b8653ce81ef4b4720666cb31f5bec267e54db3b7c13b03c9f",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/run-initial.json",
+      "original_bytes": 12869,
+      "original_sha256": "dcbd0a86137f039b8653ce81ef4b4720666cb31f5bec267e54db3b7c13b03c9f",
+      "transformation": "none"
+    },
+    "github/run.json": {
+      "bytes": 12872,
+      "sha256": "db4ef34dbc69be48c54b956af88e62b4bcc0283cd7575e6eb3136771755c4346",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/run-final.json",
+      "original_bytes": 12872,
+      "original_sha256": "db4ef34dbc69be48c54b956af88e62b4bcc0283cd7575e6eb3136771755c4346",
+      "transformation": "none"
+    },
+    "github/jobs.json": {
+      "bytes": 12955,
+      "sha256": "d148774d5361657ddd5cefba7d03c9775f7f7a727c2921ca7851b92bb2bc584e",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/jobs-final.json",
+      "original_bytes": 12955,
+      "original_sha256": "d148774d5361657ddd5cefba7d03c9775f7f7a727c2921ca7851b92bb2bc584e",
+      "transformation": "none"
+    },
+    "github/artifacts.json": {
+      "bytes": 3295,
+      "sha256": "f8ca02ef8e49be7a640d72749582c9cb3175ec1c6dbf968fb6070e7da5da59c9",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/artifacts-final.json",
+      "original_bytes": 3295,
+      "original_sha256": "f8ca02ef8e49be7a640d72749582c9cb3175ec1c6dbf968fb6070e7da5da59c9",
+      "transformation": "none"
+    },
+    "github/checkout-merge.json": {
+      "bytes": 2594,
+      "sha256": "bcdb660e8a3c12ee4c7e113a43407cdfd519ffd4cdf8dc116aafcb7a3488ab83",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/checkout-merge.json",
+      "original_bytes": 2594,
+      "original_sha256": "bcdb660e8a3c12ee4c7e113a43407cdfd519ffd4cdf8dc116aafcb7a3488ab83",
+      "transformation": "none"
+    },
+    "github/kernel-base.json": {
+      "bytes": 120,
+      "sha256": "f8a1929200b48ec18e686d9240dd870c511970d3658c7690d97488f7b56f3571",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/kernel-base.json",
+      "original_bytes": 120,
+      "original_sha256": "f8a1929200b48ec18e686d9240dd870c511970d3658c7690d97488f7b56f3571",
+      "transformation": "none"
+    },
+    "github/log-fetch-errors.json": {
+      "bytes": 520,
+      "sha256": "bffaa8e3c453cf2d2311d31151c92890ebdeefc041295909ef1cd24fb4194c81",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/log-fetch-errors.json",
+      "original_bytes": 520,
+      "original_sha256": "bffaa8e3c453cf2d2311d31151c92890ebdeefc041295909ef1cd24fb4194c81",
+      "transformation": "none"
+    },
+    "derived/clippy-confirmed-diagnostics.json": {
+      "bytes": 7261,
+      "sha256": "e7483f3e3bab543ea1a2b63db91624b989fe8f74a4a8bad587e39565ee388a2e",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/clippy-confirmed-diagnostics.json",
+      "original_bytes": 7261,
+      "original_sha256": "e7483f3e3bab543ea1a2b63db91624b989fe8f74a4a8bad587e39565ee388a2e",
+      "transformation": "none"
+    },
+    "github/ci-workflow.yml": {
+      "bytes": 10235,
+      "sha256": "dbd4610ab02789583d6ac8038641063fd09aa3bd5f740768a2fc52dbf422bdba",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/ci-workflow.yml",
+      "original_bytes": 10235,
+      "original_sha256": "dbd4610ab02789583d6ac8038641063fd09aa3bd5f740768a2fc52dbf422bdba",
+      "transformation": "none"
+    },
+    "jobs/rust-job.log.gz": {
+      "bytes": 102804,
+      "sha256": "15b2672b81aa25112fc787e3483dd1c08cc6c28499a33deac293903664a3d1f2",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/rust-job.log",
+      "original_bytes": 482726,
+      "original_sha256": "3913e25e85a0a4deb5b90f39d7e4e39727d73c2cf23c6a1dfda2355c4ed43bde",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "jobs/docs-job.log.gz": {
+      "bytes": 12793,
+      "sha256": "9b6004925b8f8c09e1da062f5e294725fccc712a25a720fc9a7b979cc1a2ee06",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/docs-job.log",
+      "original_bytes": 62071,
+      "original_sha256": "b173ee22d01735bae957b49587cff7a54d38b91c21a5612fa37087445c2ce563",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "jobs/docs-migration-job.log.gz": {
+      "bytes": 12802,
+      "sha256": "2a3122e7596bedcf3b37e88ac238f2b6d6dbd4a97dc2c8c66bed804485b01ed9",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/docs-migration-job.log",
+      "original_bytes": 62128,
+      "original_sha256": "e9ec414d2f039f105dd8dd01ffb0a452432790dde5334b0f6275e0fafcc66a91",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "jobs/kernel-job.log.gz": {
+      "bytes": 13023,
+      "sha256": "2a1f6fd0c04612af69da9bd82893d289e2891b3180a4adea0bd726d5c2024b93",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/kernel-job.log",
+      "original_bytes": 61726,
+      "original_sha256": "ae20e640642262dfb0cea83aa0a636f56c5b1eb95f6d5cfb7466d749bb7d4577",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "jobs/web-job.log.gz": {
+      "bytes": 12081,
+      "sha256": "a840beb0453cbb069642c3a489a0735ee280c0bab332fcae8c3f359691b78a2b",
+      "source": "/workspace/scratch/faaa3ccca531/ci-bf49/web-job.log",
+      "original_bytes": 45322,
+      "original_sha256": "c218de90b773250ddf04ed323a7410b907158bf23485789c5fee1bbcacc66bb2",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "clippy-original.zip": {
+      "bytes": 2718668,
+      "sha256": "6569942e0c1ad1039bc7b0f3cbc03cc331f34ba61d266d684f28c451a2cc6abb",
+      "source": "https://github.com/cyjin-yl/shenko/actions/runs/43905866500/artifacts/14243989851",
+      "original_bytes": 2718668,
+      "original_sha256": "6569942e0c1ad1039bc7b0f3cbc03cc331f34ba61d266d684f28c451a2cc6abb",
+      "transformation": "none"
+    },
+    "clippy/ratchet.json": {
+      "bytes": 172245,
+      "sha256": "c913ad60fe34ab91d4257a0fbb5d723c45ac73319464babf73788c98fe682df6",
+      "source": "clippy.zip!/clippy/ratchet.json",
+      "original_bytes": 172245,
+      "original_sha256": "c913ad60fe34ab91d4257a0fbb5d723c45ac73319464babf73788c98fe682df6",
+      "transformation": "none"
+    },
+    "clippy/lint-policy.json": {
+      "bytes": 32927,
+      "sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584",
+      "source": "clippy.zip!/clippy/lint-policy.json",
+      "original_bytes": 32927,
+      "original_sha256": "a61a9bdb148605698fa5f454ae7e0870742dfca04e53b77e29a03abae0e0a584",
+      "transformation": "none"
+    },
+    "clippy/base.json": {
+      "bytes": 120,
+      "sha256": "f8a1929200b48ec18e686d9240dd870c511970d3658c7690d97488f7b56f3571",
+      "source": "clippy.zip!/base.json",
+      "original_bytes": 120,
+      "original_sha256": "f8a1929200b48ec18e686d9240dd870c511970d3658c7690d97488f7b56f3571",
+      "transformation": "none"
+    },
+    "workspace-check.log.gz": {
+      "bytes": 11872,
+      "sha256": "8c5b1ead3d24719c25ac7d6f5a3866c87987076b1d951f669dc9a9f21a519a84",
+      "source": "rust.zip!/workspace-check.log",
+      "original_bytes": 63151,
+      "original_sha256": "69455b41cc60d2fbeaf7c0e70eacc8e8a6ef9a3cdb71e8770d687ad51d7a5af6",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "workspace-test.log.gz": {
+      "bytes": 39391,
+      "sha256": "04218d3c18da2acb6f7852c9e13427755841ff8e898414aa43bf4fdc936647b8",
+      "source": "rust.zip!/workspace-test.log",
+      "original_bytes": 183589,
+      "original_sha256": "ae62d12a823c6144254abb8be565c4a93aa59ee330653e6e935803043b098b7a",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "component-originals.zip": {
+      "bytes": 153654,
+      "sha256": "b821e8496a292a2089010d2a014bf9e6e8a72531019bfe0e2331fdef2792f038",
+      "source": "rust.zip selected complete original members",
+      "member_count": 237,
+      "transformation": "ZIP container repack only; every member byte compared with original"
+    },
+    "ssh-originals.zip": {
+      "bytes": 36989,
+      "sha256": "5640f1720e4433242d8e1a5c94188140d7bd911129d7a1a44c443060268b32b0",
+      "source": "rust.zip selected complete original members",
+      "member_count": 43,
+      "transformation": "ZIP container repack only; every member byte compared with original"
+    },
+    "component-process/result.json": {
+      "bytes": 264,
+      "sha256": "2dcdbd4475edeb475e7e6b6cd30efcdc7ddf23f1252942b17e114aa75d5fcedf",
+      "source": "rust.zip!/component-process/result.json",
+      "original_bytes": 264,
+      "original_sha256": "2dcdbd4475edeb475e7e6b6cd30efcdc7ddf23f1252942b17e114aa75d5fcedf",
+      "transformation": "none"
+    },
+    "component-process/cleanup.json": {
+      "bytes": 119,
+      "sha256": "2d95c01e3bcd63edb76fee5553d3bd02c6404f9dac80cce98b825fdc80792772",
+      "source": "rust.zip!/component-process/cleanup.json",
+      "original_bytes": 119,
+      "original_sha256": "2d95c01e3bcd63edb76fee5553d3bd02c6404f9dac80cce98b825fdc80792772",
+      "transformation": "none"
+    },
+    "component-process/membership.json": {
+      "bytes": 16586,
+      "sha256": "3752d135507cef30d008132f9b43fd4817e73c1f5e3e8912613c2f8320ffa720",
+      "source": "rust.zip!/component-process/membership.json",
+      "original_bytes": 16586,
+      "original_sha256": "3752d135507cef30d008132f9b43fd4817e73c1f5e3e8912613c2f8320ffa720",
+      "transformation": "none"
+    },
+    "component-process/a-fork.json": {
+      "bytes": 4910,
+      "sha256": "c37ed16f99a197a96729c4e360151ac180c462a2b51704874d89a02d12fb6ba5",
+      "source": "rust.zip!/component-process/a-fork.json",
+      "original_bytes": 4910,
+      "original_sha256": "c37ed16f99a197a96729c4e360151ac180c462a2b51704874d89a02d12fb6ba5",
+      "transformation": "none"
+    },
+    "component-process/c-fork.json": {
+      "bytes": 4910,
+      "sha256": "dccfe3e875683864158b73637685e93a610fb60bf1188dc9c54450fd28b2be9a",
+      "source": "rust.zip!/component-process/c-fork.json",
+      "original_bytes": 4910,
+      "original_sha256": "dccfe3e875683864158b73637685e93a610fb60bf1188dc9c54450fd28b2be9a",
+      "transformation": "none"
+    },
+    "ssh-wasi/openssh-journey.json": {
+      "bytes": 43111,
+      "sha256": "f61819cb9dce9b285e9ecf2de091fab2c139082c23f03a6404eb4fd1f84b9213",
+      "source": "rust.zip!/ssh-wasi/openssh-journey.json",
+      "original_bytes": 43111,
+      "original_sha256": "f61819cb9dce9b285e9ecf2de091fab2c139082c23f03a6404eb4fd1f84b9213",
+      "transformation": "none"
+    },
+    "ssh-wasi/build/build-receipt.json": {
+      "bytes": 13158,
+      "sha256": "f34d720842bfb971fc0aa38940bd9ac2c23b91f0a3bbe768c7bc0a272b0b04a7",
+      "source": "rust.zip!/ssh-wasi/build/build-receipt.json",
+      "original_bytes": 13158,
+      "original_sha256": "f34d720842bfb971fc0aa38940bd9ac2c23b91f0a3bbe768c7bc0a272b0b04a7",
+      "transformation": "none"
+    },
+    "followup/bf49-ratchet-fixes-clippy.jsonl.gz": {
+      "bytes": 358989,
+      "sha256": "279e2ed220967551e2f4b0097e83a5cb600f48f603da84219f3c31e3a9776a39",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-ratchet-fixes-clippy.jsonl",
+      "original_bytes": 6604235,
+      "original_sha256": "8a7b2771705e5f6643a7d7ec5797bf47ef70490d2d38b73182a9e4891fb3d49e",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-ratchet-fixes-clippy.log.gz": {
+      "bytes": 445,
+      "sha256": "e4733de5509df2dd2c7526e3ea6c40ea17b82e527d756216ac162d25fcb022c8",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-ratchet-fixes-clippy.log",
+      "original_bytes": 3048,
+      "original_sha256": "72f85ba0d11ede255cc414b7e6963e129c9234f54d3d3bfa5978a36e75b0a38a",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-ratchet-fixes-clippy-observation.json": {
+      "bytes": 7509,
+      "sha256": "bc7fce159f25e16c30674837651cd10bb3b3c2c4feddc07c265bc6efd14f1fbe",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-ratchet-fixes-clippy-observation.json",
+      "original_bytes": 7509,
+      "original_sha256": "bc7fce159f25e16c30674837651cd10bb3b3c2c4feddc07c265bc6efd14f1fbe",
+      "transformation": "none"
+    },
+    "followup/bf49-metadata-stop-clippy.jsonl.gz": {
+      "bytes": 79477,
+      "sha256": "8512c29b0ab509b4ed5ca886e64bd28d73ad47998748c14ebae24995d4db2769",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy.jsonl",
+      "original_bytes": 971788,
+      "original_sha256": "c6a361e7163b30d6349604bbb270e64c9e27cf4df927013eab6017616a5af758",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-metadata-stop-clippy.log.gz": {
+      "bytes": 179,
+      "sha256": "8930178884255ab2c7de0250ddb5d588c5d499cb454a1ced81c488364f268155",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy.log",
+      "original_bytes": 290,
+      "original_sha256": "5beb9cc6142e70e4256d259fe97ecb1abcb93f5893a3dccd550e271423a76079",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-metadata-stop-clippy-observation.json": {
+      "bytes": 8176,
+      "sha256": "df9ab2b1be8a565bd55d8ffcecab502647ec1421a6d9ec8007158121d4f83bd5",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-observation.json",
+      "original_bytes": 8176,
+      "original_sha256": "df9ab2b1be8a565bd55d8ffcecab502647ec1421a6d9ec8007158121d4f83bd5",
+      "transformation": "none"
+    },
+    "followup/bf49-metadata-stop-clippy-final.jsonl.gz": {
+      "bytes": 82386,
+      "sha256": "3bab5392565a3fa485fa10ab15ea2ac8cff91b785a33ebae4d8c62a7e8740980",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final.jsonl",
+      "original_bytes": 1004860,
+      "original_sha256": "2659cfb9749b50e00a6aa7dc24e2f542e0488bf29e4b4c7c27a0f8535cb58fbf",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-metadata-stop-clippy-final.log.gz": {
+      "bytes": 152,
+      "sha256": "eadb1515ee70ad024da1fb76352f792a0c0c7bc0a7981b24aa15711439b033f1",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final.log",
+      "original_bytes": 159,
+      "original_sha256": "9e70202adb2c555807770396c9bf696dd907cb5546ff03946c4483e79aa1d43a",
+      "transformation": "lossless gzip, mtime=0"
+    },
+    "followup/bf49-metadata-stop-clippy-final-observation.json": {
+      "bytes": 8174,
+      "sha256": "79edcd0a89392d791cd48d0450c1cdb79df8ac8cd00efe6c3e24b2b41e5bfbed",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-clippy-final-observation.json",
+      "original_bytes": 8174,
+      "original_sha256": "79edcd0a89392d791cd48d0450c1cdb79df8ac8cd00efe6c3e24b2b41e5bfbed",
+      "transformation": "none"
+    },
+    "followup/bf49-metadata-stop-docs.json": {
+      "bytes": 497,
+      "sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "source": "/workspace/scratch/faaa3ccca531/bf49-metadata-stop-docs.json",
+      "original_bytes": 497,
+      "original_sha256": "619acb13c26922b41855723ab35fe2976fdebecf6491670f60ae005f39f2a1de",
+      "transformation": "none"
+    },
+    "derived/metadata-stop-source-comparison.json": {
+      "bytes": 1623,
+      "sha256": "91d99002770587162667eba21aa8e4a8bd9b954e92a47db2b50e10a008f207d9",
+      "source": "derived from the retained originals",
+      "original_bytes": 1623,
+      "original_sha256": "91d99002770587162667eba21aa8e4a8bd9b954e92a47db2b50e10a008f207d9",
+      "transformation": "none"
+    },
+    "derived/workspace-result-lines.json": {
+      "bytes": 1065,
+      "sha256": "910d8a5095b640fc4726e2b5d60cb03230877332bed554df5ba1102db3459c24",
+      "source": "derived from the retained originals",
+      "original_bytes": 1065,
+      "original_sha256": "910d8a5095b640fc4726e2b5d60cb03230877332bed554df5ba1102db3459c24",
+      "transformation": "none"
+    }
+  }
+}

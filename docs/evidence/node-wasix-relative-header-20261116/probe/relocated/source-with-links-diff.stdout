@@ -1,0 +1,31 @@
+diff --git a/deps/v8/include/wasi/wasi-simdutf-compat.h b/deps/v8/include/wasi/wasi-simdutf-compat.h
+index f7e59ed..3589e61 120000
+--- a/deps/v8/include/wasi/wasi-simdutf-compat.h
++++ b/deps/v8/include/wasi/wasi-simdutf-compat.h
+@@ -1 +1 @@
+-/home/victoryang00/node-wasix32/deps/v8/third_party/simdutf/simdutf-wasi-compat.h
+\ No newline at end of file
++../../third_party/simdutf/simdutf-wasi-compat.h
+\ No newline at end of file
+diff --git a/tools/gyp/pylib/gyp/generator/make.py b/tools/gyp/pylib/gyp/generator/make.py
+index 4f7c22f..c080bbe 100644
+--- a/tools/gyp/pylib/gyp/generator/make.py
++++ b/tools/gyp/pylib/gyp/generator/make.py
+@@ -1882,7 +1882,7 @@ $(obj).$(TOOLSET)/$(TARGET)/%%.o: $(obj)/%%%s FORCE_DO_CMD
+                 self.flavor not in ("mac", "openbsd", "netbsd", "win")
+                 and not self.is_standalone_static_library
+             ):
+-                if self.flavor in ("linux", "android"):
++                if self.flavor in ("linux", "android", "wasi", "wasm"):
+                     self.WriteMakeRule(
+                         [self.output_binary],
+                         link_deps,
+@@ -1896,7 +1896,7 @@ $(obj).$(TOOLSET)/$(TARGET)/%%.o: $(obj)/%%%s FORCE_DO_CMD
+                         part_of_all,
+                         postbuilds=postbuilds,
+                     )
+-            elif self.flavor in ("linux", "android"):
++            elif self.flavor in ("linux", "android", "wasi", "wasm"):
+                 self.WriteMakeRule(
+                     [self.output_binary],
+                     link_deps,

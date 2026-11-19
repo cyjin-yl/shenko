@@ -1,0 +1,35 @@
+{
+  "sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+  "node_id": "C_kwDOVUFCKtoAKDNlNjJjMGU1MTdhMjQ2ODcyMTAxY2QxZTYxYTY5NGIyMTU2YmM5MTk",
+  "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/3e62c0e517a246872101cd1e61a694b2156bc919",
+  "html_url": "https://github.com/cyjin-yl/shenko/commit/3e62c0e517a246872101cd1e61a694b2156bc919",
+  "author": {
+    "name": "cyjin.yl",
+    "email": "chenyejin2004@foxmail.com",
+    "date": "2026-11-16T22:15:17Z"
+  },
+  "committer": {
+    "name": "cyjin.yl",
+    "email": "chenyejin2004@foxmail.com",
+    "date": "2026-11-16T22:15:17Z"
+  },
+  "tree": {
+    "sha": "1ccf8f0bee35915c9f6c4d886b5a7bf54050d694",
+    "url": "https://api.github.com/repos/cyjin-yl/shenko/git/trees/1ccf8f0bee35915c9f6c4d886b5a7bf54050d694"
+  },
+  "message": "docs: preserve exact S2 C19 Node and PTY source provenance\n\nRetain 27 original commit objects, complete independently reconstructed tree deltas, original intermediate bytes and actual static-check failures. Preserve original CI archives, author identities and public paths. These records do not claim runtime or full-product acceptance.\n\nOriginal-source-commit: 225cda9cec5cb8fd6d912f02254cbb6db61b3f1f\n\nCo-authored-by: Shenko continuation agent <shenko-continuation@users.noreply.github.com>",
+  "parents": [
+    {
+      "sha": "68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/git/commits/68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d",
+      "html_url": "https://github.com/cyjin-yl/shenko/commit/68de5ffcbfe6f3e31976cddd1837e37fbc16eb6d"
+    }
+  ],
+  "verification": {
+    "verified": false,
+    "reason": "unsigned",
+    "signature": null,
+    "payload": null,
+    "verified_at": null
+  }
+}

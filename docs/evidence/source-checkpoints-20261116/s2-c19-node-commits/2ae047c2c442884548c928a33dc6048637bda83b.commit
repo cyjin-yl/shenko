@@ -1,0 +1,6 @@
+tree 9bb7d6e6ac279c7d3e916aea9946a03b91aa32a6
+parent 2481ff1b8a8440714ae84eaed1c2fa09c7c8ac56
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865548 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794865548 +0000
+
+docs(evidence): preserve complete 10d4 CI failure and original native facts

@@ -170,7 +170,7 @@ async fn obligation_s1_rejects_spoofed_unsealed_foreign_and_duplicate_changes() 
             let mut input=runner::frozen_input(&store,&preparing).unwrap();
             input.obligations[0].description="forged snapshot body".into();
             preparing.input_plan_ref=Some(store.cas.seal_object(&serde_json::to_vec(&input).unwrap(),
-                "application/json","input_plans","subject_step_input",12).unwrap().object);
+                "application/json","input_plans","subject_step_input",input.schema_version).unwrap().object);
             store.upsert_step(&preparing,&subject.head,RecordRevision(0)).unwrap();
             subject.step=preparing;
         } else { seal(&mut subject).await; }
@@ -259,8 +259,11 @@ async fn obligation_late_sealed_request_rejects_without_discarding_other_actions
     let mut input=runner::frozen_input(&store,&preparing).unwrap();
     input.obligations=vec![obligation.clone()];
     input.payload.system_prompt=runner::build_system_prompt(&subject,&[],&input.obligations);
+    if let Some(layout)=&mut input.context.payload_layout {
+        layout.system_prefix_bytes=input.payload.system_prompt.len() as u64;
+    }
     preparing.input_plan_ref=Some(store.cas.seal_object(&serde_json::to_vec(&input).unwrap(),
-        "application/json","input_plans","subject_step_input",12).unwrap().object);
+        "application/json","input_plans","subject_step_input",input.schema_version).unwrap().object);
     store.upsert_step(&preparing,&subject.head,RecordRevision(0)).unwrap();subject.step=preparing;
     record_result(&store,&mut subject,&format!("{}\n[remember] retain the other action",terminal(obligation.obligation_id,"cancelled")));
     execute_step(3,&[],&mut subject,&tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();

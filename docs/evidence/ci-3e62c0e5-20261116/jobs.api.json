@@ -1,0 +1,749 @@
+{
+  "total_count": 6,
+  "jobs": [
+    {
+      "id": 133654301126,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrJxg",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301126",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301126",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:11Z",
+      "completed_at": "2026-11-16T22:17:55Z",
+      "name": "kernel-boundary",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:12Z",
+          "completed_at": "2026-11-16T22:17:14Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:14Z",
+          "completed_at": "2026-11-16T22:17:32Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:32Z",
+          "completed_at": "2026-11-16T22:17:47Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:47Z",
+          "completed_at": "2026-11-16T22:17:47Z"
+        },
+        {
+          "name": "Install the structure checker's interpreter",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:47Z",
+          "completed_at": "2026-11-16T22:17:49Z"
+        },
+        {
+          "name": "Resolve the independent event baseline",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:49Z",
+          "completed_at": "2026-11-16T22:17:49Z"
+        },
+        {
+          "name": "Check the kernel boundary against that immutable commit",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-16T22:17:49Z",
+          "completed_at": "2026-11-16T22:17:50Z"
+        },
+        {
+          "name": "Retain the independent boundary baseline",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-16T22:17:50Z",
+          "completed_at": "2026-11-16T22:17:51Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-11-16T22:17:51Z",
+          "completed_at": "2026-11-16T22:17:52Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-11-16T22:17:52Z",
+          "completed_at": "2026-11-16T22:17:52Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-11-16T22:17:52Z",
+          "completed_at": "2026-11-16T22:17:52Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301126",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002645,
+      "runner_name": "GitHub Actions 1000002645",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 133654301578,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrLig",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301578",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301578",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:10Z",
+      "completed_at": "2026-11-16T22:22:27Z",
+      "name": "clippy-ratchet",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:11Z",
+          "completed_at": "2026-11-16T22:17:12Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:12Z",
+          "completed_at": "2026-11-16T22:17:35Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:35Z",
+          "completed_at": "2026-11-16T22:17:47Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:47Z",
+          "completed_at": "2026-11-16T22:17:47Z"
+        },
+        {
+          "name": "Install the same compiler and native prerequisites for both trees",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:47Z",
+          "completed_at": "2026-11-16T22:17:54Z"
+        },
+        {
+          "name": "Resolve the independent event baseline",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:54Z",
+          "completed_at": "2026-11-16T22:17:54Z"
+        },
+        {
+          "name": "Run actions/cache@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-16T22:17:54Z",
+          "completed_at": "2026-11-16T22:18:33Z"
+        },
+        {
+          "name": "Compare real production and all-target Clippy diagnostics",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 8,
+          "started_at": "2026-11-16T22:18:33Z",
+          "completed_at": "2026-11-16T22:22:19Z"
+        },
+        {
+          "name": "Retain both diagnostic streams and the exact baseline",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-11-16T22:22:19Z",
+          "completed_at": "2026-11-16T22:22:20Z"
+        },
+        {
+          "name": "Post Run actions/cache@v4",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 16,
+          "started_at": "2026-11-16T22:22:20Z",
+          "completed_at": "2026-11-16T22:22:20Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-11-16T22:22:20Z",
+          "completed_at": "2026-11-16T22:22:21Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-11-16T22:22:21Z",
+          "completed_at": "2026-11-16T22:22:25Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-11-16T22:22:25Z",
+          "completed_at": "2026-11-16T22:22:25Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301578",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002647,
+      "runner_name": "GitHub Actions 1000002647",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 133654301622,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrLtg",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301622",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301622",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:10Z",
+      "completed_at": "2026-11-16T22:18:01Z",
+      "name": "docs",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:11Z",
+          "completed_at": "2026-11-16T22:17:12Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:12Z",
+          "completed_at": "2026-11-16T22:17:32Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:32Z",
+          "completed_at": "2026-11-16T22:17:45Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:45Z",
+          "completed_at": "2026-11-16T22:17:45Z"
+        },
+        {
+          "name": "Install the reference checker's declared parser dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:45Z",
+          "completed_at": "2026-11-16T22:17:49Z"
+        },
+        {
+          "name": "Validate current documents, anchors, cases and symbols",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:49Z",
+          "completed_at": "2026-11-16T22:17:56Z"
+        },
+        {
+          "name": "Run C19 recorder integrity and real-process concurrency cases",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-16T22:17:56Z",
+          "completed_at": "2026-11-16T22:17:56Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-11-16T22:17:56Z",
+          "completed_at": "2026-11-16T22:17:57Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 14,
+          "started_at": "2026-11-16T22:17:57Z",
+          "completed_at": "2026-11-16T22:17:58Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-11-16T22:17:58Z",
+          "completed_at": "2026-11-16T22:17:58Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301622",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002648,
+      "runner_name": "GitHub Actions 1000002648",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 133654301670,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrL5g",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301670",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301670",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:10Z",
+      "completed_at": "2026-11-16T22:17:51Z",
+      "name": "docs-migration",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:11Z",
+          "completed_at": "2026-11-16T22:17:13Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:13Z",
+          "completed_at": "2026-11-16T22:17:25Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:25Z",
+          "completed_at": "2026-11-16T22:17:39Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:39Z",
+          "completed_at": "2026-11-16T22:17:39Z"
+        },
+        {
+          "name": "Install the reference checker's declared parser dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:39Z",
+          "completed_at": "2026-11-16T22:17:43Z"
+        },
+        {
+          "name": "Verify original migration conservation",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:43Z",
+          "completed_at": "2026-11-16T22:17:49Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 11,
+          "started_at": "2026-11-16T22:17:49Z",
+          "completed_at": "2026-11-16T22:17:50Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 12,
+          "started_at": "2026-11-16T22:17:50Z",
+          "completed_at": "2026-11-16T22:17:50Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 13,
+          "started_at": "2026-11-16T22:17:50Z",
+          "completed_at": "2026-11-16T22:17:50Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301670",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002646,
+      "runner_name": "GitHub Actions 1000002646",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 133654301800,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrMaA",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301800",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301800",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:11Z",
+      "completed_at": "2026-11-16T22:19:09Z",
+      "name": "web",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:12Z",
+          "completed_at": "2026-11-16T22:17:17Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:17Z",
+          "completed_at": "2026-11-16T22:17:34Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:34Z",
+          "completed_at": "2026-11-16T22:17:51Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:51Z",
+          "completed_at": "2026-11-16T22:17:51Z"
+        },
+        {
+          "name": "Install the independent rebuild driver prerequisites",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:51Z",
+          "completed_at": "2026-11-16T22:17:53Z"
+        },
+        {
+          "name": "Preserve committed bytes and check out the exact upstream pin",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:53Z",
+          "completed_at": "2026-11-16T22:17:59Z"
+        },
+        {
+          "name": "Run pnpm/action-setup@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-16T22:17:59Z",
+          "completed_at": "2026-11-16T22:18:01Z"
+        },
+        {
+          "name": "Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-16T22:18:01Z",
+          "completed_at": "2026-11-16T22:18:11Z"
+        },
+        {
+          "name": "Build the real public closure, typecheck, test and independently rebuild",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-11-16T22:18:11Z",
+          "completed_at": "2026-11-16T22:19:03Z"
+        },
+        {
+          "name": "Retain expected and rebuilt bytes, sources, provenance and failures",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-11-16T22:19:03Z",
+          "completed_at": "2026-11-16T22:19:05Z"
+        },
+        {
+          "name": "Post Run actions/setup-node@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-11-16T22:19:05Z",
+          "completed_at": "2026-11-16T22:19:05Z"
+        },
+        {
+          "name": "Post Run pnpm/action-setup@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-11-16T22:19:05Z",
+          "completed_at": "2026-11-16T22:19:05Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-11-16T22:19:05Z",
+          "completed_at": "2026-11-16T22:19:06Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-11-16T22:19:06Z",
+          "completed_at": "2026-11-16T22:19:06Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-11-16T22:19:06Z",
+          "completed_at": "2026-11-16T22:19:06Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301800",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002649,
+      "runner_name": "GitHub Actions 1000002649",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 133654301826,
+      "run_id": 43968540714,
+      "workflow_name": "CI",
+      "head_branch": "feat/ship-work-candidate-20261116",
+      "run_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/runs/43968540714",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOVUFCKs8AAAAfHmrMgg",
+      "head_sha": "3e62c0e517a246872101cd1e61a694b2156bc919",
+      "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/jobs/133654301826",
+      "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/43968540714/job/133654301826",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-11-16T22:17:07Z",
+      "started_at": "2026-11-16T22:17:10Z",
+      "completed_at": "2026-11-16T22:38:16Z",
+      "name": "rust",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-11-16T22:17:11Z",
+          "completed_at": "2026-11-16T22:17:12Z"
+        },
+        {
+          "name": "Initialize containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-11-16T22:17:12Z",
+          "completed_at": "2026-11-16T22:17:30Z"
+        },
+        {
+          "name": "Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-11-16T22:17:30Z",
+          "completed_at": "2026-11-16T22:17:41Z"
+        },
+        {
+          "name": "Trust the checked-out workspace in the container shell",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-11-16T22:17:41Z",
+          "completed_at": "2026-11-16T22:17:41Z"
+        },
+        {
+          "name": "Install native build prerequisites",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 5,
+          "started_at": "2026-11-16T22:17:41Z",
+          "completed_at": "2026-11-16T22:17:52Z"
+        },
+        {
+          "name": "Run Swatinem/rust-cache@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 6,
+          "started_at": "2026-11-16T22:17:52Z",
+          "completed_at": "2026-11-16T22:18:20Z"
+        },
+        {
+          "name": "Check every workspace target with the lockfile",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-11-16T22:18:20Z",
+          "completed_at": "2026-11-16T22:19:58Z"
+        },
+        {
+          "name": "Build the pinned SSH WASI guest",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 8,
+          "started_at": "2026-11-16T22:19:58Z",
+          "completed_at": "2026-11-16T22:21:39Z"
+        },
+        {
+          "name": "Test the workspace, including real SSH, integration tests and doctests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 9,
+          "started_at": "2026-11-16T22:21:39Z",
+          "completed_at": "2026-11-16T22:38:05Z"
+        },
+        {
+          "name": "Retain native fixture receipts",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 10,
+          "started_at": "2026-11-16T22:38:05Z",
+          "completed_at": "2026-11-16T22:38:09Z"
+        },
+        {
+          "name": "Post Run Swatinem/rust-cache@v2",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 18,
+          "started_at": "2026-11-16T22:38:09Z",
+          "completed_at": "2026-11-16T22:38:10Z"
+        },
+        {
+          "name": "Post Run actions/checkout@v4",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 19,
+          "started_at": "2026-11-16T22:38:10Z",
+          "completed_at": "2026-11-16T22:38:10Z"
+        },
+        {
+          "name": "Stop containers",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 20,
+          "started_at": "2026-11-16T22:38:10Z",
+          "completed_at": "2026-11-16T22:38:14Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 21,
+          "started_at": "2026-11-16T22:38:14Z",
+          "completed_at": "2026-11-16T22:38:15Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/cyjin-yl/shenko/check-runs/133654301826",
+      "labels": [
+        "ubuntu-24.04"
+      ],
+      "runner_id": 1000002650,
+      "runner_name": "GitHub Actions 1000002650",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    }
+  ]
+}

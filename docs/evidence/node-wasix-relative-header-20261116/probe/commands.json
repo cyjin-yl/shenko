@@ -1,0 +1,344 @@
+[
+  {
+    "window": "relocated",
+    "label": "init",
+    "command": [
+      "git",
+      "init",
+      "--quiet"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "add",
+    "command": [
+      "git",
+      "add",
+      "--all"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "fixture-commit",
+    "command": [
+      "git",
+      "-c",
+      "user.name=Shenko source fixture",
+      "-c",
+      "user.email=fixture@invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "Synthetic original-byte patch fixture"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-patch-check",
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-patch-apply",
+    "command": [
+      "git",
+      "apply",
+      "--whitespace=error-all",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-patched-paths",
+    "command": [
+      "git",
+      "diff",
+      "--name-only",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "6979a855036e0d9e9dc0d5a135dcc3cfa1ee56537a92d3ac83cfe30415241359",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-patched-diff",
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e6340d558da7eb465b2e109f9b2ebbc38e6a67c7cc686cb7dc1692998fb1c10e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-link-patch-check",
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-link-patch-apply",
+    "command": [
+      "git",
+      "apply",
+      "--whitespace=error-all",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0002-relative-simdutf-header.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-with-links-paths",
+    "command": [
+      "git",
+      "diff",
+      "--name-only",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "c5b6896c77ce017784d4be8f2fc6552305f68aa31e233d4d75720110561d22fb",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "relocated",
+    "label": "source-with-links-diff",
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e74db257c2cb29cff7a3300f4ecb428c587c08ec9ac518ce5c93e3e5b40afb73",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "init",
+    "command": [
+      "git",
+      "init",
+      "--quiet"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "add",
+    "command": [
+      "git",
+      "add",
+      "--all"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "fixture-commit",
+    "command": [
+      "git",
+      "-c",
+      "user.name=Shenko source fixture",
+      "-c",
+      "user.email=fixture@invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "Synthetic original-byte patch fixture"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "source-patch-check",
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "source-patch-apply",
+    "command": [
+      "git",
+      "apply",
+      "--whitespace=error-all",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "source-patched-paths",
+    "command": [
+      "git",
+      "diff",
+      "--name-only",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "6979a855036e0d9e9dc0d5a135dcc3cfa1ee56537a92d3ac83cfe30415241359",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-link",
+    "label": "source-patched-diff",
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e6340d558da7eb465b2e109f9b2ebbc38e6a67c7cc686cb7dc1692998fb1c10e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "init",
+    "command": [
+      "git",
+      "init",
+      "--quiet"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "add",
+    "command": [
+      "git",
+      "add",
+      "--all"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "fixture-commit",
+    "command": [
+      "git",
+      "-c",
+      "user.name=Shenko source fixture",
+      "-c",
+      "user.email=fixture@invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "Synthetic original-byte patch fixture"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "source-patch-check",
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "source-patch-apply",
+    "command": [
+      "git",
+      "apply",
+      "--whitespace=error-all",
+      "/workspace/scratch/faaa3ccca531/shenko-node-header/crates/shenko-wasm/ports/node-wasix/patches/0001-wasi-archive-response-files.patch"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "source-patched-paths",
+    "command": [
+      "git",
+      "diff",
+      "--name-only",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "6979a855036e0d9e9dc0d5a135dcc3cfa1ee56537a92d3ac83cfe30415241359",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "window": "changed-header",
+    "label": "source-patched-diff",
+    "command": [
+      "git",
+      "diff",
+      "--binary",
+      "HEAD",
+      "--"
+    ],
+    "exit_code": 0,
+    "stdout_sha256": "e6340d558da7eb465b2e109f9b2ebbc38e6a67c7cc686cb7dc1692998fb1c10e",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

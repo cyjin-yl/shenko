@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "type": "submit",
+  "submission_id": "4124c0ac-172d-48a8-8735-10eca6303bba",
+  "message_id": "f7296daf-a245-48e4-bd24-43852b8ff716",
+  "subject_id": "f902ff15-2cf4-452f-9852-e1b998cb2ee0",
+  "mode": "append",
+  "content": "请完成一次有真实回执的有限任务：委派一个使用 Qwen3-0.6B-Q4_K_M 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-6b3f7d804414。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+  "attachment_refs": []
+}

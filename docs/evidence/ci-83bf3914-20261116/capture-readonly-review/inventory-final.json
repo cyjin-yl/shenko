@@ -1,0 +1,185 @@
+{
+  "scope": "complete frozen independent capture review directory; this index excludes itself",
+  "prior_index": "inventory-initial.json",
+  "prior_index_sha256": "f2ac7069d92b866f70b82bc578d718a2aade194b5d3bec56102f9398dbd9efbe",
+  "prior_file_copies": {
+    "README.md": "README-initial.md"
+  },
+  "files": [
+    {
+      "path": "README-initial.md",
+      "bytes": 4437,
+      "sha256": "72d2d034a4c3023fb02cb1560185d091127e67348b53a0316b20efa8e583ac84"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7618,
+      "sha256": "aca1e2ada1dd80da028616c7dc8204142b221fdb44b2d13b861f7da20fed2453"
+    },
+    {
+      "path": "additional-source-fetches.json",
+      "bytes": 233,
+      "sha256": "b76bc8f487e2fad871cb44c6c7f20df8f6c47113e2d4f84c85095e160dff2e09"
+    },
+    {
+      "path": "commands-rollback.json",
+      "bytes": 919,
+      "sha256": "e897059264c483a6d4ad1cc777798dcc8b8a940e405f09ea6f1302c62ac46520"
+    },
+    {
+      "path": "commands.json",
+      "bytes": 760,
+      "sha256": "acc2fc9d7af765ba3b1782b6909171f2f1874dfa4ebe3128957576479000f48c"
+    },
+    {
+      "path": "inventory-initial.json",
+      "bytes": 3484,
+      "sha256": "f2ac7069d92b866f70b82bc578d718a2aade194b5d3bec56102f9398dbd9efbe"
+    },
+    {
+      "path": "inventory.json",
+      "bytes": 3484,
+      "sha256": "f2ac7069d92b866f70b82bc578d718a2aade194b5d3bec56102f9398dbd9efbe"
+    },
+    {
+      "path": "observation-2.json",
+      "bytes": 10714,
+      "sha256": "36bb75ee55ff5ebd13dace067c603321365ac56dfa6e7a049fc821d5d36daf8d"
+    },
+    {
+      "path": "observation-2.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "observation.json",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "observation.stderr",
+      "bytes": 324,
+      "sha256": "b21b9863be1315e5d715c51bbdc253fc79eb7f1bbea92576854fa71da6b77d20"
+    },
+    {
+      "path": "observe_rollback_handles.py",
+      "bytes": 7025,
+      "sha256": "6a24d508b920d4dafce1a93fb46b3667f0f2cd445b903f76920e31eda0f4d582"
+    },
+    {
+      "path": "observe_rollback_handles_attempt1.py",
+      "bytes": 6790,
+      "sha256": "7425ca8f30a210de5c812631e8c71b5145c01279ddde248deb22cff3945cd6e5"
+    },
+    {
+      "path": "observe_sqlite.py",
+      "bytes": 6409,
+      "sha256": "48f89f177c6a7c1cc80a58e218a60cfa66ee0ca90df652e6a33571c50ead41c9"
+    },
+    {
+      "path": "observe_sqlite_attempt1.py",
+      "bytes": 6187,
+      "sha256": "c8e38bf8186fcaef52a368111ccbd104c69977b4bc97d7588d2065b01a79c092"
+    },
+    {
+      "path": "review-source.json",
+      "bytes": 459,
+      "sha256": "69736e50ed6ed05ab220e61592459ad8e0ff452597936d3090603cf6f36dfe30"
+    },
+    {
+      "path": "rollback-handles-2.json",
+      "bytes": 35747,
+      "sha256": "9cfae3ed73f8f09a44905097183bc19091fe3aa80b3bf80e082581ef19519716"
+    },
+    {
+      "path": "rollback-handles-2.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "rollback-handles.json",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "rollback-handles.stderr",
+      "bytes": 508,
+      "sha256": "39ebc0ca66a31ab96eb6bea5e9be1cb41c67d75f648885a9d5115b81858dab14"
+    },
+    {
+      "path": "source-fetches.json",
+      "bytes": 2385,
+      "sha256": "73bc85aa0238edcb59003f27da146d06935f2866b6bcc286a273db8751925559"
+    },
+    {
+      "path": "sources/capture-7191f89-control_transition.rs",
+      "bytes": 70932,
+      "sha256": "82f2cf410aac1dd45da3004a6057520971c72e3f39097887cab0da54640ce9d4"
+    },
+    {
+      "path": "sources/capture-83bf3914-control_transition.rs",
+      "bytes": 68644,
+      "sha256": "caeb8c891f23491766111ac48f67257c726d7dd230d674c43855bf6da39ef7e7"
+    },
+    {
+      "path": "sources/rusqlite-0.32.1-inner_connection.rs",
+      "bytes": 15025,
+      "sha256": "3c49805fe5a239c89ff512f603c6f3f514061d653e3fcb5e7b46af1887a98382"
+    },
+    {
+      "path": "sources/rusqlite-0.32.1-row.rs",
+      "bytes": 19977,
+      "sha256": "0a246577a097e4304a08baf54bac3c0555e3aa7ea53589d33218e384a76d6789"
+    },
+    {
+      "path": "sources/rusqlite-tag.json",
+      "bytes": 346,
+      "sha256": "b3ae1dcf7b0f928a87eadb2fffb7cd9b70a3b003bf69eba530bcde2d1b8bce47"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-auth.c",
+      "bytes": 8977,
+      "sha256": "e16aa2d6d950ff26a7409b954f819cd94d3d43c9a04bb90c60db945e56ec8c32"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-build.c",
+      "bytes": 191771,
+      "sha256": "23ad2e986d1ff5008845fca8ff4143a111434fc5256f7ff8c0c1d605eee62e99"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_index.c",
+      "bytes": 283812,
+      "sha256": "96dc0ddf4a7aeed491d2181235bc3bd11656be2fce5584b752219363fc996d38"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_main.c",
+      "bytes": 95229,
+      "sha256": "01ec8961c694f761e2545ec014f184189ab527c8aeb0b3ba63aec20304c360da"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_storage.c",
+      "bytes": 35747,
+      "sha256": "3bc1cd00f1231490521e914e5a9cceab23b8d25c98328e03685788d6b1d583aa"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-select.c",
+      "bytes": 320519,
+      "sha256": "c08a598b63e4d6231610e74ba759a375e3eb57db4de88aaceb4862fa2199b8d4"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-vdbeapi.c",
+      "bytes": 75938,
+      "sha256": "416d6b7a3ebfd6c8430ed5bd3b95f6994b302c611955967a20f18514d303a968"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-vdbeblob.c",
+      "bytes": 16524,
+      "sha256": "834735c1d920af1e50f92bb8a55895cbcda15cc45ab216693a380ded5ea2db81"
+    },
+    {
+      "path": "sources/sqlite-tag.json",
+      "bytes": 364,
+      "sha256": "d479efb298ab444427b18c7b33bf9a10e355069f8769b1d41c6fc85fe83e5169"
+    }
+  ]
+}

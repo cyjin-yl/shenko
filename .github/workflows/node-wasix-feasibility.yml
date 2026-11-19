@@ -1,0 +1,43 @@
+name: Node-WASIX feasibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-wasix-feasibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  node-wasix:
+    # One explicit request runs one exact-candidate journey. Pushes and other
+    # labels do not repeat a failed experiment or cancel its owned cleanup.
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'run-node-wasix'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Observe the pinned Node-WASIX module and original finite cells
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/real_node_wasix_journey.py \
+            --source-revision "$GITHUB_SHA" \
+            --evidence-dir "$GITHUB_WORKSPACE/.ci/evidence/node-wasix" \
+            --work-dir "$RUNNER_TEMP/shenko-node-wasix-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - name: Retain actual outcomes, including refusal and interruption
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-wasix-feasibility-${{ github.sha }}-${{ github.run_attempt }}
+          path: .ci/evidence/node-wasix/
+          if-no-files-found: warn
+
+# This isolated upstream-runtime observation does not install a Shenko backend
+# or satisfy Bun, package installation, R2 recovery, S1/S2 or the 27B baseline.

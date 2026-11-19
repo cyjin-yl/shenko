@@ -1,0 +1,18 @@
+{
+  "scope": "local evidence-reader checks only",
+  "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "docs/evidence/clippy-input-scope-20261116/inspect_original.py",
+    "/workspace/scratch/faaa3ccca531/ci-3e62c0e5-43968540714/clippy-ratchet-evidence.original.zip",
+    "/tmp/shenko-clippy-scope-b3d_6u1_/analysis.json"
+  ],
+  "returncode": 0,
+  "stdout": "",
+  "stderr": "",
+  "reproduced_original_analysis_byte_for_byte": true,
+  "python_ast_parse": true,
+  "rust_or_product_execution": false,
+  "gate_or_compiler_flags_changed": false,
+  "new_behavior_windows": 0
+}

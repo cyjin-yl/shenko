@@ -1,0 +1,30 @@
+{
+  "id": 14269190805,
+  "name": "rust-evidence",
+  "size_in_bytes": 9031,
+  "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14269190805",
+  "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14269190805/zip",
+  "expired": false,
+  "created_at": "2026-11-16T20:44:35Z",
+  "expires_at": "2027-02-14T20:42:28Z",
+  "updated_at": "2026-11-16T20:44:35Z",
+  "digest": "sha256:25cd6739d27a863f7bed011e3fac38bab52e9336cd324b66b36e27855987a5ba",
+  "workflow_run": {
+    "id": 43952544325,
+    "repository_id": 1430340138,
+    "head_repository_id": 1430340138,
+    "head_branch": "feat/ship-work-candidate-20261116",
+    "head_sha": "a1d3fa6ed41f9ba233aad5e5b3e7dfeaad281b9f"
+  },
+  "file_id": "file_0000000044c082308449678b43040656",
+  "tool_file_name": "rust-evidence-43952544325.zip",
+  "independent_sha256": "25cd6739d27a863f7bed011e3fac38bab52e9336cd324b66b36e27855987a5ba",
+  "zip_crc_verified": true,
+  "members": [
+    {
+      "path": "workspace-check.log",
+      "bytes": 42259,
+      "sha256": "c53aa6cdb76495759b0daedb6121c9c0754281002037a45876b939d1133225be"
+    }
+  ]
+}

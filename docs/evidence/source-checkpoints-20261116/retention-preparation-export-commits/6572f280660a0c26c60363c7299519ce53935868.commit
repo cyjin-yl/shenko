@@ -1,0 +1,8 @@
+tree 770abc47ae9d57b143e5616ffdb45b8e5fc0623d
+parent ca9032acd736a8f9e5a75450cd81cdfa78003a50
+author Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794868757 +0000
+committer Shenko continuation agent <shenko-continuation@users.noreply.github.com> 1794870210 +0000
+
+docs: map native tmux installation prerequisite
+
+(cherry picked from commit 832d73323eb1dbca582c8d48b9bdc4f32c86ce87)

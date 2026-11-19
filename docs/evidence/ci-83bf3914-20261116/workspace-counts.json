@@ -1,0 +1,10 @@
+{
+  "summary_count": 152,
+  "totals": {
+    "passed": 1075,
+    "failed": 6,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 88
+  }
+}

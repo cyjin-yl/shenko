@@ -1,0 +1,250 @@
+{
+  "pin": {
+    "repository": "https://github.com/Proto-UI/Proto-UI.git",
+    "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+    "migrated_from": "41282cb0ddc39283826e52e9932be123fc83eb47",
+    "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+    "packages": [
+      "@proto.ui/adapter-react@0.3.0-alpha.1",
+      "@proto.ui/prototypes-shadcn@0.3.0-alpha.1",
+      "@proto.ui/cli@0.3.0-alpha.1"
+    ],
+    "adopted_families": [
+      "button",
+      "textarea",
+      "scroll-area",
+      "collapsible",
+      "drawer",
+      "toggle-group",
+      "input",
+      "separator",
+      "toggle"
+    ],
+    "compiler": {
+      "status": "build_time_compiled",
+      "runtime_imported": false,
+      "profile": "react-dom-source-v1",
+      "package": "packages/compiler/package.json",
+      "entry": "packages/compiler/src/index.ts",
+      "exports_source_only": true,
+      "public_package_selection": false,
+      "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+      "prototypes": [
+        "transport-badge",
+        "message-bubble"
+      ],
+      "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
+    }
+  },
+  "node": "v24.22.1",
+  "package_manager": "pnpm@10.32.1",
+  "committed_manifest_sha256": "f2e3e44bdb4e51ec69aec79364632d2027ea898b2dc3421993a5d2eba38361a9",
+  "rebuilt_manifest_sha256": "26947f938f220d79996186b360ee1e1c1494245acb2e1f32344abc92370fa36e",
+  "committed_run": {
+    "built_at": "2026-11-16T11:20:44.301Z",
+    "web_root": "/tank/shared/projects/shenko/shenko/worktrees/taste-integration-20261116/crates/shenko-ui/web",
+    "upstream": {
+      "repository": "https://github.com/Proto-UI/Proto-UI.git",
+      "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+      "previous_reviewed_commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
+      "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+      "source_checkout": "/var/idw-target/receipts/taste-web-r1/proto-ui",
+      "build_receipt": {
+        "script": "scripts/build/public-packages.mjs",
+        "selected_package_count": 42,
+        "receipt_path": "/var/idw-target/receipts/taste-web-r2/upstream-build.json",
+        "receipt_sha256": "0abba0dedfe3ca88f311ccbbee42e8e0de7c143e7e51cdfd8324622ca0c16172"
+      }
+    }
+  },
+  "rebuilt_run": {
+    "built_at": "2026-11-16T22:19:02.109Z",
+    "web_root": "/__w/shenko/shenko/.ci/web/source/web",
+    "upstream": {
+      "repository": "https://github.com/Proto-UI/Proto-UI.git",
+      "commit": "7521cd501f454b4e013ec6e9656fb4b6e4951514",
+      "previous_reviewed_commit": "41282cb0ddc39283826e52e9932be123fc83eb47",
+      "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+      "source_checkout": "/__w/shenko/shenko/.ci/web/proto-ui",
+      "build_receipt": {
+        "script": "scripts/build/public-packages.mjs",
+        "selected_package_count": 42,
+        "receipt_path": "/__w/shenko/shenko/.ci/web/upstream-build.json",
+        "receipt_sha256": "5863d187346a8ca9eea8fc73194c3847d9b7ca83563325c22f26751632f31512"
+      }
+    }
+  },
+  "public_plan": {
+    "packageCount": 47,
+    "selectedCount": 42,
+    "packages": [
+      "@proto.ui/types",
+      "@proto.ui/core",
+      "@proto.ui/module-base",
+      "@proto.ui/module-expose",
+      "@proto.ui/module-state",
+      "@proto.ui/module-expose-state",
+      "@proto.ui/module-feedback",
+      "@proto.ui/module-anatomy",
+      "@proto.ui/module-positioning",
+      "@proto.ui/module-collection",
+      "@proto.ui/module-a11y",
+      "@proto.ui/module-table-structure",
+      "@proto.ui/hooks",
+      "@proto.ui/module-expose-event",
+      "@proto.ui/module-event",
+      "@proto.ui/module-as-trigger",
+      "@proto.ui/module-axis-input",
+      "@proto.ui/module-boundary",
+      "@proto.ui/module-context",
+      "@proto.ui/module-control-label",
+      "@proto.ui/module-expose-state-web",
+      "@proto.ui/module-focus",
+      "@proto.ui/module-hit-participation",
+      "@proto.ui/module-image-view",
+      "@proto.ui/module-native-link",
+      "@proto.ui/module-overlay",
+      "@proto.ui/module-presence",
+      "@proto.ui/module-props",
+      "@proto.ui/module-rule",
+      "@proto.ui/module-rule-expose-state-web",
+      "@proto.ui/module-rule-meta",
+      "@proto.ui/module-scroll",
+      "@proto.ui/module-state-accessibility",
+      "@proto.ui/module-state-interaction",
+      "@proto.ui/module-test-sys",
+      "@proto.ui/module-text-control",
+      "@proto.ui/runtime",
+      "@proto.ui/adapter-base",
+      "@proto.ui/adapter-react",
+      "@proto.ui/cli",
+      "@proto.ui/prototypes-base",
+      "@proto.ui/prototypes-shadcn"
+    ]
+  },
+  "rebuilt_payloads": {
+    "theme-bootstrap.js": {
+      "bytes": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
+    },
+    "app.js": {
+      "bytes": 1102956,
+      "sha256": "9bcd0cb5400aaa926f2e2883cda090f9992ba49b4daf5d10bab280f0064fa693"
+    },
+    "chunks/chunk-TJPYHGM5.js": {
+      "bytes": 58903,
+      "sha256": "5132a4b1914f74747d5ff6a7221a76db0f9707777f4299283301c01e05931b7d"
+    },
+    "chunks/demo-controller-3CZCHCX4.js": {
+      "bytes": 11495,
+      "sha256": "cca7b420d83c43ba12c120b9e46c56f9944b33eb1ceb1c5b26cee8481b984ea0"
+    },
+    "app.css": {
+      "bytes": 48531,
+      "sha256": "f17f49df5c773ddcb9313766ca22d66309931cd63f587bec6195cf079a2f0c5f"
+    },
+    "proto-ui-style.css": {
+      "bytes": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
+    },
+    "proto-ui-tokens.generated.css": {
+      "bytes": 166450,
+      "sha256": "4b5a817b46b1742607f6bcae326c2f8e2a60ee42a529a1a01aede2bfedc9dcc9"
+    },
+    "shadcn-theme.css": {
+      "bytes": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96"
+    },
+    "licenses/PROTO-UI-LICENSE": {
+      "bytes": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
+    },
+    "licenses/SHADCN-NOTICES.md": {
+      "bytes": 8656,
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
+    },
+    "licenses/REACT-LICENSE": {
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    "licenses/REACT-DOM-LICENSE": {
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    }
+  },
+  "verified_compiler_and_prototype_files": {
+    "/__w/shenko/shenko/.ci/web/proto-ui/packages/compiler/package.json": {
+      "bytes": 780,
+      "sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e"
+    },
+    "/__w/shenko/shenko/.ci/web/proto-ui/packages/compiler/src/index.ts": {
+      "bytes": 3249,
+      "sha256": "d44270de2799c5db59bc1675ed05e4061273c4f18a27808944a114920e2458a9"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/compiler/proto-ui-compiler.mjs": {
+      "bytes": 2278557,
+      "sha256": "c915bf31223a1f951b99dd23d69907638c81291583a195ddd141e0201dfb15e6"
+    },
+    "/__w/shenko/shenko/.ci/web/proto-ui/packages/modules/positioning/node_modules/@floating-ui/dom/package.json": {
+      "bytes": 1929,
+      "sha256": "59643af1b1bfc5a80b172c21ccbe21ea56eaa0115378f6077d9934458db25ac1"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/prototypes/transport-badge.proto.ts": {
+      "bytes": 1995,
+      "sha256": "2ee02ccc9ca4fdd8bb4d031d4d390ba4fe78113d290cd9f011735f77c1d272ae"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/Component.tsx": {
+      "bytes": 39242,
+      "sha256": "56b5bb54f2dda879d4086752c93c7261c68c4f76d11a638d8a75faf00674e107"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/provenance.json": {
+      "bytes": 1543,
+      "sha256": "6ad1fba338c29fac6b29e39f939066e4f3a0e1ff2fadad53d48a8283d8ceaf43"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/.proto-ui/context/scope-v1.ts": {
+      "bytes": 8797,
+      "sha256": "12c3e9b2a09ff8daaa7d913aec21300052b66378723495b93dc3fad323ec1794"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/.proto-ui/style/native-v1.ts": {
+      "bytes": 4848,
+      "sha256": "91e14cadfec5f3c09284eb8c56deae36af8762cfc8f4e5274a72d0bf0268d9d7"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/.proto-ui/context/react-v1.ts": {
+      "bytes": 161,
+      "sha256": "ae7da902ad9ea792035e450ef3369ace8a5a4a9ddca44234437e9f0e9e68df78"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/transport-badge/Component.tsx.map": {
+      "bytes": 2788,
+      "sha256": "819055de63e9c7047d0a622bbf6b049b7e1df921c325d6584dc3f398bbb396b0"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/prototypes/message-bubble.proto.ts": {
+      "bytes": 1553,
+      "sha256": "50915675a5fb64b14bf4784594819ea64a76ceb2234e15f7db3321be03f61e8d"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/Component.tsx": {
+      "bytes": 38956,
+      "sha256": "22e0215ad9f2b8dfd9d526ec73bbb578e4725004e8ea5e379ac37e8e50005968"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/provenance.json": {
+      "bytes": 1541,
+      "sha256": "23878e572c25b280e1e73c6b89660963139ba0cec7cc8162a62d26b2a5c720ba"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/.proto-ui/context/scope-v1.ts": {
+      "bytes": 8797,
+      "sha256": "12c3e9b2a09ff8daaa7d913aec21300052b66378723495b93dc3fad323ec1794"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/.proto-ui/style/native-v1.ts": {
+      "bytes": 4848,
+      "sha256": "91e14cadfec5f3c09284eb8c56deae36af8762cfc8f4e5274a72d0bf0268d9d7"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/.proto-ui/context/react-v1.ts": {
+      "bytes": 161,
+      "sha256": "ae7da902ad9ea792035e450ef3369ace8a5a4a9ddca44234437e9f0e9e68df78"
+    },
+    "/__w/shenko/shenko/.ci/web/source/web/generated/prototypes/message-bubble/Component.tsx.map": {
+      "bytes": 2328,
+      "sha256": "acc95063314469cfe87520996ab4731b5a451f111af5c8ef82620d4944db8783"
+    }
+  },
+  "errors": []
+}

@@ -1,0 +1,110 @@
+{
+  "scope": "retained primary source and non-pinned local diagnostic artifacts",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4437,
+      "sha256": "72d2d034a4c3023fb02cb1560185d091127e67348b53a0316b20efa8e583ac84"
+    },
+    {
+      "path": "commands.json",
+      "bytes": 760,
+      "sha256": "acc2fc9d7af765ba3b1782b6909171f2f1874dfa4ebe3128957576479000f48c"
+    },
+    {
+      "path": "observation-2.json",
+      "bytes": 10714,
+      "sha256": "36bb75ee55ff5ebd13dace067c603321365ac56dfa6e7a049fc821d5d36daf8d"
+    },
+    {
+      "path": "observation-2.stderr",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "observation.json",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "observation.stderr",
+      "bytes": 324,
+      "sha256": "b21b9863be1315e5d715c51bbdc253fc79eb7f1bbea92576854fa71da6b77d20"
+    },
+    {
+      "path": "observe_sqlite.py",
+      "bytes": 6409,
+      "sha256": "48f89f177c6a7c1cc80a58e218a60cfa66ee0ca90df652e6a33571c50ead41c9"
+    },
+    {
+      "path": "observe_sqlite_attempt1.py",
+      "bytes": 6187,
+      "sha256": "c8e38bf8186fcaef52a368111ccbd104c69977b4bc97d7588d2065b01a79c092"
+    },
+    {
+      "path": "source-fetches.json",
+      "bytes": 2385,
+      "sha256": "73bc85aa0238edcb59003f27da146d06935f2866b6bcc286a273db8751925559"
+    },
+    {
+      "path": "sources/capture-83bf3914-control_transition.rs",
+      "bytes": 68644,
+      "sha256": "caeb8c891f23491766111ac48f67257c726d7dd230d674c43855bf6da39ef7e7"
+    },
+    {
+      "path": "sources/rusqlite-0.32.1-inner_connection.rs",
+      "bytes": 15025,
+      "sha256": "3c49805fe5a239c89ff512f603c6f3f514061d653e3fcb5e7b46af1887a98382"
+    },
+    {
+      "path": "sources/rusqlite-0.32.1-row.rs",
+      "bytes": 19977,
+      "sha256": "0a246577a097e4304a08baf54bac3c0555e3aa7ea53589d33218e384a76d6789"
+    },
+    {
+      "path": "sources/rusqlite-tag.json",
+      "bytes": 346,
+      "sha256": "b3ae1dcf7b0f928a87eadb2fffb7cd9b70a3b003bf69eba530bcde2d1b8bce47"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-auth.c",
+      "bytes": 8977,
+      "sha256": "e16aa2d6d950ff26a7409b954f819cd94d3d43c9a04bb90c60db945e56ec8c32"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_index.c",
+      "bytes": 283812,
+      "sha256": "96dc0ddf4a7aeed491d2181235bc3bd11656be2fce5584b752219363fc996d38"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_main.c",
+      "bytes": 95229,
+      "sha256": "01ec8961c694f761e2545ec014f184189ab527c8aeb0b3ba63aec20304c360da"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-fts5_storage.c",
+      "bytes": 35747,
+      "sha256": "3bc1cd00f1231490521e914e5a9cceab23b8d25c98328e03685788d6b1d583aa"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-select.c",
+      "bytes": 320519,
+      "sha256": "c08a598b63e4d6231610e74ba759a375e3eb57db4de88aaceb4862fa2199b8d4"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-vdbeapi.c",
+      "bytes": 75938,
+      "sha256": "416d6b7a3ebfd6c8430ed5bd3b95f6994b302c611955967a20f18514d303a968"
+    },
+    {
+      "path": "sources/sqlite-3.46.0-vdbeblob.c",
+      "bytes": 16524,
+      "sha256": "834735c1d920af1e50f92bb8a55895cbcda15cc45ab216693a380ded5ea2db81"
+    },
+    {
+      "path": "sources/sqlite-tag.json",
+      "bytes": 364,
+      "sha256": "d479efb298ab444427b18c7b33bf9a10e355069f8769b1d41c6fc85fe83e5169"
+    }
+  ]
+}
