@@ -1377,12 +1377,7 @@ impl UpdateService {
         // this boundary cannot make the completed compiler output unreachable.
         let rooted = (|| -> UpdateResult<()> {
             let observed_head = self.store.load_subject(request.agent_id)?.0;
-            self.store.append_subject_raw_fact(&observed_head, outcome.build_id,
-                "update_build_observation", &serde_json::json!({
-                    "schema_version": 1, "build_id": outcome.build_id,
-                    "build_receipt_ref": receipt,
-                    "native_operation_settled": false,
-                }))?;
+            self.store.append_update_build_observation(&observed_head, outcome.build_id, &receipt)?;
             Ok(())
         })();
         if let Err(error) = rooted {

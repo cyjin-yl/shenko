@@ -149,6 +149,9 @@ alongside the build outcome. Before copying or smoke-launching a completed
 candidate, it roots that observation in the existing raw history under the
 stable build ID. The append checks the current head transactionally and never
 relabels the original started context; normal subject progress is allowed.
+A durable local pause also permits this build observation. The append authenticates
+the current pause inside its write transaction and preserves the head, successor
+step and pause receipt.
 The successful activation recovery closure retains that same typed reference.
 Returned build/prepare failures retain it through the existing runtime-error
 journal, with only the small reference in bounded journal extras. A competing

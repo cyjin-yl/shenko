@@ -19,14 +19,15 @@ use std::sync::atomic::Ordering;
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{BranchId, EntityId};
+use shenko_types::object::ObjectRef;
 use shenko_types::store::{RawSession, RawSessionEvent};
 use shenko_types::subject::{
-    ControlOutputRejection, MemoryIntentKind, StepDecision, SubjectBranchHead, SubjectStep,
-    SubjectStepState,
+    ControlOutputRejection, MemoryIntentKind, StepDecision, SubjectBranchHead, SubjectMode,
+    SubjectStep, SubjectStepState,
 };
 
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
-use crate::store::{Store, checked_head, read_step, storage_error, validate_step_binding};
+use crate::store::{Store, checked_head, checked_head_mode, read_step, storage_error, validate_step_binding};
 
 /// One read-only input projection for both durable selection and volatile
 /// native-result wakes. Its time comes from the original T2 task fact, never
@@ -1151,7 +1152,27 @@ impl Store {
         data: &serde_json::Value,
     ) -> Result<StoredSessionEvent, ShenkoError> {
         self.ledger.with_mutation(
-            || self.try_append_subject_raw_fact(expected_head, fact_id, event_type, data),
+            || self.try_append_subject_raw_fact(expected_head, fact_id, event_type, data, false),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    /// Root a completed update build in the current owner's history. A local
+    /// durable pause permits observations while subject execution is stopped.
+    pub fn append_update_build_observation(
+        &self,
+        expected_head: &SubjectBranchHead,
+        build_id: EntityId,
+        receipt: &ObjectRef,
+    ) -> Result<StoredSessionEvent, ShenkoError> {
+        let data = serde_json::json!({
+            "schema_version": 1,
+            "build_id": build_id,
+            "build_receipt_ref": receipt,
+            "native_operation_settled": false,
+        });
+        self.ledger.with_mutation(
+            || self.try_append_subject_raw_fact(expected_head, build_id, "update_build_observation", &data, true),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -1162,12 +1183,19 @@ impl Store {
         fact_id: EntityId,
         event_type: &str,
         data: &serde_json::Value,
+        allow_paused: bool,
     ) -> Result<StoredSessionEvent, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage_error)?;
-        let head = checked_head(&tx, expected_head)?;
+        let head = if allow_paused && expected_head.mode == SubjectMode::Paused {
+            let head = checked_head_mode(&tx, expected_head, false)?;
+            crate::runtime_boundary::validate_paused_head(&tx, &head)?;
+            head
+        } else {
+            checked_head(&tx, expected_head)?
+        };
         let session_id = EntityId(head.branch_id.0);
         ensure_raw_session(
             &tx,
