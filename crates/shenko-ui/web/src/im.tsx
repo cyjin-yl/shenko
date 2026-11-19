@@ -376,6 +376,7 @@ function messageActions(message: ThreadMessage): Array<{ id: string; label: stri
   if (!node || node.kind !== 'user_submission') return [];
   const actions: Array<{ id: string; label: string }> = [];
   if (typeof node.props.retry_action === 'string') actions.push({ id: node.props.retry_action, label: t('common.retry') });
+  if (typeof node.props.edit_action === 'string') actions.push({ id: node.props.edit_action, label: t('common.edit') });
   if (typeof node.props.withdraw_action === 'string' && !node.props.submission?.withdrawal) {
     actions.push({ id: node.props.withdraw_action, label: t('common.withdraw') });
   }

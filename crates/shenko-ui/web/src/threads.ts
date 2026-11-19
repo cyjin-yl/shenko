@@ -175,8 +175,9 @@ registerThreadSource({
           key: entry.node_id, from: OWNER, kind: 'message', at: submission.created_at,
           text: submission.payload.content,
           attachments: submission.payload.attachment_refs,
-          tone: submission.payload.mode === 'steer' ? 'steer' : 'plain',
-          tag: submission.payload.mode === 'steer' ? t('composer.steer') : undefined,
+          // In the chat a message mid-thought is still just what the owner
+          // said, as in Claude Code; Inspect keeps where it was placed.
+          tone: 'plain',
           meta: submission.withdrawal
             ? (submission.withdrawal.result === 'withdrawal_queued' ? t('receipt.withdrawalQueued') : t('receipt.withdrawn'))
             : RECEIPT_WORDS[submission.receipt] ?? submission.receipt,

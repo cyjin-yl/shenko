@@ -190,23 +190,23 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/home/user/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-19T10:21:07.964Z",
+  "built_at": "2026-11-19T10:29:26.131Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1133450,
-      "sha256": "443af7ea4f0dc01c02fa9e442ea57f91c0d25123f76210f0760f9fcae56ad379"
+      "bytes": 1133184,
+      "sha256": "243a1fd8e56ab2d249bfa1d28cf45ddbe8ee3ba7b545538f5d56178d1018e1b5"
     },
-    "chunks/chunk-2DVNOUX5.js": {
-      "bytes": 63500,
-      "sha256": "a181081b2b609888f5a58fa2cc1623b1ba871955f72b5b673b7691896fe0669c"
+    "chunks/chunk-KC4LQEEF.js": {
+      "bytes": 64053,
+      "sha256": "f8caef40dbe296e4e26004113a997e950be411604f8648de43abaaa65ae2f1b8"
     },
-    "chunks/demo-controller-6WCBZ2MM.js": {
+    "chunks/demo-controller-FFZJWWME.js": {
       "bytes": 15546,
-      "sha256": "489b1353002b690c96736bf3251375b8c2e68b605a022eac30cd4281c67f00d4"
+      "sha256": "66fbdcd0381ffbfdb92350724a79ea0bddc55d729c5b8d36cc3ef1aac1ab13b3"
     },
     "app.css": {
       "bytes": 61640,

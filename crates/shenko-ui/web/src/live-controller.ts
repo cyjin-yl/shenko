@@ -208,8 +208,23 @@ class LiveController implements ProjectionController {
         void this.actOnWork('rollback', action.payload?.artifact_id);
         break;
       case 'composer.append':
-        this.sendWithMode('append');
+        // One send, as in Claude Code: with steering available the server
+        // binds the message to the request in flight, if there is one, and
+        // otherwise places it at the next boundary like any message.
+        this.sendWithMode(this.state.capabilities.steer ? 'steer' : 'append');
         break;
+      case 'submission.edit': {
+        const id = action.payload?.submission_id;
+        const submission = this.state.submissions.find((item) => item.payload.submission_id === id);
+        if (submission && !submission.withdrawal) {
+          this.sendWithdraw(submission);
+          const draft = this.state.draft.trim();
+          this.state.draft = draft ? `${submission.payload.content}\n${draft}` : submission.payload.content;
+          storageSet(DRAFT_KEY, this.state.draft);
+          this.emit();
+        }
+        break;
+      }
       case 'composer.steer':
         this.sendSteer();
         break;

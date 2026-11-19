@@ -673,10 +673,25 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       );
       refs.push(withdrawAction);
     }
+    // A message the subject has not taken yet can be edited, as a queued
+    // message can in Claude Code: it is withdrawn and its text goes back to
+    // the composer. Once selected it is the subject's input and stays.
+    let editAction: string | undefined;
+    if (['sent', 'accepted'].includes(submission.receipt) && !submission.withdrawal && state.capabilities.withdraw) {
+      editAction = addAction(
+        actions,
+        `submission.edit.${submission.payload.submission_id}`,
+        'submission.edit',
+        `edit:${submission.payload.submission_id}:${semanticHash(submission.payload.content)}`,
+        state.connection === 'online',
+        { submission_id: submission.payload.submission_id },
+      );
+      refs.push(editAction);
+    }
     return node(
       `submission.${submission.payload.submission_id}`,
       'user_submission',
-      { submission, retry_action: retryAction, withdraw_action: withdrawAction },
+      { submission, retry_action: retryAction, withdraw_action: withdrawAction, edit_action: editAction },
       [],
       { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
     );

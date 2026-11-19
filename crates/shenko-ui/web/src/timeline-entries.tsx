@@ -183,7 +183,7 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
   const withdrawAction = node.props.withdraw_action as string | undefined;
   const retryAction = node.props.retry_action as string | undefined;
   const placement = placementText(submission);
-  const steer = submission.payload.mode === 'steer';
+  const steer = Boolean(submission.placement?.target_request_id);
   const detail = [receipt.long, resolveMessage(submission.detail), placement].filter(Boolean).join(' · ');
   return (
     <article

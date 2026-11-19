@@ -54,7 +54,7 @@ export function storedSubmissions(): Submission[] {
       if (!isObject(saved) || !isObject(saved.payload)) continue;
       const payload = saved.payload;
       if (
-        payload.schema_version !== 2 || payload.type !== 'submit' || payload.mode !== 'append' ||
+        payload.schema_version !== 2 || payload.type !== 'submit' || (payload.mode !== 'append' && payload.mode !== 'steer') ||
         typeof payload.submission_id !== 'string' || !payload.submission_id ||
         payload.submission_id !== key.slice(SUBMISSION_KEY_PREFIX.length) ||
         typeof payload.message_id !== 'string' || !payload.message_id ||
@@ -66,7 +66,7 @@ export function storedSubmissions(): Submission[] {
       ) continue;
       restored.push({
         payload: {
-          schema_version: 2, type: 'submit', mode: 'append',
+          schema_version: 2, type: 'submit', mode: payload.mode,
           submission_id: payload.submission_id, message_id: payload.message_id,
           subject_id: payload.subject_id, content: payload.content,
           attachment_refs: (payload.attachment_refs as WebAttachmentRef[]).map(({ digest, name, media_type, bytes }) => ({ digest, name, media_type, bytes })),
