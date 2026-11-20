@@ -49,8 +49,7 @@ fn opaque_health_predecessors_retain_their_original_observations() -> Result<()>
     let stored_rows: Vec<String> = {
         let connection = rusqlite::Connection::open(&database)?;
         let mut statement = connection.prepare("SELECT data FROM local_model_health ORDER BY binding_digest")?;
-        let rows = statement.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
-        rows
+        statement.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?
     };
     drop(store);
 

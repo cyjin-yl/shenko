@@ -655,7 +655,7 @@ impl UpdateService {
         // committed candidate first (a no-op when none committed), then read
         // the selector again.
         let selected = if selected.selector_revision == activation.expected_selector_revision {
-            self.finish_committed_handoff_under(agent_id, &publication, &permit)?;
+            self.finish_committed_handoff_under(agent_id, publication, &permit)?;
             self.store.activation_selector(agent_id).map_err(UpdateError::CandidateStore)?
                 .ok_or(UpdateError::SelectorMissing)?
         } else {
@@ -664,7 +664,7 @@ impl UpdateService {
         if selected.selector_revision > activation.expected_selector_revision {
             // The candidate CAS committed. Completion (mirror, fence, pointer)
             // is deterministic; the old writer is never resumed.
-            self.finish_committed_handoff_under(agent_id, &publication, &permit)?;
+            self.finish_committed_handoff_under(agent_id, publication, &permit)?;
             let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
             ensure!(head.mode != SubjectMode::Paused,
                 "the committed selection was completed but the retired writer is still paused");
@@ -1208,7 +1208,7 @@ impl UpdateService {
         publication.validate_cas(self.store.cas.base())?;
         let permit = InstallationDomain::open(&self.data_dir).map_err(anyhow::Error::from)?
             .acquire().map_err(anyhow::Error::from)?;
-        self.finish_committed_handoff_under(agent_id, &publication, &permit)
+        self.finish_committed_handoff_under(agent_id, publication, &permit)
     }
 
     fn finish_committed_handoff_under(&self, agent_id: EntityId,
@@ -1653,10 +1653,10 @@ impl UpdateService {
         let publication_owner = StorePublication::acquire(self.cas_dir.clone())?;
         let publication = &publication_owner;
         publication.validate_cas(self.store.cas.base())?;
-        let result = self.activate_inner(activation_id, expected_selector_revision, &publication).await;
+        let result = self.activate_inner(activation_id, expected_selector_revision, publication).await;
         if result.is_err() {
             if let Some(record) = self.store.activation_record(activation_id)? {
-                if let Err(cleanup) = self.abort_before_selection(&record, activation_id, expected_selector_revision, &self.layout().slot_dir(&record.to_generation), &publication).await {
+                if let Err(cleanup) = self.abort_before_selection(&record, activation_id, expected_selector_revision, &self.layout().slot_dir(&record.to_generation), publication).await {
                     bail!("handoff failed: {}; compensation incomplete: {cleanup}", result.as_ref().unwrap_err());
                 }
             }
@@ -1896,11 +1896,11 @@ impl UpdateService {
         let publication = &publication_owner;
         publication.validate_cas(self.store.cas.base())?;
         let request_id = EntityId::new();
-        let result = self.rollback_inner(activation_id, expected_selector_revision, request_id, &publication).await;
+        let result = self.rollback_inner(activation_id, expected_selector_revision, request_id, publication).await;
         if result.is_err() {
             if let Some(record) = self.store.activation_record(activation_id)? {
                 let target = self.state_slot(&record.from_state_ref)?;
-                if let Err(cleanup) = self.abort_before_selection(&record, request_id, expected_selector_revision, &target, &publication).await {
+                if let Err(cleanup) = self.abort_before_selection(&record, request_id, expected_selector_revision, &target, publication).await {
                     bail!("rollback failed: {}; compensation incomplete: {cleanup}", result.as_ref().unwrap_err());
                 }
             }

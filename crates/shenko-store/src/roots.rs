@@ -261,7 +261,8 @@ impl RootExclusion for SqliteWriteLease {
 /// modification time, and a collector that only re-reads modification times
 /// would remove an object that just became reachable.
 pub struct CasWriteLease {
-    file: fs::File,
+    // Retain the locked descriptor until custody ends; File::drop releases it.
+    _file: fs::File,
     identity: shenko_types::installation::InstallationDomain,
 }
 
@@ -271,7 +272,7 @@ impl CasWriteLease {
         let identity = shenko_types::installation::InstallationDomain::open(&cas_base.canonicalize()?)?;
         let file = lease_file(cas_base)?;
         lock(&file, LeaseMode::Shared, u64::MAX)?;
-        let lease = Self { file, identity };
+        let lease = Self { _file: file, identity };
         lease.validate_cas(cas_base)?;
         Ok(lease)
     }
@@ -327,7 +328,8 @@ impl ContentRootGuard for ContentStore {
 
 /// Reclamation's exclusive lease on the shared content store.
 pub struct CasWriteFence {
-    file: fs::File,
+    // Closing this retained descriptor releases the exclusive fence.
+    _file: fs::File,
 }
 
 impl CasWriteFence {
@@ -339,7 +341,7 @@ impl CasWriteFence {
     pub fn acquire(cas_base: &Path, wait_ms: u64) -> Result<Self> {
         let file = lease_file(cas_base)?;
         lock(&file, LeaseMode::Exclusive, wait_ms)?;
-        Ok(Self { file })
+        Ok(Self { _file: file })
     }
 }
 
@@ -741,8 +743,12 @@ fn object_closure_visit(
                 continue;
             }
         };
-        let json: serde_json::Value = match serde_json::from_slice(&bytes) {
-            Ok(json) => json,
+        // Generic JSON labels permit reference discovery; byte integrity is
+        // sufficient when that reading fails. Declared recovery schemas still
+        // require decodable content before their closure can be certified.
+        let json = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(json) => Some(json),
+            Err(_) if expansion == 1 => None,
             Err(_) => {
                 out.missing.insert(object.digest);
                 continue;
@@ -753,6 +759,7 @@ fn object_closure_visit(
         let entry = verified.entry(object.digest.clone()).or_insert((object.bytes, 0));
         let already_json = entry.1 != 0;
         entry.1 |= expansion;
+        let Some(json) = json else { continue; };
         if expansion == 2 {
             match serde_json::from_value::<CognitiveRootContent>(json) {
                 Ok(content) if content.validate().is_ok() => {
@@ -824,16 +831,6 @@ fn object_closure_visit(
         }
     }
     out
-}
-
-/// Verify the declared children before a new cognitive-root name is published.
-pub(crate) fn cognitive_root_objects(cas: &ContentStore, content: &CognitiveRootContent) -> RootObjects {
-    let mut pending = VecDeque::new();
-    let mut declared = RootObjects::default();
-    enqueue_cognitive_root(cas, content, &mut pending, &mut declared);
-    let mut closure = object_closure(cas, pending.into());
-    closure.missing.extend(declared.missing);
-    closure
 }
 
 fn enqueue_cognitive_root(

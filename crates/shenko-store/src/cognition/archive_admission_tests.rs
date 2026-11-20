@@ -15,6 +15,114 @@ use super::{CognitionImportOptions, CognitionSnapshotOptions};
 use crate::memory::MemoryEntry;
 
 #[test]
+fn generic_json_recovery_preserves_verified_bytes_and_archive_facts() -> Result<()> {
+    use shenko_types::store::{RawSession, RawSessionEvent, WriteBatch};
+
+    let root = std::env::temp_dir().join(format!("shenko-generic-json-{}", EntityId::new()));
+    fs::create_dir(&root)?;
+    let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+    let cases: &[(&[u8], &str, &str)] = &[
+        (b"seed", "application/json", "raw"),
+        (b"{\"answer\":", "application/problem+json", "json"),
+    ];
+    let mut roots = Vec::new();
+    for &(bytes, media_type, codec) in cases {
+        roots.push(source.cas.seal_object(bytes, media_type, "test", codec, 1)?.object);
+    }
+    let session = EntityId::new();
+    let data = serde_json::to_string(&serde_json::json!({"objects": &roots}))?;
+    let mut batch = WriteBatch::new();
+    batch.raw_session_upserts.push(RawSession {
+        session_id: session, agent_id: EntityId::new(),
+        started_at: "2026-11-21T00:00:00Z".into(), data: "{}".into(),
+    });
+    batch.session_event_upserts.push(RawSessionEvent {
+        event_id: EntityId::new(), session_id: session, seq: 1,
+        event_type: "message".into(), role: "user".into(), data: data.clone(),
+    });
+    source.commit(batch)?;
+
+    // The shared collector must retain the actual published bytes as GC roots.
+    let closure = crate::roots::object_closure(&source.cas, roots.clone());
+    assert!(closure.missing.is_empty(), "{:?}", closure.missing);
+    assert_eq!(closure.digests, roots.iter().map(|object| object.digest.clone()).collect::<std::collections::BTreeSet<_>>());
+    let bytes: u64 = roots.iter().map(|object| object.bytes).sum();
+    let (bounded, missing) = source.collect_closure_bounded(&roots, roots.len(), bytes)?;
+    assert!(missing.is_empty());
+    assert_eq!(bounded.len(), roots.len());
+
+    let export = source.export_cognition(&Default::default())?;
+    assert!(export.manifest.blocking_gaps().is_empty(), "{:?}", export.manifest.gaps);
+    for object in &roots {
+        let declared = export.manifest.objects.iter()
+            .find(|declared| declared.digest == object.digest).context("generic object omitted")?;
+        assert_eq!(declared.bytes, object.bytes);
+        assert_eq!(declared.media_type, object.media_type);
+        assert_eq!(declared.codec, object.codec);
+    }
+    let mut archive = Vec::new();
+    assert!(export.write_archive(&mut archive)?.complete);
+    drop(export);
+    drop(source);
+    let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+    let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+    assert!(imported.ack(EntityId::new()).verified);
+    drop(receiver);
+    let reopened = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+    for (object, &(bytes, _, _)) in roots.iter().zip(cases) {
+        assert_eq!(reopened.cas.read_object(&object.digest)?.as_slice(), bytes);
+    }
+    let events = reopened.session_events_range(session, 0, i64::MAX)?;
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].data, data);
+    assert!(reopened.export_cognition(&Default::default())?.manifest.blocking_gaps().is_empty());
+    Ok(())
+}
+
+#[test]
+fn generic_json_recovery_keeps_integrity_and_declared_schemas_required() -> Result<()> {
+    use shenko_types::cognitive_root::{
+        COGNITIVE_ROOT_CODEC, COGNITIVE_ROOT_CODEC_MAJOR,
+        UNIT_SELECTOR_CODEC, UNIT_SELECTOR_CODEC_MAJOR,
+    };
+
+    let root = std::env::temp_dir().join(format!("shenko-generic-json-required-{}", EntityId::new()));
+    fs::create_dir(&root)?;
+    let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+    let generic = source.cas.seal_object(b"seed", "application/json", "test", "raw", 1)?.object;
+    for (codec, major) in [
+        (COGNITIVE_ROOT_CODEC, COGNITIVE_ROOT_CODEC_MAJOR),
+        (UNIT_SELECTOR_CODEC, UNIT_SELECTOR_CODEC_MAJOR),
+        ("shenko-wasm-state", 1),
+    ] {
+        let mut declared = generic.clone();
+        declared.codec.name = codec.into();
+        declared.codec.major = major;
+        declared.codec.digest = Digest::blake3(codec.as_bytes());
+        // Neither generic nor opaque aliases may satisfy a later schema.
+        let mut opaque = generic.clone();
+        opaque.media_type = "application/octet-stream".into();
+        let (_, missing) = source.collect_closure(&[opaque, generic.clone(), declared])?;
+        assert_eq!(missing, vec![generic.digest.clone()], "{codec}");
+    }
+
+    let absent = Digest::blake3(b"required artifact not sealed here");
+    let runtime = serde_json::to_vec(&serde_json::json!({
+        "format": "shenko-wasm-state/2", "module": &absent, "module_bytes": 4,
+    }))?;
+    let runtime = source.cas.seal_object(&runtime, "application/json",
+        "seed-wasm-state", "shenko-wasm-state", 1)?.object;
+    assert_eq!(source.collect_closure(&[runtime])?.1, vec![absent]);
+
+    let mut wrong_length = generic.clone();
+    wrong_length.bytes += 1;
+    assert_eq!(source.collect_closure(&[wrong_length])?.1, vec![generic.digest.clone()]);
+    fs::write(source.cas.verified_object_path(&generic)?, b"reed")?;
+    assert_eq!(source.collect_closure(std::slice::from_ref(&generic))?.1, vec![generic.digest]);
+    Ok(())
+}
+
+#[test]
 fn captured_json_stream_does_not_extend_the_recovery_graph() -> Result<()> {
     let root = std::env::temp_dir().join(format!("shenko-opaque-stream-{}", EntityId::new()));
     fs::create_dir(&root)?;

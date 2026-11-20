@@ -242,7 +242,7 @@ impl Store {
         // All required row conflicts are decided while the IMMEDIATE ledger
         // transaction is still held, before any file or Git publication.
         let (applied, verified_files, restored_git_history) =
-            self.apply_rows(&manifest, peer_id, &files, &git_history, &options, &publication, permit)?;
+            self.apply_rows(&manifest, &files, &git_history, &options, &publication, permit)?;
         let conflicts = applied.conflicts;
 
         self.record_receipt(
@@ -285,16 +285,17 @@ impl Store {
     /// continuing source advances instead of looking like a divergence. A row
     /// that this store changed on its own keeps the local value and is
     /// reported as a conflict.
+    /// Row and file/Git baselines use the peer bound in the import options.
     fn apply_rows(
         &self,
         manifest: &CognitionManifest,
-        peer_id: EntityId,
         files: &[(CognitionFileDescriptor, Vec<u8>)],
         git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
         options: &CognitionImportOptions,
         publication: &crate::roots::CasWriteLease,
         permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<(CognitionApplyOutcome, usize, bool)> {
+        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
         let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
             TABLES

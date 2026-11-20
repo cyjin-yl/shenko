@@ -672,13 +672,6 @@ impl Ledger {
         self.with_installation_mutation(None, false, write, storage_failure)
     }
 
-    pub(crate) fn with_maintenance_mutation_under<T, E: From<ShenkoError>>(
-        &self, permit: Option<&InstallationPermit>, write: impl FnOnce() -> Result<T, E>,
-        storage_failure: impl FnOnce(&E) -> bool,
-    ) -> Result<T, E> {
-        self.with_installation_mutation(permit, false, write, storage_failure)
-    }
-
     /// The caller retains this exact, physically bound CAS lease before its
     /// physical/import/SQL exclusions. Never acquire another lease here.
     pub(crate) fn with_maintenance_mutation_owned_under<T, E: From<ShenkoError>>(
