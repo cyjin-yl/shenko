@@ -677,3 +677,14 @@ stream 开始后，新消息继续被持久接纳，但不能插入该请求过�
 REF-FABRIC 只支持类型化扩展点/phase 顺序方面的来源；上述持久 dispatch、permit 释放、seal 和恢复为 REF-DESIGN。REF-DURABLE 的 [§7.2 hooks](https://github.com/earendil-works/pi/blob/c60de42e98428dc1ef7440d78c23f5915966cdb3/packages/durable/docs/spec.md#L2906) 与 [§7.4 prompt/tool 变更](https://github.com/earendil-works/pi/blob/c60de42e98428dc1ef7440d78c23f5915966cdb3/packages/durable/docs/spec.md#L3661) 是具体参考。与其当前 phase 再解析工具名的规则不同，Shenko 明确绑定 sealed contract，避免热更新重解释旧调用。
 
 <!-- /migrated-contract: SPEC:41.8.4 -->
+
+## 2026-11-21：调用元数据的原始祖先分页
+
+增量执行索引的冷恢复通过 Store 的 `branch_history_call_page` 在原始祖先
+segments 上只选择 `tool_call` / `tool_result` 行。每页固定 `[from, through]`，
+按原始 seq 升序，行数限制跨 segments 全局计算；空祖先段不提前终止读取。
+祖先前缀继续服从 fork 的冻结叶子，返回行保留原始 session、事件身份和完整载荷。
+可重建的 SQLite partial index 只覆盖这两种事件类型，不添加档案事实。
+分页完成才推进该范围的缓存水位；载荷解释、执行证据、调用重复和原文恢复沿用
+原有读者。冷恢复仍枚举全部调用元数据，返回值仍拥有元数据副本，不声称常量成本。
+此补充说明候选源码边界，不代表已完成运行验证。
