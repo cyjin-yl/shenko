@@ -721,14 +721,22 @@ impl Store {
 
     pub fn copy_paused_activation_boundary_under(&self, source: &Store, agent: EntityId,
         permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<(), ShenkoError> {
-        let (head, step, requests, selector, activations) = {
+        let (head, head_created_at, step, step_created_at, requests, selector, activations) = {
             let conn = source.ledger.conn.lock();
-            let raw: String = conn.query_row("SELECT data FROM subject_branch_heads WHERE agent_id=?1", [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
+            let (raw, head_created_at): (String, String) = conn.query_row(
+                "SELECT data,created_at FROM subject_branch_heads WHERE agent_id=?1",
+                [agent.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).map_err(storage_error)?;
             let head: SubjectBranchHead = serde_json::from_str(&raw).map_err(storage_error)?;
             if head.mode != SubjectMode::Paused { return Ok(()); }
             crate::runtime_boundary::validate_paused_head(&conn, &head)?;
-            let step = crate::store::read_step(&conn, &head.branch_id, head.next_step_id)?
+            let (raw, step_created_at): (String, String) = conn.query_row(
+                "SELECT data,created_at FROM subject_steps WHERE step_id=?1 AND branch_id=?2",
+                params![head.next_step_id.to_string(), head.branch_id.0.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).optional().map_err(storage_error)?
                 .ok_or_else(|| ShenkoError::conflict("paused successor missing"))?;
+            let step: shenko_types::subject::SubjectStep = serde_json::from_str(&raw).map_err(storage_error)?;
             crate::store::validate_step_binding(&head, &step)?;
             if step.state != shenko_types::subject::SubjectStepState::Planned
                 || step.active_request_id.is_some() || step.active_attempt_id.is_some() {
@@ -745,7 +753,7 @@ impl Store {
                 return Err(ShenkoError::conflict("source selector does not own the paused subject generation"));
             }
             let activations = list_activation_records(&conn, agent)?;
-            (head, step, requests, selector, activations)
+            (head, head_created_at, step, step_created_at, requests, selector, activations)
         };
         self.ledger.with_maintenance_mutation_under(permit, || {
             let mut conn = self.ledger.conn.lock();
@@ -805,14 +813,16 @@ impl Store {
                 tx.execute("UPDATE subject_quiesce_requests SET state='resumed',data=?2,updated_commit_seq=?3 WHERE request_id=?1",
                     params![request.request_id.to_string(), serde_json::to_string(&request).map_err(storage_error)?, seq.0 as i64]).map_err(storage_error)?;
             }
-            tx.execute("UPDATE subject_branch_heads SET committed_step_no=?2,committed_step_id=?3,next_step_id=?4,mode='paused',record_revision=?5,data=?6,updated_commit_seq=?7 WHERE agent_id=?1",
+            // Creation times are archive facts; only the physical commit
+            // coordinates of this paused boundary belong to the receiver.
+            tx.execute("UPDATE subject_branch_heads SET committed_step_no=?2,committed_step_id=?3,next_step_id=?4,mode='paused',record_revision=?5,data=?6,updated_commit_seq=?7,created_at=?8 WHERE agent_id=?1",
                 params![agent.to_string(), head.committed_step_no as i64, head.committed_step_id.map(|id| id.to_string()),
                     head.next_step_id.to_string(), head.record_revision.0 as i64, serde_json::to_string(&head).map_err(storage_error)?,
-                    seq.0 as i64]).map_err(storage_error)?;
-            tx.execute("INSERT INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,'planned',?4,?5,?6) ON CONFLICT(step_id) DO UPDATE SET state='planned',record_revision=excluded.record_revision,data=excluded.data,updated_commit_seq=excluded.updated_commit_seq",
+                    seq.0 as i64, head_created_at]).map_err(storage_error)?;
+            tx.execute("INSERT INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq,created_at) VALUES(?1,?2,?3,'planned',?4,?5,?6,?7) ON CONFLICT(step_id) DO UPDATE SET state='planned',record_revision=excluded.record_revision,data=excluded.data,updated_commit_seq=excluded.updated_commit_seq,created_at=excluded.created_at",
                 params![step.step_id.to_string(), step.branch_id.0.to_string(), step.step_no as i64,
                     step.record_revision.0 as i64, serde_json::to_string(&step).map_err(storage_error)?,
-                    seq.0 as i64]).map_err(storage_error)?;
+                    seq.0 as i64, step_created_at]).map_err(storage_error)?;
             for raw in &requests {
                 let mut request: crate::runtime_boundary::SubjectQuiesce = serde_json::from_str(raw).map_err(storage_error)?;
                 request.requested_at = request_commit;

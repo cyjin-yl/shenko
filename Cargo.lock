@@ -4958,6 +4958,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_json",
+ "shenko-context-policy",
  "shenko-kernel",
  "shenko-store",
  "shenko-types",

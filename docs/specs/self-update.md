@@ -706,3 +706,9 @@ ReplyGrant 绑定 task generation/revision、受众和逻辑回复责任，不�
 **child 角色框。** [§5.3](model-children.md#spec-5-3)、[§6](subject-runtime.md#spec-6) 说可自由写 child 的完整 system prompt；今天只能写尾巴（`model_child.rs:92-105` 的 `ROLE_CONTRACT`）。child 角色框成为可修订内容后，主体才能真正"派一个不同的人"。
 
 <!-- /migrated-contract: SPEC:57.10 -->
+
+## Paused boundary creation timestamps
+
+During same-installation catch-up, the copied head and planned successor
+retain their source creation timestamps for archive reconciliation. The
+receiving ledger records its own ordered pause request and boundary commits.
