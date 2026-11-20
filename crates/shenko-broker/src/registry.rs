@@ -27,14 +27,23 @@ pub const PROVIDER_REGISTRY_SERVICE: &str = "shenko/provider-registry";
 /// One installed provider runtime.
 ///
 /// A runtime owns its wire, its transport and its native extensions. It is
-/// asked to complete, stream, count and probe; it never decides which model
-/// may be used or whether a capability is allowed.
+/// asked to complete, stream, count and probe, and declares which models its
+/// transport accepts. Model selection and capability authorization remain
+/// with the caller.
 #[async_trait::async_trait]
 pub trait ProviderRuntime: Send + Sync + 'static {
     /// The frozen, non-secret description of this binding.
     fn profile(&self) -> &ProviderProfile;
     /// The binding this runtime executes.
     fn binding(&self) -> ProviderBinding;
+    /// Whether this runtime accepts the caller-selected model for fresh
+    /// admission. Fixed-model runtimes accept only their configured model;
+    /// transports that carry a caller-selected model override this method.
+    /// This is a synchronous local declaration, never a network probe or a
+    /// promise that the remote account can currently execute the model.
+    fn accepts_model(&self, model: &str) -> bool {
+        self.profile().model_id == model
+    }
     /// Run one complete request.
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse>;
     /// Run one request and publish its stream.
@@ -177,7 +186,7 @@ impl ProviderRegistry {
         };
         let runtime = &entry.runtime;
         let profile = runtime.profile();
-        profile.model_id == model && runtime.available() && match binding {
+        runtime.accepts_model(model) && runtime.available() && match binding {
             ProviderBinding::Profile { profile: bound } => profile.matches_except_model(bound),
             ProviderBinding::Stub { .. } => false,
             other => runtime.binding().same_transport(other),

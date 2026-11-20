@@ -520,3 +520,9 @@ introduced by this grouping.
 主体、有限模型 child 与需要推理的 PMA 共用 gate；PMA 的 `call: None` 本地策略决定不进入 quota gate，携带 `send_id: None` 走原有 native authority 与 durable decision 结算，不创建 quota send/reservation/provider attempt。原有 native authority attempt 仍须存在。这里仅说明新鲜本地执行路径；历史本地 attempt 的恢复先注册 broker inference recovery 而可能产生 unknown charge 的独立缺陷尚不由本补充修复。
 
 封口前 quota-driven 模型选择、物理 KV、provider 可达性及撤下 runtime 后完整原始 model-child 恢复仍是独立边界。本节不改 S0/request/child 格式、generation 或 CAS root 协议。
+
+### 2026-11-20：transport 的调用方选模资格更正
+
+本更正保留以上原始字节，替代上节“runtime 声明的 model 精确相等”这一过强描述。新请求资格由实际安装的 `ProviderRuntime::accepts_model(model)` 声明；默认实现仅接受配置的精确模型，本地及其他固定模型 runtime 继续使用该严格默认。Anthropic transport 显式接受调用方封口选择的模型，与既有 `validate_binding` 及实际 wire 使用封口模型的行为一致，配置模型不是远端模型白名单。后续自定义 remote runtime 通过同一 trait 声明自己的选模能力，不由 broker 枚举 backend family。
+
+同一 registry 读锁下的安装身份、精确 transport 匹配、`available()` 与 Stub 拒绝仍全部有效；封口模型及原有本地/云约束仍须匹配。本声明不引入 fallback、网络探测或远端模型可用性保证，不改变原始请求恢复语义。源码修正需由集成方运行原有 cloud-child wire/send 绑定场景及固定模型、撤下、不可用和 transport 替换对照后取得证据；本补充不声称这些检查已经通过。

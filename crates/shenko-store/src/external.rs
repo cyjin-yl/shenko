@@ -747,7 +747,7 @@ impl Store {
         self.ledger.with_mutation(
             || {
                 self.try_record_intervention_settlement(
-                    operation_id, attempt_id, ev, outcome, effect, decision, None,
+                    (operation_id, attempt_id), ev, outcome, effect, decision, None,
                 )
             },
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>()
@@ -768,7 +768,7 @@ impl Store {
     ) -> Result<OperationRecord> {
         self.ledger.with_mutation(
             || self.try_record_intervention_settlement(
-                original.operation_id, original_attempt.attempt_id, ev,
+                (original.operation_id, original_attempt.attempt_id), ev,
                 OperationOutcome::Succeeded, EffectStatus::Complete, Some(decision),
                 Some((original, original_attempt)),
             ),
@@ -1040,8 +1040,7 @@ impl Store {
     /// transaction that resolves the operation.
     fn try_record_intervention_settlement(
         &self,
-        operation_id: EntityId,
-        attempt_id: EntityId,
+        (operation_id, attempt_id): (EntityId, EntityId),
         mut ev: EvidenceReceipt,
         outcome: OperationOutcome,
         effect: EffectStatus,

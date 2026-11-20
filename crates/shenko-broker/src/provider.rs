@@ -536,6 +536,13 @@ impl ProviderRuntime for AnthropicProvider {
         AnthropicProvider::binding(self)
     }
 
+    fn accepts_model(&self, _model: &str) -> bool {
+        // validate_binding accepts the sealed caller-selected model on this
+        // exact transport; complete/stream/count send that model verbatim.
+        // The configured model is a default, not a remote model allowlist.
+        true
+    }
+
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
         AnthropicProvider::complete(self, request).await
     }

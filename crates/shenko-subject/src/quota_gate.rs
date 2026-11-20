@@ -109,33 +109,31 @@ loop {
     // that interval. Reuse its durable admission before recording a new
     // routing decision: re-admission would rewrite the original metadata.
     // A changed policy still takes the normal decision/admission path.
-    if let Some((admitted_policy, admitted_decision)) = &latest {
-        if admitted_policy.policy_id == policy.policy_id
-            && admitted_policy.revision == policy.revision
+    if let Some((admitted_policy, admitted_decision)) = &latest
+        && admitted_policy.policy_id == policy.policy_id
+        && admitted_policy.revision == policy.revision
+    {
+        let pacer = store.quota_pacer()?;
+        if let Some(reservation) = pacer.reservation(&send_id)
+            && reservation.admission.state == AdmissionState::Admitted
+            && reservation.admission.decision_id == admitted_decision.decision_id
         {
-            let pacer = store.quota_pacer()?;
-            if let Some(reservation) = pacer.reservation(&send_id) {
-                if reservation.admission.state == AdmissionState::Admitted
-                    && reservation.admission.decision_id == admitted_decision.decision_id
-                {
-                    let profile = admitted_policy.profiles.iter().find(|profile|
-                        Some(&profile.profile_id) == reservation.admission.profile_id.as_ref())
-                        .ok_or_else(|| ShenkoError::conflict("admitted profile is not configured"))?;
-                    if profile.model_ref != binding.model()
-                        || profile.local != matches!(binding,
-                            shenko_broker::request::ProviderBinding::Local { .. })
-                    {
-                        return Err(ShenkoError::conflict(
-                            "original quota admission differs from the sealed backend",
-                        ));
-                    }
-                    // Replay arming authenticates the request lineage and
-                    // every original armed attempt in one Store transaction.
-                    // An admitted send not yet armed follows the same owner.
-                    store.arm_quota_send(request_id, &reservation.admission)?;
-                    return Ok(QuotaGate::Ready(Some(send_id)));
-                }
+            let profile = admitted_policy.profiles.iter().find(|profile|
+                Some(&profile.profile_id) == reservation.admission.profile_id.as_ref())
+                .ok_or_else(|| ShenkoError::conflict("admitted profile is not configured"))?;
+            if profile.model_ref != binding.model()
+                || profile.local != matches!(binding,
+                    shenko_broker::request::ProviderBinding::Local { .. })
+            {
+                return Err(ShenkoError::conflict(
+                    "original quota admission differs from the sealed backend",
+                ));
             }
+            // Replay arming authenticates the request lineage and
+            // every original armed attempt in one Store transaction.
+            // An admitted send not yet armed follows the same owner.
+            store.arm_quota_send(request_id, &reservation.admission)?;
+            return Ok(QuotaGate::Ready(Some(send_id)));
         }
     }
     let (policy_in_use, decision) = match &latest {
@@ -507,6 +505,8 @@ mod policy_change_tests {
     use shenko_quota::*;
     use std::{sync::Arc, time::Duration};
 
+    type AvailabilityReadHook = Box<dyn FnOnce() -> anyhow::Result<()> + Send>;
+
     // Availability belongs to the installed runtime. All wire methods retain
     // the real provider implementation; this scenario never dispatches them.
     struct AvailabilityRuntime {
@@ -514,7 +514,7 @@ mod policy_change_tests {
         available: std::sync::atomic::AtomicBool,
         // One synchronous independent Store transaction at the exact runtime
         // read, after the gate has detached its selected-send snapshot.
-        on_read: std::sync::Mutex<Option<Box<dyn FnOnce() -> anyhow::Result<()> + Send>>>,
+        on_read: std::sync::Mutex<Option<AvailabilityReadHook>>,
         on_read_result: std::sync::Mutex<Option<anyhow::Result<()>>>,
     }
 
@@ -522,6 +522,9 @@ mod policy_change_tests {
     impl shenko_broker::registry::ProviderRuntime for AvailabilityRuntime {
         fn profile(&self) -> &shenko_broker::profile::ProviderProfile { self.provider.profile() }
         fn binding(&self) -> shenko_broker::request::ProviderBinding { self.provider.binding() }
+        fn accepts_model(&self, model: &str) -> bool {
+            shenko_broker::registry::ProviderRuntime::accepts_model(self.provider.as_ref(), model)
+        }
         fn available(&self) -> bool {
             let on_read = self.on_read.lock().expect("fixture read hook lock").take();
             if let Some(on_read) = on_read {
@@ -621,17 +624,32 @@ mod policy_change_tests {
         let (_offline_runner, offline) = shenko_broker::broker::Broker::offline()?;
         anyhow::ensure!(!offline.serves_model("stub"));
         anyhow::ensure!(broker.serves_model("bound-model"));
-        // Transport-compatible recovery remains possible for an undeclared
-        // model, while fresh eligibility refuses it.
-        let undeclared = broker.for_model("undeclared-model")?;
+        // Anthropic sends the sealed caller-selected model, even when it
+        // differs from this transport's configured default.
+        let selected = broker.for_model("caller-selected-model")?;
+        anyhow::ensure!(selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(broker.for_binding(selected.binding()).is_ok());
+        // The actual fixed-model local runtime retains strict fresh
+        // eligibility; transport-compatible recovery remains available.
+        let (_fixed_runner, fixed) = shenko_broker::broker::Broker::with_local_provider(
+            shenko_broker::local_provider::LocalModelProvider::new(
+                "http://127.0.0.1:1".into(), "fixed-model".into(),
+            ), 1,
+        )?;
+        anyhow::ensure!(fixed.serves_model("fixed-model"));
+        let undeclared = fixed.for_model("undeclared-model")?;
         anyhow::ensure!(!undeclared.serves_model("undeclared-model"));
-        anyhow::ensure!(broker.for_binding(undeclared.binding()).is_ok());
+        anyhow::ensure!(fixed.for_binding(undeclared.binding()).is_ok());
         // Exercise the borrowed Profile path as well as the legacy binding.
         let profile_broker = broker.for_binding(&provider.profile().binding())?;
         anyhow::ensure!(profile_broker.serves_model("bound-model"));
+        let selected_profile = profile_broker.for_model("caller-selected-model")?;
+        anyhow::ensure!(selected_profile.serves_model("caller-selected-model"));
         anyhow::ensure!(registry.uninstall(&provider.profile().profile_id, epoch));
         anyhow::ensure!(!broker.serves_model("bound-model"));
         anyhow::ensure!(!profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
         let unavailable = Arc::new(AvailabilityRuntime {
             provider: Arc::clone(&provider),
             available: std::sync::atomic::AtomicBool::new(false),
@@ -643,6 +661,8 @@ mod policy_change_tests {
         anyhow::ensure!(!broker.serves_model("bound-model"));
         anyhow::ensure!(!profile_broker.serves_model("bound-model"));
         let refused_request = EntityId::new();
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
         let before_refusal = serde_json::to_value(store.quota_pacer()?)?;
         let refusal = tokio::time::timeout(Duration::from_secs(5), quota_dispatch_gate(
             &store, &broker, refused_request, &tokio_util::sync::CancellationToken::new(),
@@ -657,6 +677,8 @@ mod policy_change_tests {
         unavailable.available.store(true, std::sync::atomic::Ordering::SeqCst);
         anyhow::ensure!(broker.serves_model("bound-model"));
         anyhow::ensure!(profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(selected_profile.serves_model("caller-selected-model"));
         // The same profile id/model at a different endpoint is not eligible
         // for this already selected handle's transport identity.
         registry.install(Arc::new(shenko_broker::provider::AnthropicProvider::with_endpoint(
@@ -666,6 +688,8 @@ mod policy_change_tests {
         )));
         anyhow::ensure!(!broker.serves_model("bound-model"));
         anyhow::ensure!(!profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
         let restored_epoch = registry.install(provider);
         anyhow::ensure!(broker.serves_model("bound-model"));
         anyhow::ensure!(profile_broker.serves_model("bound-model"));

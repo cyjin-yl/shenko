@@ -1,6 +1,5 @@
 //! Real native admission/T1/local recovery; no provider runner or wire calls.
 use super::*;
-use anyhow::Context as _;
 use serde_json::json;
 use shenko_broker::{broker::Broker, local_provider::LocalModelProvider};
 use shenko_store::{ResearchBudget, ResearchClosure, ResearchEnvironment};
@@ -213,7 +212,7 @@ async fn recover_interrupted_local(
     let mut execution = Box::pin(initial.execute(invocation));
     tokio::time::timeout(Duration::from_secs(10), async {
         tokio::select! {
-            result = &mut execution => anyhow::bail!("execution passed the armed interruption: {result:?}"),
+            result = &mut execution => anyhow::bail!("execution passed the armed interruption: {:?}", result),
             _ = armed.notified() => Ok::<_, anyhow::Error>(()),
         }
     }).await??;
