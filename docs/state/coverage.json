@@ -10410,9 +10410,6 @@
       "crates/shenko-store/src/memory.rs#Store::commit_memory_intent": [
         "docs/specs/memory.md#spec-12-2"
       ],
-      "crates/shenko-store/src/memory.rs#Store::mark_memory_git": [
-        "docs/specs/memory.md#spec-10-3"
-      ],
       "crates/shenko-store/src/memory.rs#Store::memory_entry": [
         "docs/specs/memory.md#spec-12-4"
       ],
@@ -10431,6 +10428,9 @@
       ],
       "crates/shenko-store/src/migrations.rs#MEMORY_INTENTS_SCHEMA": [
         "docs/specs/memory.md#spec-12-2"
+      ],
+      "crates/shenko-store/src/memory_git_ack.rs#Store::mark_memory_git": [
+        "docs/specs/memory.md#spec-10-3"
       ],
       "crates/shenko-store/src/migrations.rs#run_migrations": [
         "docs/specs/cognition-units.md#spec-51-1",
@@ -38506,7 +38506,7 @@
       },
       "87779fa89469588c47ae2a2b702ceae037f95b78d8bf85ce3b36084eb5d280ad": {
         "symbol_refs": [
-          "crates/shenko-store/src/memory.rs#Store::mark_memory_git"
+          "crates/shenko-store/src/memory_git_ack.rs#Store::mark_memory_git"
         ],
         "binding_scope": "documented_declaration",
         "citation_locations": {
