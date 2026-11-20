@@ -180,9 +180,9 @@ membership is not cryptographic proof against coordinated rewriting of all files
 
 The example's seven offline tests include the three existing reader/reconstruction
 regressions, the three complete-source regressions, and one integrated local
-scenario regression in `tests.rs`. They require an explicit owned persistent
-`SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT` in Life and never fall back to a home or
-`/tmp`. The integrated case exercises strict CLI selection, both fresh Store/archive
+scenario regression in `tests.rs`. They use unique synthetic fixtures in the system
+temporary directory by default. Set `SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT` to
+select an owned fixture parent. The integrated case exercises strict CLI selection, both fresh Store/archive
 preparations, observed historical roles, replaced provider roots, source/version
 reader admission, consumed-result reconstruction with the live originals removed,
 and rejection of foreign-only receipts and altered retained inventory. Its retained

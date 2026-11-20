@@ -1,4 +1,5 @@
 use super::*;
+use super::super::fixture_parent;
 use base64::Engine as _;
 use serde_json::{Value, json};
 
@@ -6,8 +7,7 @@ struct Fixture(PathBuf);
 
 impl Fixture {
     fn new() -> Result<Self> {
-        let parent = PathBuf::from(std::env::var_os("SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")
-            .context("set an owned persistent SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")?);
+        let parent = fixture_parent();
         absolute_path(&parent)?;
         create_evidence_dir(&parent)?;
         let root = parent.join(format!("local-scenario-{}", EntityId::new()));

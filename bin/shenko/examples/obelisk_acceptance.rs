@@ -62,6 +62,13 @@ use std::{
 };
 
 mod obelisk_local_scenario;
+
+#[cfg(test)]
+fn fixture_parent() -> PathBuf {
+    std::env::var_os("SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+}
 use obelisk_local_scenario::{FrozenScenario, SnapshotManifest};
 
 const SYNTHETIC_SOURCE_INSTANCE: &str = "obelisk-acceptance/synthetic-v1";
@@ -1716,8 +1723,7 @@ mod tests {
     fn interrupted_arm_reconstructs_original_identity_without_replay_or_replacement() -> Result<()> {
         use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 
-        let root = EvidenceRoot(PathBuf::from(std::env::var_os("SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")
-            .context("set an owned persistent SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")?)
+        let root = EvidenceRoot(fixture_parent()
             .join(format!("obelisk-offline-report-{}", EntityId::new())));
         std::fs::create_dir_all(root.0.join("baseline/native-results"))?;
         let attempt_id = EntityId::new();
