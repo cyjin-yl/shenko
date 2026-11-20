@@ -3324,6 +3324,9 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     use std::io::Write;
 
     let (dir, source, agent) = initialized_subject();
+    eprintln!("issue316-native-capacity {}", serde_json::json!({
+        "phase": "world", "path": dir, "agent_id": agent,
+    }));
     let state = Arc::new(parking_lot::Mutex::new(NativeT2AuthorityState::default()));
     let head = source.load_subject(agent)?.0;
     let stamp = CommitAuthorityStamp { source_id: "native-chain-source".into(), holder_id: EntityId::new(), subject_id: agent,
@@ -3372,9 +3375,53 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     for replica in [&receiver, &blocked] {
         assert_eq!(replica.recover_control_admission(&birth, &birth_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
     }
+    // Issue #316: keep real unrelated bytes throughout the existing native
+    // claim -> paired T1/dispatch -> E1 -> chosen T2/restart journey. Use the
+    // production Store budgets; do not substitute a smaller test threshold.
+    // Insert after S1 birth so a passing S1 alone cannot satisfy this window.
+    let history = rusqlite::Connection::open(dir.join("head.db"))?;
+    history.execute_batch("CREATE TABLE native_capacity_history(id INTEGER PRIMARY KEY,payload BLOB);
+        INSERT INTO native_capacity_history VALUES(1,zeroblob(129*1024*1024));")?;
+    let history_bytes = 129 * 1024 * 1024i64;
+    let assert_history = || -> Result<()> {
+        let (count, bytes, unchanged): (i64, i64, bool) = history.query_row(
+            "SELECT count(*),length(payload),payload=zeroblob(129*1024*1024) FROM native_capacity_history WHERE id=1",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        assert_eq!((count, bytes, unchanged), (1, history_bytes, true));
+        Ok(())
+    };
+    // Read actual Store requests and local atomic receipts, including the
+    // physical COMMIT. Emit identities for the parent's retained raw log.
+    let capacity_receipt = |store: &Store, grant: &shenko_types::authority::CommitAuthorityGrant,
+                            phase: &str, elapsed: std::time::Duration| -> Result<()> {
+        assert_history()?;
+        assert!(store.control_admission_applied_here(&grant.admission)?);
+        let envelope: serde_json::Value = serde_json::from_slice(
+            &store.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+        let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+        let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
+        assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
+            .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
+        let conn = rusqlite::Connection::open(dir.join("head.db"))?;
+        let materialized: serde_json::Value = serde_json::from_str(&conn.query_row(
+            "SELECT data FROM control_materializations WHERE action_id=?1",
+            [grant.admission.action_id.to_string()], |row| row.get::<_, String>(0))?)?;
+        assert_eq!(materialized["transition_ref"], serde_json::to_value(&reference)?);
+        let commit: shenko_types::commit::CommitRef = serde_json::from_value(materialized["committed_at"].clone())?;
+        assert_eq!(commit.ledger_id, store.ledger.ledger_id());
+        assert_eq!(conn.query_row("SELECT count(*) FROM commit_log WHERE ledger_id=?1 AND seq=?2",
+            rusqlite::params![commit.ledger_id.to_string(), commit.seq.0], |row| row.get::<_, i64>(0))?, 1);
+        eprintln!("issue316-native-capacity {}", serde_json::json!({
+            "phase": phase, "elapsed_ms": elapsed.as_millis(), "history_bytes": history_bytes,
+            "admission": grant.admission, "receipt": materialized,
+        }));
+        Ok(())
+    };
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
+    let claim_started = std::time::Instant::now();
     let claim = source.claim_native_task(task_id, implementation.clone(), false)?.context("fresh source claim")?;
     let claim_grant = chosen()?;
+    capacity_receipt(&source, &claim_grant, "native.claim", claim_started.elapsed())?;
     let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
     for replica in [&receiver, &blocked] {
         assert_eq!(replica.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
@@ -3383,6 +3430,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // One actual local effect follows only the fresh paired T1 permit. The
     // receiver installs the original armed intent, and never obtains None.
     let (ctx, mut operation, mut attempt) = draft_dispatch_operation(&source, &claim.invocation, "native-chain", claim.operation_id)?;
+    let arm_started = std::time::Instant::now();
     let permit = source.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?;
     assert!(permit.is_none());
     if permit.is_none() {
@@ -3391,6 +3439,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         effect.sync_all()?;
     }
     let arm = chosen()?;
+    capacity_receipt(&source, &arm, "native.arm_and_dispatch", arm_started.elapsed())?;
     let arm_objects = source.admission_objects(&arm.admission.payload_ref)?;
     let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&arm.admission.payload_ref.digest)?)?;
     let arm_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
@@ -3441,9 +3490,17 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // The provider's actual fact is already committed when the T2 chosen
     // reply is lost. The receiver only has its original paired T1 so far.
     state.lock().lose_reply = true;
+    let complete_started = std::time::Instant::now();
     let lost = source.complete_native_task(&claim, &completed);
     assert!(matches!(&lost, Err(error) if error.to_string().contains("fixture lost chosen T2 reply")), "{lost:#?}");
+    assert_history()?;
+    eprintln!("issue316-native-capacity {}", serde_json::json!({
+        "phase": "native.complete.lost_reply", "elapsed_ms": complete_started.elapsed().as_millis(),
+        "error": lost.as_ref().err().context("retained lost reply")?.to_string(),
+        "operation_id": operation.operation_id, "attempt_id": attempt.attempt_id, "receipt_id": receipt_id,
+    }));
     let t2 = chosen()?;
+    assert!(!source.control_admission_applied_here(&t2.admission)?);
     let objects = source.admission_objects(&t2.admission.payload_ref)?;
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&t2.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
@@ -3503,9 +3560,11 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // application. Both retain the original result and refuse another effect.
     let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
     reopened.attach_commit_authority(Arc::new(NativeT2Authority { source: "native-chain-source", stamp: Some(stamp), state: Arc::clone(&state) }))?;
+    let recovery_started = std::time::Instant::now();
     let recovered = reopened.resume_prepared_step_commits(agent)?;
     assert_eq!(recovered.applied, 1);
     assert!(recovered.unresolved.is_empty());
+    capacity_receipt(&reopened, &t2, "native.complete.recovered", recovery_started.elapsed())?;
     assert_eq!(reopened.native_task_result(task_id)?, Some(expected_result.clone()));
     assert_eq!(reopened.external_evidence(receipt_id)?, original_receipt);
     let receiver_reopened = Store::open(dir.join("chain-receiver.db"), dir.join("chain-receiver-cas"))?;
@@ -3522,6 +3581,18 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     }
     assert_eq!(connection.query_row("SELECT count(*) FROM native_evidence_materializations WHERE receipt_id=?1", [receipt_id.to_string()], |row| row.get::<_, i64>(0))?, 1);
     assert_eq!(std::fs::read(dir.join("effect.log"))?, b"effect\n");
+    let watermark = reopened.current_commit_seq()?;
+    assert_eq!(reopened.recover_control_admission(&t2, &objects, true)?, ControlRecoveryOutcome::Applied);
+    assert_eq!(reopened.current_commit_seq()?, watermark);
+    assert_eq!(reopened.resume_prepared_step_commits(agent)?.applied, 0);
+    assert_eq!(reopened.external_evidence(receipt_id)?, original_receipt);
+    assert_eq!(std::fs::read(dir.join("effect.log"))?, b"effect\n");
+    assert_history()?;
+    eprintln!("issue316-native-capacity {}", serde_json::json!({
+        "phase": "native.complete.replay_noop", "operation_id": operation.operation_id,
+        "attempt_id": attempt.attempt_id, "receipt_id": receipt_id, "commit_seq": watermark,
+        "history_bytes": history_bytes, "effect_bytes": std::fs::read(dir.join("effect.log"))?,
+    }));
 
     // The original external observation remains admissible if a derived
     // canonical proof becomes unavailable. The E1 and an explicit seal debt
@@ -3561,6 +3632,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     assert!(reopened.native_task_result(delayed_id)?.is_none());
     assert!(reopened.arm_native_operation_for_dispatch(&delayed_ctx, &mut delayed_op, &mut delayed_attempt)?.is_some());
     assert_eq!(std::fs::read(dir.join("delayed-effect.log"))?, b"one delayed observation");
+    assert_history()?;
     Ok(())
 }
 
