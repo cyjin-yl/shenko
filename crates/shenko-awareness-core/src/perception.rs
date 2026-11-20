@@ -325,6 +325,56 @@ impl PerceptionObserver for CachedObservationSource {
     }
 }
 
+/// Archive a provider's actual local reading under the installed unit.
+/// Identical content reuses its original observation, including its time;
+/// reading a card does not invent a new fact or a newer observation time.
+pub struct ArchivedPerceptionSource {
+    node: Arc<Mutex<Node>>,
+    binding: PerceptionBinding,
+    perspective: PerceptionPerspective,
+    observer: Arc<dyn PerceptionObserver>,
+    last: Mutex<Option<(String, PerceptionFact)>>,
+}
+
+impl ArchivedPerceptionSource {
+    pub fn new(
+        node: Arc<Mutex<Node>>,
+        binding: PerceptionBinding,
+        perspective: PerceptionPerspective,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Self {
+        Self { node, binding, perspective, observer, last: Mutex::new(None) }
+    }
+}
+
+impl PerceptionObserver for ArchivedPerceptionSource {
+    fn observe(&self) -> Result<PerceptionFact> {
+        let mut fact = admit(&self.binding, &self.perspective, self.observer.observe()?)?;
+        let signature = Digest::blake3(&serde_json::to_vec(&(
+            &fact.binding, &fact.source, &fact.target, &fact.valid_until,
+            &fact.summary, &fact.perspective, &fact.evidence_digest,
+        ))?).0;
+        let mut last = self.last.lock();
+        if let Some((known, archived)) = last.as_ref() {
+            if known == &signature {
+                return Ok(archived.clone());
+            }
+        }
+        let bytes = serde_json::to_vec(&fact)?;
+        let digest = Digest::blake3(&bytes);
+        self.node.lock().handle_unit_request(UnitRequest::RegisterObservation {
+            unit_id: self.binding.unit_id.clone(),
+            revision: self.binding.revision.clone(),
+            artifact_digest: Digest(self.binding.artifact_digest.clone()),
+            kind: "perception_observation".into(),
+            bytes,
+        })?;
+        fact.evidence_digest = Some(digest.0);
+        *last = Some((signature, fact.clone()));
+        Ok(fact)
+    }
+}
+
 struct Registration {
     id: EntityId,
     binding: PerceptionBinding,
@@ -622,7 +672,8 @@ impl PerceptionRegistry {
         let mut registrations = self.registrations.lock();
         let before = registrations.len();
         registrations.retain(|registration| {
-            !is_builtin_unit(&registration.binding.unit_id)
+            registration.source_id != PerceptionSourceId::builtin()
+                || !is_builtin_unit(&registration.binding.unit_id)
                 || keep.contains(&registration.binding)
         });
         before - registrations.len()
@@ -1081,10 +1132,9 @@ pub fn reconcile_builtin_perception_sources(
 
 /// The same reconciliation over installation facts the caller already read.
 ///
-/// A projection reads the installation once and derives its cards, its
-/// revision and its observation bindings from that one reading, so a card can
-/// never describe units from a different installation than the sources that
-/// answer for them.
+/// Explicit preparation derives source bindings from this installation read.
+/// Catalogue projections independently validate their current exact cache key;
+/// they never reconcile registrations or acquire observations themselves.
 pub fn reconcile_perception_sources_from(
     facts: &[shenko_node::InstalledUnitFact],
     node: &Arc<Mutex<Node>>,
@@ -1092,7 +1142,7 @@ pub fn reconcile_perception_sources_from(
 ) -> Result<Vec<PerceptionBinding>> {
     let installed: Vec<&shenko_node::InstalledUnitFact> = facts
         .iter()
-        .filter(|fact| fact.kind == UnitKind::Perception && is_builtin_unit(&fact.unit_id))
+        .filter(|fact| fact.enabled && fact.kind == UnitKind::Perception && is_builtin_unit(&fact.unit_id))
         .collect();
     let wanted: Vec<PerceptionBinding> = installed
         .iter()

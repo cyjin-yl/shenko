@@ -27,6 +27,7 @@ mod runtime_bootstrap;
 mod runtime_branches;
 mod runtime_channels;
 mod runtime_cognition;
+mod runtime_perception;
 mod runtime_consumers;
 mod runtime_inference;
 mod runtime_lifecycle;
