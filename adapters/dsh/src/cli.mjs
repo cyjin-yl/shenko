@@ -51,5 +51,6 @@ async function main() {
 main().catch(error => {
   // The host has already attempted bounded cleanup. A plugin can own an
   // uncooperative timer or task, so exitCode alone cannot finish this process.
-  process.stderr.write(`${JSON.stringify({ status: 'error', message: error.message })}\n`, () => process.exit(1));
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`${JSON.stringify({ status: 'error', message })}\n`, () => process.exit(1));
 });

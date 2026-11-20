@@ -12,13 +12,23 @@ export async function serve(config) {
   );
   const transport = new StdioServerTransport();
   let fatal;
+  let hasFatal = false;
   let ended;
   let stopping;
   const done = new Promise((resolve) => { ended = resolve; });
 
+  function retainFailure(error) {
+    if (hasFatal) {
+      console.error('DSH shutdown failed after primary failure:', error);
+      return;
+    }
+    hasFatal = true;
+    fatal = error;
+  }
+
   function stop(error) {
-    fatal ??= error;
-    stopping ??= server.close().finally(ended);
+    if (arguments.length && !hasFatal) retainFailure(error);
+    stopping ??= server.close().catch(retainFailure).finally(ended);
     return stopping;
   }
 
@@ -32,9 +42,17 @@ export async function serve(config) {
         requestId: extra.requestId,
       });
     } catch (error) {
-      // Close before the handler settles: no ordinary result/error may turn an
-      // unknown external effect into a failed or completed Shenko receipt.
-      if (error instanceof UnknownOutcomeError) await stop(error);
+      if (error instanceof UnknownOutcomeError) {
+        try {
+          await stop(error);
+        } finally {
+          // A rejected transport close may leave stdout writable and the SDK
+          // request unaborted. Never settle this handler into an ordinary reply.
+          // stop() releases serve() for bounded host cleanup; the owning CLI
+          // then exits with the retained primary error and retires the process.
+          await new Promise(() => {});
+        }
+      }
       throw error;
     }
   });
@@ -50,14 +68,24 @@ export async function serve(config) {
   try {
     await server.connect(transport);
     await done;
+  } catch (error) {
+    retainFailure(error);
   } finally {
     process.removeListener('SIGTERM', terminate);
     process.removeListener('SIGINT', terminate);
     process.stdin.removeListener('end', endInput);
     removeListener();
-    await server.close();
-    const cleanup = await host.close();
-    if (!cleanup.drained) fatal ??= new UnknownOutcomeError('DSH work did not quiesce within the shutdown grace; process termination does not reconcile effects.');
+    try {
+      await server.close();
+    } catch (error) {
+      retainFailure(error);
+    }
+    try {
+      const cleanup = await host.close();
+      if (!cleanup.drained) retainFailure(new UnknownOutcomeError('DSH work did not quiesce within the shutdown grace; process termination does not reconcile effects.'));
+    } catch (cleanupError) {
+      retainFailure(cleanupError);
+    }
   }
-  if (fatal) throw fatal;
+  if (hasFatal) throw fatal;
 }

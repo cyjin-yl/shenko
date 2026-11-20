@@ -149,7 +149,50 @@ export async function createDshHost(config) {
     for (const controller of controllers) controller.abort(new UnknownOutcomeError('DSH host is closing.'));
     const cleanup = (async () => {
       await Promise.allSettled([...inFlight]);
-      await ctx.fiber.dispose();
+      // Cordis 4.1 logs rejected disposers instead of rejecting Fiber.dispose().
+      // Its exporter() helper is owned by the disposing root and can disappear
+      // before child teardown logs arrive. Own this public exporter-map entry
+      // until actual disposal settles, including after our grace window expires.
+      const logger = ctx.logger;
+      const exporters = logger.exporters;
+      let exporterId = -1;
+      while (exporters.has(exporterId)) exporterId -= 1;
+      let failed = false;
+      let failure;
+      const observe = (reason) => {
+        if (failed) return;
+        failed = true;
+        failure = reason;
+      };
+      exporters.set(exporterId, {
+        levels: { default: 0 },
+        export(message) {
+          if (message.type === 'error') observe(message.args[0]);
+        },
+      });
+      const errorDescriptor = Object.getOwnPropertyDescriptor(logger, 'error');
+      const originalError = logger.error;
+      try {
+        // _unload calls this service method before Logger flattens aggregate
+        // errors. An empty AggregateError emits no exporter message at all.
+        Object.defineProperty(logger, 'error', {
+          configurable: true,
+          enumerable: errorDescriptor?.enumerable ?? false,
+          writable: true,
+          value: function (...args) {
+            observe(args[0]);
+            return Reflect.apply(originalError, this, args);
+          },
+        });
+        await ctx.fiber.dispose();
+        if (failed) {
+          throw new DshCompatibilityError('DSH plugin cleanup reported an error.', { cause: failure });
+        }
+      } finally {
+        exporters.delete(exporterId);
+        if (errorDescriptor) Object.defineProperty(logger, 'error', errorDescriptor);
+        else delete logger.error;
+      }
     })();
     let timer;
     closing = Promise.race([
@@ -196,7 +239,11 @@ export async function createDshHost(config) {
     const tools = listTools();
     if (tools.length === 0) throw new DshCompatibilityError('Selected modules registered no standalone tools. Client-only, skill-only, and agent-only plugins are outside this profile.');
   } catch (error) {
-    await close();
+    try {
+      await close();
+    } catch (cleanupError) {
+      console.error('DSH cleanup failed after plugin startup failure:', cleanupError);
+    }
     throw error;
   }
 

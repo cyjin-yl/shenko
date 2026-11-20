@@ -174,6 +174,17 @@ shenko --data-dir /opt/shenko/state compat disable dsh.my-tools
 `envRefs` 在执行节点是否有值；生成资料的绝对路径是否仍有效。需要 DSH agent/session
 等未桥接能力的插件，应视为超出当前兼容范围，不要靠删掉依赖声明强行通过检查。
 
+固定的 Cordis 4.1.0 会把 disposer 的抛出或拒绝转为 error 日志，dispose promise 本身仍可能
+成功；空 AggregateError 还可能在日志展开时完全消失。桥接宿主在实际 disposal 期间观察
+框架传给 logger.error 的原始原因，并保留独立的日志观察器；这一窗口内出现 error 时，
+`check` 失败，不输出 ready 或 plugin-disposal 成功回执。日志没有专门的 disposer 失败类型，
+因此同一窗口内插件主动记录的 error 也会使检查失败。清理超过窗口仍报告未完成；观察器
+持续到实际清理结束才移除，超时不会替插件完成清理或对账。已有启动错误或 Unknown 保留
+为主错误，额外清理错误只写入 stderr 诊断。
+
+Unknown 调用不会返回普通 MCP 结果或错误，即使 stdio 关闭本身失败。对应请求保持未结算，
+宿主仍完成有界清理，由实际 CLI 的错误退出路径终止进程；普通工具错误仍正常返回。
+
 ## 可重复验证与证据范围
 
 ```sh
