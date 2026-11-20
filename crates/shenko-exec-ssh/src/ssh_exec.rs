@@ -13,7 +13,8 @@ fn shell_quote(value: &str) -> String {
 // tmux can sanitize literal control characters in format arguments. Keep the
 // wire printable: q: escapes shell punctuation (including | and backslash)
 // in expanded text fields, and only unescaped | separates fields. Decode it
-// as data, never evaluate the output as a shell program.
+// as data, never evaluate the output as a shell program. Force UTF-8 for
+// format reads so a client in the POSIX locale keeps non-ASCII identities.
 const PANE_FORMAT: &str = "#{q:session_name}|#{window_index}|#{pane_index}|#{pane_id}|#{q:pane_current_command}|#{q:pane_current_path}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_pid}|#{pane_dead}";
 const TMUX_QUOTED_CHARACTERS: &str = "|&;<>(){}$`\\\"'*?[# =%\n\t";
 
@@ -292,7 +293,7 @@ fn guarded_send_command(
     // Identity and numeric columns cannot contain |. Keep the raw command
     // last so cut preserves every | inside its complete value. Compare it as
     // shell-quoted data, without depending on a tmux version's q: escape set.
-    let info = "tmux list-panes -a -F '#{pane_id}|#{pane_dead}|#{pane_pid}|#{pane_current_command}'";
+    let info = "tmux -u list-panes -a -F '#{pane_id}|#{pane_dead}|#{pane_pid}|#{pane_current_command}'";
     let match_line = format!("$({info} | awk -F '|' -v id={pane} '$1 == id {{print; exit}}')");
     // The pane's root process is the target-side incarnation fence: a pane
     // that was reused by another program after the observation is refused
@@ -474,7 +475,7 @@ fn parse_local_identity_line(
     let server_pid: u32 = fields[11].parse()?;
     anyhow::ensure!(server_pid > 0 && !fields[12].is_empty(),
         "local tmux server identity unavailable");
-    Ok((pane, server_pid, fields[12].to_owned()))
+    Ok((pane, server_pid, std::mem::take(&mut fields[12]).into_owned()))
 }
 
 /// Linux stat field 22, after the *last* closing comm parenthesis. The comm
@@ -621,7 +622,7 @@ impl TmuxSeat {
             !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
             "invalid exact tmux pane id");
         let command = format!(
-            "tmux display-message -p -t {} '{}|#{{pid}}|#{{q:socket_path}}'",
+            "tmux -u display-message -p -t {} '{}|#{{pid}}|#{{q:socket_path}}'",
             shell_quote(pane_id), PANE_FORMAT,
         );
         let first = self.executor.run_command(&command).await?;
@@ -647,7 +648,7 @@ impl TmuxSeat {
         let out = self
             .executor
             .run_command(&format!(
-                "tmux list-panes -a -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
+                "tmux -u list-panes -a -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
             ))
             .await?;
 
@@ -702,7 +703,7 @@ impl TmuxSeat {
         // -e: preserve escape sequences (color, attribute); second call gives tmux-stripped plain
         let raw_cmd = format!("tmux capture-pane -p -e -t {pane_target} 2>/dev/null || echo ''");
         let pane_info_cmd = format!(
-            "tmux list-panes -t {pane_target} -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
+            "tmux -u list-panes -t {pane_target} -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
         );
 
         let (raw_out, info_out) = tokio::try_join!(
