@@ -1,6 +1,6 @@
 //! Residency discovery and preservation — the real probe shapes and the pool
 //! rules they feed. No model call and no account is involved: the fixtures are
-//! plain HTTP responses a backend really returns.
+//! retained HTTP response shapes and explicitly synthetic capability declarations.
 
 use serde_json::json;
 use shenko_broker::{
@@ -296,6 +296,100 @@ fn demand(context: &str, units: u64) -> LeaseDemand {
 
 fn allocator(capabilities: KvCapabilities) -> KvAllocator {
     KvAllocator::new(Box::new(AutomaticKvPolicy::default()), capabilities)
+}
+
+/// Synthetic declarations exercise classification and lease accounting only.
+/// They are not observations of an installed backend or physical KV control.
+fn declared_kv_snapshot(evidence: Vec<serde_json::Value>) -> shenko_broker::BackendCapabilitySnapshot {
+    shenko_broker::BackendCapabilitySnapshot {
+        capability_id: "synthetic.kv-declaration".into(),
+        provider_implementation_digest: "synthetic.classification-fixture".into(),
+        backend_family: BackendFamily::Vllm,
+        backend_build: None,
+        transport: shenko_broker::TransportKind::HttpJson,
+        configuration_digest: None,
+        engine_incarnation: None,
+        model_fingerprint: None,
+        tokenizer_fingerprint: None,
+        template_fingerprint: None,
+        toolset_digest: None,
+        operations: shenko_broker::classify_operations(&BackendFamily::Vllm, &evidence),
+        capacities: Vec::new(),
+        raw_evidence: evidence,
+    }
+}
+
+#[test]
+fn kv_operation_declarations_keep_explicit_availability_and_affinity_gaps() {
+    use shenko_broker::{Guarantee, OperationAvailability, NATIVE_VLLM_CACHE_SALT};
+
+    for (availability, expected) in [
+        ("available", OperationAvailability::Available),
+        ("requires_configuration", OperationAvailability::RequiresConfiguration),
+        ("unsupported", OperationAvailability::Unsupported),
+        ("unknown", OperationAvailability::Unknown),
+    ] {
+        let evidence = vec![json!({
+            "operations": {
+                "vllm.cache_salt": { "availability": availability },
+            },
+        })];
+        let snapshot = declared_kv_snapshot(evidence.clone());
+        let operation = snapshot.operation(NATIVE_VLLM_CACHE_SALT).unwrap();
+        assert_eq!(operation.availability, expected, "{availability}");
+        let available = expected == OperationAvailability::Available;
+        assert_eq!(operation.guarantee,
+            if available { Guarantee::BestEffort } else { Guarantee::Advisory });
+        assert_eq!(snapshot.supports(NATIVE_VLLM_CACHE_SALT), available);
+        assert_eq!(snapshot.raw_evidence, evidence);
+        assert_eq!(snapshot.observed_kv_units(), None);
+        let capabilities = KvCapabilities::from_snapshot(&snapshot);
+        assert_eq!(capabilities.demonstrates("cache_salt"), available);
+        assert!(!capabilities.hard_retention);
+
+        // This configured pool is a synthetic accounting input. The declaration
+        // establishes no pool size or request acknowledgement of its own.
+        let allocator = allocator(capabilities);
+        let mut pool = KvPoolState::new(Some(1000), CapacityProvenance::Configured);
+        let mut asked = demand("ctx", 400);
+        asked.affinity_options = vec!["cache_salt".into()];
+        let admitted = allocator.acquire(&mut pool, asked).unwrap();
+        assert_eq!(admitted.lease.affinity_gap.is_none(), available);
+        assert_eq!(admitted.lease.retention.guarantee,
+            if available { RetentionGuarantee::BestEffort } else { RetentionGuarantee::Advisory });
+    }
+}
+
+#[test]
+fn kv_operation_declarations_keep_conflicts_and_nonaffirmative_values_unknown() {
+    use shenko_broker::{OperationAvailability, NATIVE_VLLM_CACHE_SALT};
+
+    for declaration in [
+        json!(false),
+        json!(null),
+        json!({ "availability": "unsupported" }),
+        json!({ "availability": "future_state" }),
+    ] {
+        let positive = json!({ "operations": ["vllm.cache_salt"] });
+        let negative = json!({ "operations": { "vllm.cache_salt": declaration } });
+        let mut evidence = vec![positive, negative];
+        let first = declared_kv_snapshot(evidence.clone());
+        assert_eq!(first.availability(NATIVE_VLLM_CACHE_SALT), OperationAvailability::Unknown);
+        assert_eq!(first.raw_evidence, evidence);
+        evidence.reverse();
+        let reversed = declared_kv_snapshot(evidence.clone());
+        assert_eq!(first.operations, reversed.operations);
+        assert_eq!(reversed.raw_evidence, evidence);
+        let capabilities = KvCapabilities::from_snapshot(&first);
+        assert!(!capabilities.demonstrates("cache_salt"));
+        let allocator = allocator(capabilities);
+        let mut pool = KvPoolState::new(Some(1000), CapacityProvenance::Configured);
+        let mut asked = demand("ctx", 400);
+        asked.affinity_options = vec!["cache_salt".into()];
+        let admitted = allocator.acquire(&mut pool, asked).unwrap();
+        assert!(admitted.lease.affinity_gap.is_some());
+        assert_eq!(admitted.lease.retention.guarantee, RetentionGuarantee::Advisory);
+    }
 }
 
 #[test]
