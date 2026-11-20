@@ -1589,6 +1589,7 @@ async fn reconcile_refuses_to_revive_a_fenced_retired_writer() {
 fn paused_catchup_preserves_source_creation_times_for_a_later_successor() {
     use rusqlite::{params, types::Value, Connection};
     use shenko_types::subject::{StepDecision, SubjectModelOutcome};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 
     // Compare every archived column, including the JSON bytes, while keeping
     // the physical receiver commit coordinate out of the source fact identity.
@@ -1620,9 +1621,16 @@ fn paused_catchup_preserves_source_creation_times_for_a_later_successor() {
         artifact_path: None, artifact_digest: None, is_active: true,
     };
     let target = RuntimeGeneration::new("creation-time-candidate");
+    let private_dir = live.slot_dir.join("private-state");
+    fs::DirBuilder::new().mode(0o700).create(&private_dir).unwrap();
+    fs::write(private_dir.join("retained"), b"source private state").unwrap();
     let slot = slots::copy_slot(
         &live, &SlotLayout::new(fixture.data_dir.clone()), &target,
     ).unwrap();
+    let copied_private_dir = slot.slot_dir.join("private-state");
+    assert_eq!(fs::metadata(&copied_private_dir).unwrap().mode() & 0o077, 0,
+        "the published copy must keep source-private directories private");
+    assert_eq!(fs::read(copied_private_dir.join("retained")).unwrap(), b"source private state");
     // The ordinary prepare path opens the published copy and imports once
     // before the source advances, establishing genuine source row baselines.
     drop(Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap());

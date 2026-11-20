@@ -384,7 +384,6 @@ pub fn open_slot_db(slot: &AbSlot) -> Result<Connection> {
 }
 
 fn copy_dir_tree(src: &Path, dst: &Path, skip_db: &Path, installation_root: &Path) -> Result<()> {
-    fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let src_path = entry.path();
@@ -399,6 +398,16 @@ fn copy_dir_tree(src: &Path, dst: &Path, skip_db: &Path, installation_root: &Pat
         let dst_path = dst.join(entry.file_name());
         let file_type = entry.file_type()?;
         if file_type.is_dir() {
+            let mut builder = fs::DirBuilder::new();
+            builder.recursive(false);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+                // The new owner needs to populate the directory. Never grant
+                // group or other access that the source directory denied.
+                builder.mode(0o700 | (entry.metadata()?.permissions().mode() & 0o077));
+            }
+            builder.create(&dst_path)?;
             copy_dir_tree(&src_path, &dst_path, skip_db, installation_root)?;
         } else if file_type.is_symlink() {
             #[cfg(unix)]
