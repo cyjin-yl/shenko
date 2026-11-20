@@ -3,7 +3,7 @@
 //!
 //! Linux, the repository Rust toolchain and Node >=24.9 are required:
 //! npm --prefix adapters/dsh ci --ignore-scripts
-//! cargo test -p shenko-compat-mcp --test dsh_native --locked -- --ignored --nocapture
+//! cargo test -p shenko-compat-mcp --test dsh_native --locked -- --nocapture
 //!
 //! SHENKO_DSH_NODE selects Node (default: node on PATH).
 //! SHENKO_DSH_EVIDENCE selects the JSON receipt file. The real Store/CAS remain
@@ -118,7 +118,6 @@ fn stopped<T>(outcome: Result<T>, cleanup: Result<()>) -> Result<T> {
 }
 
 #[tokio::test]
-#[ignore = "requires Node >=24.9 and installed adapters/dsh dependencies; run explicitly with --ignored"]
 async fn dsh_tools_keep_native_receipts_across_restart_and_disable() -> Result<()> {
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()?;
     let adapter = repo.join("adapters/dsh");

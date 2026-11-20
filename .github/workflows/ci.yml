@@ -80,6 +80,13 @@ jobs:
             --sdk .ci/toolchains/wasi-sdk-34.0-x86_64-linux \
             --target-dir .ci/target/ssh-wasi \
             --output-dir .ci/evidence/ssh-wasi/build
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: adapters/dsh/package-lock.json
+      - name: Install the DSH native integration prerequisites
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
       - name: Test the workspace, including real SSH, integration tests and doctests
         # Retain every failing target in one run; pipefail keeps any failure.
         run: |
@@ -90,25 +97,13 @@ jobs:
           export SHENKO_START_BOUNDARY_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/start-boundary"
           export SHENKO_NATIVE_E1_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/native-e1"
           export SHENKO_NATIVE_ARTIFACT_ROOT="$GITHUB_WORKSPACE/.ci/evidence/native-artifacts"
-          mkdir -p "$SHENKO_NATIVE_ARTIFACT_ROOT"
+          mkdir -p "$SHENKO_NATIVE_ARTIFACT_ROOT" .ci/evidence/dsh
+          export SHENKO_DSH_NODE="$(command -v node)"
+          export SHENKO_DSH_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/dsh/native-journey.json"
           export SHENKO_PTY_WRITE_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/pty-write"
           export SHENKO_UPDATE_BUILD_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/update-build"
           export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: adapters/dsh/package-lock.json
-      - name: Verify DSH through native tasks, Store recovery and connection withdrawal
-        run: |
-          mkdir -p .ci/evidence/dsh
-          npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
-          export SHENKO_DSH_NODE="$(command -v node)"
-          export SHENKO_DSH_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/dsh/native-journey.json"
-          export SHENKO_NATIVE_ARTIFACT_ROOT="$GITHUB_WORKSPACE/.ci/evidence/native-artifacts"
-          export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
-          cargo test -p shenko-compat-mcp --test dsh_native --locked -j2 -- --ignored --nocapture 2>&1 | tee .ci/evidence/dsh/native-journey.log
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4
