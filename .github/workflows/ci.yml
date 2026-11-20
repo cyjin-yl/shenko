@@ -95,6 +95,20 @@ jobs:
           export SHENKO_UPDATE_BUILD_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/update-build"
           export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: adapters/dsh/package-lock.json
+      - name: Verify DSH through native tasks, Store recovery and connection withdrawal
+        run: |
+          mkdir -p .ci/evidence/dsh
+          npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
+          export SHENKO_DSH_NODE="$(command -v node)"
+          export SHENKO_DSH_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/dsh/native-journey.json"
+          export SHENKO_NATIVE_ARTIFACT_ROOT="$GITHUB_WORKSPACE/.ci/evidence/native-artifacts"
+          export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
+          cargo test -p shenko-compat-mcp --test dsh_native --locked -j2 -- --ignored --nocapture 2>&1 | tee .ci/evidence/dsh/native-journey.log
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4

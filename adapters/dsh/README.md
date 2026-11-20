@@ -191,6 +191,21 @@ Unknown 调用不会返回普通 MCP 结果或错误，即使 stdio 关闭本身
 npm test --prefix adapters/dsh
 ```
 
+原生集成旅程在项目 Rust 开发容器中执行，要求 Node ≥24.9 和上述锁文件依赖已经安装：
+
+```sh
+export SHENKO_DSH_NODE="$(command -v node)"
+export SHENKO_COMPAT_EVIDENCE_ROOT="$PWD/target/dsh-native-evidence"
+export SHENKO_DSH_EVIDENCE="$SHENKO_COMPAT_EVIDENCE_ROOT/native-journey.json"
+cargo test -p shenko-compat-mcp --test dsh_native --locked -j2 -- --ignored --nocapture
+```
+
+这一条旅程使用真实 Node 安装、Store、native child 与 DSH stdio 子进程，检查目录和结果
+入账、已发生效果后的 Unknown、关闭并重开后的原回执对账，以及单独撤回连接。
+它默认标为 `ignore`，因为普通 Rust 测试环境不要求安装 Node；显式执行时缺少运行时或
+依赖会失败。CI 的 `rust` 必检任务安装仓库固定的 Node 后执行它，并保留日志、JSON
+摘要和原始 Store/CAS。`web` 必检任务运行八个独立的宿主与协议检查。
+
 测试验证固定依赖下的宿主与协议行为；真实插件、Shenko 原生 Store 接续及真实模型选用
 效果分别记录。没有某一层的实际运行记录时，该层保持未验证。`check` 结果仅针对本次配置、
 源版本和节点；不能推广为所有 DSH 插件、跨节点环境或完整 DSH agent 的兼容声明。
