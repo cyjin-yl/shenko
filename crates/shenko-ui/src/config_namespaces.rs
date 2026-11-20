@@ -23,7 +23,7 @@ use shenko_store::store::Store;
 use shenko_types::object::{Digest, SchemaRef};
 
 use crate::config_service::{
-    ConfigApplication, ConfigApplyOutcome, ConfigNamespace, ConfigNamespaceHandler, ConfigService,
+    ConfigApplication, ConfigApplyOutcome, ConfigApplyRefusal, ConfigNamespace, ConfigNamespaceHandler, ConfigService,
     builtin_contract,
 };
 
@@ -139,8 +139,11 @@ impl ConfigNamespaceHandler for UiPageLimitNamespace {
     }
 
     fn apply(&self, change: &ConfigChange, desired: &Value) -> Result<ConfigApplyOutcome> {
-        let limit = parse_page_limit(desired).map_err(anyhow::Error::msg)?;
-        let observation = self.seal_observation(change, limit)?;
+        let limit = parse_page_limit(desired)
+            .map_err(anyhow::Error::msg)
+            .map_err(ConfigApplyRefusal::new)?;
+        let observation = self.seal_observation(change, limit)
+            .map_err(ConfigApplyRefusal::new)?;
         // The consumer reads this cell on its next request. Recording the
         // adoption here is the consumer's own statement that it now runs the
         // new revision — not an inference from the saved value.

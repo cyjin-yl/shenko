@@ -343,6 +343,7 @@ impl ConfigHandler {
                 match self.service.apply(request) {
                     Ok(applied) => {
                         let state = applied.change.state.clone();
+                        let effect = applied.effect_status();
                         let adopted = applied
                             .change
                             .adopted
@@ -362,12 +363,15 @@ impl ConfigHandler {
                                 },
                                 "op": "apply",
                                 "replayed": applied.replayed,
+                                "effect_status": effect,
                                 "change": applied.change,
                                 "adopted_consumers": adopted,
                                 "next": if applied_cleanly {
                                     "consumers adopted the revision; read the key again to observe it"
+                                } else if effect == EffectStatus::None {
+                                    "the namespace refused this effect; the failed desired revision and its rejection receipt remain saved"
                                 } else {
-                                    "the desired revision is saved but no apply receipt exists: an interrupted (or still-owned) attempt. Read the key to reconcile it from the consumer's own report. Do not present the value as applied, and do not repeat the same intent to force it; a new decision needs a new intent after reading the current facts"
+                                    "the namespace effect is unknown: an apply error or an interrupted settlement does not prove the consumer stayed unchanged. Read or recover the original intent; do not reapply it to force a result"
                                 },
                             }),
                             outcome: if applied_cleanly {
@@ -375,18 +379,36 @@ impl ConfigHandler {
                             } else {
                                 OperationOutcome::Failed
                             },
-                            effect: if applied_cleanly {
-                                EffectStatus::Complete
-                            } else {
-                                EffectStatus::Partial
-                            },
+                            effect,
                         }
                     }
-                    Err(error) => Observation {
-                        result: rejected("apply", &error),
-                        outcome: OperationOutcome::Succeeded,
-                        effect: EffectStatus::None,
-                    },
+                    Err(error) => {
+                        let effect = error.apply_effect_status();
+                        let refused = effect == EffectStatus::None;
+                        let change_id = match &error {
+                            ConfigError::ApplyUnsettled { change_id, .. } => Some(*change_id),
+                            _ => None,
+                        };
+                        Observation {
+                            result: if refused {
+                                rejected("apply", &error)
+                            } else {
+                                json!({
+                                    "schema_version": 1, "status": "unknown", "op": "apply",
+                                    "code": error.code(), "error": error.to_string(),
+                                    "change_id": change_id, "origin_identity": frozen.origin_identity,
+                                    "effect_status": effect,
+                                    "note": "the original namespace effect could not be settled; preserve this operation and origin, read or recover its durable change, and do not reapply it",
+                                })
+                            },
+                            outcome: if refused {
+                                OperationOutcome::Succeeded
+                            } else {
+                                OperationOutcome::Failed
+                            },
+                            effect,
+                        }
+                    }
                 }
             }
             ConfigOp::Recover {
@@ -402,7 +424,7 @@ impl ConfigHandler {
                                 "schema_version": 1,
                                 "status": "settled",
                                 "change": change,
-                                "note": "the interrupted intent now has a receipt. Its outcome is unknown unless the consumer's report proved otherwise; no handler was re-run and no adoption was invented",
+                                "note": "the interrupted intent now has a receipt and its effect stays unknown. The consumer's current report does not prove the original effect; no handler was re-run and no adoption was invented",
                             }),
                             None => json!({
                                 "schema_version": 1,
@@ -523,7 +545,7 @@ fn rejected(op: &str, error: &ConfigError) -> Value {
         "op": op,
         "code": error.code(),
         "error": error.to_string(),
-        "note": "the request was refused by the configuration service; no effect was applied",
+        "note": "the request was refused without applying a namespace effect; any saved intent and its original history remain available",
     })
 }
 
