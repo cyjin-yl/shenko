@@ -175,7 +175,11 @@ impl shenko_kernel::Plugin for SeatSessionsPlugin {
                 panic!("seat generation teardown failed: {error:#}");
             }
         }).map_err(std::io::Error::other)?;
-        let seat_ssh_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 7] = [
+        let seat_ssh_handlers: [Arc<dyn shenko_kernel::task::NativeTaskHandler>; 8] = [
+            Arc::new(shenko_exec_ssh::LocalSeatAttachHandler::new(
+                Arc::clone(store),
+                Arc::clone(&seat_runtime),
+            )),
             Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
             Arc::new(shenko_exec_ssh::SshPtyHandler::new(
                 Arc::clone(store),

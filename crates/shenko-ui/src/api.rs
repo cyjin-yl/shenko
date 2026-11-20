@@ -179,6 +179,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/identity/name", post(identity_name_handler))
         .route("/api/owner/state", get(owner_state_handler))
         .route("/api/owner/claim", post(owner_claim_handler))
+        .route("/api/owner/seats/local/attach", post(owner_local_seat_attach_handler))
         .route("/api/playground", get(playground_surface_handler))
         .route(
             "/api/attachments",
@@ -201,6 +202,32 @@ pub fn router(state: ApiState) -> Router {
 // route's. There is no routine approval gate: a durable change receipt is
 // the record, adoption by consumers is separately observed.
 // ---------------------------------------------------------------------------
+
+/// Publish an owner-authenticated request into the installed native task
+/// ledger. This route never probes a pane or owns a separate SeatRuntime.
+async fn owner_local_seat_attach_handler(
+    State(state): State<ApiState>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<shenko_exec_ssh::LocalSeatAttachRequest>,
+) -> Json<Value> {
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({"accepted": false, "code": "OWNER_UNAVAILABLE"}));
+    };
+    let principal_ref = match owner.actor(&headers) {
+        Ok(crate::owner::AuthenticatedActor::Owner { principal_ref }) => principal_ref,
+        Ok(crate::owner::AuthenticatedActor::Participant) =>
+            return Json(json!({"accepted": false, "code": "OWNER_REQUIRED"})),
+        Err(error) => return Json(json!({"accepted": false, "code": "OWNER_UNAVAILABLE", "error":error.to_string()})),
+    };
+    let available = state.playground.as_ref().and_then(|pg| pg.native())
+        .is_some_and(|native| native.has_handler("seat.attach.local", 1));
+    match shenko_exec_ssh::admit_owner_local_seat_attachment(
+        &owner.store, owner.installation_id, principal_ref, request, available,
+    ) {
+        Ok(receipt) => Json(receipt),
+        Err(error) => Json(json!({"accepted": false, "code": "SEAT_ATTACHMENT_REFUSED", "error":format!("{error:#}")})),
+    }
+}
 
 /// `GET /api/config/namespaces` → the installed namespaces and their keys.
 async fn config_namespaces_handler(State(state): State<ApiState>) -> Json<Value> {

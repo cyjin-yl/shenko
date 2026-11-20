@@ -142,9 +142,9 @@ pub struct SeatRespondOutcome {
 pub struct SeatReattachReport {
     /// Live seats now reachable through the runtime again.
     pub reattached: Vec<SeatHandle>,
-    /// Seats whose incarnation was bumped before reattach: the pane's
-    /// recorded occupant was provably replaced in place, so every fence
-    /// recorded under the old incarnation now refuses to write.
+    /// Retained report field for callers. Restart recovery now refuses a
+    /// changed occupant without mutating the original durable record, so
+    /// this pass never adds an incarnation bump.
     pub incarnation_bumped: Vec<EntityId>,
     /// Seats that could not be reattached, with the reason. The durable
     /// records stay readable; nothing was rewritten, retired or re-opened.
@@ -171,6 +171,9 @@ impl SeatRuntime {
         attachment: SeatAttachment,
     ) -> Result<SeatHandle> {
         ensure!(!self.closed.load(Ordering::Acquire), "seat runtime is closed");
+        ensure!(self.store.seat(attachment.seat_record_id)?
+            .is_none_or(|seat| seat.read_only_operation.is_none()),
+            "owner-selected local seats require exact read-only attachment");
         let mut discovered = adapter.discover().await.context("seat adapter discover 失败")?;
         ensure!(
             !discovered.is_empty(),
@@ -188,6 +191,61 @@ impl SeatRuntime {
         ensure!(!self.closed.load(Ordering::Acquire), "seat runtime closed during attach");
         ensure!(!seats.contains_key(&key), "a live seat already owns this location");
         seats.insert(key, seat);
+        Ok(handle)
+    }
+
+    /// Rebuild only the original owner-request binding. The handle comes from
+    /// its durable locator; no discovery, registration, new lease or process.
+    /// This is transport admission, not authentication of an owner request.
+    pub async fn attach_existing_local_read_only(
+        &self,
+        operation_id: EntityId,
+        seat_id: EntityId,
+        lease_id: EntityId,
+    ) -> Result<SeatHandle> {
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime is closed");
+        let record = self.store.seat(seat_id)?.context("original local seat missing")?;
+        ensure!(seat_id == EntityId::derived("local-seat-attach-seat/v1", operation_id.to_string().as_bytes())
+            && lease_id == EntityId::derived("local-seat-attach-lease/v1", operation_id.to_string().as_bytes()),
+            "attachment must retain its original seat and lease identities");
+        ensure!(record.status == SeatStatus::Active
+            && record.read_only_operation == Some(operation_id), "original read-only seat changed");
+        let lease = self.store.seat_lease(lease_id)?.context("original local lease missing")?;
+        ensure!(lease.is_writer_fence() && lease.is_current() && lease.seat_id == seat_id
+            && lease.holder_task_id == record.task_id
+            && lease.acquired_at_incarnation == record.incarnation
+            && self.store.seat_current_lease(seat_id)?.is_some_and(|current| current.lease_id == lease_id),
+            "original local lease is no longer current");
+        let handle = local_handle_for_location(&record.location)?;
+        let adapter = Arc::new(crate::seat::tmux::TmuxSeatAdapter::local());
+        ensure!(adapter.local_location(&handle).await? == record.location,
+            "original local pane incarnation or locator changed");
+        // A suspension in the physical observation cannot refresh authority.
+        let current = self.store.seat(seat_id)?.context("original local seat disappeared")?;
+        ensure!(current.record_revision == record.record_revision && current.status == SeatStatus::Active
+            && current.location == record.location && current.read_only_operation == Some(operation_id)
+            && self.store.seat_current_lease(seat_id)?.is_some_and(|current| current.lease_id == lease_id),
+            "local attachment authority changed during observation");
+        let mut live = LiveSeat {
+            adapter, attachment: SeatAttachment { task_id: record.task_id, seat_record_id: seat_id, lease_id },
+            handle: handle.clone(), durable_questions: Mutex::new(BTreeMap::new()),
+        };
+        self.rebind_durable_questions(&record, &handle, &mut live).await;
+        let mut seats = self.seats.lock().await;
+        ensure!(!self.closed.load(Ordering::Acquire), "seat runtime closed during attach");
+        ensure!(self.store.seat(seat_id)?.is_some_and(|current|
+            current.record_revision == record.record_revision && current.status == SeatStatus::Active
+                && current.read_only_operation == Some(operation_id))
+            && self.store.seat_current_lease(seat_id)?.is_some_and(|current| current.lease_id == lease_id),
+            "original seat or lease changed before runtime registration");
+        if let Some(existing) = seats.get(&handle.location_id) {
+            ensure!(existing.attachment.seat_record_id == seat_id
+                && existing.attachment.lease_id == lease_id
+                && existing.attachment.task_id == record.task_id
+                && existing.handle == handle, "another attachment owns this location");
+            return Ok(existing.handle.clone());
+        }
+        seats.insert(handle.location_id.clone(), live);
         Ok(handle)
     }
 
@@ -210,7 +268,15 @@ impl SeatRuntime {
                     // The adapter declares what it can do; the fleet publishes
                     // those flags independently of transport liveness. An
                     // unattached durable record supplies no declaration.
-                    seat.capability = Some(adapter.capability());
+                    let mut capability = adapter.capability();
+                    if self.store.seat(seat.seat_id)?.is_some_and(|record| record.read_only_operation.is_some()) {
+                        capability.structured_answers = false;
+                        capability.steer = false;
+                        capability.interrupt = false;
+                        capability.resume = false;
+                        capability.notes.push("Owner-selected attachment is observation-only; terminal input is refused durably.".into());
+                    }
+                    seat.capability = Some(capability);
                     match tokio::time::timeout(
                         std::time::Duration::from_millis(500),
                         adapter.transport_live(handle),
@@ -252,9 +318,10 @@ impl SeatRuntime {
     /// tmux pane. Managed OMP/Claude processes and SSH PTYs die with the
     /// process that spawned them, so their records stay durable-only and are
     /// reported as skipped — nothing is fabricated, retired or re-opened.
-    /// When the pane's foreground program provably changed in place the
-    /// seat's incarnation is bumped first, so every fence recorded under the
-    /// old occupant refuses to write before this seat is observable again.
+    /// The complete recorded local pane/server incarnation must match.
+    /// Legacy missing identity, unavailable evidence and changed occupants
+    /// stay durable-only; recovery never adopts today's occupant or rewrites
+    /// the original record to make a stale attachment appear current.
     pub async fn reattach_from_store(&self, task_id: EntityId) -> Result<SeatReattachReport> {
         let mut report = SeatReattachReport::default();
         for record in self.store.seat_task_seats(task_id)? {
@@ -281,7 +348,7 @@ impl SeatRuntime {
         if record.status != SeatStatus::Active {
             return skip(report, format!("seat retired at {}", record.updated_commit.seq.0));
         }
-        let SeatLocation::Tmux { host, pane_id, current_command, .. } = &record.location else {
+        let SeatLocation::Tmux { host, pane_id, local_identity, .. } = &record.location else {
             // The managed process (OMP, Claude) or PTY belonged to the
             // process that spawned it; the durable record is the authority
             // and a live transport is never re-opened implicitly.
@@ -290,16 +357,29 @@ impl SeatRuntime {
         if host != "local" {
             return skip(report, "remote tmux reattach needs an SSH binding the location does not carry".into());
         }
+        let Some(expected_identity) = local_identity else {
+            return skip(report, "legacy local tmux locator has no original process/server identity; explicit fresh binding required".into());
+        };
+        if let Err(error) = expected_identity.validate() {
+            return skip(report, format!("stored local tmux identity is invalid: {error:#}"));
+        }
         let Some(lease) = (match self.store.seat_current_lease(record.seat_id) {
             Ok(lease) => lease,
             Err(error) => return skip(report, format!("lease lookup failed: {error:#}")),
         }) else {
             return skip(report, "no current writer lease".into());
         };
-        if !lease.is_writer_fence() || lease.holder_task_id != record.task_id {
+        if !lease.is_writer_fence() || lease.holder_task_id != record.task_id
+            || lease.acquired_at_incarnation != record.incarnation {
             return skip(report, "current lease is not a writer fence for this task".into());
         }
-        let adapter: Arc<dyn SeatAdapter> = Arc::new(crate::seat::tmux::TmuxSeatAdapter::local());
+        if let Some(operation_id) = record.read_only_operation {
+            return match self.attach_existing_local_read_only(operation_id, record.seat_id, lease.lease_id).await {
+                Ok(handle) => report.reattached.push(handle),
+                Err(error) => skip(report, format!("original read-only attachment unavailable: {error:#}")),
+            };
+        }
+        let adapter = Arc::new(crate::seat::tmux::TmuxSeatAdapter::local());
         let discovered = match adapter.discover().await {
             Ok(handles) => handles,
             Err(error) => return skip(report, format!("discover failed: {error:#}")),
@@ -307,18 +387,12 @@ impl SeatRuntime {
         let Some(handle) = discovered.into_iter().find(|h| h.location_id == *pane_id) else {
             return skip(report, format!("pane {pane_id} not found on the local tmux server"));
         };
-        if handle.current_command.as_deref() != Some(current_command.as_str()) {
-            // The pane id was reused: the recorded occupant is gone, and the
-            // remote program is provably a different one. That is the
-            // in-place location change the incarnation field exists for —
-            // bumping it stales every lease/fence recorded under the old
-            // occupant before this seat becomes reachable again.
-            match self.store.bump_seat_incarnation(record.seat_id) {
-                Ok(_) => report.incarnation_bumped.push(record.seat_id),
-                Err(error) => {
-                    return skip(report, format!("incarnation bump failed: {error:#}"));
-                }
-            }
+        let observed_location = match adapter.local_location(&handle).await {
+            Ok(location) => location,
+            Err(error) => return skip(report, format!("local tmux identity unavailable: {error:#}")),
+        };
+        if observed_location != record.location {
+            return skip(report, "local tmux locator or process/server incarnation changed; original seat remains durable-only".into());
         }
         let mut live_seat = LiveSeat {
             adapter,
@@ -877,6 +951,26 @@ impl SeatRuntime {
     }
 }
 
+pub(crate) fn local_handle_for_location(location: &SeatLocation) -> Result<SeatHandle> {
+    let SeatLocation::Tmux { host, pane_id, cwd, current_command,
+        local_identity: Some(identity), .. } = location else {
+        anyhow::bail!("original complete local tmux locator required");
+    };
+    ensure!(host == "local" && pane_id.starts_with('%')
+        && pane_id.len() > 1 && pane_id[1..].bytes().all(|byte| byte.is_ascii_digit()),
+        "invalid exact local pane selector");
+    identity.validate()?;
+    Ok(SeatHandle {
+        location_id: pane_id.clone(), adapter: crate::seat::SeatAdapterId::Tmux,
+        adapter_version: crate::seat::tmux::TMUX_ADAPTER_VERSION.into(), host: host.clone(),
+        cwd: Some(cwd.clone()), remote_session_id: None, current_command: Some(current_command.clone()),
+        process_identity: Some(crate::seat::ProcessIdentity {
+            pid: Some(identity.pane_pid), start_token: Some(serde_json::to_string(identity)?),
+            executable: Some(current_command.clone()),
+        }),
+    })
+}
+
 async fn close_adapter(adapter: &dyn SeatAdapter) -> Result<()> {
     let any = adapter as &dyn std::any::Any;
     if let Some(pty) = any.downcast_ref::<crate::seat::ssh_pty::SshPtySeat>() {
@@ -1133,7 +1227,8 @@ mod tests {
             store.commit(batch)?;
             let seat = store.register_seat(EntityId::new(), task, "tmux", "lost-reply-fixture",
                 SeatLocation::Tmux { host: "local".into(), session: "fixture".into(), window: 0,
-                    pane: 0, pane_id: "%3".into(), cwd: "/project".into(), current_command: "omp".into() })?;
+                    pane: 0, pane_id: "%3".into(), cwd: "/project".into(), current_command: "omp".into(),
+                    local_identity: None })?;
             let lease = store.acquire_seat_lease(shenko_store::SeatLeaseRequest {
                 lease_id: EntityId::new(), seat_id: seat.seat_id, holder_task_id: task,
                 lease_epoch: 1, fence_capability: "fixture-original-input".into(),
