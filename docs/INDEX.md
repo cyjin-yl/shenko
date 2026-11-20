@@ -24,6 +24,7 @@
 - [用户原话](requirements/user-sources.md)、[裁决记录](decisions/product-rulings.md)、[追踪矩阵](requirements/traceability.md)、[设计来源](requirements/design-provenance.md)。
 - [覆盖账本](state/coverage.json)与[运行证据](evidence/)：候选及验证状态。
 - [历史归档](history/)：不可用旧方法覆盖新的明确决定。
+- [工具取舍与开发循环自身的耗时](decisions/0009-agent-loop-tools-and-self-optimization-2026-11-20.md)：owner 2026-11-20 的决定。通用组合优先，专用工具只在有判据时才做；开发循环按阶段记录耗时，工具链也属于改进对象。
 - [文件视图、主体相遇、附件与 iMessage 质感](decisions/0008-files-encounters-attachments-2026-11-19.md)：owner 2026-11-19 的逐字决定与工程合同：类 Finder 的文件视图跨家园、节点与网络挂载；主体之间的路过交换与能力共享；Reddit/X 渠道；附件输入；编译模式与 Messages 质感。
 - [默认元感知与元 awareness 接续](decisions/0006-meta-perception-continuation-2026-11-11.md)：Issue #279 摘要的工程合同；原始用户决定全文尚未取得，实现与模型效果仍需各自验收。
 
