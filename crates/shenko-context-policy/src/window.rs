@@ -3,14 +3,14 @@
 //! A committed window records its decoder (policy id/version), source refs and
 //! derivatives, so it can be materialized without the plugin that produced it.
 //! Where the chain lives is a [`WindowLog`]: in-process, or the durable store.
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
-use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError, units, unresolved_calls};
+use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError, units};
 use crate::notes::NoteSource;
 use crate::policy::{
     CostReport, Derivative, PreparedWindow, WINDOW_BODY_VERSION, WindowBase, WindowEntry,
@@ -102,11 +102,7 @@ impl CommittedWindow {
             Some(leaf) => history.call_items(leaf)?,
             None => Vec::new(),
         };
-        let current_states = call_states(&calls);
-        let mut changed = unresolved_calls(&calls);
-        for (call_id, states) in &current_states {
-            if self.call_states.get(call_id) != Some(states) { changed.insert(call_id.clone()); }
-        }
+        let changed = calls_requiring_restore(&calls, &self.call_states);
         // Pairing only needs ordered call metadata. Numeric endpoints keep
         // all ordinary/interleaved events inside the indivisible unit.
         let mut restore_ranges = Vec::new();
@@ -118,7 +114,7 @@ impl CommittedWindow {
             let (from, to) = (first.at.seq, last.at.seq);
             if lossy.iter().any(|(start, end)| from <= *end && to >= *start)
                 && slice.iter().any(|item| match &item.kind {
-                    ItemKind::ToolCall { call_id, .. } | ItemKind::ToolResult { call_id, .. } => changed.contains(call_id),
+                    ItemKind::ToolCall { call_id, .. } | ItemKind::ToolResult { call_id, .. } => changed.contains_key(call_id.as_str()),
                     _ => false,
                 }) { restore_ranges.push((from, to)); }
         }
@@ -208,6 +204,42 @@ pub(crate) fn validate_entries(entries: &[WindowEntry]) -> Result<(), StorageErr
         note = Some(*revision);
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct CallComparison {
+    observed: usize,
+    has_call: bool,
+    resolved: bool,
+    changed: bool,
+}
+
+/// Compare the ordered seq/status stream directly with the committed facts.
+/// Borrow call identities and retain only one accumulator per identity, rather
+/// than copying every identity and rebuilding every baseline vector on each
+/// projection. Pairing still uses the complete metadata stream below.
+fn calls_requiring_restore<'a>(
+    items: &'a [HistoryItem], baseline: &BTreeMap<String, Vec<(u64, CallStatus)>>,
+) -> HashMap<&'a str, CallComparison> {
+    let mut comparisons: HashMap<&str, CallComparison> = HashMap::new();
+    for item in items {
+        let (call_id, status, is_call) = match &item.kind {
+            ItemKind::ToolCall { call_id, status, .. } => (call_id.as_str(), *status, true),
+            ItemKind::ToolResult { call_id, status } => (call_id.as_str(), *status, false),
+            _ => continue,
+        };
+        let comparison = comparisons.entry(call_id).or_default();
+        comparison.changed |= baseline.get(call_id).and_then(|states| states.get(comparison.observed))
+            != Some(&(item.at.seq, status));
+        comparison.observed += 1;
+        comparison.has_call |= is_call;
+        comparison.resolved |= status.is_resolved();
+    }
+    comparisons.retain(|call_id, comparison| {
+        comparison.changed || (comparison.has_call && !comparison.resolved)
+            || baseline.get(*call_id).is_none_or(|states| states.len() != comparison.observed)
+    });
+    comparisons
 }
 
 fn call_states(items: &[HistoryItem]) -> BTreeMap<String, Vec<(u64, CallStatus)>> {
@@ -701,6 +733,165 @@ fn rehydrate(
 mod tests {
     use super::*;
     use crate::{estimate_tokens, CostReport, MemoryHistory, PolicyManifest, PreparedWindow};
+
+    #[test]
+    fn borrowed_call_comparison_preserves_order_multiplicity_and_uncertainty() {
+        let history = MemoryHistory::new();
+        for (call_id, status) in [
+            ("settled", CallStatus::Executed { ok: true }),
+            ("pending", CallStatus::Pending),
+            ("unknown", CallStatus::Unknown),
+            ("cancelled", CallStatus::Cancelled),
+            ("failed", CallStatus::Executed { ok: false }),
+        ] {
+            history.append(ItemKind::ToolCall {
+                call_id: call_id.into(), tool: "native".into(), args_ref: "args".into(), status,
+            }, "call", 2);
+            history.append(ItemKind::ToolResult { call_id: call_id.into(), status }, "result", 2);
+        }
+        // The original rule resolves by any resolved call/result of this id,
+        // including mixed or repeated metadata; this optimization cannot
+        // silently replace that rule with last-status or pair-count inference.
+        history.append(ItemKind::ToolResult {
+            call_id: "pending".into(), status: CallStatus::Executed { ok: true },
+        }, "late result", 2);
+        history.append(ItemKind::ToolResult {
+            call_id: "orphan".into(), status: CallStatus::Unknown,
+        }, "orphan", 2);
+        let items = history.snapshot();
+        let original = call_states(&items);
+        let mut baselines = vec![original.clone(), BTreeMap::new()];
+        let mut reordered = original.clone();
+        reordered.get_mut("settled").unwrap().reverse();
+        baselines.push(reordered);
+        let mut shorter = original.clone();
+        shorter.get_mut("failed").unwrap().pop();
+        baselines.push(shorter);
+        let mut longer = original.clone();
+        longer.get_mut("cancelled").unwrap().push((100, CallStatus::Cancelled));
+        baselines.push(longer);
+        let mut different = original.clone();
+        different.get_mut("settled").unwrap()[0].1 = CallStatus::Unknown;
+        baselines.push(different);
+        for baseline in baselines {
+            let mut expected = crate::history::unresolved_calls(&items);
+            for (id, states) in &original {
+                if baseline.get(id) != Some(states) { expected.insert(id.clone()); }
+            }
+            let actual = calls_requiring_restore(&items, &baseline);
+            assert_eq!(actual.keys().copied().collect::<BTreeSet<_>>(),
+                expected.iter().map(String::as_str).collect::<BTreeSet<_>>());
+        }
+    }
+
+    #[test]
+    fn late_window_transitions_preserve_ranges_provenance_and_fail_closed() {
+        struct ObservedHistory {
+            history: MemoryHistory,
+            reads: Mutex<Vec<(u64, u64)>>,
+            missing: Option<u64>,
+        }
+        impl HistorySource for ObservedHistory {
+            fn read_range(&self, from: u64, to: u64) -> Result<Vec<HistoryItem>, StorageError> {
+                self.reads.lock().push((from, to));
+                Ok(self.history.read_range(from, to)?.into_iter()
+                    .filter(|item| Some(item.at.seq) != self.missing).collect())
+            }
+            fn read_event(&self, id: EntityId) -> Result<Option<HistoryItem>, StorageError> {
+                self.history.read_event(id)
+            }
+            fn leaf_seq(&self) -> Result<Option<u64>, StorageError> { self.history.leaf_seq() }
+            fn call_items(&self, through: u64) -> Result<Vec<HistoryItem>, StorageError> {
+                self.history.call_items(through)
+            }
+        }
+        let mut history = ObservedHistory {
+            history: MemoryHistory::new(), reads: Mutex::new(Vec::new()), missing: None,
+        };
+        let settled = CallStatus::Executed { ok: true };
+        // A long retained prefix with many already completed calls exercises
+        // baseline comparison without making that prefix a restoration read.
+        for index in 0..512 {
+            let call_id = format!("historical-{index}");
+            history.history.append(ItemKind::User, "earlier request", 5);
+            history.history.append(ItemKind::ToolCall {
+                call_id: call_id.clone(), tool: "native".into(), args_ref: "earlier-args".into(),
+                status: settled,
+            }, "earlier call", 7);
+            history.history.append(ItemKind::ToolResult { call_id, status: settled }, "earlier result", 11);
+            history.history.append(ItemKind::Assistant { cancelled: false }, "earlier response", 13);
+        }
+        for _ in 2048..4096 { history.history.append(ItemKind::User, "retained ordinary event", 17); }
+        history.history.append(ItemKind::ToolCall {
+            call_id: "late-a".into(), tool: "native".into(), args_ref: "late-args-a".into(), status: settled,
+        }, "late call a", 19);
+        history.history.append(ItemKind::User, "interleaved request", 23);
+        history.history.append(ItemKind::ToolCall {
+            call_id: "late-b".into(), tool: "native".into(), args_ref: "late-args-b".into(), status: settled,
+        }, "late call b", 29);
+        history.history.append(ItemKind::ToolResult { call_id: "late-a".into(), status: settled }, "late result a", 31);
+        history.history.append(ItemKind::Assistant { cancelled: true }, "cancelled attempt", 37);
+        history.history.append(ItemKind::ToolResult { call_id: "late-b".into(), status: settled }, "late result b", 41);
+        history.history.append(ItemKind::User, "covered suffix", 43);
+        history.history.append(ItemKind::Assistant { cancelled: false }, "covered answer", 47);
+        let mut window = CommittedWindow::genesis();
+        window.covers_through = Some(4103);
+        window.call_states = call_states(&history.history.snapshot());
+        window.derivatives = vec![Derivative::new("image/png", b"retained-frame".to_vec())];
+        window.entries = vec![
+            WindowEntry::Pointer { from: 0, to: 4095, note: "retained prefix".into(), tokens: 3 },
+            WindowEntry::Note { revision: 7, source: NoteSource::Tool, text: "working observation".into(), tokens: 5 },
+            WindowEntry::Text { from: 4096, to: 4098, text: "late summary".into(), tokens: 7 },
+            WindowEntry::Image { from: 4098, to: 4101, derivative: 0, tokens: 11 },
+            WindowEntry::Pointer { from: 4102, to: 4103, note: "covered suffix".into(), tokens: 13 },
+        ];
+        history.history.append(ItemKind::User, "uncovered tail", 53);
+        history.history.append(ItemKind::Other { event_type: "future@v2".into(), role: "system".into() },
+            "opaque original payload", 59);
+        let original_window = window.clone();
+        let original = window.project(&history).unwrap();
+        assert_eq!(history.reads.lock().as_slice(), &[(4104, 4105)]);
+        assert!(matches!(&original[3], Projected::Frame { from: 4098, to: 4101, bytes, .. }
+            if bytes.as_ref() == b"retained-frame"));
+        for (a, b) in [
+            (CallStatus::Unknown, settled),
+            (settled, CallStatus::Pending),
+            (CallStatus::Cancelled, CallStatus::Executed { ok: false }),
+        ] {
+            history.history.set_call_status("late-a", a);
+            history.history.set_call_status("late-b", b);
+            history.reads.lock().clear();
+            let projected = window.project(&history).unwrap();
+            let mut expected = original[..2].to_vec();
+            expected.extend(history.history.read_range(4096, 4101).unwrap().into_iter().map(Projected::Event));
+            expected.extend_from_slice(&original[4..]);
+            assert_eq!(projected, expected, "raw identities, roles, statuses, text and tokens stay original");
+            assert_eq!(history.reads.lock().as_slice(), &[(4104, 4105), (4096, 4101)]);
+        }
+        history.missing = Some(4097);
+        let error = window.project(&history).unwrap_err();
+        assert!(error.0.contains("raw range 4096..=4101 is incomplete"));
+        history.missing = None;
+        history.history.set_call_status("late-a", settled);
+        history.history.set_call_status("late-b", settled);
+        assert_eq!(window.project(&history).unwrap(), original);
+        assert_eq!(window, original_window, "projection never rewrites committed provenance");
+        // A newly appended result for a retained call changes its ordered
+        // metadata even when execution status is unchanged. Its complete unit
+        // now crosses the covered suffix and the uncovered raw boundary.
+        history.history.append(ItemKind::ToolResult {
+            call_id: "late-a".into(), status: settled,
+        }, "additional original result", 61);
+        history.reads.lock().clear();
+        let mut extended = original[..2].to_vec();
+        extended.extend(history.history.read_range(4096, 4106).unwrap().into_iter().map(Projected::Event));
+        assert_eq!(window.project(&history).unwrap(), extended);
+        assert_eq!(history.reads.lock().as_slice(), &[(4104, 4106), (4096, 4106)]);
+        assert_eq!(window, original_window);
+        let mut malformed = window.clone();
+        malformed.entries[2] = WindowEntry::Text { from: 4098, to: 4096, text: "invalid".into(), tokens: 1 };
+        assert!(malformed.project(&history).unwrap_err().0.contains("invalid lossy range"));
+    }
 
     #[test]
     fn changed_execution_status_restores_the_whole_original_unit() {
