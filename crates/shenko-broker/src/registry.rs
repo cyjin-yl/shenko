@@ -166,6 +166,24 @@ impl ProviderRegistry {
         }
     }
 
+    /// Fresh eligibility for one installed profile, under the registry read
+    /// lock. Profile bindings borrow their transport identity without cloning;
+    /// legacy bindings use the runtime's canonical binding comparison.
+    pub(crate) fn serves_model(&self, binding: &ProviderBinding, model: &str) -> bool {
+        let entries = self.entries.read();
+        let Some(entry) = entries.iter().find(|entry|
+            entry.runtime.profile().profile_id == binding.profile_id()) else {
+            return false;
+        };
+        let runtime = &entry.runtime;
+        let profile = runtime.profile();
+        profile.model_id == model && runtime.available() && match binding {
+            ProviderBinding::Profile { profile: bound } => profile.matches_except_model(bound),
+            ProviderBinding::Stub { .. } => false,
+            other => runtime.binding().same_transport(other),
+        }
+    }
+
     /// The binding of the first installed runtime. It is the binding a fresh
     /// broker seals with; the runtime itself stays authoritative.
     pub fn primary_binding(&self) -> Option<ProviderBinding> {

@@ -747,9 +747,31 @@ impl Store {
         self.ledger.with_mutation(
             || {
                 self.try_record_intervention_settlement(
-                    operation_id, attempt_id, ev, outcome, effect, decision,
+                    operation_id, attempt_id, ev, outcome, effect, decision, None,
                 )
             },
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>()
+                || e.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(crate::research::research_storage_failure),
+        )
+    }
+
+    /// Settle a local intervention only against the original authenticated
+    /// snapshot from which its decision was derived. Provider settlements keep
+    /// their terminal-evidence admission path.
+    pub fn record_local_intervention_settlement(
+        &self,
+        original: &OperationRecord,
+        original_attempt: &AttemptRecord,
+        ev: EvidenceReceipt,
+        decision: &InterventionReminder,
+    ) -> Result<OperationRecord> {
+        self.ledger.with_mutation(
+            || self.try_record_intervention_settlement(
+                original.operation_id, original_attempt.attempt_id, ev,
+                OperationOutcome::Succeeded, EffectStatus::Complete, Some(decision),
+                Some((original, original_attempt)),
+            ),
             |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>()
                 || e.downcast_ref::<shenko_types::error::ShenkoError>()
                     .is_some_and(crate::research::research_storage_failure),
@@ -1024,11 +1046,83 @@ impl Store {
         outcome: OperationOutcome,
         effect: EffectStatus,
         decision: Option<&InterventionReminder>,
+        expected_local: Option<(&OperationRecord, &AttemptRecord)>,
     ) -> Result<OperationRecord> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
             Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        if let Some((original, original_attempt)) = expected_local {
+            // Check before receipt admission too: a refused stale preimage
+            // must not publish even a receipt-conflict decision.
+            ensure!(
+                op.operation_id == original.operation_id
+                    && op.record_schema_version == original.record_schema_version
+                    && op.record_revision == original.record_revision
+                    && op.task_id == original.task_id
+                    && op.logical_key == original.logical_key
+                    && op.operation_name == original.operation_name
+                    && op.input_schema_version == original.input_schema_version
+                    && op.output_schema_version == original.output_schema_version
+                    && op.final_input_ref == original.final_input_ref
+                    && op.input_digest == original.input_digest
+                    && op.input_digest == op.final_input_ref.digest
+                    && op.resource_bindings_ref == original.resource_bindings_ref
+                    && op.contract_ref.plugin_id == original.contract_ref.plugin_id
+                    && op.contract_ref.artifact_digest == original.contract_ref.artifact_digest
+                    && op.contract_ref.contract_digest == original.contract_ref.contract_digest
+                    && op.contract_ref.receipt_reader_ref == original.contract_ref.receipt_reader_ref
+                    && op.authority_ref.delegation_id == original.authority_ref.delegation_id
+                    && op.authority_ref.delegation_revision == original.authority_ref.delegation_revision
+                    && op.authority_ref.decision_ref == original.authority_ref.decision_ref
+                    && op.acceptance_predicate_ref == original.acceptance_predicate_ref
+                    && op.retry_contract_ref == original.retry_contract_ref
+                    && op.checkpoint_scope_ref == original.checkpoint_scope_ref
+                    && op.state == original.state
+                    && op.outcome == original.outcome
+                    && op.outcome_conflict == original.outcome_conflict
+                    && op.effect_status == original.effect_status
+                    && op.retry_of == original.retry_of
+                    && op.compensates == original.compensates
+                    && op.possible_duplicate_of == original.possible_duplicate_of
+                    && op.prepared_commit == original.prepared_commit
+                    && op.evidence_through == original.evidence_through
+                    && att.record_schema_version == original_attempt.record_schema_version
+                    && att.attempt_id == original_attempt.attempt_id
+                    && att.operation_id == op.operation_id
+                    && att.attempt_no == original_attempt.attempt_no
+                    && att.invocation_id == original_attempt.invocation_id
+                    && att.worker_id == original_attempt.worker_id
+                    && att.node_id == original_attempt.node_id
+                    && att.epoch == original_attempt.epoch
+                    && att.implementation_ref == original_attempt.implementation_ref
+                    && att.armed_commit == original_attempt.armed_commit
+                    && att.transport_ref == original_attempt.transport_ref
+                    && att.dispatch_stage == original_attempt.dispatch_stage
+                    && att.provider_handle.is_none() && original_attempt.provider_handle.is_none()
+                    && att.provider_idempotency.is_none() && original_attempt.provider_idempotency.is_none()
+                    && att.started_at == original_attempt.started_at
+                    && att.last_observed_at == original_attempt.last_observed_at
+                    && att.final_receipt_id == original_attempt.final_receipt_id,
+                "local intervention original settlement preimage changed"
+            );
+            // Authenticate the no-send object inside this transaction, against
+            // the current frozen input and attempt, before any durable write.
+            let frozen = self.read_sealed_json(&op.final_input_ref)?;
+            let marker = self.read_sealed_json(att.transport_ref.as_ref()
+                .ok_or_else(|| anyhow::anyhow!("local intervention lacks no-send marker"))?)?;
+            ensure!(
+                frozen["schema_version"] == 1
+                    && frozen["decided_without_call"] == true
+                    && frozen["task_id"] == serde_json::to_value(op.task_id)?
+                    && frozen["request_id"].as_str()
+                        .map(str::parse::<EntityId>).transpose()?.is_some()
+                    && marker["schema_version"] == 1
+                    && marker["request_id"] == frozen["request_id"]
+                    && marker.get("send_id").is_some_and(serde_json::Value::is_null),
+                "local intervention lacks authenticated original no-send evidence"
+            );
+        }
         if let Some(reminder) = decision {
             // A decision belongs to one research epoch, and an epoch that
             // records its owning task belongs to that task's agent. Settling

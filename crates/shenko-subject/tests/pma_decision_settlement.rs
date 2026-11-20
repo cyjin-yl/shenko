@@ -366,6 +366,100 @@ async fn attempt(answer: &'static str) -> Result<Attempt> {
     })
 }
 
+/// The shipped local baseline commits its native decision without a provider
+/// send, even when quota is configured and the selected runtime is withdrawn.
+#[tokio::test(flavor = "current_thread")]
+async fn shipped_silent_policy_settles_with_quota_and_withdrawn_runtime() -> Result<()> {
+    use shenko_quota::*;
+    let dir = std::env::temp_dir().join(format!("shenko-pma-local-quota-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir)?;
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+    let agent = initialize(&store)?;
+    store.start_subject_dispatcher()?;
+    let closure = ResearchClosure {
+        constraints: vec![], effects: vec![],
+        budget: ResearchBudget { max_tokens: Some(1000), max_duration_secs: None, max_cost_units: None, notes: None },
+        environment: ResearchEnvironment {
+            environment_id: "silent-quota-withdrawal".into(), facts: vec![], toolchain: vec![],
+            dataset_versions: vec![], reproducible: true,
+        },
+    };
+    let epoch = store.open_research_lineage(EntityId::new(), EntityId::new(), None, &closure)?;
+    let provider = Arc::new(LocalModelProvider::new("http://127.0.0.1:1".into(), "silent-quota-model".into()));
+    let registry = Arc::new(shenko_broker::registry::ProviderRegistry::new());
+    let installation = registry.install(provider.clone());
+    let domain = shenko_broker::resource::ResourceDomain::new(
+        shenko_broker::resource::ResourceDomainIdentity {
+            domain_id: provider.profile().resource_domain_id.clone(),
+            engine_identity: "silent-quota-control".into(), engine_incarnation: None, epoch: 1,
+        }, 1, shenko_broker::admission::CapacityProvenance::Unknown,
+        None, shenko_broker::admission::CapacityProvenance::Unknown,
+    );
+    let (_broker, handle) = Broker::with_registry(registry.clone(), domain)?;
+    let policy = QuotaPolicy {
+        policy_id: EntityId::new(), revision: 1,
+        profiles: vec![ModelProfile {
+            profile_id: "silent-quota-local".into(), model_ref: "silent-quota-model".into(),
+            local: true, cost_per_request: vec![], effort_levels: vec![],
+        }],
+        assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
+        on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
+        decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![],
+        objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
+        emergency_reserve_by_window: vec![], uncertainty_margin: None,
+        admission_pacing: AdmissionPacing::default(),
+    };
+    store.record_quota_policy(&policy, chrono::Utc::now())?;
+    ensure!(registry.uninstall(&provider.profile().profile_id, installation));
+    ensure!(!handle.serves_model("silent-quota-model"));
+    let (head, _) = store.load_subject(agent)?;
+    let supervisor = Supervisor::new(head.software_generation.clone());
+    supervisor.spawn(NativeChildPlugin, (store.clone(), head.software_generation)).await?;
+    let native = supervisor.context().try_service::<NativeChildService>()?;
+    let policies = Arc::new(MemoryInterventionRegistry::new(Arc::new(
+        shenko_memory::SilentMemoryInterventionPolicy,
+    )));
+    let handler: Arc<dyn NativeTaskHandler> = Arc::new(PmaEvaluateHandler::new(store.clone(), handle, policies));
+    let implementation = handler.descriptor()?.implementation_ref;
+    supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
+    native.recover()?;
+    let task = self::admit(&store, agent, implementation, epoch.lineage_id, epoch.epoch_id)?;
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            native.run_once().await?;
+            if let Some(result) = store.native_task_result(task)? {
+                ensure!(result.outcome == TaskOutcome::Succeeded, "silent policy did not settle: {result:?}");
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await??;
+    let decision = store.latest_intervention(epoch.epoch_id)?.context("durable shipped silent decision")?;
+    assert_eq!(decision.decision, InterventionDecisionKind::Silent);
+    assert_eq!(decision.reason.as_deref(), Some("the silent baseline policy is installed"));
+    let operations = store.external_task_operations(task, "pma.evaluate.v1")?;
+    ensure!(operations.len() == 1);
+    let operation = &operations[0];
+    ensure!(operation.state == OperationState::Resolved && operation.outcome == Some(OperationOutcome::Succeeded));
+    let frozen: Value = serde_json::from_slice(&store.cas.read_object(&operation.final_input_ref.digest)?)?;
+    ensure!(frozen["decided_without_call"] == true);
+    let request_id: EntityId = serde_json::from_value(frozen["request_id"].clone())?;
+    ensure!(store.quota_send_ids(request_id)?.is_empty());
+    ensure!(store.quota_pacer()?.reservations().next().is_none());
+    ensure!(store.latest_quota_decision()?.is_none());
+    let attempts = store.external_operation_attempts(operation.operation_id)?;
+    ensure!(attempts.len() == 1, "the local durable effect retains its native authority attempt");
+    let transport = attempts[0].transport_ref.as_ref().context("local no-send binding")?;
+    let send: Value = serde_json::from_slice(&store.cas.read_object(&transport.digest)?)?;
+    ensure!(send["send_id"].is_null());
+    tokio::time::timeout(Duration::from_secs(30), supervisor.stop()).await??;
+    drop(native);
+    drop(supervisor);
+    drop(store);
+    std::fs::remove_dir_all(dir)?;
+    Ok(())
+}
+
 /// An answer the policy cannot read is a failed bounded call: the task does
 /// not report success and no silence is fabricated for it.
 #[tokio::test(flavor = "current_thread")]
