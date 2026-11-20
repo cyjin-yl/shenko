@@ -514,8 +514,8 @@ mod policy_change_tests {
         available: std::sync::atomic::AtomicBool,
         // One synchronous independent Store transaction at the exact runtime
         // read, after the gate has detached its selected-send snapshot.
-        on_read: std::sync::Mutex<Option<AvailabilityReadHook>>,
-        on_read_result: std::sync::Mutex<Option<anyhow::Result<()>>>,
+        on_read: parking_lot::Mutex<Option<AvailabilityReadHook>>,
+        on_read_result: parking_lot::Mutex<Option<anyhow::Result<()>>>,
     }
 
     #[async_trait::async_trait]
@@ -526,9 +526,10 @@ mod policy_change_tests {
             shenko_broker::registry::ProviderRuntime::accepts_model(self.provider.as_ref(), model)
         }
         fn available(&self) -> bool {
-            let on_read = self.on_read.lock().expect("fixture read hook lock").take();
+            let on_read = self.on_read.lock().take();
             if let Some(on_read) = on_read {
-                *self.on_read_result.lock().expect("fixture result lock") = Some(on_read());
+                let result = on_read();
+                *self.on_read_result.lock() = Some(result);
             }
             self.available.load(std::sync::atomic::Ordering::SeqCst)
         }
@@ -653,8 +654,8 @@ mod policy_change_tests {
         let unavailable = Arc::new(AvailabilityRuntime {
             provider: Arc::clone(&provider),
             available: std::sync::atomic::AtomicBool::new(false),
-            on_read: std::sync::Mutex::new(None),
-            on_read_result: std::sync::Mutex::new(None),
+            on_read: parking_lot::Mutex::new(None),
+            on_read_result: parking_lot::Mutex::new(None),
         });
         registry.install(unavailable.clone());
         anyhow::ensure!(!matches!(broker.binding(), shenko_broker::request::ProviderBinding::Stub { .. }));
@@ -838,7 +839,7 @@ mod policy_change_tests {
             provider: Arc::new(shenko_broker::provider::AnthropicProvider::with_endpoint(
                 "synthetic-not-a-credential".into(), "http://127.0.0.1:1".into(), "bound-model")),
             available: std::sync::atomic::AtomicBool::new(false),
-            on_read: std::sync::Mutex::new(Some(Box::new(move || {
+            on_read: parking_lot::Mutex::new(Some(Box::new(move || {
                 // This is a real second durable entrant, not a fabricated
                 // receipt. It promotes only the already-selected send.
                 let promoted = admit_selected(&hook_store, &policy, request, send)?;
@@ -855,7 +856,7 @@ mod policy_change_tests {
                 ));
                 Ok(())
             }))),
-            on_read_result: std::sync::Mutex::new(None),
+            on_read_result: parking_lot::Mutex::new(None),
         });
         let registry = Arc::new(shenko_broker::registry::ProviderRegistry::new());
         registry.install(runtime.clone());
@@ -869,7 +870,7 @@ mod policy_change_tests {
         let (_runner, broker) = shenko_broker::broker::Broker::with_registry(registry, domain)?;
         let outcome = quota_dispatch_gate(&store, &broker, request,
             &tokio_util::sync::CancellationToken::new(), &QuotaStrategies::baseline(), None, None).await;
-        runtime.on_read_result.lock().map_err(|_| anyhow::anyhow!("fixture result lock"))?
+        runtime.on_read_result.lock()
             .take().context("the promotion hook must execute inside eligibility")??;
         anyhow::ensure!(matches!(outcome?, QuotaGate::Ready(Some(id)) if id == send));
         let original = promoted_snapshot.lock().map_err(|_| anyhow::anyhow!("fixture snapshot lock"))?
