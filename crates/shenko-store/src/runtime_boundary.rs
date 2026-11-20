@@ -67,7 +67,15 @@ impl Store {
         agent_id: EntityId,
         request_id: EntityId,
     ) -> Result<SubjectQuiesce, ShenkoError> {
-        self.ledger.with_mutation(|| {
+        let publication = crate::StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
+        self.request_subject_quiesce_under(agent_id, request_id, &publication, None)
+    }
+
+    pub fn request_subject_quiesce_under(&self, agent_id: EntityId, request_id: EntityId,
+        publication: &crate::StorePublication,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<SubjectQuiesce, ShenkoError> {
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
+        self.ledger.with_owned_installation_mutation(custody.as_ref(), permit, true, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             if let Some(old) = read_request(&tx, request_id)? {
@@ -208,6 +216,14 @@ impl Store {
         &self,
         expected: &SubjectBranchHead,
     ) -> Result<Option<SubjectBranchHead>, ShenkoError> {
+        let publication = crate::StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
+        self.pause_subject_at_boundary_under(expected, &publication, None)
+    }
+
+    pub fn pause_subject_at_boundary_under(&self, expected: &SubjectBranchHead,
+        publication: &crate::StorePublication,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<Option<SubjectBranchHead>, ShenkoError> {
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
         // A request arriving just after this read is handled at the following
         // boundary; no write transaction is needed for the normal case.
         {
@@ -216,7 +232,7 @@ impl Store {
                 return Ok(None);
             }
         }
-        self.ledger.with_mutation(|| {
+        self.ledger.with_owned_installation_mutation(custody.as_ref(), permit, true, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let mut head = checked_head(&tx, expected)?;
@@ -255,15 +271,17 @@ impl Store {
         agent_id: EntityId,
         request_id: EntityId,
     ) -> Result<SubjectQuiesce, ShenkoError> {
+        let publication = crate::StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
         let permit = self.ledger.acquire_installation(true)?;
-        self.resume_subject_quiesce_under(agent_id, request_id, permit.as_ref())
+        self.resume_subject_quiesce_under(agent_id, request_id, &publication, permit.as_ref())
     }
 
     /// Handoff recovery proves the original selection was never committed
     /// before borrowing its cutover reservation to resume this exact boundary.
     pub fn resume_subject_quiesce_under(&self, agent_id: EntityId, request_id: EntityId,
-        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<SubjectQuiesce, ShenkoError> {
-        self.ledger.with_mutation_under(permit, || {
+        publication: &crate::StorePublication, permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<SubjectQuiesce, ShenkoError> {
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
+        self.ledger.with_owned_installation_mutation(custody.as_ref(), permit, true, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let mut record = read_request(&tx, request_id)?
