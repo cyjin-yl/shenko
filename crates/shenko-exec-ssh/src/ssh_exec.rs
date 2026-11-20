@@ -10,8 +10,50 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// tmux 行格式：pane 身份 + 前台进程 + 尺寸 + 根进程 PID + dead 标志。
-const PANE_FORMAT: &str = "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{pane_width}\t#{pane_height}\t#{pane_pid}\t#{pane_dead}";
+// tmux can sanitize literal control characters in format arguments. Keep the
+// wire printable: q: escapes shell punctuation (including | and backslash)
+// in expanded text fields, and only unescaped | separates fields. Decode it
+// as data, never evaluate the output as a shell program. Force UTF-8 for
+// format reads so a client in the POSIX locale keeps non-ASCII identities.
+const PANE_FORMAT: &str = "#{q:session_name}|#{window_index}|#{pane_index}|#{pane_id}|#{q:pane_current_command}|#{q:pane_current_path}|#{pane_active}|#{pane_width}|#{pane_height}|#{pane_pid}|#{pane_dead}";
+const TMUX_QUOTED_CHARACTERS: &str = "|&;<>(){}$`\\\"'*?[# =%\n\t";
+
+fn parse_tmux_fields(line: &str) -> Option<Vec<std::borrow::Cow<'_, str>>> {
+    use std::borrow::Cow;
+    let mut fields = Vec::new();
+    let mut start = 0;
+    let mut decoded: Option<String> = None;
+    let mut chars = line.char_indices();
+    while let Some((index, ch)) = chars.next() {
+        match ch {
+            '\\' => {
+                let (_, escaped) = chars.next()?;
+                if !TMUX_QUOTED_CHARACTERS.contains(escaped) || escaped.is_control() {
+                    return None;
+                }
+                decoded.get_or_insert_with(|| line[start..index].to_owned()).push(escaped);
+            }
+            '|' => {
+                fields.push(match decoded.take() {
+                    Some(value) => Cow::Owned(value),
+                    None => Cow::Borrowed(&line[start..index]),
+                });
+                start = index + 1;
+            }
+            ch if ch.is_control() => return None,
+            ch => {
+                if let Some(value) = &mut decoded {
+                    value.push(ch);
+                }
+            }
+        }
+    }
+    fields.push(match decoded {
+        Some(value) => Cow::Owned(value),
+        None => Cow::Borrowed(&line[start..]),
+    });
+    Some(fields)
+}
 
 // seat 写守卫的远端退出码；与其它 tmux/ssh 退出码区分开。
 const EXIT_PANE_MISSING: i32 = 66;
@@ -40,23 +82,27 @@ pub struct TmuxPane {
 }
 
 fn parse_pane_line(line: &str) -> Option<TmuxPane> {
-    let parts: Vec<&str> = line.split('\t').collect();
+    let mut parts = parse_tmux_fields(line)?;
+    parse_pane_fields(&mut parts)
+}
+
+fn parse_pane_fields(parts: &mut [std::borrow::Cow<'_, str>]) -> Option<TmuxPane> {
     // 旧 tmux 可能缺 pane_pid/pane_dead 两列；按 0/false 处理而非丢弃 pane。
     if parts.len() < 9 {
         return None;
     }
     Some(TmuxPane {
-        session: parts[0].to_string(),
+        session: std::mem::take(&mut parts[0]).into_owned(),
         window: parts[1].parse().unwrap_or(0),
         pane: parts[2].parse().unwrap_or(0),
-        pane_id: parts[3].to_string(),
-        current_command: parts[4].to_string(),
-        cwd: parts[5].to_string(),
+        pane_id: std::mem::take(&mut parts[3]).into_owned(),
+        current_command: std::mem::take(&mut parts[4]).into_owned(),
+        cwd: std::mem::take(&mut parts[5]).into_owned(),
         active: parts[6] == "1",
         width: parts[7].parse().unwrap_or(80),
         height: parts[8].parse().unwrap_or(24),
         pane_pid: parts.get(9).and_then(|s| s.parse().ok()).unwrap_or(0),
-        dead: parts.get(10).is_some_and(|s| *s == "1"),
+        dead: parts.get(10).is_some_and(|s| s.as_ref() == "1"),
     })
 }
 
@@ -244,14 +290,17 @@ fn guarded_send_command(
     send_args: &str,
 ) -> String {
     let pane = shell_quote(pane_id);
-    let info = "tmux list-panes -a -F '#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_pid}'";
-    let match_line = format!("$({info} | awk -F '\\t' -v id={pane} '$1 == id {{print; exit}}')");
+    // Identity and numeric columns cannot contain |. Keep the raw command
+    // last so cut preserves every | inside its complete value. Compare it as
+    // shell-quoted data, without depending on a tmux version's q: escape set.
+    let info = "tmux -u list-panes -a -F '#{pane_id}|#{pane_dead}|#{pane_pid}|#{pane_current_command}'";
+    let match_line = format!("$({info} | awk -F '|' -v id={pane} '$1 == id {{print; exit}}')");
     // The pane's root process is the target-side incarnation fence: a pane
     // that was reused by another program after the observation is refused
     // on the far side, not only in the local pre-check.
     let pid_guard = match expected_pid {
         Some(pid) if pid > 0 => format!(
-            "[ \"$(printf '%s' \"$line\" | cut -f4)\" = {expected} ] || {{ echo seat:replaced >&2; exit {EXIT_PANE_REPLACED}; }}; ",
+            "[ \"$(printf '%s' \"$line\" | cut -d '|' -f3)\" = {expected} ] || {{ echo seat:replaced >&2; exit {EXIT_PANE_REPLACED}; }}; ",
             expected = shell_quote(&pid.to_string()),
         ),
         _ => String::new(),
@@ -259,8 +308,8 @@ fn guarded_send_command(
     format!(
         "line={match_line}; \
          [ -n \"$line\" ] || {{ echo seat:missing >&2; exit {EXIT_PANE_MISSING}; }}; \
-         [ \"$(printf '%s' \"$line\" | cut -f2)\" = \"0\" ] || {{ echo seat:dead >&2; exit {EXIT_PANE_DEAD}; }}; \
-         [ \"$(printf '%s' \"$line\" | cut -f3)\" = {expected} ] || {{ echo seat:changed >&2; exit {EXIT_PROGRAM_CHANGED}; }}; \
+         [ \"$(printf '%s' \"$line\" | cut -d '|' -f2)\" = \"0\" ] || {{ echo seat:dead >&2; exit {EXIT_PANE_DEAD}; }}; \
+         [ \"$(printf '%s' \"$line\" | cut -d '|' -f4-)\" = {expected} ] || {{ echo seat:changed >&2; exit {EXIT_PROGRAM_CHANGED}; }}; \
          {pid_guard}\
          tmux send-keys -t {pane} {send_args}",
         expected = shell_quote(expected_command),
@@ -412,20 +461,21 @@ fn parse_local_identity_line(
     expected_pane: &str,
 ) -> Result<(TmuxPane, u32, String)> {
     let line = stdout.strip_suffix('\n').unwrap_or(stdout);
-    let fields: Vec<_> = line.split('\t').collect();
+    let mut fields = parse_tmux_fields(line)
+        .ok_or_else(|| anyhow::anyhow!("local tmux identity response has invalid field quoting"))?;
     anyhow::ensure!(fields.len() == 13 && !line.contains('\n'),
         "local tmux identity response is incomplete or ambiguous");
-    let pane = parse_pane_line(line)
+    let pane = parse_pane_fields(&mut fields)
         .ok_or_else(|| anyhow::anyhow!("local tmux pane identity unavailable"))?;
     anyhow::ensure!(pane.pane_id == expected_pane && pane.pane_pid > 0 && fields[10] == "0",
         "local tmux pane is missing, dead or replaced");
-    anyhow::ensure!(!fields[0].is_empty(), "local tmux session unavailable");
+    anyhow::ensure!(!pane.session.is_empty(), "local tmux session unavailable");
     fields[1].parse::<u32>()?;
     fields[2].parse::<u32>()?;
     let server_pid: u32 = fields[11].parse()?;
     anyhow::ensure!(server_pid > 0 && !fields[12].is_empty(),
         "local tmux server identity unavailable");
-    Ok((pane, server_pid, fields[12].to_owned()))
+    Ok((pane, server_pid, std::mem::take(&mut fields[12]).into_owned()))
 }
 
 /// Linux stat field 22, after the *last* closing comm parenthesis. The comm
@@ -467,17 +517,51 @@ mod local_incarnation_tests {
 
     #[test]
     fn local_observation_refuses_missing_dead_and_ambiguous_server_identity() -> Result<()> {
-        let valid = "owned\t0\t1\t%4\tomp\t/project\t1\t80\t24\t41\t0\t20\t/owned/tmux.sock\n";
+        let valid = "owned|0|1|%4|omp|/project|1|80|24|41|0|20|/owned/tmux.sock\n";
         let (pane, server, socket) = parse_local_identity_line(valid, "%4")?;
         assert_eq!(pane.pane_pid, 41);
         assert_eq!(server, 20);
         assert_eq!(socket, "/owned/tmux.sock");
         assert!(parse_local_identity_line(valid, "%5").is_err());
-        assert!(parse_local_identity_line(&valid.replace("\t0\t20\t", "\t1\t20\t"), "%4").is_err());
-        assert!(parse_local_identity_line(&valid.replace("\t20\t", "\t0\t"), "%4").is_err());
+        assert!(parse_local_identity_line(&valid.replace("|0|20|", "|1|20|"), "%4").is_err());
+        assert!(parse_local_identity_line(&valid.replace("|20|", "|0|"), "%4").is_err());
         assert!(parse_local_identity_line(&format!("{valid}{valid}"), "%4").is_err());
-        assert!(parse_local_identity_line("owned\t0\t1\t%4\tomp\t/project\t1\t80\t24", "%4").is_err());
+        assert!(parse_local_identity_line("owned|0|1|%4|omp|/project|1|80|24", "%4").is_err());
         Ok(())
+    }
+
+    #[test]
+    fn printable_wire_preserves_quoted_command_cwd_and_socket_identity() -> Result<()> {
+        // Literal tmux q: output: pipes, backslashes, spaces, apostrophes,
+        // format-looking text, shell substitutions and Unicode stay data.
+        let line = r"owner\ seat|0|1|%4|agent\|cli\\v2|/project/字\ space/\'\$\(touch\ nope\)\;\#\{pane_id\}\|x\\y|1|80|24|41|0|20|/owned/socket\ name\|x\\y";
+        let (pane, server, socket) = parse_local_identity_line(line, "%4")?;
+        assert_eq!(pane.session, "owner seat");
+        assert_eq!(pane.current_command, "agent|cli\\v2");
+        assert_eq!(pane.cwd, "/project/字 space/'$(touch nope);#{pane_id}|x\\y");
+        assert_eq!(server, 20);
+        assert_eq!(socket, "/owned/socket name|x\\y");
+        assert!(parse_local_identity_line(&format!("{line}\\"), "%4").is_err());
+        assert!(parse_local_identity_line(&line.replace("owner\\ seat", "owner\\zseat"), "%4").is_err());
+        // Control-bearing data is unavailable identity, never normalized
+        // into a different path or mistaken for another wire record.
+        assert!(parse_local_identity_line(&line.replace("owner\\ seat", "owner\tseat"), "%4").is_err());
+        assert!(parse_local_identity_line(&line.replace("owner\\ seat", "owner\nseat"), "%4").is_err());
+        assert!(!PANE_FORMAT.contains(char::is_control));
+        Ok(())
+    }
+
+    #[test]
+    fn guard_keeps_complete_command_after_fixed_identity_columns() {
+        let command = guarded_send_command("%4", "agent|cli\\v2 '$(nope)", Some(41), "'literal'");
+        assert!(command.contains("#{pane_id}|#{pane_dead}|#{pane_pid}|#{pane_current_command}"));
+        assert!(command.contains("awk -F '|'"));
+        assert!(command.contains("cut -d '|' -f2"));
+        assert!(command.contains("cut -d '|' -f3"));
+        assert!(command.contains("cut -d '|' -f4-"));
+        assert!(command.contains(&shell_quote("agent|cli\\v2 '$(nope)")));
+        assert!(!command.contains('\t'));
+        assert!(command.ends_with("tmux send-keys -t '%4' 'literal'"));
     }
 }
 
@@ -538,7 +622,7 @@ impl TmuxSeat {
             !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
             "invalid exact tmux pane id");
         let command = format!(
-            "tmux display-message -p -t {} '{}\t#{{pid}}\t#{{socket_path}}'",
+            "tmux -u display-message -p -t {} '{}|#{{pid}}|#{{q:socket_path}}'",
             shell_quote(pane_id), PANE_FORMAT,
         );
         let first = self.executor.run_command(&command).await?;
@@ -564,7 +648,7 @@ impl TmuxSeat {
         let out = self
             .executor
             .run_command(&format!(
-                "tmux list-panes -a -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
+                "tmux -u list-panes -a -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
             ))
             .await?;
 
@@ -619,7 +703,7 @@ impl TmuxSeat {
         // -e: preserve escape sequences (color, attribute); second call gives tmux-stripped plain
         let raw_cmd = format!("tmux capture-pane -p -e -t {pane_target} 2>/dev/null || echo ''");
         let pane_info_cmd = format!(
-            "tmux list-panes -t {pane_target} -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
+            "tmux -u list-panes -t {pane_target} -F '{PANE_FORMAT}' 2>/dev/null || echo ''"
         );
 
         let (raw_out, info_out) = tokio::try_join!(
@@ -823,7 +907,7 @@ mod tests {
 
         // 场景 4：旧 tmux 缺两列的 9 列行兼容解析为 pane_pid=0/dead=false，
         // 空证据 + current_command fallback 归类，不呈现无关进程为现场。
-        let pane = parse_pane_line("s1\t0\t0\t%7\tomp\t/repo\t1\t80\t24").unwrap();
+        let pane = parse_pane_line("s1|0|0|%7|omp|/repo|1|80|24").unwrap();
         assert_eq!((pane.pane_pid, pane.dead), (0, false));
         assert!(process_subtree(pane.pane_pid, &table).is_empty());
         assert_eq!(
