@@ -67,14 +67,12 @@ impl Exporter for Diagnostics {
             // actual unable-to-continue boundary (check_outcomes then refuses
             // every admission), not every subsequent diagnostic record.
             let was_unknown = self.unknown.swap(true, Ordering::SeqCst);
-            if !was_unknown {
-                if let Some(errors) = &self.errors {
-                    errors.observe(
-                        ErrorSite::new("cordis_lifecycle", module_path!()),
-                        format!("Cordis lifecycle failure: {}", record.text()),
-                        serde_json::json!({ "record_level": format!("{:?}", record.level()) }),
-                    );
-                }
+            if !was_unknown && let Some(errors) = &self.errors {
+                errors.observe(
+                    ErrorSite::new("cordis_lifecycle", module_path!()),
+                    format!("Cordis lifecycle failure: {}", record.text()),
+                    serde_json::json!({ "record_level": format!("{:?}", record.level()) }),
+                );
             }
         }
     }
@@ -109,7 +107,13 @@ impl PluginRegistry {
             .add_exporter(diagnostics.clone())
             .expect("fresh Cordis root is active");
         let preparation = PreparationAdmission::new(shutdown.clone());
-        context.provide(preparation.clone()).expect("fresh Cordis root admits preparation gate");
+        // The permanent root retains this publication's cleanup claim when
+        // the handle drops. Keep the closed gate discoverable after stop so
+        // late preparation reports Closed rather than a missing attachment.
+        let _preparation_publication = match context.provide(preparation.clone()) {
+            Ok(publication) => publication,
+            Err(error) => panic!("fresh Cordis root admits preparation gate: {error:?}"),
+        };
         Self {
             context,
             shutdown,
@@ -229,11 +233,11 @@ impl PluginRegistry {
         );
         self.shutdown.cancel();
         let mut stop = self.stop.lock();
-        if let Some(observation) = &*stop {
-            if !observation.completion.retryable_refusal.load(Ordering::SeqCst) {
-                self.stopping.store(false, Ordering::SeqCst);
-                return Ok(observation.clone());
-            }
+        if let Some(observation) = &*stop
+            && !observation.completion.retryable_refusal.load(Ordering::SeqCst)
+        {
+            self.stopping.store(false, Ordering::SeqCst);
+            return Ok(observation.clone());
         }
         let completion = Arc::new(StopCompletion {
             state: AsyncMutex::new(Stop::default()),
@@ -265,7 +269,12 @@ impl PluginRegistry {
             stopping.store(false, Ordering::SeqCst);
             result
         });
-        completion.state.try_lock().expect("new original stop has no observer").owner = Some(owner);
+        {
+            let Ok(mut state) = completion.state.try_lock() else {
+                unreachable!("new original stop has no observer");
+            };
+            state.owner = Some(owner);
+        }
         let observation = StopObservation { completion };
         *stop = Some(observation.clone());
         Ok(observation)
@@ -278,15 +287,19 @@ impl PluginRegistry {
         anyhow::ensure!(Arc::ptr_eq(&self.stopping, &observation.completion.registry),
             "stop observation belongs to a different plugin registry");
         let mut stop = observation.completion.state.lock().await;
-        if stop.outcome.is_none() {
-            let result = stop.owner.as_mut().expect("original kernel stop owner").await
-                .context("plugin shutdown owner lost; cleanup outcome unknown")
-                .and_then(|result| result);
-            stop.owner.take();
-            stop.outcome = Some(result.map_err(Arc::new));
+        if let Some(outcome) = &stop.outcome {
+            return outcome.clone().map_err(|error| StopFailure(error).into());
         }
-        stop.outcome.as_ref().expect("settled kernel stop outcome").clone()
-            .map_err(|error| StopFailure(error).into())
+        let Some(owner) = stop.owner.as_mut() else {
+            unreachable!("original kernel stop owner");
+        };
+        let outcome = owner.await
+            .context("plugin shutdown owner lost; cleanup outcome unknown")
+            .and_then(|result| result)
+            .map_err(Arc::new);
+        drop(stop.owner.take());
+        stop.outcome = Some(outcome.clone());
+        outcome.map_err(|error| StopFailure(error).into())
     }
 
     /// Terminally stop with the existing active/reentrant refusal. An external

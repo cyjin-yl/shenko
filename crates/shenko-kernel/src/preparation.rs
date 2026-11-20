@@ -181,13 +181,24 @@ enum StartPhase { Vacant, Reserved, Started }
 struct Admission { attached: bool, closed: bool, phase: StartPhase }
 enum Work<T> { Empty, Running(JoinHandle<Result<T>>), Ready(Arc<T>), Failed(Arc<PreparationFailure>), Retired }
 struct DeliveryLeases { owner_id: EntityId, active: AtomicUsize, changed: Notify }
+struct DeliveryLease(Arc<DeliveryLeases>);
+impl Drop for DeliveryLease {
+    fn drop(&mut self) {
+        if self.0.active.fetch_sub(1, Ordering::AcqRel) == 1 { self.0.changed.notify_waiters(); }
+    }
+}
 struct PreparationState<T> {
     id: EntityId, runtime: Handle, cancellation: PreparationCancellation,
     admission: Mutex<Admission>, changed: Notify, work: AsyncMutex<Work<T>>, leases: Arc<DeliveryLeases>,
 }
 type RetirementFuture = Pin<Box<dyn Future<Output = std::result::Result<(), PreparationError>> + Send>>;
 #[derive(Default)]
-struct Retirement { future: Option<RetirementFuture>, outcome: Option<std::result::Result<(), PreparationError>> }
+enum Retirement {
+    #[default]
+    NotStarted,
+    Running(RetirementFuture),
+    Complete(std::result::Result<(), PreparationError>),
+}
 
 /// Original native scope owner. Use attach_to for normal supervisor startup;
 /// attach is for an actual resident Plugin::apply Context, not the permanent root.
@@ -277,7 +288,7 @@ impl<T: Send + Sync + 'static> ContextPreparation<T> {
         if admission.closed || self.state.cancellation.is_cancelled() { return Err(self.state_error(PreparationStateError::Closed)); }
         let Work::Ready(value) = &*work else { return Err(self.state_error(PreparationStateError::NotStarted)); };
         self.state.leases.active.fetch_add(1, Ordering::AcqRel);
-        Ok(PreparedProduct { value: Some(value.clone()), leases: self.state.leases.clone() })
+        Ok(PreparedProduct { value: value.clone(), _lease: DeliveryLease(self.state.leases.clone()) })
     }
     /// Opt in to inspecting the original work error or panic before retirement.
     /// This is an explicit counted lease, never acquired by ordinary `?`.
@@ -295,7 +306,7 @@ impl<T: Send + Sync + 'static> ContextPreparation<T> {
         match &*work {
             Work::Failed(failure) => {
                 self.state.leases.active.fetch_add(1, Ordering::AcqRel);
-                Ok(Some(PreparationFailureLease { failure: Some(failure.clone()), leases: self.state.leases.clone() }))
+                Ok(Some(PreparationFailureLease { failure: failure.clone(), _lease: DeliveryLease(self.state.leases.clone()) }))
             }
             Work::Ready(_) => Ok(None),
             _ => Err(self.state_error(PreparationStateError::NotStarted)),
@@ -315,14 +326,19 @@ impl<T: Send + Sync + 'static> ContextPreparation<T> {
     pub async fn close(&self) -> std::result::Result<(), PreparationError> {
         self.request_close();
         let mut retirement = self.retirement.lock().await;
-        if let Some(outcome) = &retirement.outcome { return outcome.clone(); }
-        if retirement.future.is_none() {
-            retirement.future = Some(Box::pin(retire_state(self.state.clone())));
+        loop {
+            match &mut *retirement {
+                Retirement::NotStarted => {
+                    *retirement = Retirement::Running(Box::pin(retire_state(self.state.clone())));
+                }
+                Retirement::Running(future) => {
+                    let outcome = future.await;
+                    *retirement = Retirement::Complete(outcome.clone());
+                    return outcome;
+                }
+                Retirement::Complete(outcome) => return outcome.clone(),
+            }
         }
-        let outcome = retirement.future.as_mut().expect("original retirement future").await;
-        retirement.future.take();
-        retirement.outcome = Some(outcome.clone());
-        outcome
     }
 }
 
@@ -336,7 +352,9 @@ impl<T: Send + Sync + 'static> PreparationStart<T> {
         let mut admission = self.owner.state.admission.lock();
         // Reserved has no delivery observer; close waits reservation release
         // before locking this slot. The guard remains synchronous through spawn.
-        let mut slot = self.owner.state.work.try_lock().expect("reserved preparation slot has no async observer");
+        let Ok(mut slot) = self.owner.state.work.try_lock() else {
+            unreachable!("reserved preparation slot has no async observer");
+        };
         let closed = admission.closed || self.owner.state.cancellation.is_cancelled();
         let cancellation = self.owner.state.cancellation.clone();
         let task = self.owner.state.runtime.spawn_blocking(move || {
@@ -368,43 +386,30 @@ impl<T: Send + Sync + 'static> Drop for PreparationStart<T> {
 /// A scoped delivery lease. It exposes a borrow, never the owner's Arc.
 /// External aliases cloned from inside T remain the caller's explicit owners
 /// and must be withdrawn before original scope cleanup (native LIFO order).
-pub struct PreparedProduct<T> { value: Option<Arc<T>>, leases: Arc<DeliveryLeases> }
+/// Field order releases the product Arc before the counted lease wakes close.
+pub struct PreparedProduct<T> { value: Arc<T>, _lease: DeliveryLease }
 impl<T> Deref for PreparedProduct<T> {
     type Target = T;
-    fn deref(&self) -> &T { self.value.as_deref().expect("live prepared product") }
+    fn deref(&self) -> &T { &self.value }
 }
 impl<T> fmt::Debug for PreparedProduct<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.debug_struct("PreparedProduct").field("owner_id", &self.leases.owner_id).finish_non_exhaustive() }
-}
-impl<T> Drop for PreparedProduct<T> {
-    fn drop(&mut self) {
-        // Original scope still holds its strong product until this actual
-        // guard's Arc is gone, so final product Drop cannot happen here.
-        drop(self.value.take());
-        if self.leases.active.fetch_sub(1, Ordering::AcqRel) == 1 { self.leases.changed.notify_waiters(); }
-    }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.debug_struct("PreparedProduct").field("owner_id", &self._lease.0.owner_id).finish_non_exhaustive() }
 }
 
 /// Explicit access to one original typed work failure. The primitive retains
 /// its own strong payload until this lease is released, then disposes it on
 /// its original retained blocking retirement path. No underlying Arc escapes.
-pub struct PreparationFailureLease { failure: Option<Arc<PreparationFailure>>, leases: Arc<DeliveryLeases> }
+/// Field order releases the failure Arc before the counted lease wakes close.
+pub struct PreparationFailureLease { failure: Arc<PreparationFailure>, _lease: DeliveryLease }
 impl Deref for PreparationFailureLease {
     type Target = PreparationFailure;
-    fn deref(&self) -> &Self::Target { self.failure.as_deref().expect("live preparation failure lease") }
+    fn deref(&self) -> &Self::Target { &self.failure }
 }
 impl fmt::Debug for PreparationFailureLease {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PreparationFailureLease").field("receipt", &self.receipt()).finish_non_exhaustive()
     }
 }
-impl Drop for PreparationFailureLease {
-    fn drop(&mut self) {
-        drop(self.failure.take());
-        if self.leases.active.fetch_sub(1, Ordering::AcqRel) == 1 { self.leases.changed.notify_waiters(); }
-    }
-}
-
 async fn resolve_work<T: Send + Sync + 'static>(id: EntityId, work: &mut Work<T>) {
     if let Work::Running(task) = work {
         let result = task.await;

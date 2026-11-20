@@ -35,7 +35,7 @@ impl Plugin for DependencyPlugin {
     fn name(&self) -> std::borrow::Cow<'_, str> { "preparation-real-dependency".into() }
     fn prepare(&self, input: Self::Config) -> std::result::Result<Self::Input, Self::PrepareError> { Ok(input) }
     async fn apply(&self, ctx: Context, withdrawals: &Self::Input) -> std::io::Result<()> {
-        ctx.provide(Arc::new(Dependency)).map_err(std::io::Error::other)?;
+        let _publication = ctx.provide(Arc::new(Dependency)).map_err(std::io::Error::other)?;
         let withdrawals = withdrawals.clone();
         ctx.effect(move || async move { withdrawals.fetch_add(1, Ordering::SeqCst); }).map_err(std::io::Error::other)?;
         Ok(())
@@ -133,9 +133,10 @@ async fn finished_without_delivery<T: Send + Sync + 'static>(owner: &ContextPrep
     Ok(())
 }
 
+type FilePreparationSender = oneshot::Sender<Arc<ContextPreparation<FileProduct>>>;
 struct PreparingConfig {
     path: PathBuf, control: Arc<DropControl>,
-    owner: Arc<Mutex<Option<oneshot::Sender<Arc<ContextPreparation<FileProduct>>>>>>,
+    owner: Arc<Mutex<Option<FilePreparationSender>>>,
 }
 struct PreparingPlugin;
 impl Plugin for PreparingPlugin {
@@ -384,7 +385,7 @@ async fn resident_startup_scope_and_delivery_lease_keep_final_file_drop_off_reac
     tokio::time::timeout_at(cutoff, tokio::time::sleep(Duration::from_millis(20))).await?;
     assert_ne!(*control.gate.thread.lock(), Some(std::thread::current().id()));
     closing.abort(); assert!(closing.await.expect_err("close observer cancelled").is_cancelled());
-    assert!(owner.retirement.lock().await.future.is_some());
+    assert!(matches!(&*owner.retirement.lock().await, Retirement::Running(_)));
     control.gate.release();
     tokio::time::timeout_at(cutoff, owner.close()).await??;
     assert_eq!(control.count.load(Ordering::SeqCst), 1);
@@ -440,7 +441,7 @@ async fn cancelled_delivery_and_close_observers_retain_same_native_file_error_an
     let closing = tokio::spawn(async move { closing_owner.close().await });
     tokio::time::sleep(Duration::from_millis(20)).await;
     closing.abort(); assert!(closing.await.expect_err("actual close observer cancelled").is_cancelled());
-    assert!(owner.retirement.lock().await.future.is_some());
+    assert!(matches!(&*owner.retirement.lock().await, Retirement::Running(_)));
     held.release();
     let error = tokio::time::timeout_at(cutoff, owner.close()).await?.expect_err("actual native primitive error cannot become cancellation/success");
     let PreparationError::Retirement(failure) = &error else { anyhow::bail!("native retirement failure type lost"); };
