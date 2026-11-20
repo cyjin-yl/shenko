@@ -937,11 +937,12 @@ impl Store {
                         step, expected_head, next_step_id, &authority, false);
                 }
                 Err(error) if crate::control_transition::capture_budget_refusal(&error) => {
-                    // Preserve the original decision and explicit capacity
-                    // debt. Never change consistency semantics or evaluate the
-                    // plan again because its canonical capture was too large.
+                    // Only exact capacity refusal before durable preparation
+                    // may use the original plan's ordinary ordered admission.
+                    // Prepared/chosen application errors returned above never
+                    // enter this path. The ordinary transaction still checks
+                    // the original head, step and live authority reservation.
                     self.journal_capture_budget_refusal(expected_head, step, &error);
-                    return Err(error);
                 }
                 Err(error) => return Err(error),
             }
@@ -958,8 +959,9 @@ impl Store {
     /// Record that the canonical S1 path could not freeze this transition.
     ///
     /// The separate fail-soft journal reports only the observed capacity
-    /// refusal. No ordinary-plan fallback or commit is attempted. A journal
-    /// failure retains the normal dropped count.
+    /// refusal, before attempting the original plan's ordinary admission.
+    /// It makes no claim that admission or COMMIT succeeded. A journal failure
+    /// retains the normal dropped count.
     fn journal_capture_budget_refusal(
         &self,
         head: &SubjectBranchHead,
@@ -970,7 +972,7 @@ impl Store {
             kind: "store_capture_budget".into(),
             source_module: module_path!().into(),
             message: format!(
-                "canonical S1 capture refused before durable preparation; the original decision remains uncommitted and no weaker admission was attempted: {error}"
+                "canonical S1 capture refused before durable preparation; attempting ordinary admission of the original decision; admission and COMMIT are not yet confirmed: {error}"
             ),
             step_no: Some(step.step_no),
             task_id: None,
