@@ -91,6 +91,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // migration reads subject_intents.
     ensure_memory_knowledge_columns(conn)?;
     ensure_memory_intent_envelope(conn)?;
+    crate::memory_git_ack::ensure_memory_git_ack_schema(conn)?;
     conn.execute_batch(crate::child::SCHEMA)?;
     conn.execute_batch(crate::runtime_boundary::SCHEMA)?;
     // Semantic waits (R143): additive, own tables only. The wait
