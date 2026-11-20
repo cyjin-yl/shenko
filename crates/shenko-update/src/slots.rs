@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, DatabaseName};
 use serde::{Deserialize, Serialize};
+use shenko_store::StorePublication;
 
 use shenko_types::ids::RuntimeGeneration;
 use shenko_types::object::Digest;
@@ -138,6 +139,8 @@ pub enum SlotError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("CAS publication ownership: {0:#}")]
+    PublicationOwner(#[source] anyhow::Error),
 }
 
 pub type Result<T, E = SlotError> = std::result::Result<T, E>;
@@ -154,6 +157,11 @@ pub fn copy_slot(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGener
     prepare_slot_copy(source, target, generation)?.publish()
 }
 
+pub(crate) fn copy_slot_under(source: &AbSlot, target: &SlotLayout, generation: &RuntimeGeneration,
+    publication: &StorePublication) -> Result<AbSlot> {
+    prepare_slot_copy_under(source, target, generation, publication)?.publish()
+}
+
 /// A complete but unadvertised candidate. It owns no installation permit, so
 /// filesystem copying and SQLite backup cannot stall live ingress or S1.
 /// Its original source selection is checked again at atomic publication.
@@ -163,6 +171,9 @@ pub(crate) struct PreparedSlotCopy {
     source_binding: CopySourceBinding,
     staged: PathBuf,
     slot: AbSlot,
+    // Last: retain the shared CAS owner from before the first physical/SQL
+    // exclusion through delayed publication or abandonment of this copy.
+    _publication: StorePublication,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -173,6 +184,15 @@ struct CopySourceBinding {
 
 pub(crate) fn prepare_slot_copy(source: &AbSlot, target: &SlotLayout,
     generation: &RuntimeGeneration) -> Result<PreparedSlotCopy> {
+    let publication = StorePublication::acquire(source.cas_dir.clone())
+        .map_err(SlotError::PublicationOwner)?;
+    prepare_slot_copy_under(source, target, generation, &publication)
+}
+
+fn prepare_slot_copy_under(source: &AbSlot, target: &SlotLayout,
+    generation: &RuntimeGeneration, publication: &StorePublication) -> Result<PreparedSlotCopy> {
+    publication.validate_cas(&source.cas_dir).map_err(SlotError::PublicationOwner)?;
+    publication.validate_cas(&target.data_dir.join("cas")).map_err(SlotError::PublicationOwner)?;
     let domain = shenko_types::installation::InstallationDomain::open(&target.data_dir)?;
     let slot_dir = domain.root().join("versions").join(sanitize_generation(generation));
     let staged = domain.root().join("versions").join(format!(".shenko-stage-{}", uuid::Uuid::new_v4()));
@@ -226,7 +246,7 @@ pub(crate) fn prepare_slot_copy(source: &AbSlot, target: &SlotLayout,
             slot_dir, cas_dir: domain.root().join("cas"), artifact_path: None,
             artifact_digest: None, is_active: false,
         },
-        domain, source: source.clone(), source_binding, staged,
+        domain, source: source.clone(), source_binding, staged, _publication: publication.clone(),
     })
 }
 
@@ -285,14 +305,19 @@ pub fn read_slot_manifest(slot_dir: &Path) -> Result<SlotManifest> {
 
 /// Write the descriptor of a slot.
 pub fn write_slot_manifest(slot_dir: &Path, manifest: &SlotManifest) -> Result<()> {
+    let publication = StorePublication::acquire(PathBuf::from(&manifest.cas_dir))
+        .map_err(SlotError::PublicationOwner)?;
     let domain = shenko_types::installation::InstallationDomain::for_store(
         &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))?;
     let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
-    write_slot_manifest_under(slot_dir, manifest, permit.as_ref())
+    write_slot_manifest_under(slot_dir, manifest, &publication, permit.as_ref())
 }
 
 pub fn write_slot_manifest_under(slot_dir: &Path, manifest: &SlotManifest,
+    publication: &StorePublication,
     permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<()> {
+    publication.validate_cas(Path::new(&manifest.cas_dir))
+        .map_err(SlotError::PublicationOwner)?;
     if let Some(domain) = shenko_types::installation::InstallationDomain::for_store(
         &slot_dir.join(SLOT_DB_FILENAME), Path::new(&manifest.cas_dir))? {
         permit.ok_or_else(|| std::io::Error::other("slot descriptor requires an installation permit"))?.validate(&domain)?;
@@ -349,13 +374,18 @@ fn durable_replace(directory: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 /// Point the launcher at a slot. This is a convenience pointer, published
 /// after the selector CAS; it never carries authority by itself.
 pub fn publish_current_slot(data_dir: &Path, slot_dir: &Path) -> Result<()> {
+    let publication = StorePublication::acquire(data_dir.join("cas"))
+        .map_err(SlotError::PublicationOwner)?;
     let domain = shenko_types::installation::InstallationDomain::open(data_dir)?;
     let permit = domain.acquire()?;
-    publish_current_slot_under(data_dir, slot_dir, &permit)
+    publish_current_slot_under(data_dir, slot_dir, &publication, &permit)
 }
 
 pub fn publish_current_slot_under(data_dir: &Path, slot_dir: &Path,
+    publication: &StorePublication,
     permit: &shenko_types::installation::InstallationPermit) -> Result<()> {
+    publication.validate_cas(&data_dir.join("cas"))
+        .map_err(SlotError::PublicationOwner)?;
     permit.validate(&shenko_types::installation::InstallationDomain::open(data_dir)?)?;
     let pointer = SlotPointer { schema_version: 1, slot_dir: validate_slot_path(data_dir, slot_dir)? };
     durable_replace(data_dir, CURRENT_SLOT_FILENAME, &serde_json::to_vec(&pointer)?)?;

@@ -1165,13 +1165,21 @@ impl Store {
         build_id: EntityId,
         receipt: &ObjectRef,
     ) -> Result<StoredSessionEvent, ShenkoError> {
+        let publication = crate::StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
+        self.append_update_build_observation_under(expected_head, build_id, receipt, &publication, None)
+    }
+
+    pub fn append_update_build_observation_under(&self, expected_head: &SubjectBranchHead,
+        build_id: EntityId, receipt: &ObjectRef, publication: &crate::StorePublication,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<StoredSessionEvent, ShenkoError> {
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
         let data = serde_json::json!({
             "schema_version": 1,
             "build_id": build_id,
             "build_receipt_ref": receipt,
             "native_operation_settled": false,
         });
-        self.ledger.with_mutation(
+        self.ledger.with_owned_installation_mutation(custody.as_ref(), permit, true,
             || self.try_append_subject_raw_fact(expected_head, build_id, "update_build_observation", &data, true),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -1228,7 +1236,15 @@ impl Store {
         agent_id: EntityId,
         context: RuntimeErrorContext,
     ) -> Result<StoredSessionEvent, ShenkoError> {
-        self.ledger.with_mutation(
+        let publication = crate::StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
+        self.record_runtime_error_under(agent_id, context, &publication, None)
+    }
+
+    pub fn record_runtime_error_under(&self, agent_id: EntityId, context: RuntimeErrorContext,
+        publication: &crate::StorePublication,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<StoredSessionEvent, ShenkoError> {
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
+        self.ledger.with_owned_installation_mutation(custody.as_ref(), permit, true,
             || self.try_record_runtime_error(agent_id, &context),
             |e| matches!(e, ShenkoError::Storage(_)),
         )

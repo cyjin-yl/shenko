@@ -68,6 +68,18 @@ impl InstallationDomain {
         &self.root
     }
 
+    /// Compare existing physical directories without acquiring a mutation
+    /// permit or creating a lock file. Path aliases may name the same object;
+    /// installation permits retain their stricter original path validation.
+    pub fn validate_same_root(&self, other: &Self) -> io::Result<()> {
+        self.validate_root()?;
+        other.validate_root()?;
+        if self.identity != other.identity {
+            return Err(io::Error::other("directories have different physical identities"));
+        }
+        Ok(())
+    }
+
     fn validate_root(&self) -> io::Result<()> {
         if identity(&open_directory(&self.root)?)? != self.identity {
             return Err(io::Error::other("installation root identity changed"));

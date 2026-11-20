@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 pub struct Ledger {
     pub(crate) conn: Arc<Mutex<Connection>>,
+    /// Shared CAS directory; acquire its publication lease before any mutation.
+    cas_base: PathBuf,
     incarnation: EntityId,
     ledger_id: EntityId,
     mutation_open: Mutex<bool>,
@@ -22,7 +24,7 @@ pub struct Ledger {
 }
 
 impl Ledger {
-    pub(crate) fn new(conn: Arc<Mutex<Connection>>, incarnation: EntityId,
+    pub(crate) fn new(conn: Arc<Mutex<Connection>>, incarnation: EntityId, cas_base: PathBuf,
         installation: Option<(InstallationDomain, PathBuf, PathBuf)>) -> Result<Self> {
         let ledger_id = {
             let mut c = conn.lock();
@@ -51,6 +53,7 @@ impl Ledger {
         };
         Ok(Self {
             conn,
+            cas_base,
             incarnation,
             ledger_id,
             mutation_open: Mutex::new(true),
@@ -558,6 +561,11 @@ impl Ledger {
         self.with_mutation_under(None, write, storage_failure)
     }
 
+    pub(crate) fn acquire_cas_publication(&self) -> Result<crate::roots::CasWriteLease, ShenkoError> {
+        crate::roots::CasWriteLease::acquire(&self.cas_base)
+            .map_err(|error| ShenkoError::storage(format!("CAS write lease: {error}")))
+    }
+
     pub(crate) fn acquire_installation(&self, selected: bool) -> Result<Option<InstallationPermit>, ShenkoError> {
         let Some((domain, _, _)) = &self.installation else { return Ok(None); };
         let permit = domain.acquire().map_err(crate::store::storage_error)?;
@@ -664,17 +672,32 @@ impl Ledger {
         self.with_installation_mutation(None, false, write, storage_failure)
     }
 
-    pub(crate) fn with_maintenance_mutation_under<T, E: From<ShenkoError>>(
-        &self, permit: Option<&InstallationPermit>, write: impl FnOnce() -> Result<T, E>,
+    /// The caller retains this exact, physically bound CAS lease before its
+    /// physical/import/SQL exclusions. Never acquire another lease here.
+    pub(crate) fn with_maintenance_mutation_owned_under<T, E: From<ShenkoError>>(
+        &self, publication: &crate::roots::CasWriteLease,
+        permit: Option<&InstallationPermit>, write: impl FnOnce() -> Result<T, E>,
         storage_failure: impl FnOnce(&E) -> bool,
     ) -> Result<T, E> {
-        self.with_installation_mutation(permit, false, write, storage_failure)
+        self.with_owned_installation_mutation(publication, permit, false, write, storage_failure)
     }
 
     fn with_installation_mutation<T, E: From<ShenkoError>>(
         &self, borrowed: Option<&InstallationPermit>, selected: bool,
         write: impl FnOnce() -> Result<T, E>, storage_failure: impl FnOnce(&E) -> bool,
     ) -> Result<T, E> {
+        let write_lease = crate::roots::CasWriteLease::acquire(&self.cas_base)
+            .map_err(|error| ShenkoError::storage(format!("CAS write lease: {error}")))?;
+        self.with_owned_installation_mutation(&write_lease, borrowed, selected, write, storage_failure)
+    }
+
+    pub(crate) fn with_owned_installation_mutation<T, E: From<ShenkoError>>(
+        &self, publication: &crate::roots::CasWriteLease,
+        borrowed: Option<&InstallationPermit>, selected: bool,
+        write: impl FnOnce() -> Result<T, E>, storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        publication.validate_cas(&self.cas_base)
+            .map_err(|error| ShenkoError::storage(format!("CAS publication custody: {error:#}")))?;
         let owned = if borrowed.is_none() { self.acquire_installation(selected)? } else { None };
         let permit = borrowed.or(owned.as_ref());
         if let Some((domain, _, _)) = &self.installation {

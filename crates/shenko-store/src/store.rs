@@ -55,6 +55,45 @@ pub struct Store {
     pub(crate) error_journal_dropped: AtomicU64,
 }
 
+/// Acquire before any enclosing installation/Node/SQLite reservation, and
+/// retain through the last open/migration callback borrowing that reservation.
+/// Clones retain the original lock description; they never acquire another lease.
+/// The private fields couple the real shared lease to the exact CAS handle.
+#[derive(Clone)]
+pub struct StorePublication {
+    cas: Arc<ContentStore>,
+    identity: shenko_types::installation::InstallationDomain,
+    lease: Arc<crate::roots::CasWriteLease>,
+}
+
+impl StorePublication {
+    pub fn acquire(cas_dir: PathBuf) -> Result<Self> {
+        let cas = Arc::new(ContentStore::new(cas_dir)?);
+        let identity = shenko_types::installation::InstallationDomain::open(&cas.base().canonicalize()?)?;
+        let lease = crate::roots::CasWriteLease::acquire(cas.base())?;
+        let publication = Self { cas, identity, lease: Arc::new(lease) };
+        publication.validate_cas(publication.cas.base())?;
+        Ok(publication)
+    }
+
+    /// Retain the original lock description across delayed archive work.
+    /// Validation and Arc cloning never reacquire beneath a physical permit.
+    pub(crate) fn retain_cas(&self, cas: &ContentStore) -> Result<Arc<crate::roots::CasWriteLease>> {
+        self.validate_cas(cas.base())?;
+        Ok(Arc::clone(&self.lease))
+    }
+
+    /// Validate an existing CAS without taking another lease, creating a
+    /// directory/lock file, or entering Store initialization. Canonicalizing
+    /// admits symlink aliases; physical identity also admits mount aliases.
+    /// Call before any side effect when a borrowed owner accompanies a path.
+    pub fn validate_cas(&self, cas_dir: &Path) -> Result<()> {
+        let other = shenko_types::installation::InstallationDomain::open(&cas_dir.canonicalize()?)?;
+        self.identity.validate_same_root(&other)
+            .context("CAS publication capability belongs to another physical content store")
+    }
+}
+
 /// Write domain facts in the genesis transaction. Failure rolls back the
 /// genesis, root task, head and first step together. Return the additional
 /// entity count; extensions must not rewrite those four store-owned facts.
@@ -121,15 +160,21 @@ impl Store {
     }
 
     pub fn open(db_path: PathBuf, cas_dir: PathBuf) -> Result<Self> {
+        let publication = StorePublication::acquire(cas_dir)?;
+        let cas_dir = publication.cas.base().to_owned();
         let domain = shenko_types::installation::InstallationDomain::for_store(&db_path, &cas_dir)?;
         let permit = domain.as_ref().map(|domain| domain.acquire()).transpose()?;
-        Self::open_under(db_path, cas_dir, permit.as_ref())
+        Self::open_under(db_path, &publication, permit.as_ref())
     }
 
     /// Schema, ledger identity and migration writes borrow the same physical
-    /// reservation as an enclosing slot copy/cutover.
-    pub fn open_under(db_path: PathBuf, cas_dir: PathBuf,
+    /// reservation as an enclosing slot copy/cutover. The caller acquires the
+    /// publication capability BEFORE that reservation, retaining both through
+    /// all source/target opens and the enclosing durable settlement.
+    pub fn open_under(db_path: PathBuf, publication: &StorePublication,
         permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<Self> {
+        publication.lease.validate_cas(publication.cas.base())?;
+        let cas_dir = publication.cas.base().to_owned();
         let domain = shenko_types::installation::InstallationDomain::for_store(&db_path, &cas_dir)?;
         if let Some(domain) = &domain {
             permit.ok_or_else(|| anyhow::anyhow!("installed Store open requires a physical permit"))?.validate(domain)?;
@@ -174,8 +219,8 @@ impl Store {
 
         let conn = Arc::new(Mutex::new(conn));
         let installation = domain.map(|domain| (domain, db_path.clone(), cas_dir.clone()));
-        let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation, installation)?);
-        let cas = Arc::new(ContentStore::new(cas_dir)?);
+        let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation, cas_dir.clone(), installation)?);
+        let cas = Arc::clone(&publication.cas);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
         let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
@@ -194,10 +239,10 @@ impl Store {
         // Explicit migration of the sealed publication targets. It never
         // aborts the open: a record that cannot be converted stays
         // unreadable and the subject keeps running.
-        if let Err(error) = crate::channel::migrate_publication_targets_under(&store, permit) {
+        if let Err(error) = crate::channel::migrate_publication_targets_under(&store, publication, permit) {
             tracing::warn!(error = %error, "publication target migration did not complete");
         }
-        store.recover_legacy_successor_identity_under(permit)?;
+        store.recover_legacy_successor_identity_under(publication, permit)?;
         Ok(store)
     }
 
@@ -222,6 +267,10 @@ impl Store {
     }
 
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+        // Hold the shared CAS lease across sealing and durable publication.
+        // Deduplicated objects keep their old mtime, so age cannot exclude GC.
+        let _write_lease = crate::roots::CasWriteLease::acquire(self.cas.base())
+            .map_err(|error| ShenkoError::storage(format!("CAS write lease: {error}")))?;
         // the object exists before the commit that references it.
         // Seal every raw object the batch carries FIRST, then admit the facts.
         // A left-behind sealed object is an orphan (harmless, content
@@ -394,14 +443,16 @@ impl Store {
         expected_revision: RecordRevision,
         reason_ref: &ObjectRef,
     ) -> Result<SubjectBranchHead, ShenkoError> {
-        self.fence_head_for_handoff_under(head, expected_revision, reason_ref, None)
+        let publication = StorePublication::acquire(self.cas.base().to_owned()).map_err(storage_error)?;
+        self.fence_head_for_handoff_under(head, expected_revision, reason_ref, &publication, None)
     }
 
     pub fn fence_head_for_handoff_under(&self, head: &SubjectBranchHead,
         expected_revision: RecordRevision, reason_ref: &ObjectRef,
-        permit: Option<&shenko_types::installation::InstallationPermit>)
+        publication: &StorePublication, permit: Option<&shenko_types::installation::InstallationPermit>)
         -> Result<SubjectBranchHead, ShenkoError> {
-        self.ledger.with_maintenance_mutation_under(permit,
+        let custody = publication.retain_cas(&self.cas).map_err(storage_error)?;
+        self.ledger.with_maintenance_mutation_owned_under(custody.as_ref(), permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
