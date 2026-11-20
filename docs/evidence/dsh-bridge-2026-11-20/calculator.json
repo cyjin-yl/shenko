@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-11-20T03:14:06.193Z",
+  "environment": {
+    "node": "v24.22.3",
+    "platform": "linux",
+    "arch": "x64"
+  },
+  "sourceSha256": {
+    "adapters/dsh/package.json": "67dda0ac792efdcb185652610397929b657e1e6545d6177c557c3be78281527d",
+    "adapters/dsh/package-lock.json": "5ed00859e4c5d9bd4bd8c1201c99c11c7940802b2efc1a263641c3ee6f3664c4",
+    "adapters/dsh/src/config.mjs": "fc3b70ab4be386f60592b486da610cadcec7552236a49161624f77a3f7c8c969",
+    "adapters/dsh/src/cli.mjs": "4eda2232182c1883b6ec8ee43fc9f24dd1ec418082d158a5ba43b71299c18078",
+    "adapters/dsh/src/host.mjs": "02b9b43c5cba8790bb9e0172865f5eca6853f36d5b9d6d02e1292ad659581a65",
+    "adapters/dsh/src/server.mjs": "7608c09218db55b657bba3edef11ac82c12a209823182d2c9eb7daa9c33dd8b8"
+  },
+  "plugin": {
+    "repository": "https://github.com/omdsh-dev/dsh-tool-calculator",
+    "revision": "b2007a13f06bcf75bf07b9d277ee8d434a316490",
+    "entry": "lib/index.js",
+    "workingTreeClean": true,
+    "toolsVersion": "0.1.1-rc.2",
+    "cordisVersion": "4.0.1"
+  },
+  "bridge": {
+    "toolsVersion": "0.2.2-rc.5",
+    "cordisVersion": "4.1.0",
+    "mcpVersion": "1.32.2"
+  },
+  "check": {
+    "status": "ready",
+    "verified": [
+      "plugin-mount",
+      "tool-catalog",
+      "plugin-disposal"
+    ]
+  },
+  "transport": "actual MCP stdio child process using generated hash-bound connection profile",
+  "catalog": {
+    "tools": [
+      {
+        "name": "calculator",
+        "description": "Evaluate a mathematical expression safely. Supports +, -, *, /, %, **, parentheses, and functions: abs, ceil, floor, round, max, min, sqrt, pow, log, log2, log10, exp, sin, cos, tan, PI, E.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "expression": {
+              "type": "string",
+              "description": "Mathematical expression, e.g. \"15 + 27 * sqrt(9)\""
+            }
+          },
+          "required": [
+            "expression"
+          ]
+        },
+        "outputSchema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  },
+  "calls": [
+    {
+      "arguments": {
+        "expression": "15 + 27 * sqrt(9)"
+      },
+      "result": {
+        "_meta": {
+          "shenko.dsh": {}
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "96"
+          }
+        ],
+        "structuredContent": {
+          "value": 96
+        },
+        "isError": false
+      }
+    },
+    {
+      "arguments": {
+        "expression": 42
+      },
+      "result": {
+        "_meta": {
+          "shenko.dsh": {
+            "error": {
+              "message": "invalid arguments: \"expression\" must be a string"
+            }
+          }
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: invalid arguments: \"expression\" must be a string"
+          }
+        ],
+        "isError": true
+      }
+    }
+  ],
+  "clientClosed": true,
+  "stderr": "",
+  "notVerified": [
+    "Shenko Rust Store/native child integration",
+    "real model tool choice",
+    "audio synthesis",
+    "full DSH profile/UI compatibility"
+  ]
+}

@@ -536,7 +536,20 @@ for chunk in migration['chunks']:
     known = anchor_cache.setdefault(path, anchors(path.read_text()))
     check(chunk['anchor'] in known, f"Migration target anchor missing: {chunk['id']}")
 
-for path in ROOT.rglob('*.md'):
+def authored_markdown():
+    # Local installs belong to their package owners, like the source-comment
+    # inventory above. Installing an optional adapter must not change which
+    # Shenko documents the link checker treats as authored repository content.
+    for base, directories, filenames in os.walk(ROOT):
+        directories[:] = sorted(name for name in directories if name not in {
+            'node_modules', 'target', '.git', '.pnpm-store',
+        })
+        for filename in sorted(filenames):
+            if filename.endswith('.md'):
+                yield Path(base) / filename
+
+
+for path in authored_markdown():
     if path.is_symlink():
         continue
     rel = path.relative_to(ROOT)

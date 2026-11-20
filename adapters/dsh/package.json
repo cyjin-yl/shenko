@@ -1,0 +1,17 @@
+{
+  "name": "@shenko/dsh-tools-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Optional standalone DSH host tools exposed through Shenko's existing MCP adapter",
+  "type": "module",
+  "engines": { "node": ">=24.9.0" },
+  "bin": { "shenko-dsh": "./src/cli.mjs" },
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@modelcontextprotocol/sdk": "1.32.2"
+  }
+}
