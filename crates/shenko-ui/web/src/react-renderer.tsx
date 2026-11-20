@@ -3,7 +3,10 @@ import * as React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { intentFor, type Dispatch, type TaskSummary, type UiNode, type UiProjection, type ViewName, type WorkView } from './projection';
 import { Icon } from './icons';
-import { Button, ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit } from './ui-kit';
+import {
+  Button, DrawerContent, DrawerHeader, DrawerMask, DrawerRoot, DrawerTitle,
+  ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit,
+} from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
 import { ImView } from './im';
 import { FilesView, liveFiles } from './files-view';
@@ -145,6 +148,13 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
     subject: subjectParticipant(projection),
     demo: demoData,
   }), [tasks, projection, demoData]);
+  // Phones get one tab bar of real destinations; every lens moves into the
+  // 更多 sheet. Desktop keeps the top tabs and the lens bar.
+  const [moreOpen, setMoreOpen] = React.useState(false);
+  const openTab = (next: 'im' | 'inspect' | 'files') => {
+    if (open !== null) openLens(undefined);
+    setTab(next);
+  };
   const openWork = open?.kind === 'work'
     ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
     : undefined;
@@ -278,6 +288,70 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
           </div>
         </aside>
       </div>
+
+      <nav className="tabbar" aria-label={t('shell.views')}>
+        {([
+          ['im', 'chat', t('shell.chat')],
+          ['inspect', 'timeline', 'Inspect'],
+          ['files', 'files', t('files.title')],
+        ] as const).map(([id, icon, label]) => (
+          <button
+            key={id}
+            type="button"
+            className="tabbar-item"
+            aria-current={open === null && tab === id ? 'page' : undefined}
+            onClick={() => openTab(id)}
+          >
+            <Icon name={icon} size={22} />
+            <span>{label}</span>
+          </button>
+        ))}
+        <button
+          type="button"
+          className="tabbar-item"
+          aria-current={open !== null ? 'page' : undefined}
+          aria-haspopup="dialog"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen(true)}
+        >
+          <Icon name="more" size={22} />
+          <span>{t('shell.more')}</span>
+        </button>
+      </nav>
+      <DrawerRoot
+        className="sheet-root"
+        open={moreOpen}
+        a11yLabel={t('shell.more')}
+        onOpenChange={(detail: { open: boolean }) => setMoreOpen(detail.open)}
+      >
+        <DrawerMask className="sheet-mask" />
+        <DrawerContent side="bottom" className="sheet more-sheet">
+          <DrawerHeader className="sheet-head">
+            <div className="sheet-title">
+              <DrawerTitle className="sheet-name">{t('shell.more')}</DrawerTitle>
+            </div>
+            <Button variant="ghost" size="icon" label={t('shell.closeMore')} onClick={() => setMoreOpen(false)}>
+              <Icon name="close" />
+            </Button>
+          </DrawerHeader>
+          <ul className="more-list">
+            {lenses.map((lens) => (
+              <li key={lens.id}>
+                <button
+                  type="button"
+                  className="more-item"
+                  aria-current={openId === lens.id ? 'true' : undefined}
+                  onClick={() => { setMoreOpen(false); openLens(lens); }}
+                >
+                  <Icon name={lens.icon} size={20} />
+                  <span className="more-label">{lens.title}</span>
+                  <Icon name="chevron" size={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </DrawerContent>
+      </DrawerRoot>
 
       <ContextPanel node={panel} projection={projection} emit={emit} />
       <span className="sr-only" aria-live="polite">{connectionAnnouncement(projection.connection)}</span>
