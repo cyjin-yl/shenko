@@ -34,6 +34,26 @@ APK is **only a distribution bundle**. Bundled ≠ available ≠ OS-authorized.
   desktop; the APK always uses filesDir.
 - `mobile/apk/bundle.json` pins artifacts, licenses, units, Rust targets.
 
+### Ordinary app launch
+
+The launcher resolves `MAIN`/`LAUNCHER` to `ShenkoActivity`, which calls the
+existing `ShenkoNodeService.start` from the visible activity. The service enters
+foreground state and owns the bridge and JNI node thread. The activity does not
+create another runtime. Recreating or closing the activity leaves that service
+alone; the Start node button requests the same service again. A fresh activity
+launch requests service startup automatically. Android may refuse startup, stop
+the service or kill the process; opening the app again is the ordinary user
+entry after that event. This is not a guarantee of unattended restart or an
+unlimited `dataSync` foreground-service lifetime.
+
+The screen reports a start request, not native readiness. Open Shenko opens
+`http://127.0.0.1:7860` in the user's browser; the node must actually finish
+startup before that UI is available. A missing browser and synchronous Android
+startup refusals are displayed. Native startup failure remains in the existing
+service log. No permission, installer confirmation or incoming intent extra
+changes service inputs or grants authority through this activity. Compilation requires SDK 36 for the pinned Dhizuku dependency. API 26 remains
+the minimum; the service retains its existing API-specific foreground calls.
+
 ## 2. Node portability ([§5.4](nodes.md#spec-5-4))
 
 The node core never gains OS gates: `shenko-node` uses only `cfg(unix)`
@@ -55,6 +75,18 @@ advertised through the bundled unit's `provides` list
 | `dhizuku_owner` | `Dhizuku.newProcess(cmd[], env[], dir)` (Dhizuku-API 2.7.0, MIT) | Device owner is not root and not ADB; grants no app-private-data read |
 | `accessibility` | User-enabled `AccessibilityService`: gestures, node tree, human-activity event feed | Only what the service can observe/dispatch |
 | `normal_perm` | This app's own uid surface | Baseline |
+
+The app-owned Shizuku user-service AIDL is a standalone Binder interface;
+AIDL does not support Java-style interface inheritance. With the pinned
+Shizuku API/shared 13.1.5, `execJson` keeps explicit AIDL method ID 0 (Binder
+transaction 1) and the same descriptor and arguments. The lifecycle `destroy`
+method is oneway with explicit ID 16777114, giving Shizuku's reserved Binder
+transaction 16777115. It exits the dedicated Shizuku user-service process;
+it does not stop the app process or replace the grant check/binding path.
+Only this lifecycle method is oneway; execution keeps its existing synchronous
+JSON result. Accessibility window-content capability is read from the actual
+`AccessibilityServiceInfo`, including when the consumer holds the base
+`AccessibilityService` type.
 
 No "normal → Shizuku → Dhizuku → root" escalation path is encoded anywhere;
 `auto` picks the strongest *granted* mechanism and reports which one was used
@@ -160,7 +192,7 @@ fact about material, independent of ciphertext readability).
 3. With a compatible Gradle installed, run `gradle :app:assembleDebug` from
    `mobile/apk` (AGP 8.7.3, Kotlin 2.0.21, minSdk 26); the repository does not
    currently bundle a Gradle wrapper.
-4. Install on an emulator/device (API 26+): start ShenkoNodeService, confirm
+4. Install on an emulator/device (API 26+): open Shenko from the launcher, confirm
    the node thread reports startup, `device_bridge.sock` exists, and
    `shenko identity` over the UI port answers.
 5. Probe path: run a subject step asking `mobile.device.probe` with no
