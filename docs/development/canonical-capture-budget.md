@@ -300,3 +300,41 @@ failure in capture. A completed read-only FTS query had no remaining busy
 statement. These diagnostics are not the pinned Rust journey. The repaired
 source still requires the next real CI run; the six original failures remain
 part of the evidence.
+
+## S1 two-limit original-plan admission (2026-11-21 candidate)
+
+This candidate changes the refusal behavior described in the 2026-11-17
+implementation section above. On protected base `2dd1b4c0`, both exact capacity
+refusals returned an error; the existing public S1 consumer proved bounded
+complete-read ranges and a serialized-image refusal, but no ordinary fallback
+COMMIT and no retained-row refusal. Earlier historical fallback results do not
+prove that base's behavior.
+
+Only an exact typed 128 MiB retained-row or 64 MiB serialized-image refusal
+returned by canonical preparation may now proceed to ordinary ordered
+admission of the original decision. Capture has rolled back and its preparation
+transaction has not committed. Ordinary admission still checks live authority,
+seals the authenticated predecessor and original action, orders that action
+through the attached provider, and checks the original head/step/task conditions
+inside its final SQL transaction. The local admission receipt and subject
+changes share the successful COMMIT. The capacity journal explicitly does not
+assert admission or COMMIT success. Native execution has no new fallback.
+
+An existing prepared action returns its frozen plan before capture; its
+admission/application errors return directly. Malformed objects, storage errors
+and unrelated conflicts do not match the two exact capacity markers. Chosen
+actions continue through the original recovery protocol; this change does not
+replace their frozen results with another plan.
+
+Two discriminating regressions reuse the existing authority and recorded-result
+fixtures: `canonical_s1_retained_row_capacity_uses_original_ordinary_commit`
+uses a real 129 MiB BLOB preimage, while
+`canonical_s1_serialized_image_capacity_uses_original_ordinary_commit` uses
+12 MiB NUL text whose JSON escaping reaches the image limit while its retained
+cells fit the row limit. Each also loses the ordinary chosen reply and requires
+an honest error, unchanged source rows and no local receipt before recovering
+the same chosen original plan. Both inspect the precise capacity journal,
+absence of durable canonical preparation, original S0/result/decision/successor,
+actual local receipt and commit-log entry, exactly one trigger mutation, reopen
+and idempotent recovery. The bounded-range portion of the existing S1 consumer
+is retained. These candidate regressions have not been executed here.
