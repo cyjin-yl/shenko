@@ -107,7 +107,7 @@ def work_inventory(work, *, inputs_only=False):
     return entries
 
 
-def resumable_timeout(observation):
+def resumable_compile_stop(observation):
     # GNU Make's handled TERM cleans its interrupted target. A KILLed leader,
     # an ordinary compiler error or an unconfirmed group has no resume authority.
     stopped = observation.get("stopped") or {}
@@ -115,7 +115,7 @@ def resumable_timeout(observation):
             and observation.get("command") == ["/usr/bin/make", "-C", "out", "BUILDTYPE=Release", "V=1", "-j1", "node"]
             and observation.get("exit_code") == -int(signal.SIGTERM)
             and observation.get("leader_reaped") is True and observation.get("group_remaining") == []
-            and stopped.get("reason") == "wall_deadline"
+            and stopped.get("reason") in ("wall_deadline", "observed_memory_reserve")
             and stopped.get("leader_reaped") is True and stopped.get("remaining_group") == []
             and stopped.get("errors") == [] and stopped.get("actions", [])[:1] == ["SIGTERM"]
             and not any(key in observation for key in ("execution_error", "cleanup_error", "cleanup_inspection_error")))
@@ -149,8 +149,8 @@ def admit_resume(previous, work, binding):
     summary = journey.read_json(previous / "summary.json")
     observation = journey.read_json(previous / "compile.observation.json")
     journey.require(summary.get("resume_available") is True and summary.get("owned_groups_settled") is True
-                    and summary.get("build_succeeded") is False and resumable_timeout(observation),
-                    "prior attempt is not a settled, resumable compile deadline")
+                    and summary.get("build_succeeded") is False and resumable_compile_stop(observation),
+                    "prior attempt is not a settled, resumable compile interruption")
     journey.require(work_inventory(work) == state["work_inventory"],
                     "local source, objects, configuration, tools, links or Make timestamps changed")
     context = state["context"]
@@ -172,8 +172,8 @@ def admit_resume(previous, work, binding):
 
 def seal_resume(work, evidence, binding, context):
     observation = journey.read_json(evidence / "compile.observation.json")
-    journey.require(journey.groups_settled(evidence) and resumable_timeout(observation),
-                    "only a settled GNU Make TERM deadline can seal a resumable build")
+    journey.require(journey.groups_settled(evidence) and resumable_compile_stop(observation),
+                    "only a settled GNU Make TERM deadline or memory-reserve stop can seal a resumable build")
     journey.require(observation.get("cwd") == str(work / "source") and observation.get("environment") == context["environment"],
                     "compile receipt is not bound to this local build")
     inventory = work_inventory(work)
@@ -186,7 +186,7 @@ def seal_resume(work, evidence, binding, context):
     journey.write_json(evidence / "resume-state.json", {
         "schema_version": 1, "binding": binding, "context": context,
         "work_inventory": inventory,
-        "scope": "unsigned custody of this same local build after a handled bounded timeout; no crash, relocation or runtime acceptance claim",
+        "scope": "unsigned custody of this same local build after a handled bounded interruption; no crash, relocation or runtime acceptance claim",
     })
 
 
@@ -388,7 +388,7 @@ def main():
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
-    parser.add_argument("--resume-from", type=Path, help="completed evidence from this same local build's previous compile deadline")
+    parser.add_argument("--resume-from", type=Path, help="completed evidence from this same local build's previous clean compile interruption")
     args = parser.parse_args()
     evidence, work = args.evidence_dir.resolve(), args.work_dir.resolve()
     journey.require(evidence != work and not evidence.is_relative_to(work) and not work.is_relative_to(evidence), "work and evidence directories must be separate")
@@ -592,7 +592,7 @@ def main():
             if owned_work:
                 keep_build_configuration(source, evidence)
                 journey.capture_guest(work, evidence)
-                if build_context is not None and resumable_timeout(journey.read_json(evidence / "compile.observation.json")):
+                if build_context is not None and resumable_compile_stop(journey.read_json(evidence / "compile.observation.json")):
                     seal_resume(work, evidence, binding, build_context)
                     summary["resume_available"] = True
         except BaseException as error:

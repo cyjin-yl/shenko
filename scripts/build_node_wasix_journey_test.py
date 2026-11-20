@@ -58,25 +58,49 @@ class PersistentBuildCustodyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "link escapes"):
             builder.work_inventory(self.work)
 
-    def test_only_the_retained_settled_term_deadline_has_resume_authority(self):
+    def test_retained_settled_term_deadline_keeps_resume_authority(self):
         receipt = Path(os.environ["SHENKO_NODE_WASIX_COMPILE_RECEIPT"])
         raw = receipt.read_bytes()
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          "b382fda9e6d1168b4e7a36515fb0bd71d54b0fa8bfd5c6e6b35750fe52668f0e")
         observed = json.loads(raw)
-        self.assertTrue(builder.resumable_timeout(observed))
+        self.assertTrue(builder.resumable_compile_stop(observed))
         killed = copy.deepcopy(observed)
         killed["exit_code"] = -int(signal.SIGKILL)
-        self.assertFalse(builder.resumable_timeout(killed))
+        self.assertFalse(builder.resumable_compile_stop(killed))
         unsettled = copy.deepcopy(observed)
         unsettled["group_remaining"] = [{"pid": 1}]
-        self.assertFalse(builder.resumable_timeout(unsettled))
+        self.assertFalse(builder.resumable_compile_stop(unsettled))
         failed = copy.deepcopy(observed)
         failed["stopped"]["reason"] = "rss_observation_limit"
-        self.assertFalse(builder.resumable_timeout(failed))
+        self.assertFalse(builder.resumable_compile_stop(failed))
         no_term = copy.deepcopy(observed)
         no_term["stopped"]["actions"] = []
-        self.assertFalse(builder.resumable_timeout(no_term))
+        self.assertFalse(builder.resumable_compile_stop(no_term))
+
+    def test_clean_memory_reserve_stop_keeps_the_original_safety_gate(self):
+        receipt = Path(os.environ["SHENKO_NODE_WASIX_MEMORY_RESERVE_RECEIPT"])
+        raw = receipt.read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "da622c5c7efc433039b98d88787bfcdf450ebb745078caea06359416b3139eac")
+        observed = json.loads(raw)
+        self.assertEqual(observed["stopped"]["reason"], "observed_memory_reserve")
+        self.assertTrue(builder.resumable_compile_stop(observed))
+        killed = copy.deepcopy(observed)
+        killed["exit_code"] = -int(signal.SIGKILL)
+        self.assertFalse(builder.resumable_compile_stop(killed))
+        unsettled = copy.deepcopy(observed)
+        unsettled["stopped"]["remaining_group"] = [{"pid": 1}]
+        self.assertFalse(builder.resumable_compile_stop(unsettled))
+        cleanup_error = copy.deepcopy(observed)
+        cleanup_error["stopped"]["errors"] = [{"operation": "SIGTERM", "type": "OSError"}]
+        self.assertFalse(builder.resumable_compile_stop(cleanup_error))
+        execution_error = copy.deepcopy(observed)
+        execution_error["execution_error"] = None
+        self.assertFalse(builder.resumable_compile_stop(execution_error))
+        other_guard = copy.deepcopy(observed)
+        other_guard["stopped"]["reason"] = "free_disk_reserve"
+        self.assertFalse(builder.resumable_compile_stop(other_guard))
 
 
 if __name__ == "__main__":
