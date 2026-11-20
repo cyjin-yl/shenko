@@ -305,9 +305,10 @@ impl Store {
         updated: usize,
         unchanged: usize,
         conflicts: usize,
+        publication: &crate::roots::CasWriteLease,
         permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<()> {
-        self.ledger.with_maintenance_mutation_under(permit, || {
+        self.ledger.with_maintenance_mutation_owned_under(publication, permit, || {
         let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT INTO cognition_receipts(peer_id,fingerprint,high_water,verified_objects,verified_files,inserted,updated,unchanged,conflicts,received_at)
