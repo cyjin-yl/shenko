@@ -901,17 +901,29 @@ pub(super) fn estimate_payload_tokens(payload: &InferencePayload, vision_tokens:
     }
 }
 
+pub(super) struct PayloadProjectionOptions<'a> {
+    pub(super) caps: Option<&'a ModelCaps>,
+    pub(super) max_tokens: u64,
+    pub(super) idle_text: Option<&'a str>,
+}
+
+struct ProjectedPayload {
+    payload: InferencePayload,
+    estimated_input_tokens: Option<u32>,
+    unfinished_call_ids: Vec<String>,
+    payload_layout: FrozenPayloadLayout,
+}
+
 fn project_payload(
     store: &Store,
     scope: EntityId,
     window: &CommittedWindow,
     history: &dyn HistorySource,
     base_system_prompt: String,
-    caps: Option<&ModelCaps>,
-    max_tokens: u64,
     fresh_ids: &[EntityId],
-    idle_text: Option<&str>,
-) -> Result<(InferencePayload, Option<u32>, Vec<String>, FrozenPayloadLayout), ShenkoError> {
+    options: PayloadProjectionOptions<'_>,
+) -> Result<ProjectedPayload, ShenkoError> {
+    let PayloadProjectionOptions { caps, max_tokens, idle_text } = options;
     let system_prefix_bytes = base_system_prompt.len() as u64;
     let mut system_prompt = base_system_prompt;
     let mut messages = Vec::new();
@@ -1030,10 +1042,10 @@ fn project_payload(
     let estimate = estimate_payload_tokens(&payload, image_charge);
     let vision_tokens = if payload.messages.iter().flat_map(|message| &message.parts)
         .any(InferencePart::is_image) { image_charge } else { 0 };
-    Ok((payload, estimate, unfinished.into_iter().collect(), FrozenPayloadLayout {
+    Ok(ProjectedPayload { payload, estimated_input_tokens: estimate, unfinished_call_ids: unfinished.into_iter().collect(), payload_layout: FrozenPayloadLayout {
         system_prefix_bytes, history_message_count, idle_message_count,
         contribution_message_count: 0, vision_tokens,
-    }))
+    } })
 }
 
 fn budget_tokens(current: u32, previous: Option<(u32, u32)>) -> u32 {
@@ -1058,24 +1070,20 @@ pub(super) fn project_payload_stable(
     window: &CommittedWindow,
     history: &dyn HistorySource,
     base_system_prompt: String,
-    caps: Option<&ModelCaps>,
-    max_tokens: u64,
     fresh_ids: &[EntityId],
-    idle_text: &str,
+    options: PayloadProjectionOptions<'_>,
 ) -> Result<StableProjection, ShenkoError> {
     // The revision is acquired BEFORE any execution-status read. Equality
     // after projection is what permits this exact revision to enter the seal.
     let source_commit_seq = store.current_commit_seq()?;
-    let (payload, estimate, unfinished, layout) = project_payload(
+    let ProjectedPayload { payload, estimated_input_tokens, unfinished_call_ids, payload_layout } = project_payload(
         store,
         scope,
         window,
         history,
         base_system_prompt,
-        caps,
-        max_tokens,
         fresh_ids,
-        Some(idle_text),
+        options,
     )?;
     if store.current_commit_seq()? != source_commit_seq {
         return Err(ShenkoError::ResnapshotRequired {
@@ -1084,10 +1092,10 @@ pub(super) fn project_payload_stable(
     }
     Ok(StableProjection {
         payload,
-        estimated_input_tokens: estimate,
-        unfinished_call_ids: unfinished,
+        estimated_input_tokens,
+        unfinished_call_ids,
         source_commit_seq,
-        payload_layout: layout,
+        payload_layout,
     })
 }
 
@@ -1383,18 +1391,20 @@ fn project_correction(
     let prefix_end = usize::try_from(parent_layout.system_prefix_bytes)
         .map_err(|_| ShenkoError::conflict("frozen system prefix overflow"))?;
     let source_commit_seq = store.current_commit_seq()?;
-    let (mut payload, _, unfinished, mut layout) = project_payload(
+    let ProjectedPayload { mut payload, unfinished_call_ids: unfinished, payload_layout: mut layout, .. } = project_payload(
         store,
         parent_context.source.scope_id,
         window,
         history,
         parent_payload.system_prompt[..prefix_end].to_owned(),
-        caps,
-        parent_payload.max_tokens.ok_or_else(|| {
-            ShenkoError::conflict("correction has no explicit frozen output reservation")
-        })?,
         &parent_context.source.input_raw_event_ids,
-        None,
+        PayloadProjectionOptions {
+            caps,
+            max_tokens: parent_payload.max_tokens.ok_or_else(|| {
+                ShenkoError::conflict("correction has no explicit frozen output reservation")
+            })?,
+            idle_text: None,
+        },
     )?;
     if payload.system_prompt != parent_payload.system_prompt {
         return Err(ShenkoError::conflict(
@@ -1855,8 +1865,8 @@ pub(super) fn prepare_context(
     let idle_text = state.idle_perception();
     let StableProjection { mut payload, mut estimated_input_tokens, mut unfinished_call_ids,
         mut source_commit_seq, mut payload_layout } = project_payload_stable(
-        &state.store, scope_id, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens, &input_raw_event_ids,
-        &idle_text,
+        &state.store, scope_id, &window, &history, system_prompt.clone(), &input_raw_event_ids,
+        PayloadProjectionOptions { caps: caps.as_ref(), max_tokens: state.max_tokens, idle_text: Some(&idle_text) },
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
@@ -1867,8 +1877,8 @@ pub(super) fn prepare_context(
     )?;
     if matches!(selection, ContextSelection::Compacted { .. }) {
         StableProjection { payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq, payload_layout } = project_payload_stable(
-            &state.store, scope_id, &window, &history, system_prompt, caps.as_ref(), state.max_tokens,
-            &input_raw_event_ids, &idle_text,
+            &state.store, scope_id, &window, &history, system_prompt, &input_raw_event_ids,
+            PayloadProjectionOptions { caps: caps.as_ref(), max_tokens: state.max_tokens, idle_text: Some(&idle_text) },
         )?;
     }
     let selected_estimate = estimated_input_tokens

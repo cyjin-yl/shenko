@@ -1440,8 +1440,11 @@ fn execution_commit_during_projection_is_rejected() {
     };
     let window = shenko_context_policy::CommittedWindow::genesis();
     let error = crate::context_projection::project_payload_stable(
-        &store, scope, &window, &history, "fixture".into(), None, 10, &[],
-        crate::context_projection::IDLE_CONTINUATION_PROMPT,
+        &store, scope, &window, &history, "fixture".into(), &[],
+        crate::context_projection::PayloadProjectionOptions {
+            caps: None, max_tokens: 10,
+            idle_text: Some(crate::context_projection::IDLE_CONTINUATION_PROMPT),
+        },
     ).err().expect("a mutation during execution reads must invalidate the projection");
     assert!(matches!(error, ShenkoError::ResnapshotRequired { .. }));
     assert_eq!(store.current_commit_seq().unwrap(), before + 1);

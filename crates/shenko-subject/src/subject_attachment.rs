@@ -7,13 +7,19 @@ use shenko_context_policy::{ItemRef, ModelCaps};
 use shenko_store::{Store, web_attachment::WebAttachment};
 use shenko_types::{error::ShenkoError, ids::EntityId, object::Digest};
 
+struct ValidatedImage {
+    bytes: Arc<[u8]>,
+    width: u32,
+    height: u32,
+}
+
 pub(super) struct AttachmentProjection<'a> {
     store: &'a Store,
     scope: EntityId,
     caps: Option<&'a ModelCaps>,
     // A repeated source object shares its original bytes. Every actual image
     // occurrence is charged; metadata references alone never charge an image.
-    images: HashMap<Digest, Option<(Arc<[u8]>, u32, u32)>>,
+    images: HashMap<Digest, Option<ValidatedImage>>,
     lengths: HashMap<Digest, u64>,
     supplied: std::collections::HashSet<Digest>,
 }
@@ -89,10 +95,12 @@ impl<'a> AttachmentProjection<'a> {
                 if bytes.len() as u64 != attachment.bytes || Digest::blake3(&bytes) != attachment.digest {
                     return Err(ShenkoError::conflict("attachment bytes differ from admitted digest/length"));
                 }
-                let image = validated_png(&bytes).map(|(width, height)| (Arc::from(bytes), width, height));
+                let image = validated_png(&bytes).map(|(width, height)| ValidatedImage {
+                    bytes: Arc::from(bytes), width, height,
+                });
                 self.images.insert(attachment.digest.clone(), image);
             }
-            let Some((bytes, width, height)) = self.images[&attachment.digest].as_ref() else {
+            let Some(ValidatedImage { bytes, width, height }) = self.images[&attachment.digest].as_ref() else {
                 parts.push(InferencePart::Text { text: format!(
                     "[本轮附件 {}] 声明为 PNG，但未通过有界静态栅格解码验证；未传递画面，看不到画面。", attachment.digest.0) });
                 continue;
