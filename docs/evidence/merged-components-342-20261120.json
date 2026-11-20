@@ -1,0 +1,906 @@
+{
+  "schema_version": 1,
+  "reviewed_merge": "0253c7623ca20668372b2fd31efbe36ef19b5c35",
+  "reviewer_mapping": "MapMergedEvidenceSPEC342",
+  "result": "Component observations only; no canonical acceptance case newly satisfied.",
+  "interpretation": "Native exact_pass refers to exact test selection. Protected CI success belongs to its admitted PR head. Standalone, schema-7, composed and schema-9 observations remain separately bound; no claim that an earlier native executable is the final merged candidate.",
+  "contracts": {
+    "installed-recovery": {
+      "requirements": [
+        "R099",
+        "R121"
+      ],
+      "behaviors": [
+        "B04",
+        "B37"
+      ],
+      "cases": [
+        "A33",
+        "DX06",
+        "DX11"
+      ],
+      "method": "Installed Node generation, real Store/CAS/dispatcher and controlled HTTP; no real OXR or subject model.",
+      "limits": "Actual Chinese electronic/scanned recognition, bbox accuracy, deployment throughput, remote engine/task loss and termination remain unproved. DX06 kill-before-T2 and full DX11 unavailable-reader/install sequence remain unverified."
+    },
+    "paused-build": {
+      "requirements": [
+        "R009",
+        "R049",
+        "R110"
+      ],
+      "behaviors": [
+        "B07",
+        "B37"
+      ],
+      "cases": [
+        "V1-06",
+        "A39"
+      ],
+      "method": "Prebuilt candidate preparation under authenticated pause, append and reopen; compiler invocation is null and selector remains revision zero.",
+      "limits": "No actual Cargo-built self-produced candidate, running activation, continued original work or failure after new facts. V1-07/V1-08 remain broader obligations."
+    },
+    "receipt-scope": {
+      "requirements": [
+        "R003",
+        "R013",
+        "R110"
+      ],
+      "behaviors": [
+        "B04",
+        "B08",
+        "B37"
+      ],
+      "cases": [
+        "RT01",
+        "A39",
+        "V1-08"
+      ],
+      "method": "Canonical Store materialization, real SQLite backup and writer rotation; damaged current-ledger receipt rejected without dispatch.",
+      "limits": "Copied slot was not activated as running replacement. RT01 controller-termination cuts, process takeover and complete update migration remain unverified."
+    },
+    "output-archive": {
+      "requirements": [
+        "R013",
+        "R147"
+      ],
+      "behaviors": [
+        "B08",
+        "B55"
+      ],
+      "cases": [
+        "A49"
+      ],
+      "method": "Real immutable output-part archive import, idempotence, divergent-message atomic rejection and reopen; separate schema-7 and schema-9 reader compatibility observations.",
+      "limits": "Credential-authorized export, offline image recovery on another node and complete E06/P41-10 rollback journeys remain unproved."
+    },
+    "output-replay": {
+      "requirements": [
+        "R131",
+        "R132",
+        "R157"
+      ],
+      "behaviors": [
+        "B35",
+        "B33",
+        "B60"
+      ],
+      "cases": [
+        "UI-S08",
+        "RT15",
+        "RT20"
+      ],
+      "method": "Production recv_stream helper over durable pages: 144 same-commit imported chunks, 64-row pages, agent isolation, uppercase stored UUIDs, 20 live appends overflowing wakes and later tail/v2 envelope.",
+      "limits": "No actual WebSocket reconnect/browser duplicate behavior, RT15 crash/publication cuts or partial-tool nonexecution, or full real-provider/subject/journal/public-final-body and no-producer UI journey."
+    }
+  },
+  "native_observations": [
+    {
+      "evidence_id": "oxr-store-recovery-native-20261120-r5",
+      "contract": "installed-recovery",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/oxr-store-recovery-native-20261120-r5/receipt.json",
+        "receipt_sha256": "4dd259566ba4b4449384421484074b57ad02f2715a7c8a8bc77058c75c0d4ca2",
+        "inputs": "build/oxr-store-recovery-native-20261120-r5/inputs.sha256",
+        "inputs_sha256": "6c95a5c5b4a487d3759d6eef4cdefc577a932fd52c66d62825c0de37f3d0b913"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "41b28ec0fc9f0459042c2df09ca789fa254de26f2f4a1b572321514ed3bf4ef6",
+        "unchanged": true,
+        "exact_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::original_async_handle_survives_store_reopen_and_cached_page_read",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 32.28044958200189,
+          "selector": "recovery_integration_tests::document_recovery::original_async_handle_survives_store_reopen_and_cached_page_read"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::malformed_inventory_retains_original_body_handle_and_attempt_across_reopen",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 30.011141258000862,
+          "selector": "recovery_integration_tests::document_recovery::malformed_inventory_retains_original_body_handle_and_attempt_across_reopen"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::refused_checks_retain_original_debt_across_reopen_until_terminal",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 21.65361594800197,
+          "selector": "recovery_integration_tests::document_recovery::refused_checks_retain_original_debt_across_reopen_until_terminal"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 19.01145723600348,
+          "selector": "recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::original_main_handle_dispatches_and_settles_through_installed_reader",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 35.65781664799579,
+          "selector": "recovery_integration_tests::document_recovery::original_main_handle_dispatches_and_settles_through_installed_reader"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::mismatched_main_installation_never_queries_and_keeps_debt",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 30.586137435006094,
+          "selector": "recovery_integration_tests::document_recovery::mismatched_main_installation_never_queries_and_keeps_debt"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::main_t1_without_receipt_retains_debt_without_any_wire_request",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 27.749283254997863,
+          "selector": "recovery_integration_tests::document_recovery::main_t1_without_receipt_retains_debt_without_any_wire_request"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::historical_unavailable_without_dispatch_does_not_charge_capacity",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 28.07671690999996,
+          "selector": "recovery_integration_tests::document_recovery::historical_unavailable_without_dispatch_does_not_charge_capacity"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::oversized_frozen_input_is_refused_before_arm_and_reopens_cleanly",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 23.765084407001268,
+          "selector": "recovery_integration_tests::document_recovery::oversized_frozen_input_is_refused_before_arm_and_reopens_cleanly"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 33.02720407000015,
+          "selector": "recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses"
+        }
+      ]
+    },
+    {
+      "evidence_id": "oxr-store-recovery-native-20261120-r7-review",
+      "contract": "installed-recovery",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/oxr-store-recovery-native-20261120-r7-review/receipt.json",
+        "receipt_sha256": "5f49f961541c5c0e03ce5b399da3080f73a1a52571ff400928eae1e45b166e24",
+        "inputs": "build/oxr-store-recovery-native-20261120-r7-review/inputs.sha256",
+        "inputs_sha256": "74d221306170199ea59fc6107984b199c1c1467c207a1e1b200ff527a44432dd"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "98a625ad6a51a56e816e9817d84fc37ac6d0e965ad124b786642268afd4ebb52",
+        "unchanged": true,
+        "exact_pass": false
+      },
+      "observations": [
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::original_main_handle_dispatches_and_settles_through_installed_reader",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 52.053721942000266,
+          "selector": "recovery_integration_tests::document_recovery::original_main_handle_dispatches_and_settles_through_installed_reader"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::historical_unavailable_without_dispatch_does_not_charge_capacity",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 22.985350016002485,
+          "selector": "recovery_integration_tests::document_recovery::historical_unavailable_without_dispatch_does_not_charge_capacity"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses",
+          "state": "failed",
+          "exit_code": 101,
+          "elapsed_seconds": 41.43975380199845,
+          "selector": "recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses"
+        }
+      ]
+    },
+    {
+      "evidence_id": "oxr-store-recovery-native-20261120-r8-retirement",
+      "contract": "installed-recovery",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/oxr-store-recovery-native-20261120-r8-retirement/receipt.json",
+        "receipt_sha256": "6edfaaf8732fd2d9ecf18df85b278aaa5b39d3ff8db85efc96879bb7f0b19b16",
+        "inputs": "build/oxr-store-recovery-native-20261120-r8-retirement/inputs.sha256",
+        "inputs_sha256": "ceb61c31010191a2274961c328a2f1cbfe053e5ce89a71db691346715e7c06a7"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "9c9bb57f2196c8fe5797e9e4fd1237c6accffa70dfeedb20081fb6ee049f957e",
+        "unchanged": true,
+        "exact_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 25.367392085994652,
+          "selector": "recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses"
+        }
+      ]
+    },
+    {
+      "evidence_id": "composition-dd30-oxr-installed-recovery-20261120-r14",
+      "contract": "installed-recovery",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/composition-dd30-oxr-installed-recovery-20261120-r14/receipt.json",
+        "receipt_sha256": "428ff92ae6345bcd4b79e7855bc534adae0e5576892b495e781a777dbf2667f6",
+        "inputs": "build/composition-dd30-oxr-installed-recovery-20261120-r14/inputs.sha256",
+        "inputs_sha256": "943c7bfc7466d565e336e391bb60686162288a8e32316d8290378db4126b09d7"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "7061366dba8babb8687020fe79bb3cb2665978663b6841e3ac7d4ab0afb5d7fb",
+        "unchanged": true,
+        "exact_pass": false
+      },
+      "observations": [
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::admitted_main_handle_recovers_and_mismatched_history_keeps_debt",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 47.79084227900603,
+          "selector": "recovery_integration_tests::document_recovery::admitted_main_handle_recovers_and_mismatched_history_keeps_debt"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses",
+          "state": "failed",
+          "exit_code": 101,
+          "elapsed_seconds": 24.45438443799503,
+          "selector": "recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict",
+          "state": "failed",
+          "exit_code": 101,
+          "elapsed_seconds": 24.30459521600278,
+          "selector": "recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::original_async_handle_survives_store_reopen_and_cached_page_read",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 30.620322364004096,
+          "selector": "recovery_integration_tests::document_recovery::original_async_handle_survives_store_reopen_and_cached_page_read"
+        }
+      ]
+    },
+    {
+      "evidence_id": "composition-dd30-oxr-installed-recovery-20261120-r15",
+      "contract": "installed-recovery",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/composition-dd30-oxr-installed-recovery-20261120-r15/receipt.json",
+        "receipt_sha256": "09ad3d54f58400a3184611428bc73303002b7f2dfe6e98c5cd9a417573c81983",
+        "inputs": "build/composition-dd30-oxr-installed-recovery-20261120-r15/inputs.sha256",
+        "inputs_sha256": "01fcb69258993459ed8e97cc6220c7d6d65498aea0dd187b7d8b0fb75e39a645"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "192e024191dd75d468e6d6ee6a04b88a2f30810f85a6269b9c404d0ced28b8ed",
+        "unchanged": true,
+        "exact_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 19.57248132800305,
+          "selector": "recovery_integration_tests::document_recovery::cancellation_retains_remote_capacity_while_unrelated_child_progresses"
+        },
+        {
+          "phase": "/cases/recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 9.735221823000757,
+          "selector": "recovery_integration_tests::document_recovery::accepted_task_keeps_original_deadline_and_late_terminal_conflict"
+        }
+      ]
+    },
+    {
+      "evidence_id": "composition-dd30-update-paused-build-observation-native-20261120-r1",
+      "contract": "paused-build",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/composition-dd30-update-paused-build-observation-native-20261120-r1/receipt.json",
+        "receipt_sha256": "233d4596144341b38671c57414287a7a97bdcd3f3362d42c93d103f102975896",
+        "inputs": "build/composition-dd30-update-paused-build-observation-native-20261120-r1/inputs.sha256",
+        "inputs_sha256": "ea67dd912eefd79cd64b806bfd2ea06b8b337e24b767f83acbbd5cdab73c0ba5"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "update_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/update_case",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 35.72883835900575,
+          "selector": "handoff::handoff_tests::prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure"
+        }
+      ]
+    },
+    {
+      "evidence_id": "local-control-receipt-scope-native-20261120-r3",
+      "contract": "receipt-scope",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/local-control-receipt-scope-native-20261120-r3/receipt.json",
+        "receipt_sha256": "6f5e2d1b7b9407afec9b446ca2d11c0dcc83a07fd6fe6613bfb8e358765c1a66",
+        "inputs": "build/local-control-receipt-scope-native-20261120-r3/inputs.sha256",
+        "inputs_sha256": "309a898be2c1a32a6cf71365d5bf02501fcc7336d39319197b8df76b07f054d8"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "53867dc6edff3d7c57dd50c76a3854bdcf6a254376dc21453761fd108fd558da",
+        "exact_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/case",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 35.24465038500057,
+          "selector": "canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch"
+        }
+      ]
+    },
+    {
+      "evidence_id": "output-part-archive-current7-20261120-r1",
+      "contract": "output-archive",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/output-part-archive-current7-20261120-r1/receipt.json",
+        "receipt_sha256": "e97f0f87c796269fcfeb3c9bca82ca9ef7531bc53edd9da63bc8bfc66c5205f6",
+        "inputs": "build/output-part-archive-current7-20261120-r1/inputs.sha256",
+        "inputs_sha256": "4feabedb7a17c24a0778f167c8e9cf16ee535cef0e74bc69b378f3b540062b6e"
+      },
+      "bindings": {
+        "old_reader_sha256": "20cb3ad672eeaf3f522882e2ccc789dce2fe21d7d58b8226e2fbbcd7207aa3d8",
+        "old_clean_archive_sha256": "8aa868ab4fb0c45ba9ba048356c92f54124938d5e24e4da1fea20e400ae0df8b",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "test-build_sha256": "cb092870038cefdf90fd28b4b5961320f3cd7eb05e4e425562079a0385476180",
+        "reader-build_sha256": "b98e93bd191a9dab264ad77ab8d5c001b7c8949dd7778c116febf590b5594096",
+        "write-correct_sha256": "440bae241d475a9d67034bc9aa399766f17699ce1ba5daa5e284d252e917a7d2",
+        "write-original_sha256": "ea1502f59b9f17da4b68a47921eb2102585bada0e4325a2b28efc9ae69e3049f",
+        "state": "passed"
+      },
+      "observations": [
+        {
+          "phase": "/cases/native",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 47.98909560299944,
+          "selector": "output_part_identities_survive_archive_roundtrip_and_atomic_conflict"
+        },
+        {
+          "phase": "/cases/write-correct",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 0.3698051489991485
+        },
+        {
+          "phase": "/cases/write-original",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 0.36550339400127996
+        },
+        {
+          "phase": "/cases/old-refuses-correct",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 11.038974777002295
+        },
+        {
+          "phase": "/cases/current-refuses-original",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 10.289720872002363
+        },
+        {
+          "phase": "/cases/current-imports-old-clean",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 11.992850545997499
+        }
+      ]
+    },
+    {
+      "evidence_id": "output-part-archive-current9-20261120-r1",
+      "contract": "output-archive",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/output-part-archive-current9-20261120-r1/receipt.json",
+        "receipt_sha256": "38935422cefe7ee2ec4a02e963346674bf44bc59bc5fc47e381a1bfd30dda74e",
+        "inputs": "build/output-part-archive-current9-20261120-r1/inputs.sha256",
+        "inputs_sha256": "45483ee016f69f2b67d4759fe444f3b8f3aaf35df4f6dae69c74f94bd90798cb"
+      },
+      "bindings": {
+        "old_reader_sha256": "cb175d1d90c4d02bbe1f1d21124890201a81ddcf42b7dd817eb98e666ce2b6b7",
+        "current_reader_sha256": "cf50fac38c01293660fc90fb2b05dd7a56edc30f9856eda8e9d8a010e6bb377a",
+        "state": "failed",
+        "error": "RuntimeError('old-refuses-correct')"
+      },
+      "observations": [
+        {
+          "phase": "/cases/old-refuses-correct",
+          "state": "failed",
+          "exit_code": 1,
+          "elapsed_seconds": 146.27596916800394
+        }
+      ]
+    },
+    {
+      "evidence_id": "output-part-archive-current9-20261120-r2",
+      "contract": "output-archive",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/output-part-archive-current9-20261120-r2/receipt.json",
+        "receipt_sha256": "21ca5b4b22309b306b9c3beb36067f2a74c0c0d4ec5508e67ab26f4242a51114",
+        "inputs": "build/output-part-archive-current9-20261120-r2/inputs.sha256",
+        "inputs_sha256": "45483ee016f69f2b67d4759fe444f3b8f3aaf35df4f6dae69c74f94bd90798cb"
+      },
+      "bindings": {
+        "old_reader_sha256": "cb175d1d90c4d02bbe1f1d21124890201a81ddcf42b7dd817eb98e666ce2b6b7",
+        "current_reader_sha256": "cf50fac38c01293660fc90fb2b05dd7a56edc30f9856eda8e9d8a010e6bb377a",
+        "original_failed_receipt_sha256": "38935422cefe7ee2ec4a02e963346674bf44bc59bc5fc47e381a1bfd30dda74e",
+        "old_output_free_sha256": "230da1e2d6998a32e4f4a1b90bb6b173a7aeb2d1a59369b74ef8434bade4be24",
+        "state": "passed"
+      },
+      "observations": [
+        {
+          "phase": "/cases/write-correct",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 1.0179336720029823
+        },
+        {
+          "phase": "/cases/write-original",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 1.8291222990010283
+        },
+        {
+          "phase": "/cases/old-refuses-correct",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 20.01027332800004
+        },
+        {
+          "phase": "/cases/current-refuses-original",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 2.3200355869994382
+        },
+        {
+          "phase": "/cases/old-seed",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 21.407682601995475
+        },
+        {
+          "phase": "/cases/old-write",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 0.8169264059979469
+        },
+        {
+          "phase": "/cases/current-imports-old-clean",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 3.220776901995123
+        }
+      ]
+    },
+    {
+      "evidence_id": "output-part-ui-replay-20261120-r2-raw-key",
+      "contract": "output-replay",
+      "candidate_commit": null,
+      "candidate_binding": "Original consumed inputs and executable/reader hashes below; reviewed merge is recorded separately, not substituted for this run.",
+      "artifacts": {
+        "receipt": "build/output-part-ui-replay-20261120-r2-raw-key/receipt.json",
+        "receipt_sha256": "ee7e074f6b75c66d1b9f3625fe4a14cc5d71d4c91b86b0f762e142200ededa8b",
+        "inputs": "build/output-part-ui-replay-20261120-r2-raw-key/inputs.sha256",
+        "inputs_sha256": "a337713a61a8042144d514d3f05ac5fb5a9bc2e688c79a2e99135e16408d568e"
+      },
+      "bindings": {
+        "guardian_sha256": "883e8c283d22ed83bd40a3f1cc4696de80da26023b3c51fdd4829377daf3fbb3",
+        "driver_sha256": "05b18a46fa504d351984e2628fa31cf0d224ce4ac854c3c5fcf71492aaf7f6c8",
+        "sha256": "dbb2c0a5c1c92f48a0b045c216ce440fccccd2409e067a7c12257ac6cfd26818",
+        "exact_pass": true
+      },
+      "observations": [
+        {
+          "phase": "/case",
+          "state": "passed",
+          "exit_code": 0,
+          "elapsed_seconds": 30.579166534997057,
+          "selector": "ws::tests::imported_output_pages_reach_stream_receiver_and_live_boundary"
+        }
+      ]
+    }
+  ],
+  "protected_ci": [
+    {
+      "pr": 339,
+      "run": 44607434834,
+      "url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834",
+      "admitted_head": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+      "run_head": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+      "merge_commit": "ea8ad43ac3e24865e7375e72180d81423c5d9732",
+      "conclusion": "success",
+      "required_app_id": 15368,
+      "approved_check_ids": {
+        "clippy-ratchet": 135855002510,
+        "docs": 135855002025,
+        "docs-migration": 135855001438,
+        "kernel-boundary": 135855002083,
+        "rust": 135855002054,
+        "web": 135855001808
+      },
+      "retained_source": "/tmp/shenko339-landing.BWW6LOJU",
+      "source_sha256": {
+        "run.json": "b3a0324530805b951483df1350534165c6c753938603512b318bc4ad08871f8a",
+        "pr-after.json": "e449d8341ac603ff781d76481d374b61663e442be8160d1e22b61f875e764add",
+        "rules.json": "2b31a5401a6b03433067da343024751c6cc065d2d36963baaa84eabd9a28d528",
+        "approved-checks.json": "d1023a52df467d39861593e4bae4be8a0d68f407611e9814f1459323c5257697",
+        "check-pages.json": "771ecbcbf2217552402da4a91fea1cebf601cc4e0084dddafe820b01f7e20991"
+      },
+      "approved_checks": [
+        {
+          "id": 135855002510,
+          "name": "clippy-ratchet",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855002510",
+          "app_id": 15368
+        },
+        {
+          "id": 135855002083,
+          "name": "kernel-boundary",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855002083",
+          "app_id": 15368
+        },
+        {
+          "id": 135855002054,
+          "name": "rust",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855002054",
+          "app_id": 15368
+        },
+        {
+          "id": 135855002025,
+          "name": "docs",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855002025",
+          "app_id": 15368
+        },
+        {
+          "id": 135855001808,
+          "name": "web",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855001808",
+          "app_id": 15368
+        },
+        {
+          "id": 135855001438,
+          "name": "docs-migration",
+          "head_sha": "015385ff7c4661b7a4f64e4a6d13c38630c1ebf0",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44607434834/job/135855001438",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "pr": 340,
+      "run": 44618353303,
+      "url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303",
+      "admitted_head": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+      "run_head": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+      "merge_commit": "f4330d6a2a42beb1700de46ce93ba7db00b11728",
+      "conclusion": "success",
+      "required_app_id": 15368,
+      "approved_check_ids": {
+        "clippy-ratchet": 135892989353,
+        "docs": 135892989502,
+        "docs-migration": 135892989460,
+        "kernel-boundary": 135892988873,
+        "rust": 135892989426,
+        "web": 135892989265
+      },
+      "retained_source": "/tmp/shenko340-landing.zhnuqpLz",
+      "source_sha256": {
+        "run.json": "64130b8b4b224e7ef59cc24210c90088c694486633268bfe10049ef1da29a96c",
+        "pr-after.json": "a3e8e8b1a90fd54059751472dbde4526ee12999d839774c8b93e2e1db6729d59",
+        "rules.json": "2b31a5401a6b03433067da343024751c6cc065d2d36963baaa84eabd9a28d528",
+        "approved-checks.json": "54a9e0ddd62e61be8127e1f5d414979e71dc6cf676073a903f93d8965cda8e26",
+        "check-pages.json": "ec513cc4b520308ce2fd5b9dbd1af7c6371dcf1f96dad44ca77cf6cc8577b1fa"
+      },
+      "approved_checks": [
+        {
+          "id": 135892989502,
+          "name": "docs",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892989502",
+          "app_id": 15368
+        },
+        {
+          "id": 135892989460,
+          "name": "docs-migration",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892989460",
+          "app_id": 15368
+        },
+        {
+          "id": 135892989426,
+          "name": "rust",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892989426",
+          "app_id": 15368
+        },
+        {
+          "id": 135892989353,
+          "name": "clippy-ratchet",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892989353",
+          "app_id": 15368
+        },
+        {
+          "id": 135892989265,
+          "name": "web",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892989265",
+          "app_id": 15368
+        },
+        {
+          "id": 135892988873,
+          "name": "kernel-boundary",
+          "head_sha": "1ce4edc6abbea6e8dc867a7a56711d1b1725bdd2",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44618353303/job/135892988873",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "pr": 341,
+      "run": 44627076746,
+      "url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746",
+      "admitted_head": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+      "run_head": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+      "merge_commit": "603a12201da75fb10847abb02f123f05a67cdeb4",
+      "conclusion": "success",
+      "required_app_id": 15368,
+      "approved_check_ids": {
+        "clippy-ratchet": 135923849724,
+        "docs": 135923850040,
+        "docs-migration": 135923850101,
+        "kernel-boundary": 135923850169,
+        "rust": 135923850269,
+        "web": 135923850265
+      },
+      "retained_source": "/tmp/shenko341-landing.N0tV1fiH",
+      "source_sha256": {
+        "run.json": "196c93a6169f9bf20bd4294c6d1e7ce2e63857c2abe3db982158f2913662ac5f",
+        "pr-after.json": "442bb04b673810848783909330d1a347c2e34aeeea055b884237701b0215eaae",
+        "rules.json": "2b31a5401a6b03433067da343024751c6cc065d2d36963baaa84eabd9a28d528",
+        "approved-checks.json": "75dec9f0442715badac399f5c0c8152595c7eb8cfab0031618c41109dfd1ab48",
+        "check-pages.json": "e0fe6e6ec8f1fba074123cff7e63c913209aa4bd6c44742caef6376ed44e2b3c"
+      },
+      "approved_checks": [
+        {
+          "id": 135923850269,
+          "name": "rust",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923850269",
+          "app_id": 15368
+        },
+        {
+          "id": 135923850265,
+          "name": "web",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923850265",
+          "app_id": 15368
+        },
+        {
+          "id": 135923850169,
+          "name": "kernel-boundary",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923850169",
+          "app_id": 15368
+        },
+        {
+          "id": 135923850101,
+          "name": "docs-migration",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923850101",
+          "app_id": 15368
+        },
+        {
+          "id": 135923850040,
+          "name": "docs",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923850040",
+          "app_id": 15368
+        },
+        {
+          "id": 135923849724,
+          "name": "clippy-ratchet",
+          "head_sha": "9797037d199e5720bd3b4200b194bc004e7c72a6",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44627076746/job/135923849724",
+          "app_id": 15368
+        }
+      ]
+    },
+    {
+      "pr": 342,
+      "run": 44630597687,
+      "url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687",
+      "admitted_head": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+      "run_head": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+      "merge_commit": "0253c7623ca20668372b2fd31efbe36ef19b5c35",
+      "conclusion": "success",
+      "required_app_id": 15368,
+      "approved_check_ids": {
+        "clippy-ratchet": 135935868485,
+        "docs": 135935868363,
+        "docs-migration": 135935868535,
+        "kernel-boundary": 135935868587,
+        "rust": 135935868521,
+        "web": 135935867902
+      },
+      "retained_source": "/tmp/shenko342-landing.3KL7XVio",
+      "source_sha256": {
+        "run.json": "d30eba827bd497c94937d1a6b6baa688a2f0071b3d413d2a0421af327c8ef907",
+        "pr-after.json": "46196b3761d4a5f0d3df58fc61f37cbd5e02b2d6377984d7b091f445d4a3db97",
+        "rules.json": "2b31a5401a6b03433067da343024751c6cc065d2d36963baaa84eabd9a28d528",
+        "approved-checks.json": "83e96df071de7f39a040bbdc15e0c3df3544e7810160ecaf6253ccae5eea623a",
+        "check-pages.json": "ed05fab5e3acb5efd4e4e1ec54e5327c69f84574b81b2be8877b9958bf157599"
+      },
+      "approved_checks": [
+        {
+          "id": 135935868587,
+          "name": "kernel-boundary",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935868587",
+          "app_id": 15368
+        },
+        {
+          "id": 135935868535,
+          "name": "docs-migration",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935868535",
+          "app_id": 15368
+        },
+        {
+          "id": 135935868521,
+          "name": "rust",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935868521",
+          "app_id": 15368
+        },
+        {
+          "id": 135935868485,
+          "name": "clippy-ratchet",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935868485",
+          "app_id": 15368
+        },
+        {
+          "id": 135935868363,
+          "name": "docs",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935868363",
+          "app_id": 15368
+        },
+        {
+          "id": 135935867902,
+          "name": "web",
+          "head_sha": "5254f66e1e1b1abe44b3cd9fa21e98cf46573d72",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/cyjin-yl/shenko/actions/runs/44630597687/job/135935867902",
+          "app_id": 15368
+        }
+      ]
+    }
+  ],
+  "retention": "Private artifacts remain under the persistent project build directory. Landing API snapshots are currently at retained_source paths; hashes identify their original bytes. This record retains only a compact projection, not a full API/log archive.",
+  "verification_performed_for_this_record": "Read existing receipts and local landing snapshots only; no new build, test, lint, runtime, model, network or Git operation."
+}

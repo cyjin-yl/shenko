@@ -49,3 +49,5 @@
 - [原始作者与提交对象](source-checkpoints-20261116/README.md)：保存原始 Git commit／tree／作者与时间，不把来源保全误算成产品验证，待修的 seat checkpoint 也明确保留原状态。
 - [托管 seat 生命周期候选与复核](managed-seat-lifecycle-20261116/README.md)：关闭取消保留失败、同 generation 的七个工具注册、六个新或扩展窗口；源码已复核，集成运行待验证。
 - [首次 Unknown 的一个因果 E1 后继](../development/canonical-native-e1-successor.md)：保留原观察、acknowledgement 与来源，七个新 SSH 窗口不获得执行权限；没有用较早首次 E1 的通过代替后继运行结果。
+
+- [Merged #339–#342 component observations](merged-components-342-20261120.json): original native receipt/input/executable bindings and protected CI heads; standalone/composed and schema-7/schema-9 results remain separate, including failures. No canonical acceptance case is newly satisfied.

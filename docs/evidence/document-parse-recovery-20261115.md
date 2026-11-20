@@ -302,3 +302,16 @@ installed capacity, cancellation/reopen, original-main admission and late
 terminal-conflict journeys. Those commands and the earlier passed commands
 are verification instructions and historical evidence respectively, not new
 execution results for this port.
+
+## Retained native observations — 2026-11-20
+
+The source-only continuation above remains a historical statement. The later
+[merged component evidence](merged-components-342-20261120.json) records the
+standalone r5/r7/r8 and composed r14/r15 runs against their original source and
+executable bindings, together with PR #339 protected CI. The r7 capacity failure
+and both r14 failures remain recorded; r8 and r15 are separate later observations.
+These controlled HTTP/Store/dispatcher journeys support installed recovery,
+offline terminal/page projection, retained Unknown debt and unrelated progress.
+Actual OXR recognition, deployment load, remote termination, served-model efficacy
+and full A33/DX06/DX11 acceptance remain unverified. No new run was performed
+for this evidence update.
