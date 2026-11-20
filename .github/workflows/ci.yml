@@ -58,7 +58,7 @@ jobs:
       - name: Install native build prerequisites
         run: |
           apt-get update
-          apt-get install --yes --no-install-recommends python3 cmake clang libclang-dev pkg-config libssl-dev openssh-server curl ca-certificates
+          apt-get install --yes --no-install-recommends python3 cmake clang libclang-dev pkg-config libssl-dev openssh-server curl ca-certificates tmux
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> .ci/target/rust
