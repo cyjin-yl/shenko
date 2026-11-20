@@ -31,7 +31,7 @@ use crate::{
 };
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
-use shenko_store::SeatCapability;
+use shenko_store::{LocalTmuxIdentity, SeatCapability, SeatLocation};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Adapter version bound into durable seat records.
@@ -43,6 +43,7 @@ const CURSOR_MARKERS: &[&str] = &["❯", "›", "➤"];
 /// A tmux pane adapter bound to one host (local, or an SSH target).
 pub struct TmuxSeatAdapter {
     seat: TmuxSeat,
+    local: bool,
     observation_seq: AtomicU64,
 }
 
@@ -50,6 +51,7 @@ impl TmuxSeatAdapter {
     pub fn local() -> Self {
         Self {
             seat: TmuxSeat::local(),
+            local: true,
             observation_seq: AtomicU64::new(0),
         }
     }
@@ -57,8 +59,82 @@ impl TmuxSeatAdapter {
     pub fn remote(target: crate::SshTarget) -> Self {
         Self {
             seat: TmuxSeat::remote(target),
+            local: false,
             observation_seq: AtomicU64::new(0),
         }
+    }
+}
+
+impl TmuxSeatAdapter {
+    /// Prepare durable facts for an already selected local handle, without
+    /// Store mutation, lease acquisition, registration or terminal input.
+    pub async fn local_location(&self, handle: &SeatHandle) -> Result<SeatLocation> {
+        ensure!(self.local, "local locator requires the local tmux adapter");
+        let expected = local_handle_identity(handle)?;
+        let (pane, identity) = self.seat.local_pane_identity(&handle.location_id).await?;
+        ensure!(identity == expected, "local tmux occupant changed after selection");
+        ensure!(handle.current_command.as_deref() == Some(pane.current_command.as_str())
+            && handle.cwd.as_deref() == Some(pane.cwd.as_str()),
+            "local tmux command or cwd changed after selection");
+        Ok(SeatLocation::Tmux {
+            host: "local".into(), session: pane.session, window: pane.window,
+            pane: pane.pane, pane_id: pane.pane_id, cwd: pane.cwd,
+            current_command: pane.current_command, local_identity: Some(identity),
+        })
+    }
+
+    async fn check_local_handle(&self, handle: &SeatHandle) -> Result<bool> {
+        let expected = local_handle_identity(handle)?;
+        let (pane, identity) = self.seat.local_pane_identity(&handle.location_id).await?;
+        Ok(identity == expected
+            && handle.current_command.as_deref() == Some(pane.current_command.as_str())
+            && handle.cwd.as_deref() == Some(pane.cwd.as_str()))
+    }
+}
+
+/// Local tmux uses the existing start-token slot for a typed full identity;
+/// managed and remote adapters keep their existing token contracts.
+pub(crate) fn local_handle_identity(handle: &SeatHandle) -> Result<LocalTmuxIdentity> {
+    ensure!(handle.adapter == SeatAdapterId::Tmux && handle.host == "local",
+        "handle is not a local tmux observation");
+    let process = handle.process_identity.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("local tmux process identity unavailable"))?;
+    let identity: LocalTmuxIdentity = serde_json::from_str(process.start_token.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("local tmux incarnation token unavailable"))?)?;
+    identity.validate()?;
+    ensure!(process.pid == Some(identity.pane_pid), "local tmux pid/token mismatch");
+    Ok(identity)
+}
+
+#[cfg(test)]
+mod local_identity_tests {
+    use super::*;
+
+    #[test]
+    fn local_handle_requires_complete_original_token_and_matching_pid() -> Result<()> {
+        let identity = LocalTmuxIdentity { boot_id: "boot-a".into(), pane_pid: 41,
+            pane_start_ticks: 123, server_pid: 20, server_start_ticks: 80,
+            socket_path: "/owned/tmux.sock".into() };
+        let mut handle = SeatHandle {
+            location_id: "%4".into(), adapter: SeatAdapterId::Tmux,
+            adapter_version: TMUX_ADAPTER_VERSION.into(), host: "local".into(),
+            cwd: Some("/project".into()), remote_session_id: None,
+            current_command: Some("omp".into()), process_identity: Some(ProcessIdentity {
+                pid: Some(41), start_token: Some(serde_json::to_string(&identity)?),
+                executable: Some("omp".into()),
+            }),
+        };
+        assert_eq!(local_handle_identity(&handle)?, identity);
+        handle.process_identity.as_mut().unwrap().pid = Some(42);
+        assert!(local_handle_identity(&handle).is_err());
+        handle.process_identity.as_mut().unwrap().pid = Some(41);
+        handle.process_identity.as_mut().unwrap().start_token = None;
+        assert!(local_handle_identity(&handle).is_err());
+        handle.process_identity.as_mut().unwrap().start_token = Some("123".into());
+        assert!(local_handle_identity(&handle).is_err());
+        handle.process_identity = None;
+        assert!(local_handle_identity(&handle).is_err());
+        Ok(())
     }
 }
 
@@ -90,9 +166,19 @@ impl SeatAdapter for TmuxSeatAdapter {
 
     async fn discover(&self) -> Result<Vec<SeatHandle>> {
         let seats = self.seat.discover_agent_seats().await?;
-        Ok(seats
-            .into_iter()
-            .map(|agent| SeatHandle {
+        let mut handles = Vec::with_capacity(seats.len());
+        for agent in seats {
+            let start_token = if self.local {
+                let (pane, identity) = self.seat.local_pane_identity(&agent.pane.pane_id).await?;
+                ensure!(pane.pane_pid == agent.pane.pane_pid
+                    && pane.current_command == agent.pane.current_command
+                    && pane.cwd == agent.pane.cwd,
+                    "local tmux discovery changed during identity observation");
+                Some(serde_json::to_string(&identity)?)
+            } else {
+                None
+            };
+            handles.push(SeatHandle {
                 location_id: agent.pane.pane_id.clone(),
                 adapter: SeatAdapterId::Tmux,
                 adapter_version: TMUX_ADAPTER_VERSION.into(),
@@ -102,19 +188,33 @@ impl SeatAdapter for TmuxSeatAdapter {
                 current_command: Some(agent.pane.current_command.clone()),
                 process_identity: Some(ProcessIdentity {
                     pid: Some(agent.pane.pane_pid),
-                    start_token: None,
+                    start_token,
                     executable: Some(agent.pane.current_command.clone()),
                 }),
-            })
-            .collect())
+            });
+        }
+        Ok(handles)
     }
 
     async fn transport_live(&self, seat: &SeatHandle) -> Result<bool> {
+        if self.local {
+            return self.check_local_handle(seat).await;
+        }
         Ok(self.discover().await?.iter().any(|current| current.location_id == seat.location_id))
     }
 
     async fn observe(&self, seat: &SeatHandle) -> Result<SeatObservation> {
+        if self.local {
+            ensure!(self.check_local_handle(seat).await?, "local tmux occupant changed");
+        }
         let capture = self.seat.capture_pane(&seat.location_id).await?;
+        if self.local {
+            ensure!(self.check_local_handle(seat).await?, "local tmux occupant changed during capture");
+            ensure!(capture.pane.pane_pid == seat.process_identity.as_ref().and_then(|p| p.pid).unwrap_or(0)
+                && capture.pane.current_command == seat.current_command.as_deref().unwrap_or("")
+                && capture.pane.cwd == seat.cwd.as_deref().unwrap_or(""),
+                "local tmux capture does not match the attached occupant");
+        }
         let mut screen = TerminalScreen::new(
             capture.pane.width.max(1).min(u32::from(u16::MAX)) as u16,
             capture.pane.height.max(1).min(u32::from(u16::MAX)) as u16,
@@ -139,7 +239,11 @@ impl SeatAdapter for TmuxSeatAdapter {
         observed_seat.current_command = Some(capture.pane.current_command.clone());
         observed_seat.process_identity = Some(ProcessIdentity {
             pid: Some(capture.pane.pane_pid),
-            start_token: None,
+            start_token: if self.local {
+                seat.process_identity.as_ref().and_then(|p| p.start_token.clone())
+            } else {
+                None
+            },
             executable: Some(capture.pane.current_command.clone()),
         });
         Ok(SeatObservation {

@@ -4930,6 +4930,7 @@ dependencies = [
  "sha2 0.10.9",
  "shenko-broker",
  "shenko-context-policy",
+ "shenko-exec-ssh",
  "shenko-identity",
  "shenko-kernel",
  "shenko-media",
