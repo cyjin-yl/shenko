@@ -1730,7 +1730,7 @@ async fn execute_step(
         };
         let claimed_send = match quota_dispatch_gate(
             &store,
-            broker.binding(),
+            broker,
             request_id,
             cancel,
             &state.quota_strategies,

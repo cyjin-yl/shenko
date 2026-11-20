@@ -306,11 +306,10 @@ impl BrokerHandle {
         self.registry.profiles()
     }
 
-    /// The provider/model pairs this broker can really run right now.
-    ///
-    /// This is the live view a routing or quota decision uses. It is decided
-    /// by what is installed and reachable, never by a catalog of model names:
-    /// a model that is not installed here simply does not appear.
+    /// Installed profile inventory, without runtime availability or reachability
+    /// checks. Profile enumeration and binding lookup are separate reads, so
+    /// replacement can also change the inventory during collection. Use
+    /// `serves_model` for fresh eligibility on this handle's exact transport.
     pub fn available_providers(&self) -> Vec<AvailableProvider> {
         self.registry
             .profiles()
@@ -331,16 +330,13 @@ impl BrokerHandle {
             .collect()
     }
 
-    /// Whether this handle can really serve one model on its own transport.
-    ///
-    /// A routing decision resolves the model before the request is sealed, so
-    /// the sealed binding is one the broker can execute. The sealed
-    /// comparison itself stays exact.
+    /// Fresh eligibility on this handle's exact installed profile and transport:
+    /// the runtime must declare the model and currently report availability.
+    /// This is not a probe or a reservation, and must not gate reconciliation
+    /// of an original request. `for_model` and `runtime_for` retain their
+    /// transport-compatible recovery semantics.
     pub fn serves_model(&self, model: &str) -> bool {
-        self.binding
-            .with_model(model)
-            .ok()
-            .is_some_and(|binding| self.registry.runtime_for(&binding).is_some())
+        self.registry.serves_model(&self.binding, model)
     }
 
     /// Restore an original armed request before admitting any new inference.
