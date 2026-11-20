@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{ControllerEpoch, EntityId};
+use shenko_types::generation::SealedGenerationBinding;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::oneshot;
@@ -50,7 +51,19 @@ pub enum ProviderBinding {
     /// keeps the exact identity it was sent with, and a provider that changed
     /// after the seal cannot silently reinterpret it. The historical
     /// `local`, `anthropic` and `stub` bindings stay readable as they were.
-    Profile { profile: ProviderProfile },
+    ///
+    /// `prepared` names the exact prepared implementation generation this
+    /// profile executes, when the runtime is an installed Code/prepared unit.
+    /// It is part of the binding identity: two installations with identical
+    /// transport/profile metadata but different prepared bytes differ here, so
+    /// a sealed request is refused instead of being served by the replacement.
+    /// Compiled-in profile providers leave it absent, and historical seals stay
+    /// readable because absence is the historical identity.
+    Profile {
+        profile: ProviderProfile,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prepared: Option<SealedGenerationBinding>,
+    },
 }
 
 impl ProviderBinding {
@@ -68,7 +81,7 @@ impl ProviderBinding {
             Self::Local { model, .. } | Self::Anthropic { model, .. } => {
                 selected.clone_into(model);
             }
-            Self::Profile { profile } => {
+            Self::Profile { profile, .. } => {
                 selected.clone_into(&mut profile.model_id);
             }
         }
@@ -79,7 +92,7 @@ impl ProviderBinding {
         match self {
             Self::Stub { .. } => "stub",
             Self::Local { model, .. } | Self::Anthropic { model, .. } => model,
-            Self::Profile { profile } => &profile.model_id,
+            Self::Profile { profile, .. } => &profile.model_id,
         }
     }
 
@@ -88,7 +101,7 @@ impl ProviderBinding {
             Self::Stub { .. } => "provider.unavailable",
             Self::Local { .. } => "local.openai.chat_completions",
             Self::Anthropic { .. } => "anthropic.messages",
-            Self::Profile { profile } => &profile.profile_id,
+            Self::Profile { profile, .. } => &profile.profile_id,
         }
     }
 
@@ -103,14 +116,14 @@ impl ProviderBinding {
                 serializer_revision: codec,
                 ..
             } => *codec,
-            Self::Profile { profile } => profile.revision,
+            Self::Profile { profile, .. } => profile.revision,
         }
     }
 
     pub fn api_version(&self) -> Option<&str> {
         match self {
             Self::Anthropic { api_version, .. } => Some(api_version),
-            Self::Profile { profile } => profile.api_version.as_deref(),
+            Self::Profile { profile, .. } => profile.api_version.as_deref(),
             Self::Stub { .. } | Self::Local { .. } => None,
         }
     }
@@ -124,7 +137,7 @@ impl ProviderBinding {
             | Self::Anthropic {
                 default_max_tokens, ..
             } => *default_max_tokens,
-            Self::Profile { profile } => profile.default_max_tokens,
+            Self::Profile { profile, .. } => profile.default_max_tokens,
         }
     }
 
@@ -142,7 +155,20 @@ impl ProviderBinding {
     /// The open profile of this binding, when it has one.
     pub fn profile(&self) -> Option<&ProviderProfile> {
         match self {
-            Self::Profile { profile } => Some(profile),
+            Self::Profile { profile, .. } => Some(profile),
+            _ => None,
+        }
+    }
+
+    /// The prepared implementation generation this binding executes.
+    ///
+    /// `None` means the binding is fully described by its own transport
+    /// identity (a compiled-in provider). A prepared binding always names its
+    /// exact implementation, so a replacement runtime with identical profile
+    /// metadata can never match it.
+    pub fn prepared(&self) -> Option<&SealedGenerationBinding> {
+        match self {
+            Self::Profile { prepared, .. } => prepared.as_ref(),
             _ => None,
         }
     }
@@ -154,7 +180,7 @@ impl ProviderBinding {
     pub fn credential_fingerprint(&self) -> Option<&str> {
         match self {
             Self::Anthropic { credential_fingerprint, .. } => credential_fingerprint.as_deref(),
-            Self::Profile { profile } => profile.auth.credential_fingerprint.as_deref(),
+            Self::Profile { profile, .. } => profile.auth.credential_fingerprint.as_deref(),
             Self::Stub { .. } | Self::Local { .. } => None,
         }
     }
@@ -213,9 +239,16 @@ impl ProviderBinding {
                 }
                 _ => false,
             },
-            Self::Profile { profile } => match other {
-                Self::Profile { profile: other_profile } => {
+            Self::Profile { profile, prepared } => match other {
+                Self::Profile {
+                    profile: other_profile,
+                    prepared: other_prepared,
+                } => {
+                    // Transport identity plus the exact prepared implementation
+                    // generation. Identical endpoint/model/auth metadata is not
+                    // enough to serve a request sealed against other bytes.
                     profile.matches_except_model(other_profile)
+                        && prepared == other_prepared
                 }
                 _ => false,
             },
@@ -226,8 +259,15 @@ impl ProviderBinding {
         let endpoint = match self {
             Self::Stub { .. } => return Ok(()),
             Self::Local { base_url, .. } | Self::Anthropic { base_url, .. } => base_url,
-            Self::Profile { profile } => {
+            Self::Profile { profile, prepared } => {
                 profile.validate()?;
+                if let Some(binding) = prepared {
+                    binding.validate()?;
+                    anyhow::ensure!(
+                        binding.role == shenko_types::generation::PreparedRole::Provider,
+                        "provider binding names a different prepared role"
+                    );
+                }
                 return Ok(());
             }
         };
