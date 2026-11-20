@@ -258,6 +258,7 @@ fn different_payload_under_same_intent_is_refused() {
         .apply(request("value", "intent-1", json!(12), None))
         .unwrap_err();
     assert_eq!(conflict.code(), "CONFIG_LOGICAL_KEY_REUSED");
+    assert_eq!(conflict.apply_effect_status(), EffectStatus::None);
     assert_eq!(handler.applies(), 1);
     let entry = service.read("test.counting", "value").unwrap().entry.unwrap();
     assert_eq!(entry.desired_revision, 1, "the saved value is not overwritten");
@@ -279,6 +280,7 @@ fn stale_base_is_refused_without_overwrite() {
         .apply(request("value", "intent-2", json!(12), Some(0)))
         .unwrap_err();
     assert_eq!(stale.code(), "BASE_CONFIG_STALE");
+    assert_eq!(stale.apply_effect_status(), EffectStatus::None);
     assert_eq!(handler.applies(), 1);
     let view = service.read("test.counting", "value").unwrap();
     assert_eq!(view.current_value, Some(json!(11)));
@@ -359,9 +361,10 @@ fn builtin_page_limit_is_live_adopted_and_survives_reopen() {
         })
         .unwrap();
     assert_eq!(refused.change.state, "failed");
+    assert_eq!(refused.effect_status(), EffectStatus::None);
     assert_eq!(
         refused.change.receipt.as_ref().map(|receipt| receipt.outcome.as_str()),
-        Some("failed")
+        Some("rejected")
     );
     assert_eq!(crate::config_namespaces::page_limit(Some(&reopened)), 17);
 
@@ -794,5 +797,186 @@ fn submissions_admit_only_sealed_attachments_and_the_subject_reads_their_text() 
     assert!(seen.contains("[附件 1] notes.md · text/markdown") && seen.contains("第一行笔记\n第二行"), "{seen}");
     assert!(seen.contains("[附件 2] photo.png · image/png") && seen.contains("看不到画面"), "{seen}");
     drop(root);
+    Ok(())
+}
+
+/// Cut the real settlement transaction after the built-in consumer changed.
+/// The error deliberately resembles a pre-effect stale-base refusal.
+fn cut_config_settlement(root: &std::path::Path) -> anyhow::Result<()> {
+    rusqlite::Connection::open(root.join("shenko.db"))?.execute_batch(
+        "CREATE TRIGGER config_settlement_cut BEFORE UPDATE ON config_changes
+         WHEN json_extract(NEW.data, '$.state') = 'applied'
+         BEGIN SELECT RAISE(ABORT, 'BASE_CONFIG_STALE: fixture settlement cut'); END;",
+    )?;
+    Ok(())
+}
+
+fn remove_config_settlement_cut(root: &std::path::Path) -> anyhow::Result<()> {
+    rusqlite::Connection::open(root.join("shenko.db"))?
+        .execute_batch("DROP TRIGGER config_settlement_cut;")?;
+    Ok(())
+}
+
+#[test]
+fn config_settlement_failure_preserves_effect_and_original_origin() -> anyhow::Result<()> {
+    let (root, store) = store_fixture("settlement-unknown");
+    let service = ConfigService::new(Arc::clone(&store));
+    let mut original = request(PAGE_LIMIT_KEY, "settlement-origin", json!(23), Some(0));
+    original.namespace = UI_NAMESPACE.into();
+    cut_config_settlement(&root)?;
+    let error = service.apply(original.clone()).unwrap_err();
+    assert_eq!(error.code(), "CONFIG_APPLY_UNSETTLED");
+    assert_eq!(error.apply_effect_status(), EffectStatus::Unknown);
+    assert_eq!(service.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(23)));
+    let before = store.config_change_by_origin(&original.origin_identity, PAGE_LIMIT_KEY)?
+        .context("the original desired change must remain durable")?;
+    assert!(matches!(error, ConfigError::ApplyUnsettled { change_id, .. } if change_id == before.change_id));
+    assert!(before.receipt.is_none() && before.adopted.is_empty() && before.attempt.is_some());
+    assert!(store.config_adoptions(UI_NAMESPACE, PAGE_LIMIT_KEY)?.is_empty());
+    remove_config_settlement_cut(&root)?;
+
+    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let replacement = ConfigService::new(Arc::clone(&reopened));
+    let mut newer = original.clone();
+    newer.origin_identity = "new-consumer-decision".into();
+    newer.desired = json!(41);
+    newer.expected_base_revision = Some(before.desired_revision);
+    let accepted = replacement.apply(newer)?;
+    assert_eq!(accepted.effect_status(), EffectStatus::Complete);
+    let replay = replacement.apply(original)?;
+    assert!(replay.replayed);
+    assert_eq!(replay.effect_status(), EffectStatus::Unknown);
+    assert_eq!(replay.change.change_id, before.change_id);
+    assert_eq!(replay.change.desired_patch_ref, before.desired_patch_ref);
+    assert_eq!(replay.change.attempt, before.attempt);
+    assert!(replay.change.receipt.is_none() && replay.change.adopted.is_empty());
+    assert_eq!(replacement.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(41)));
+    assert!(reopened.config_adoptions(UI_NAMESPACE, PAGE_LIMIT_KEY)?.iter()
+        .all(|adoption| adoption.adopted_revision == accepted.change.desired_revision));
+    Ok(())
+}
+
+/// Build the same invocation as the native dispatcher from its actual Store
+/// claim, preserving the subject step, task, authority and operation identities.
+fn claimed_config_invocation(
+    store: &Store,
+    handler: &ConfigHandler,
+    agent: EntityId,
+    step_id: EntityId,
+    root_task_id: EntityId,
+    input: Value,
+) -> anyhow::Result<(shenko_kernel::task::NativeTaskInvocation, shenko_store::child::NativeTaskClaim)> {
+    let descriptor = handler.descriptor()?;
+    let task_id = EntityId::new();
+    let zero = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+    let input_ref = store.seal_config_object(&input, "config-task-input")?;
+    let task = TaskRecord {
+        record_schema_version: 1, task_id, task_revision: TaskRevision(0),
+        record_revision: RecordRevision(0), agent_id: agent, conversation_id: agent,
+        owner: TaskOwner::Task { id: root_task_id }, background: false,
+        kind: "config.manage".into(), definition_version: 1,
+        implementation_ref: descriptor.implementation_ref.clone(), input_ref,
+        state: TaskState::Pending { checkpoint_ref: None }, abort_request: None,
+        memos: serde_json::Map::from_iter([
+            ("intent_id".into(), json!(task_id)), (NATIVE_INPUT.into(), json!("object")),
+        ]),
+        residual_case_ids: vec![], created_by_step_id: Some(step_id),
+        dispatch_eligibility: DispatchEligibility::Ready, no_progress_crashes: 0,
+        first_run_at: None, terminal_at: None, created_commit: zero, updated_commit: zero,
+    };
+    let event = InboxEvent {
+        event_id: EntityId::new(), kind: InboxEventKind::SystemEvent,
+        created_at: chrono::Utc::now(), source: "config".into(),
+        payload: json!({"task_id": task_id, "kind": "config.manage"}),
+    };
+    store.admit_native_task(&task, &RawInboxEvent {
+        event_id: event.event_id, agent_id: agent, source: event.source.clone(),
+        kind: "system_event".into(), payload_json: serde_json::to_string(&event)?,
+        received_at_ms: event.created_at.timestamp_millis(),
+    })?;
+    let claim = store.claim_native_task(task_id, descriptor.implementation_ref.clone(), false)?
+        .context("the production native task must be claimed")?;
+    let invocation = shenko_kernel::task::NativeTaskInvocation {
+        context: shenko_types::agent::CallContext {
+            caller_instance_id: EntityId::new(), role_revision: descriptor.role_revision,
+            task_id: Some(task_id), expected_task_revision: Some(claim.invocation.task_revision.0),
+            invocation_id: Some(claim.invocation.invocation_id),
+            controller_epoch: claim.invocation.epoch,
+            software_generation: claim.software_generation.clone(),
+            authority_refs: descriptor.authority_refs, trace_id: EntityId::new(),
+        },
+        task_invocation: claim.invocation.clone(), task: claim.task.clone(),
+        operation_id: claim.operation_id,
+        authority: shenko_types::operation::AuthorityRef {
+            delegation_id: task_id, delegation_revision: RecordRevision(claim.invocation.task_revision.0),
+            decision_ref: step_id,
+        },
+        input, child_tools: None, cancellation: Default::default(),
+    };
+    Ok((invocation, claim))
+}
+
+#[tokio::test]
+async fn config_manage_unsettled_apply_keeps_unknown_evidence_and_refusals() -> anyhow::Result<()> {
+    let (root, store, agent, step_id, root_task_id) = subject_fixture("native-effect-unknown");
+    let service = Arc::new(ConfigService::new(Arc::clone(&store)));
+    let handler = ConfigHandler::new(Arc::clone(&store), Arc::clone(&service));
+    // An explicit pre-effect validation refusal still completes with no effect.
+    let (refused, refused_claim) = claimed_config_invocation(
+        &store, &handler, agent, step_id, root_task_id,
+        json!({"op": "apply", "namespace": UI_NAMESPACE, "logical_key": PAGE_LIMIT_KEY, "desired": 0}),
+    )?;
+    let refused = handler.execute(refused).await?;
+    assert_eq!(refused.state, OperationState::Resolved);
+    assert_eq!(refused.effect_status, EffectStatus::None);
+    assert_eq!(refused.outcome, Some(shenko_types::operation::OperationOutcome::Failed));
+    assert!(store.complete_native_task(&refused_claim, &refused)?.is_some());
+
+    let input = json!({"op": "apply", "namespace": UI_NAMESPACE, "logical_key": PAGE_LIMIT_KEY, "desired": 23});
+    let (invocation, claim) = claimed_config_invocation(
+        &store, &handler, agent, step_id, root_task_id, input,
+    )?;
+    cut_config_settlement(&root)?;
+    // The Store correctly closes its writer on this real SQLite failure, so
+    // even the handler's first E1 cannot be committed through the failed handle.
+    assert!(handler.execute(invocation).await.is_err());
+    assert_eq!(service.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(23)));
+    let original_operation = store.external_operation(claim.operation_id)?;
+    let original_attempt = store.external_operation_attempt(claim.operation_id)?;
+    let origin = format!("config-operation/{}", claim.operation_id);
+    let original_change = store.config_change_by_origin(&origin, PAGE_LIMIT_KEY)?
+        .context("the native operation must retain its original desired change")?;
+    assert!(original_change.receipt.is_none() && original_change.attempt.is_some());
+    remove_config_settlement_cut(&root)?;
+
+    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let replacement = Arc::new(ConfigService::new(Arc::clone(&reopened)));
+    let recovered_handler = ConfigHandler::new(Arc::clone(&reopened), Arc::clone(&replacement));
+    let task = reopened.external_task(claim.task.task_id)?;
+    let recovered = recovered_handler.reconcile(&task, claim.operation_id).await?;
+    assert_eq!(recovered.state, OperationState::Reconciling);
+    assert_eq!(recovered.effect_status, EffectStatus::Unknown);
+    assert_eq!(recovered.final_input_ref, original_operation.final_input_ref);
+    assert_eq!(recovered.authority_ref.delegation_id, original_operation.authority_ref.delegation_id);
+    let attempt = reopened.external_operation_attempt(claim.operation_id)?;
+    assert_eq!(attempt.attempt_id, original_attempt.attempt_id);
+    let evidence = reopened.external_operation_evidence(claim.operation_id)?;
+    assert_eq!(evidence.len(), 1);
+    let observation: Value = serde_json::from_slice(&reopened.cas.read_object(&evidence[0].raw_ref.digest)?)?;
+    assert_eq!(observation["effect_status"], "unknown");
+    assert_eq!(observation["change"]["change_id"], json!(original_change.change_id));
+    assert!(reopened.native_task_result(task.task_id)?.is_none());
+
+    let mut newer = request(PAGE_LIMIT_KEY, "native-new-consumer-decision", json!(41), None);
+    newer.namespace = UI_NAMESPACE.into();
+    replacement.apply(newer)?;
+    let repeated = recovered_handler.reconcile(&task, claim.operation_id).await?;
+    assert_eq!(repeated.record_revision, recovered.record_revision);
+    assert_eq!(repeated.effect_status, EffectStatus::Unknown);
+    assert_eq!(reopened.external_operation_evidence(claim.operation_id)?.len(), 1);
+    assert_eq!(reopened.external_operation_attempts(claim.operation_id)?.len(), 1);
+    assert_eq!(replacement.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(41)));
+    assert_eq!(reopened.config_change(original_change.change_id)?.context("original change disappeared")?.attempt,
+        original_change.attempt);
     Ok(())
 }
