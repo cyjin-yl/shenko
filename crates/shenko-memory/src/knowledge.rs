@@ -24,6 +24,7 @@ const GIT_AUTHOR: &str = "Shenko Memory <memory@shenko.local>";
 /// One explainable text unit of knowledge in the memory repository.
 pub struct GitKnowledgeStore {
     root: PathBuf,
+    projection: std::sync::Mutex<()>,
 }
 
 impl GitKnowledgeStore {
@@ -32,7 +33,7 @@ impl GitKnowledgeStore {
     pub fn open(root: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&root)
             .with_context(|| format!("create memory knowledge root {}", root.display()))?;
-        let store = Self { root };
+        let store = Self { root, projection: std::sync::Mutex::new(()) };
         if !store.root.join(".git").exists() {
             store.run_git(&["init", "--quiet", "--initial-branch=main"])?;
         }
@@ -48,22 +49,30 @@ impl GitKnowledgeStore {
     /// `(commit, repo-relative path)`. A rewrite of unchanged content is a
     /// no-op: the existing commit is kept, nothing is fabricated.
     pub fn sync_entry(&self, entry: &MemoryEntry) -> Result<(String, String)> {
+        let _guard = self.projection.lock().map_err(|_| anyhow::anyhow!("memory Git projection lock poisoned"))?;
+        self.sync_entry_locked(entry)
+    }
+
+    fn sync_entry_locked(&self, entry: &MemoryEntry) -> Result<(String, String)> {
         let path = self.entry_path(entry);
         let body = render_entry(entry);
         let absolute = self.root.join(&path);
         if let Some(parent) = absolute.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let unchanged = std::fs::read_to_string(&absolute).ok().as_deref() == Some(body.as_str());
-        if unchanged {
-            let head = self.head_commit()?;
-            return Ok((head, path));
+        let unchanged = match std::fs::read_to_string(&absolute) {
+            Ok(existing) => existing == body,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        if !unchanged {
+            std::fs::write(&absolute, &body)?;
         }
-        std::fs::write(&absolute, &body)?;
         self.run_git(&["add", "--", &path])?;
         let status = self.run_git(&["status", "--porcelain", "--", &path])?;
         if status.trim().is_empty() {
             let head = self.head_commit()?;
+            ensure!(self.run_git(&["show", &format!("{head}:{path}")])? == body, "Git HEAD does not contain projected memory bytes");
             return Ok((head, path));
         }
         let message = format!(
@@ -85,27 +94,45 @@ impl GitKnowledgeStore {
             &path,
         ])?;
         let commit = self.head_commit()?;
+        ensure!(self.run_git(&["show", &format!("{commit}:{path}")])? == body, "Git commit does not contain projected memory bytes");
         Ok((commit, path))
     }
 
-    /// Commit every live entry whose text form is not in the repository yet
-    /// and record the refs back on the durable rows. Returns how many entries
-    /// were synced.
-    pub fn sync_pending(&self, store: &Store, _agent: EntityId) -> Result<usize> {
-        let pending = store
-            .list_memory(4096)
-            .context("list memory for knowledge sync")?;
-        let mut synced = 0;
-        for entry in pending {
-            if entry.git_commit.is_some() {
-                continue;
+    /// Project one exact revision and acknowledge only the actual committed
+    /// text. Serialize the reload/write/ack boundary within this repository.
+    pub fn sync_projected_entry(&self, store: &Store, entry: &MemoryEntry) -> Result<bool> {
+        let _guard = self.projection.lock().map_err(|_| anyhow::anyhow!("memory Git projection lock poisoned"))?;
+        let current = store.memory_entry(entry.entry_id)?.context("memory entry vanished")?;
+        if current.record_revision != entry.record_revision { return Ok(false); }
+        match self.sync_entry_locked(&current) {
+            Ok((commit,path)) => Ok(store.mark_memory_git(current.entry_id,current.record_revision,&commit,&path)?),
+            Err(error) => {
+                store.record_memory_git_failure(current.entry_id,current.record_revision)
+                    .with_context(||format!("record Git projection failure after {error:#}"))?;
+                Err(error)
             }
-            let (commit, path) = self.sync_entry(&entry)?;
-            store
-                .mark_memory_git(entry.entry_id, &commit, &path)
-                .context("record memory git ref")?;
-            synced += 1;
         }
+    }
+
+    /// Drain all keyset pages, including retired rows. Failed entries remain
+    /// retryable; continue past them and report failure after the scan.
+    pub fn sync_pending(&self, store: &Store, agent: EntityId) -> Result<usize> {
+        let mut after = None;
+        let mut synced = 0;
+        let mut failures = Vec::new();
+        loop {
+            let pending = store.pending_memory_git_page(agent, after, 256)?;
+            if pending.is_empty() { break; }
+            for entry in pending {
+                after = Some(entry.entry_id);
+                match self.sync_projected_entry(store,&entry) {
+                    Ok(true) => synced += 1,
+                    Ok(false) => {},
+                    Err(error) => failures.push(format!("{} rev {}: {error:#}",entry.entry_id,entry.record_revision)),
+                }
+            }
+        }
+        ensure!(failures.is_empty(), "memory Git projection failures: {}", failures.join("; "));
         Ok(synced)
     }
 
@@ -138,16 +165,13 @@ impl GitKnowledgeStore {
 
     /// Repository health: resolvable HEAD and commit count.
     pub fn health(&self) -> Result<GitHealth> {
-        let repository = self
-            .run_git(&["rev-parse", "--show-toplevel"])
-            .ok()
-            .map(|output| output.trim().to_string());
-        let head = self.head_commit().ok();
-        let commits = self
-            .run_git(&["rev-list", "--count", "HEAD"])
-            .ok()
-            .and_then(|output| output.trim().parse::<u64>().ok())
-            .unwrap_or(0);
+        let repository = Some(self.run_git(&["rev-parse", "--show-toplevel"])?.trim().to_string());
+        // --all is valid for an unborn repository too; command failures are
+        // errors rather than invented healthy zero-commit results.
+        let all_commits: u64 = self.run_git(&["rev-list", "--count", "--all"])?.trim().parse()?;
+        let (head,commits)=if all_commits==0 {(None,0)} else {
+            (Some(self.head_commit()?),self.run_git(&["rev-list","--count","HEAD"])?.trim().parse()?)
+        };
         Ok(GitHealth { repository, head, commits })
     }
 
@@ -252,5 +276,92 @@ mod tests {
         assert_eq!(sanitize("personal"), "personal");
         assert_eq!(sanitize("a/b c"), "a_b_c");
         assert_eq!(sanitize(""), "default");
+    }
+
+    fn native_root(tag: &str) -> PathBuf {
+        let root=std::env::var_os("SHENKO_NATIVE_ARTIFACT_ROOT")
+            .expect("parent must provide a persistent native artifact root");
+        let dir=PathBuf::from(root).join(format!("memory-{tag}-{}",EntityId::new()));
+        let mut builder=std::fs::DirBuilder::new();
+        #[cfg(unix)] {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn projection_pages_pass_4096_acked_rows_and_keep_retired_work() {
+        let root=native_root("pages");
+        let store=Store::open(root.join("ledger.db"),root.join("cas")).unwrap();
+        let agent=EntityId::new();
+        let git=GitKnowledgeStore::open(root.join("knowledge")).unwrap();
+        // Fixture rows are actual memory rows; the test never registers a
+        // cognition content by hand or fabricates a local Git acknowledgement.
+        let mut conn=rusqlite::Connection::open(root.join("ledger.db")).unwrap();
+        let tx=conn.transaction().unwrap();
+        for index in 0..4105 {
+            tx.execute("INSERT INTO memory_entries(entry_id,agent_id,kind,content,created_at_ms)
+                VALUES(?1,?2,'note',?3,?4)",
+                rusqlite::params![EntityId::new().to_string(),agent.to_string(),format!("fact {index}"),index]).unwrap();
+        }
+        tx.commit().unwrap();
+        let mut all=Vec::new();
+        let mut cursor=None;
+        loop {
+            let page=store.pending_memory_git_page(agent,cursor,113).unwrap();
+            if page.is_empty(){break;}
+            cursor=page.last().map(|entry|entry.entry_id);
+            all.extend(page);
+        }
+        assert_eq!(all.len(),4105);
+        // Materialize the full text projection in one real Git commit, then
+        // acknowledge its first 4096 entries with that actual commit/path.
+        for entry in &all {
+            let path=git.entry_path(entry);
+            std::fs::create_dir_all(git.root.join(&path).parent().unwrap()).unwrap();
+            std::fs::write(git.root.join(path),render_entry(entry)).unwrap();
+        }
+        git.run_git(&["add","--","knowledge"]).unwrap();
+        git.run_git(&["commit","--quiet","-m","native memory projection fixture"]).unwrap();
+        let commit=git.head_commit().unwrap();
+        for entry in &all[..4096] {
+            assert!(store.mark_memory_git(entry.entry_id,entry.record_revision,&commit,&git.entry_path(entry)).unwrap());
+        }
+        let retired=&all[4096];
+        conn.execute("UPDATE memory_entries SET deleted=1,record_revision=record_revision+1 WHERE entry_id=?1",
+            [retired.entry_id.to_string()]).unwrap();
+        assert_eq!(git.sync_pending(&store,agent).unwrap(),9);
+        assert!(store.pending_memory_git_page(agent,None,4096).unwrap().is_empty());
+        assert!(git.run_git(&["show",&format!("HEAD:{}",git.entry_path(retired))]).unwrap().contains("deleted: true"));
+    }
+
+    #[test]
+    fn failed_projection_does_not_starve_and_stale_revision_cannot_ack() {
+        let root=native_root("failure-race");
+        let store=Store::open(root.join("ledger.db"),root.join("cas")).unwrap();
+        let agent=EntityId::new();
+        let git=GitKnowledgeStore::open(root.join("knowledge")).unwrap();
+        let entries=(0..3).map(|i|MemoryEntry::new(agent,format!("fact {i}"))).collect::<Vec<_>>();
+        for entry in &entries {store.insert_memory_entry(entry).unwrap();}
+        let broken=git.root.join(git.entry_path(&entries[0]));
+        std::fs::create_dir_all(&broken).unwrap(); // real filesystem write failure
+        assert!(git.sync_pending(&store,agent).is_err());
+        let conn=rusqlite::Connection::open(root.join("ledger.db")).unwrap();
+        let projected:i64=conn.query_row("SELECT COUNT(*) FROM memory_git_ack WHERE state='projected'",[],|row|row.get(0)).unwrap();
+        let failed:i64=conn.query_row("SELECT COUNT(*) FROM memory_git_ack WHERE state='failed'",[],|row|row.get(0)).unwrap();
+        assert_eq!((projected,failed),(2,1));
+        let old=store.memory_entry(entries[1].entry_id).unwrap().unwrap();
+        let (commit,path)=git.sync_entry(&old).unwrap();
+        conn.execute("UPDATE memory_entries SET content='new exact revision',record_revision=record_revision+1 WHERE entry_id=?1",
+            [old.entry_id.to_string()]).unwrap();
+        assert!(!store.mark_memory_git(old.entry_id,old.record_revision,&commit,&path).unwrap());
+        assert!(store.pending_memory_git_page(agent,None,4096).unwrap().iter().any(|entry|entry.entry_id==old.entry_id));
+        // A captured older revision must not overwrite a newer Git projection.
+        let current=store.memory_entry(old.entry_id).unwrap().unwrap();
+        assert!(git.sync_projected_entry(&store,&current).unwrap());
+        assert!(!git.sync_projected_entry(&store,&old).unwrap());
+        assert!(git.run_git(&["show",&format!("HEAD:{path}")]).unwrap().contains("new exact revision"));
     }
 }
