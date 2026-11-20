@@ -515,6 +515,26 @@ impl BrokerHandle {
         self.kv.rebalance(&mut pool)
     }
 
+    /// Conditionally adopt typed KV automatic-planning preferences on this
+    /// handle's actual physical owner. Does not change compute scheduling, C,
+    /// K, running readers, reservations, or original unknown-outcome custody.
+    pub fn compare_and_apply_kv_preferences(
+        &self,
+        expected_domain: &crate::resource::ResourceDomainIdentity,
+        expected_revision: u64,
+        preferences: crate::kv::AutomaticAllocationPreferences,
+    ) -> Result<crate::resource::KvAllocationSnapshot, crate::kv::AllocationPreferenceError> {
+        self.domain.compare_and_apply_kv_preferences(
+            &self.kv, expected_domain, expected_revision, preferences,
+        )
+    }
+
+    /// Read accepted preferences and the last plan actually consumed under
+    /// the same domain/pool locks; reading never causes a planning decision.
+    pub fn kv_allocation_snapshot(&self) -> crate::resource::KvAllocationSnapshot {
+        self.domain.kv_allocation_snapshot()
+    }
+
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
         let purpose = RequestPurpose::from_priority(req.priority);
         self.submit_inner(req, None, purpose, None)
