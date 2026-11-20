@@ -1,0 +1,125 @@
+name: Export existing DSH receipt
+on:
+  push:
+    branches: [chore/dsh-receipt-export-20261121]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    container: python:3.13.9-bookworm
+    timeout-minutes: 5
+    steps:
+      - name: Copy the existing bounded JSON entry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import argparse
+          import hashlib
+          import io
+          import json
+          from pathlib import Path
+          import os
+          from urllib.request import Request, urlopen, build_opener, HTTPRedirectHandler
+          from urllib.error import HTTPError
+          from urllib.parse import urlparse
+          from zipfile import ZipFile
+          
+          
+          class HttpRanges(io.RawIOBase):
+              def __init__(self, url):
+                  self.url = url
+                  with build_opener(NoRedirect).open(Request(url, method='HEAD'), timeout=30) as response:
+                      self.size = int(response.headers['Content-Length'])
+                  self.position = 0
+                  self.fetched = 0
+          
+              def seekable(self):
+                  return True
+          
+              def readable(self):
+                  return True
+          
+              def tell(self):
+                  return self.position
+          
+              def seek(self, offset, whence=0):
+                  target = offset + (0 if whence == 0 else self.position if whence == 1 else self.size)
+                  if target < 0:
+                      raise ValueError('negative ZIP offset')
+                  self.position = target
+                  return target
+          
+              def read(self, size=-1):
+                  size = self.size - self.position if size < 0 else min(size, self.size - self.position)
+                  if size <= 0:
+                      return b''
+                  if size > 32 * 1024 * 1024:
+                      raise ValueError('ZIP read exceeds the metadata/receipt bound')
+                  start = self.position
+                  end = start + size - 1
+                  request = Request(self.url, headers={'Range': f'bytes={start}-{end}'})
+                  with build_opener(NoRedirect).open(request, timeout=30) as response:
+                      if response.status != 206 or response.headers.get('Content-Range') != f'bytes {start}-{end}/{self.size}':
+                          raise ValueError('artifact server did not honor the exact range')
+                      data = response.read(size + 1)
+                  if len(data) != size:
+                      raise ValueError('truncated or overlong artifact range')
+                  self.position += size
+                  self.fetched += size
+                  return data
+          
+          
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+          
+          artifact_id = 14674006742
+          api = "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/" + str(artifact_id)
+          headers = {"Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                     "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+          with build_opener(NoRedirect).open(Request(api, headers=headers), timeout=30) as response:
+              metadata = json.loads(response.read(32768))
+          assert metadata["workflow_run"]["id"] == 44821797841
+          assert metadata["workflow_run"]["head_sha"] == "08d3a0dd3aa67338421a31379a03ee5a57636690"
+          assert metadata["archive_download_url"] == api + "/zip"
+          try:
+              build_opener(NoRedirect).open(Request(api + "/zip", headers=headers), timeout=30)
+          except HTTPError as redirect:
+              if redirect.code != 302:
+                  raise
+              location = redirect.headers["Location"]
+              redirect.close()
+          else:
+              raise ValueError("artifact API did not return its download redirect")
+          target = urlparse(location)
+          assert target.scheme == "https" and not target.username and not target.password
+          assert target.hostname.endswith(".blob.core.windows.net") or target.hostname.endswith(".actions.githubusercontent.com")
+          # Authentication stays at api.github.com; the signed storage request has no bearer header.
+          remote = HttpRanges(location)
+          assert remote.size == metadata["size_in_bytes"]
+          with ZipFile(remote) as archive:
+              matches = [item for item in archive.infolist() if item.filename == "dsh/native-journey.json"]
+              assert len(matches) == 1 and matches[0].file_size <= 2 * 1024 * 1024
+              data = archive.read(matches[0])
+          receipt = json.loads(data)
+          assert receipt["source_revision"] == "476fa82d1965463d08167c6179547f933c565f13"
+          output = Path("out")
+          output.mkdir()
+          (output / "native-journey.json").write_bytes(data)
+          provenance = {"source_run": 44821797841, "source_artifact": artifact_id,
+                        "archive_bytes": remote.size, "archive_digest_from_api": metadata.get("digest"),
+                        "entry": "dsh/native-journey.json", "bytes": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(), "range_bytes_read": remote.fetched,
+                        "scope": "exact ZIP entry copied from existing completed CI; no DSH execution"}
+          (output / "extraction.json").write_text(json.dumps(provenance, indent=2) + "\n")
+          print(json.dumps(provenance))
+          
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsh-native-receipt-44821797841
+          path: out/
+          if-no-files-found: error
