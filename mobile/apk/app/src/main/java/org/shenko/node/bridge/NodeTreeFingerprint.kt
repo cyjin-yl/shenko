@@ -94,7 +94,7 @@ object NodeTreeFingerprint {
                     "hierarchy fingerprint can be produced",
             )
         }
-        if (!service.canRetrieveWindowContent()) {
+        if (service.serviceInfo?.canRetrieveWindowContent != true) {
             throw Unavailable(
                 "typed_unavailable",
                 "accessibility service is connected but cannot retrieve window content: the node " +

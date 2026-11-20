@@ -1,7 +1,5 @@
 package org.shenko.node;
 
-import rikka.shizuku.IUserService;
-
 /**
  * Shizuku UserService surface: frozen-argv execution inside the Shizuku
  * process. Shizuku transports this binder to our app; every call executes
@@ -9,6 +7,11 @@ import rikka.shizuku.IUserService;
  * timeout, with bounded captured output returned as a JSON line:
  * {"exit_code":int,"stdout_b64":string,"stderr_b64":string,"timed_out":bool}
  */
-interface IShenkoShellService extends IUserService {
-    String execJson(in String[] argv, in String[] env, long timeoutMillis);
+interface IShenkoShellService {
+    // Keep the app call at Binder FIRST_CALL_TRANSACTION (1).
+    String execJson(in String[] argv, in String[] env, long timeoutMillis) = 0;
+
+    // Shizuku API/shared 13.1.5 removes a user service with Binder code
+    // 16777115 and FLAG_ONEWAY. AIDL adds FIRST_CALL_TRANSACTION to this ID.
+    oneway void destroy() = 16777114;
 }
