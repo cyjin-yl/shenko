@@ -56,6 +56,9 @@ pub enum Command {
         target: String,
     },
     /// Start Shenko agent with UI and continuous thought loop
+    #[command(group(clap::ArgGroup::new("napcat_ingress")
+        .args(["napcat", "napcat_cli_url"])
+        .multiple(true)))]
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
@@ -72,7 +75,7 @@ pub enum Command {
         #[arg(long, env = "NAPCAT_WS_URL")]
         napcat: Option<String>,
         /// Account bound to the persistent ingress database (not an admin grant).
-        #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
+        #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat_ingress")]
         napcat_account: Option<u64>,
         /// Transport token of the NapCat endpoint. Sensitive: it is sent as
         /// an Authorization header and never appears in URLs, logs, receipts
@@ -253,7 +256,8 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     }
     // This guard outlives the Tokio runtime. In particular, cancellation of
     // an async task is not proof that a blocking/provider operation has ended.
-    let (owner, data_dir) = if matches!(&command, Command::Start { .. }) {
+    let (owner, data_dir) = if let Command::Start { napcat, napcat_cli_url, napcat_account, .. } = &command {
+        runtime_napcat::configured_account(napcat.is_some() || napcat_cli_url.is_some(), *napcat_account)?;
         let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
             data_dir: data_dir.clone(), ..Default::default()
         });
