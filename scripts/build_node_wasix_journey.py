@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import platform
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -70,6 +71,123 @@ CRITICAL_SOURCE = (
     "deps/v8/src/builtins/wasm32/builtins-wasm32.cc", "lib/internal/buffer.js", "src/node_version.h",
     "deps/v8/src/builtins/builtins-typed-array.cc", SOURCE_LINK_PATCH["target_path"],
 )
+
+
+def is_build_input(relative):
+    parts = PurePosixPath(relative).parts
+    return bool(parts) and parts[0] in ("source", "toolchains", "bin") and not (
+        parts[0] == "source" and len(parts) > 1 and parts[1] in (".git", "out"))
+
+
+def work_inventory(work, *, inputs_only=False):
+    """Bind the actual local build, including literal links and Make timestamps."""
+    entries = []
+    for path in [work, *sorted(work.rglob("*"))]:
+        relative = str(path.relative_to(work))
+        if inputs_only and not is_build_input(relative):
+            continue
+        before = path.lstat()
+        record = {"path": relative, "mode": before.st_mode,
+                  "device": before.st_dev, "inode": before.st_ino,
+                  "mtime_ns": before.st_mtime_ns, "links": before.st_nlink}
+        if stat.S_ISLNK(before.st_mode):
+            record["link"] = os.readlink(path)
+            journey.require(path.resolve().is_relative_to(work), "build custody link escapes its work directory: " + relative)
+        elif stat.S_ISREG(before.st_mode):
+            record.update(bytes=before.st_size, sha256=journey.digest(path))
+        else:
+            journey.require(stat.S_ISDIR(before.st_mode), "build custody contains a special file: " + record["path"])
+        after = path.lstat()
+        journey.require((before.st_dev, before.st_ino, before.st_mode, before.st_size,
+                         before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+                        == (after.st_dev, after.st_ino, after.st_mode, after.st_size,
+                            after.st_mtime_ns, after.st_ctime_ns, after.st_nlink),
+                        "build custody changed while reading: " + record["path"])
+        entries.append(record)
+    return entries
+
+
+def resumable_compile_stop(observation):
+    # GNU Make's handled TERM cleans its interrupted target. A KILLed leader,
+    # an ordinary compiler error or an unconfirmed group has no resume authority.
+    stopped = observation.get("stopped") or {}
+    return (observation.get("label") == "compile"
+            and observation.get("command") == ["/usr/bin/make", "-C", "out", "BUILDTYPE=Release", "V=1", "-j1", "node"]
+            and observation.get("exit_code") == -int(signal.SIGTERM)
+            and observation.get("leader_reaped") is True and observation.get("group_remaining") == []
+            and stopped.get("reason") in ("wall_deadline", "observed_memory_reserve")
+            and stopped.get("leader_reaped") is True and stopped.get("remaining_group") == []
+            and stopped.get("errors") == [] and stopped.get("actions", [])[:1] == ["SIGTERM"]
+            and not any(key in observation for key in ("execution_error", "cleanup_error", "cleanup_inspection_error")))
+
+
+def verify_evidence(evidence):
+    entries = journey.read_json(evidence / "files.json")
+    journey.require(isinstance(entries, list) and bool(entries), "resume evidence has no completed file index")
+    expected = set()
+    for entry in entries:
+        relative = PurePosixPath(entry["path"])
+        journey.require(not relative.is_absolute() and ".." not in relative.parts
+                        and relative.as_posix() not in (".", "files.json")
+                        and relative.as_posix() not in expected, "invalid resume evidence member")
+        expected.add(relative.as_posix())
+        path = evidence.joinpath(*relative.parts)
+        journey.require(path.is_file() and not path.is_symlink()
+                        and path.resolve(strict=True).is_relative_to(evidence)
+                        and path.stat().st_size == entry["bytes"] and journey.digest(path) == entry["sha256"],
+                        "resume evidence changed: " + str(relative))
+    actual = {str(path.relative_to(evidence)) for path in evidence.rglob("*") if path.is_file() and path.name != "files.json"}
+    journey.require(actual == expected, "resume evidence membership changed")
+    journey.require(journey.groups_settled(evidence), "prior owned groups are not confirmed settled")
+
+
+def admit_resume(previous, work, binding):
+    verify_evidence(previous)
+    state = journey.read_json(previous / "resume-state.json")
+    journey.require(state.get("schema_version") == 1 and state.get("binding") == binding,
+                    "resume requires the same builder, runner, revision, platform and local work path")
+    summary = journey.read_json(previous / "summary.json")
+    observation = journey.read_json(previous / "compile.observation.json")
+    journey.require(summary.get("resume_available") is True and summary.get("owned_groups_settled") is True
+                    and summary.get("build_succeeded") is False and resumable_compile_stop(observation),
+                    "prior attempt is not a settled, resumable compile interruption")
+    journey.require(work_inventory(work) == state["work_inventory"],
+                    "local source, objects, configuration, tools, links or Make timestamps changed")
+    context = state["context"]
+    journey.require(observation.get("cwd") == str(work / "source") and observation.get("environment") == context["environment"],
+                    "prior compile does not belong to this work directory and environment")
+    for attempt in context["attempts"]:
+        ancestor = Path(attempt["evidence_dir"]).resolve(strict=True)
+        if ancestor != previous:
+            verify_evidence(ancestor)
+        journey.require(journey.digest(ancestor / "manifest.json") == attempt["manifest_sha256"]
+                        and journey.digest(ancestor / "compile.observation.json") == attempt["compile_observation_sha256"],
+                        "an original compile attempt changed")
+    for name, record in context["tool_records"].items():
+        executable = Path(record["path"])
+        journey.require(executable.stat().st_size == record["bytes"] and journey.digest(executable) == record["sha256"],
+                        "recorded build tool changed: " + name)
+    return context
+
+
+def seal_resume(work, evidence, binding, context):
+    observation = journey.read_json(evidence / "compile.observation.json")
+    journey.require(journey.groups_settled(evidence) and resumable_compile_stop(observation),
+                    "only a settled GNU Make TERM deadline or memory-reserve stop can seal a resumable build")
+    journey.require(observation.get("cwd") == str(work / "source") and observation.get("environment") == context["environment"],
+                    "compile receipt is not bound to this local build")
+    inventory = work_inventory(work)
+    journey.require([entry for entry in inventory if is_build_input(entry["path"])] == context["build_inputs"],
+                    "source or toolchain inputs changed during compilation")
+    context = {**context, "attempts": [*context["attempts"], {
+        "evidence_dir": str(evidence), "manifest_sha256": journey.digest(evidence / "manifest.json"),
+        "compile_observation_sha256": journey.digest(evidence / "compile.observation.json"),
+    }]}
+    journey.write_json(evidence / "resume-state.json", {
+        "schema_version": 1, "binding": binding, "context": context,
+        "work_inventory": inventory,
+        "scope": "unsigned custody of this same local build after a handled bounded interruption; no crash, relocation or runtime acceptance claim",
+    })
 
 
 def build_budget(observation):
@@ -270,15 +388,25 @@ def main():
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--work-dir", type=Path, required=True)
     parser.add_argument("--evidence-dir", type=Path, required=True)
+    parser.add_argument("--resume-from", type=Path, help="completed evidence from this same local build's previous clean compile interruption")
     args = parser.parse_args()
     evidence, work = args.evidence_dir.resolve(), args.work_dir.resolve()
     journey.require(evidence != work and not evidence.is_relative_to(work) and not work.is_relative_to(evidence), "work and evidence directories must be separate")
+    previous = args.resume_from.resolve(strict=True) if args.resume_from is not None else None
+    if previous is not None:
+        journey.require(work.is_dir(), "resume requires the existing local work directory")
+        journey.require(all(left != right and not left.is_relative_to(right) and not right.is_relative_to(left)
+                            for left, right in ((previous, work), (previous, evidence))),
+                        "previous evidence, new evidence and work must be separate")
     os.umask(0o077)
     evidence.mkdir(parents=True, mode=0o700)
     summary = {"started_at": journey.now(), "stage": "admission", "checks": {}, "build_succeeded": False, "reopen_attempted": False,
-               "feasibility_passed": False, "product_capability_installed": False, "named_target_acceptance": False}
+               "feasibility_passed": False, "product_capability_installed": False, "named_target_acceptance": False,
+               "resume_available": False, "resumed_from": str(previous) if previous is not None else None}
     lock = None
     owned_work = False
+    build_context = None
+    binding = None
     source = work / "source"
     deadline = time.monotonic() + BUILD_SECONDS
     try:
@@ -286,26 +414,30 @@ def main():
         journey.require(hasattr(tarfile, "data_filter"), "safe toolchain extraction requires the stdlib tar data filter")
         for number in (signal.SIGINT, signal.SIGTERM):
             signal.signal(number, journey.handle_signal)
-        work.mkdir(parents=True, mode=0o700)
-        owned_work = True
-        for directory in ("source", "toolchains", "downloads", "bin", "guest", "tmp", "runtime-home", "cache"):
-            (work / directory).mkdir(mode=0o700)
+        if previous is None:
+            work.mkdir(parents=True, mode=0o700)
+            owned_work = True
+            for directory in ("source", "toolchains", "downloads", "bin", "guest", "tmp", "runtime-home", "cache"):
+                (work / directory).mkdir(mode=0o700)
         lock = open("/tmp/shenko-cargo.lock", "a")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         repository = Path(__file__).resolve().parent.parent
         head = subprocess.run(["git", "-C", str(repository), "rev-parse", "HEAD"], check=True, capture_output=True, text=True, timeout=5).stdout.strip()
         journey.require(head == args.source_revision and len(head) == 40, "requested Shenko source revision does not match the checkout")
         journey.require(journey.digest(repository / journey.DRIVER_PATH) == journey.DRIVER_SHA256, "original driver changed")
+        binding = {"source_revision": head, "builder_sha256": journey.digest(Path(__file__)),
+                   "runner_sha256": journey.digest(Path(journey.__file__)), "work_dir": str(work), "platform": platform.platform()}
         first_input = journey.frames([(1, journey.FIRST_SOURCE), (2, journey.SECOND_SOURCE)])
         journey.require(hashlib.sha256(first_input).hexdigest() == journey.FIRST_INPUT_SHA256, "original framed input changed")
         (evidence / "planned-first.stdin").write_bytes(first_input)
         (evidence / "planned-reopened.stdin").write_bytes(journey.frames([(3, journey.REOPEN_SOURCE)]))
         shutil.copyfile(Path(__file__), evidence / "builder.py")
         shutil.copyfile(Path(journey.__file__), evidence / "runner.py")
-        shutil.copyfile(repository / journey.DRIVER_PATH, work / "guest/js_cell_driver.mjs")
-        for directory in ("env", "cells"):
-            (work / "guest" / directory).mkdir()
-        (work / "guest/env/package.json").write_text('{"name":"node-wasix-probe","private":true}\n')
+        if previous is None:
+            shutil.copyfile(repository / journey.DRIVER_PATH, work / "guest/js_cell_driver.mjs")
+            for directory in ("env", "cells"):
+                (work / "guest" / directory).mkdir()
+            (work / "guest/env/package.json").write_text('{"name":"node-wasix-probe","private":true}\n')
         journey.write_json(evidence / "manifest.json", {
             "source_revision": head, "upstream_repository": SOURCE_URL, "upstream_commit": SOURCE_COMMIT, "upstream_tree": SOURCE_TREE,
             "source_patch": SOURCE_PATCH,
@@ -314,6 +446,7 @@ def main():
             "builder_sha256": journey.digest(Path(__file__)), "runner_sha256": journey.digest(Path(journey.__file__)),
             "driver_sha256": journey.DRIVER_SHA256, "first_input_sha256": journey.FIRST_INPUT_SHA256,
             "toolchain_assets": ASSETS, "wasmer_archive_sha256": journey.WASMER_SHA256,
+            "work_dir": str(work), "resumed_from": str(previous) if previous is not None else None,
             "platform": platform.platform(), "inherited_process_limits": Path("/proc/self/limits").read_text(),
             "product_capability_installed": False, "named_target_acceptance": False,
         })
@@ -321,7 +454,8 @@ def main():
         initial = resources.snapshot()
         journey.write_json(evidence / "resources-before-source-build.json", initial)
         journey.write_json(evidence / "build-resource-budget.json", build_budget(initial))
-        journey.require(initial["disk_free_bytes"] >= 24 * GIB, "source build requires a 24 GiB starting disk budget; actual build size remains unmeasured")
+        if previous is None:
+            journey.require(initial["disk_free_bytes"] >= 24 * GIB, "source build requires a 24 GiB starting disk budget; actual build size remains unmeasured")
         environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TMPDIR": str(work / "tmp"),
                        "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
                        "MAKEFLAGS": "-j1", "CMAKE_BUILD_PARALLEL_LEVEL": "1", "BINARYEN_CORES": "1", "RAYON_NUM_THREADS": "1"}
@@ -337,65 +471,86 @@ def main():
             journey.require(result["exit_code"] == 0 and result["stopped"] is None, label + " failed; see its original output and process observation")
             return result
 
-        run("source-init", ["git", "init", "--quiet"])
-        run("source-fetch", ["git", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never", "fetch", "--no-tags", "--depth=1", SOURCE_URL, SOURCE_COMMIT], wall=600, network=True)
-        run("source-checkout", ["git", "checkout", "--detach", "--quiet", "FETCH_HEAD"])
-        run("source-identity", ["git", "rev-parse", "HEAD", "HEAD^{tree}"])
-        journey.require((evidence / "source-identity.stdout").read_text().splitlines() == [SOURCE_COMMIT, SOURCE_TREE], "fetched upstream source identity differs")
-        run("source-integrity", ["git", "fsck", "--full", "--strict"], wall=180)
-        run("source-files", ["git", "ls-tree", "-rlz", "HEAD"])
-        records = (evidence / "source-files.stdout").read_bytes().split(b"\0")
-        tracked_bytes = 0
-        tracked_count = 0
-        for record in records:
-            if record:
-                fields = record.partition(b"\t")[0].split()
-                journey.require(fields[1] == b"blob", "unrecorded upstream submodule requires a separate source binding")
-                tracked_bytes += int(fields[3])
-                tracked_count += 1
-        git_bytes = sum(path.stat().st_size for path in (source / ".git").rglob("*") if path.is_file())
-        journey.write_json(evidence / "source-size.json", {"tracked_files": tracked_count, "tracked_file_bytes": tracked_bytes, "git_directory_bytes": git_bytes,
-                                                          "network_transfer_bytes": None, "note": "on-disk Git objects do not measure bytes transmitted on the network"})
-        journey.require(not (source / "out").exists(), "source checkout already contains build output")
-        keep_build_inputs(source, evidence)
-        patch_record = apply_source_patch(source, repository, evidence, run)
-        link_patch_record = apply_source_link_patch(source, repository, evidence, run)
-        summary["stage"] = "download-toolchain"
-        roots = fetch_toolchain(work, evidence, resources, deadline)
-        installer = unique_file(roots["wasixcc"], "wasixccenv")
-        clang = unique_file(roots["llvm"], "clang", "bin")
-        wasm_opt = unique_file(roots["binaryen"], "wasm-opt", "bin")
-        libc = unique_file(roots["sysroot"], "libc.a", "wasm32-wasi")
-        sysroot = libc.parent.parent.parent
-        journey.require((sysroot / "include/stdlib.h").is_file(), "fixed WASIX sysroot layout is not recognized")
-        environment.update({"WASIXCC_LLVM_LOCATION": str(clang.parent.parent), "WASIXCC_BINARYEN_LOCATION": str(wasm_opt.parent.parent),
-                            "WASIXCC_SYSROOT": str(sysroot), "WASIXCC_SYSROOT_PREFIX": str(roots["sysroot"]),
-                            "WASIXCC_WASM_EXCEPTIONS": "no", "WASIXCC_RUN_WASM_OPT": "yes", "WASIXCC_GENERATE_SHELL_SCRIPT": "no",
-                            "WASIXCC_LINKER_FLAGS": "--threads=1"})
-        run("install-compiler-wrappers", [str(installer), "install-executables", str(work / "bin")])
-        environment.update({"CC": str(work / "bin/wasixcc"), "CXX": str(work / "bin/wasix++"),
-                            "AR": str(work / "bin/wasixar"), "RANLIB": str(work / "bin/wasixranlib"), "NM": str(work / "bin/wasixnm"),
-                            "CC_host": "/usr/bin/gcc", "CXX_host": "/usr/bin/g++", "AR_host": "/usr/bin/ar",
-                            "CC_target": str(work / "bin/wasixcc"), "CXX_target": str(work / "bin/wasix++"), "AR_target": str(work / "bin/wasixar")})
-        tools = {"wasixcc": installer, "clang": clang, "binaryen": wasm_opt, "host-gcc": Path("/usr/bin/gcc"),
-                 "host-g++": Path("/usr/bin/g++"), "make": Path("/usr/bin/make"), "python": Path("/usr/bin/python3")}
-        tool_records = {}
-        for name, executable in tools.items():
-            run("tool-" + name.replace("+", "p"), [str(executable), "--version"], wall=30)
-            tool_records[name] = {"path": str(executable), "sha256": journey.digest(executable), "bytes": executable.stat().st_size}
-        journey.write_json(evidence / "executed-build-tools.json", tool_records)
-        # Snapshot and code cache are already disabled by upstream cross-compiling
-        # semantics. OpenSSL stays enabled; only native assembler use is disabled.
-        configure = ["/usr/bin/python3", "configure.py", "--dest-cpu=wasm32", "--dest-os=wasi", "--cross-compiling", "--openssl-no-asm"]
-        run("configure", configure, wall=300)
-        keep_build_configuration(source, evidence)
-        verify_archive_response_rule(source, evidence)
+        if previous is not None:
+            build_context = admit_resume(previous, work, binding)
+            owned_work = True
+            environment = build_context["environment"]
+            configure = build_context["configure_command"]
+            patch_record = build_context["source_patch"]
+            link_patch_record = build_context["source_link_patch"]
+            tool_records = build_context["tool_records"]
+            journey.write_json(evidence / "resume-parent.json", {
+                "evidence_dir": str(previous), "files_sha256": journey.digest(previous / "files.json"),
+                "state_sha256": journey.digest(previous / "resume-state.json"),
+                "attempts": build_context["attempts"],
+            })
+            keep_build_configuration(source, evidence)
+            verify_archive_response_rule(source, evidence)
+        else:
+            run("source-init", ["git", "init", "--quiet"])
+            run("source-fetch", ["git", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never", "fetch", "--no-tags", "--depth=1", SOURCE_URL, SOURCE_COMMIT], wall=600, network=True)
+            run("source-checkout", ["git", "checkout", "--detach", "--quiet", "FETCH_HEAD"])
+            run("source-identity", ["git", "rev-parse", "HEAD", "HEAD^{tree}"])
+            journey.require((evidence / "source-identity.stdout").read_text().splitlines() == [SOURCE_COMMIT, SOURCE_TREE], "fetched upstream source identity differs")
+            run("source-integrity", ["git", "fsck", "--full", "--strict"], wall=180)
+            run("source-files", ["git", "ls-tree", "-rlz", "HEAD"])
+            records = (evidence / "source-files.stdout").read_bytes().split(b"\0")
+            tracked_bytes = 0
+            tracked_count = 0
+            for record in records:
+                if record:
+                    fields = record.partition(b"\t")[0].split()
+                    journey.require(fields[1] == b"blob", "unrecorded upstream submodule requires a separate source binding")
+                    tracked_bytes += int(fields[3])
+                    tracked_count += 1
+            git_bytes = sum(path.stat().st_size for path in (source / ".git").rglob("*") if path.is_file())
+            journey.write_json(evidence / "source-size.json", {"tracked_files": tracked_count, "tracked_file_bytes": tracked_bytes, "git_directory_bytes": git_bytes,
+                                                              "network_transfer_bytes": None, "note": "on-disk Git objects do not measure bytes transmitted on the network"})
+            journey.require(not (source / "out").exists(), "source checkout already contains build output")
+            keep_build_inputs(source, evidence)
+            patch_record = apply_source_patch(source, repository, evidence, run)
+            link_patch_record = apply_source_link_patch(source, repository, evidence, run)
+            summary["stage"] = "download-toolchain"
+            roots = fetch_toolchain(work, evidence, resources, deadline)
+            installer = unique_file(roots["wasixcc"], "wasixccenv")
+            clang = unique_file(roots["llvm"], "clang", "bin")
+            wasm_opt = unique_file(roots["binaryen"], "wasm-opt", "bin")
+            libc = unique_file(roots["sysroot"], "libc.a", "wasm32-wasi")
+            sysroot = libc.parent.parent.parent
+            journey.require((sysroot / "include/stdlib.h").is_file(), "fixed WASIX sysroot layout is not recognized")
+            environment.update({"WASIXCC_LLVM_LOCATION": str(clang.parent.parent), "WASIXCC_BINARYEN_LOCATION": str(wasm_opt.parent.parent),
+                                "WASIXCC_SYSROOT": str(sysroot), "WASIXCC_SYSROOT_PREFIX": str(roots["sysroot"]),
+                                "WASIXCC_WASM_EXCEPTIONS": "no", "WASIXCC_RUN_WASM_OPT": "yes", "WASIXCC_GENERATE_SHELL_SCRIPT": "no",
+                                "WASIXCC_LINKER_FLAGS": "--threads=1"})
+            run("install-compiler-wrappers", [str(installer), "install-executables", str(work / "bin")])
+            environment.update({"CC": str(work / "bin/wasixcc"), "CXX": str(work / "bin/wasix++"),
+                                "AR": str(work / "bin/wasixar"), "RANLIB": str(work / "bin/wasixranlib"), "NM": str(work / "bin/wasixnm"),
+                                "CC_host": "/usr/bin/gcc", "CXX_host": "/usr/bin/g++", "AR_host": "/usr/bin/ar",
+                                "CC_target": str(work / "bin/wasixcc"), "CXX_target": str(work / "bin/wasix++"), "AR_target": str(work / "bin/wasixar")})
+            tools = {"wasixcc": installer, "clang": clang, "binaryen": wasm_opt, "host-gcc": Path("/usr/bin/gcc"),
+                     "host-g++": Path("/usr/bin/g++"), "host-ar": Path("/usr/bin/ar"), "make": Path("/usr/bin/make"), "python": Path("/usr/bin/python3")}
+            tool_records = {}
+            for name, executable in tools.items():
+                run("tool-" + name.replace("+", "p"), [str(executable), "--version"], wall=30)
+                tool_records[name] = {"path": str(executable), "sha256": journey.digest(executable), "bytes": executable.stat().st_size}
+            journey.write_json(evidence / "executed-build-tools.json", tool_records)
+            # Snapshot and code cache are already disabled by upstream cross-compiling
+            # semantics. OpenSSL stays enabled; only native assembler use is disabled.
+            configure = ["/usr/bin/python3", "configure.py", "--dest-cpu=wasm32", "--dest-os=wasi", "--cross-compiling", "--openssl-no-asm"]
+            run("configure", configure, wall=300)
+            keep_build_configuration(source, evidence)
+            verify_archive_response_rule(source, evidence)
+            build_context = {"environment": environment, "configure_command": configure,
+                             "source_patch": patch_record, "source_link_patch": link_patch_record, "tool_records": tool_records,
+                             "source_diff_sha256": journey.digest(evidence / "source-with-links-diff.stdout"), "attempts": [],
+                             "build_inputs": work_inventory(work, inputs_only=True)}
         make = ["/usr/bin/make", "-C", "out", "BUILDTYPE=Release", "V=1", "-j1", "node"]
         run("compile", make, wall=BUILD_SECONDS)
         run("source-patched-diff-after-build", ["git", "diff", "--binary", "HEAD", "--"])
-        journey.require((evidence / "source-patched-diff-after-build.stdout").read_bytes()
-                        == (evidence / "source-with-links-diff.stdout").read_bytes(),
+        journey.require(journey.digest(evidence / "source-patched-diff-after-build.stdout") == build_context["source_diff_sha256"],
                         "tracked source changed beyond the recorded patches during build")
+        journey.require(work_inventory(work, inputs_only=True) == build_context["build_inputs"],
+                        "source or toolchain inputs changed during compilation")
         output = source / "out/Release/node"
         journey.require(output.is_file() and not output.is_symlink() and output.stat().st_size <= 512 * MIB, "fresh Node output is missing, aliased, or exceeds its retained bound")
         with output.open("rb") as module:
@@ -409,7 +564,8 @@ def main():
                        "source_repository": SOURCE_URL, "source_commit": SOURCE_COMMIT, "source_tree": SOURCE_TREE,
                        "tracked_source_matches_recorded_patch_after_build": True, "source_patch": patch_record,
                        "source_link_patch": link_patch_record,
-                       "fresh_output_directory": True,
+                       "fresh_output_directory_at_origin": True,
+                       "prior_compile_attempts": build_context["attempts"],
                        "configure_command": configure, "compile_command": make, "toolchain_assets": ASSETS, "build_tools": tool_records,
                        "module_bytes": output.stat().st_size, "module_sha256": module_hash, "module_path": "out/Release/node",
                        "shenko_source_revision": head, "builder_sha256": journey.digest(Path(__file__)), "recorded_at": journey.now()}
@@ -436,6 +592,9 @@ def main():
             if owned_work:
                 keep_build_configuration(source, evidence)
                 journey.capture_guest(work, evidence)
+                if build_context is not None and resumable_compile_stop(journey.read_json(evidence / "compile.observation.json")):
+                    seal_resume(work, evidence, binding, build_context)
+                    summary["resume_available"] = True
         except BaseException as error:
             summary["evidence_capture_error"] = {"type": type(error).__name__, "message": str(error)}
         summary["compiled_cache_files"] = [str(path.relative_to(work)) for path in (work / "cache").rglob("*") if path.is_file()] if owned_work else []
