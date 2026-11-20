@@ -1170,6 +1170,19 @@ pub(super) fn set_value(row: &mut CognitionRow, column: &str, value: Option<Stri
     }
 }
 
+/// Every replicated row of the archive, read in the caller's snapshot.
+///
+/// Read-only: no export order is allocated and no fingerprint is written.
+/// The caller owns the snapshot — the shared-CAS collector's owner
+/// enumeration already holds the exclusion that makes it stable.
+pub(crate) fn archive_rows(conn: &rusqlite::Connection) -> Result<Vec<CognitionRow>> {
+    let mut rows = Vec::new();
+    for spec in TABLES {
+        rows.extend(read_table(conn, spec)?);
+    }
+    Ok(rows)
+}
+
 /// Read one replicated table.
 pub(super) fn read_table(conn: &rusqlite::Connection, spec: &TableSpec) -> Result<Vec<CognitionRow>> {
     let columns = spec.columns.join(", ");
