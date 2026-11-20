@@ -712,3 +712,9 @@ ReplyGrant 绑定 task generation/revision、受众和逻辑回复责任，不�
 During same-installation catch-up, the copied head and planned successor
 retain their source creation timestamps for archive reconciliation. The
 receiving ledger records its own ordered pause request and boundary commits.
+
+## Copied slot directory access
+
+On Unix, a slot copy keeps source-private directories private from creation.
+The destination owner can populate the copy. Group and other users gain no
+directory access beyond what the source allowed.
