@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
 use crate::admission::CapacityProvenance;
+use crate::resource::ResourceDomainIdentity;
 use crate::capability::{
     BackendCapabilitySnapshot, NATIVE_NINFER_PROMPT_CACHE_KEY, NATIVE_STRATA_CONVERSATION_PARKING,
     NATIVE_STRATA_SLOT_SAVE_RESTORE, NATIVE_VLLM_CACHE_SALT, NATIVE_VLLM_KV_TRANSFER_PARAMS,
@@ -253,6 +254,13 @@ impl ContextLease {
 /// The residency pool of one physical domain.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KvPoolState {
+    /// Accepted owner-local preferences, not durable configuration. An engine
+    /// change makes them inapplicable without releasing any context custody.
+    #[serde(default)]
+    pub(crate) allocation_preferences: KvPreferenceState,
+    /// The last plan actually applied, never a plan recomputed by a reader.
+    #[serde(default)]
+    pub last_allocation: Option<KvAllocationDecision>,
     /// The observed pool capacity. `None` means it was never observed.
     pub capacity_units: Option<u64>,
     pub provenance: CapacityProvenance,
@@ -284,8 +292,32 @@ pub struct KvPoolState {
 }
 
 impl KvPoolState {
+    /// Effective automatic cost preferences. An obsolete domain binding uses
+    /// the unconstrained default, while the accepted revision remains visible.
+    pub fn automatic_allocation_preferences(&self) -> AutomaticAllocationPreferences {
+        if self.allocation_preferences_applicable() {
+            self.allocation_preferences.preferences
+        } else {
+            AutomaticAllocationPreferences::default()
+        }
+    }
+
+    pub(crate) fn allocation_preferences_applicable(&self) -> bool {
+        self.allocation_preferences.applicable
+            && self.allocation_preferences.domain.as_ref()
+                .is_some_and(|domain| self.matches_allocation_domain(domain))
+    }
+
+    pub(crate) fn matches_allocation_domain(&self, domain: &ResourceDomainIdentity) -> bool {
+        self.identity.engine_identity.as_ref()
+            .is_none_or(|engine| engine == &domain.engine_identity)
+            && self.identity.engine_incarnation.as_ref()
+                .is_none_or(|incarnation| Some(incarnation) == domain.engine_incarnation.as_ref())
+    }
     pub fn new(capacity_units: Option<u64>, provenance: CapacityProvenance) -> Self {
         Self {
+            allocation_preferences: KvPreferenceState::default(),
+            last_allocation: None,
             capacity_units,
             provenance,
             capabilities: KvCapabilities::default(),
@@ -488,9 +520,73 @@ impl KvCapabilities {
     }
 }
 
+/// Relative costs of rebuilding the two collectives. These weights influence
+/// automatic candidate selection; neither is a capacity limit or fixed ratio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AutomaticAllocationPreferences {
+    pub subject_rebuild_weight: u16,
+    pub children_rebuild_weight: u16,
+}
+
+impl Default for AutomaticAllocationPreferences {
+    fn default() -> Self {
+        Self { subject_rebuild_weight: 1, children_rebuild_weight: 1 }
+    }
+}
+
+impl AutomaticAllocationPreferences {
+    pub fn validate(&self) -> Result<(), AllocationPreferenceError> {
+        if !(1..=1000).contains(&self.subject_rebuild_weight)
+            || !(1..=1000).contains(&self.children_rebuild_weight)
+        {
+            return Err(AllocationPreferenceError::InvalidWeights);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct KvPreferenceState {
+    pub revision: u64,
+    pub domain: Option<ResourceDomainIdentity>,
+    pub preferences: AutomaticAllocationPreferences,
+    pub applicable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum AllocationPreferenceError {
+    #[error("resource domain identity, incarnation or control epoch changed")]
+    DomainChanged,
+    #[error("resource domain incarnation has not been observed")]
+    UnknownIncarnation,
+    #[error("allocation preference revision changed: expected {expected}, actual {actual}")]
+    RevisionChanged { expected: u64, actual: u64 },
+    #[error("automatic allocation weights must be in 1..=1000")]
+    InvalidWeights,
+    #[error("the installed KV policy does not support automatic allocation preferences")]
+    UnsupportedPolicy,
+    #[error("allocation preference revision exhausted")]
+    RevisionExhausted,
+}
+
+/// Actual accounting decision. A selected revision is recorded at planning,
+/// not inferred from whatever preference happens to be current at readback.
+/// `None` means the accepted preference was inapplicable, or policy unsupported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KvAllocationDecision {
+    pub preference_revision: Option<u64>,
+    pub subject_units: Option<u64>,
+    pub children_units: Option<u64>,
+    pub guarantee: RetentionGuarantee,
+    pub candidates_evaluated: usize,
+}
+
 /// The allocation the policy chose for one cycle.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AllocationPlan {
+    /// Filled by the allocator when this plan is actually applied.
+    pub preference_revision: Option<u64>,
     /// The subject's share. `None` when the pool capacity is unknown.
     pub subject_units: Option<u64>,
     /// The children's share.
@@ -505,6 +601,9 @@ pub struct AllocationPlan {
 /// The replaceable allocation policy.
 pub trait KvPolicy: Send + Sync {
     fn plan(&self, pool: &KvPoolState, capabilities: &KvCapabilities) -> AllocationPlan;
+
+    /// Custom policies must explicitly implement the preference contract.
+    fn supports_automatic_preferences(&self) -> bool { false }
 }
 
 /// The default automatic policy.
@@ -596,12 +695,14 @@ impl AutomaticKvPolicy {
         let Some(capacity) = pool.capacity_units else { return Vec::new() };
         let subject_demand = pool.demand_units(ShareGroup::Subject);
         let children_demand = pool.demand_units(ShareGroup::Children);
+        let weights = pool.automatic_allocation_preferences();
+        let subject_demand = subject_demand as u128 * weights.subject_rebuild_weight as u128;
+        let children_demand = children_demand as u128 * weights.children_rebuild_weight as u128;
         let total_demand = subject_demand + children_demand;
         let mut candidates: Vec<u64> = Vec::new();
         if total_demand > 0 {
             // Demand proportional: the split follows the actual demand.
-            let proportional =
-                (capacity as u128 * subject_demand as u128 / total_demand as u128) as u64;
+            let proportional = proportional_units(capacity, subject_demand, total_demand);
             candidates.push(proportional.min(capacity));
         }
         // The symmetric candidate. It is one candidate, never the answer by
@@ -632,7 +733,7 @@ impl AutomaticKvPolicy {
     /// not invent migration work — otherwise a pool much larger than the real
     /// demand makes every covering candidate look equally expensive and the
     /// cheapest plan could starve a side that has demand.
-    fn cost(&self, pool: &KvPoolState, capabilities: &KvCapabilities, subject: u64) -> u64 {
+    fn cost(&self, pool: &KvPoolState, capabilities: &KvCapabilities, subject: u64) -> u128 {
         let capacity = pool.capacity_units.unwrap_or(0);
         let children = capacity.saturating_sub(subject);
         let subject_demand = pool.demand_units(ShareGroup::Subject);
@@ -648,19 +749,28 @@ impl AutomaticKvPolicy {
 
         // Uncovered prefill/replay is the dominant cost: a side that cannot
         // keep its contexts resident pays to rebuild them.
-        let mut cost = uncovered(subject_demand, subject) * capabilities.rebuild_cost_units
-            + uncovered(children_demand, children) * capabilities.rebuild_cost_units;
+        let weights = pool.automatic_allocation_preferences();
+        let mut cost = (uncovered(subject_demand, subject) as u128
+            * weights.subject_rebuild_weight as u128
+            + uncovered(children_demand, children) as u128
+                * weights.children_rebuild_weight as u128)
+            .saturating_mul(capabilities.rebuild_cost_units as u128);
         // Moving a share costs a transfer and is avoided unless it pays off.
-        cost += moved(subject, current_subject, subject_demand) * capabilities.transfer_cost_units;
-        cost += moved(children, current_children, children_demand) * capabilities.transfer_cost_units;
+        cost = cost.saturating_add(moved(subject, current_subject, subject_demand) as u128
+            * capabilities.transfer_cost_units as u128);
+        cost = cost.saturating_add(moved(children, current_children, children_demand) as u128
+            * capabilities.transfer_cost_units as u128);
         cost
     }
 }
 
 impl KvPolicy for AutomaticKvPolicy {
+    fn supports_automatic_preferences(&self) -> bool { true }
+
     fn plan(&self, pool: &KvPoolState, capabilities: &KvCapabilities) -> AllocationPlan {
         let Some(capacity) = pool.capacity_units else {
             return AllocationPlan {
+                preference_revision: None,
                 subject_units: None,
                 children_units: None,
                 guarantee: RetentionGuarantee::Advisory,
@@ -673,6 +783,7 @@ impl KvPolicy for AutomaticKvPolicy {
         let candidates = self.candidates(pool);
         if candidates.is_empty() {
             return AllocationPlan {
+                preference_revision: None,
                 subject_units: Some(capacity / 2),
                 children_units: Some(capacity - capacity / 2),
                 guarantee: RetentionGuarantee::Advisory,
@@ -682,15 +793,18 @@ impl KvPolicy for AutomaticKvPolicy {
         }
         let subject_demand = pool.demand_units(ShareGroup::Subject);
         let children_demand = pool.demand_units(ShareGroup::Children);
-        let total_demand = subject_demand + children_demand;
+        let weights = pool.automatic_allocation_preferences();
+        let weighted_subject = subject_demand as u128 * weights.subject_rebuild_weight as u128;
+        let weighted_children = children_demand as u128 * weights.children_rebuild_weight as u128;
+        let total_demand = weighted_subject + weighted_children;
         let proportional = if total_demand > 0 {
-            (capacity as u128 * subject_demand as u128 / total_demand as u128) as u64
+            proportional_units(capacity, weighted_subject, total_demand)
         } else {
             capacity / 2
         };
 
         let mut best: Option<(u64, u64)> = None;
-        let mut best_cost = u64::MAX;
+        let mut best_cost = u128::MAX;
         for (subject, children) in &candidates {
             let cost = self.cost(pool, capabilities, *subject);
             // Tie-break towards the demand proportional candidate: it is the
@@ -713,6 +827,7 @@ impl KvPolicy for AutomaticKvPolicy {
             RetentionGuarantee::BestEffort
         };
         AllocationPlan {
+            preference_revision: None,
             subject_units: Some(subject),
             children_units: Some(children),
             guarantee,
@@ -731,6 +846,23 @@ impl KvPolicy for AutomaticKvPolicy {
             candidates_evaluated: candidates.len(),
         }
     }
+}
+
+/// Exact bounded proportional candidate, including extreme u64 capacities and
+/// weighted demands. The rare wide product uses binary long division; the
+/// remainder is bounded by the sum of two weighted u64 demands.
+fn proportional_units(capacity: u64, demand: u128, total: u128) -> u64 {
+    if let Some(product) = (capacity as u128).checked_mul(demand) {
+        return (product / total) as u64;
+    }
+    let mut remainder = 0_u128;
+    let mut quotient = 0_u64;
+    for bit in (0..64).rev() {
+        remainder = remainder * 2 + u128::from((capacity >> bit) & 1) * demand;
+        quotient = (quotient << 1) | (remainder / total) as u64;
+        remainder %= total;
+    }
+    quotient
 }
 
 /// The wall clock in milliseconds. It ages a share hold and nothing else: it is
@@ -784,6 +916,9 @@ pub struct KvAllocator {
 }
 
 impl KvAllocator {
+    pub(crate) fn accepts_automatic_preferences(&self) -> bool {
+        self.policy.supports_automatic_preferences()
+    }
     pub fn new(policy: Box<dyn KvPolicy>, capabilities: KvCapabilities) -> Self {
         Self { policy, capabilities: parking_lot::RwLock::new(capabilities) }
     }
@@ -880,16 +1015,16 @@ impl KvAllocator {
                     pool.leases.insert(previous.context_id.clone(), previous);
                 }
                 let available_units = capacity.saturating_sub(pool.occupied_units());
-                let plan = self.policy.plan(pool, &capabilities);
-                self.apply_plan(pool, &plan);
+                let mut plan = self.policy.plan(pool, &capabilities);
+                self.apply_plan(pool, &mut plan);
                 return Err(KvError::InsufficientCapacity {
                     required_units: incoming,
                     available_units,
                 });
             }
         }
-        let plan = self.policy.plan(pool, &capabilities);
-        self.apply_plan(pool, &plan);
+        let mut plan = self.policy.plan(pool, &capabilities);
+        self.apply_plan(pool, &mut plan);
         Ok(LeaseAdmission {
             lease: pool.leases.get(&demand.context_id).cloned()
                 .ok_or_else(|| KvError::UnknownLease(demand.context_id.clone()))?,
@@ -1050,16 +1185,33 @@ impl KvAllocator {
     /// figure here instead of staying over capacity until the next admission.
     /// A context still being read is never an eviction candidate.
     pub fn rebalance(&self, pool: &mut KvPoolState) -> Result<AllocationPlan, KvError> {
+        Ok(self.replan(pool))
+    }
+
+    /// Infallible planning on existing custody, also used by owner CAS while
+    /// holding the identity/pool locks. No backend operation is implied.
+    pub(crate) fn replan(&self, pool: &mut KvPoolState) -> AllocationPlan {
         let capabilities = self.capabilities();
-        let plan = self.policy.plan(pool, &capabilities);
-        self.apply_plan(pool, &plan);
+        let mut plan = self.policy.plan(pool, &capabilities);
+        self.apply_plan(pool, &mut plan);
         self.reclaim(pool);
-        Ok(plan)
+        plan
     }
 
     /// Write the plan into the leases: entitlement per side, borrow above the
     /// entitlement and reclaim-pending units.
-    fn apply_plan(&self, pool: &mut KvPoolState, plan: &AllocationPlan) {
+    fn apply_plan(&self, pool: &mut KvPoolState, plan: &mut AllocationPlan) {
+        let selected = &pool.allocation_preferences;
+        plan.preference_revision = (self.policy.supports_automatic_preferences()
+            && (selected.domain.is_none() || pool.allocation_preferences_applicable()))
+            .then_some(selected.revision);
+        pool.last_allocation = Some(KvAllocationDecision {
+            preference_revision: plan.preference_revision,
+            subject_units: plan.subject_units,
+            children_units: plan.children_units,
+            guarantee: plan.guarantee,
+            candidates_evaluated: plan.candidates_evaluated,
+        });
         let (Some(subject_share), Some(children_share)) = (plan.subject_units, plan.children_units)
         else {
             return;
@@ -1085,7 +1237,9 @@ impl KvAllocator {
             } else {
                 plan.guarantee
             };
-            lease.retention.used_units = if lease.state == LeaseState::Resident {
+            lease.retention.used_units = if matches!(
+                lease.state, LeaseState::Resident | LeaseState::Transferring
+            ) {
                 lease.required_units
             } else {
                 0

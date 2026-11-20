@@ -17,7 +17,10 @@ use tokio::sync::Notify;
 
 use crate::admission::AdmissionGuard;
 use crate::admission::{AdmissionController, CapacityPool, CapacityProvenance};
-use crate::kv::KvPoolState;
+use crate::kv::{
+    AllocationPreferenceError, AutomaticAllocationPreferences, KvAllocator, KvPoolState,
+    KvPreferenceState,
+};
 use crate::profile::{BackendFamily, ProviderProfile, TransportKind};
 
 /// The authoritative identity of one physical resource domain.
@@ -74,6 +77,19 @@ pub struct ExternalClientUsage {
     pub evidence: Option<String>,
 }
 
+/// One coherent owner read: accepted revision and applicability, last consumed
+/// plan, actual leases and their custody. This is KV policy only; compute
+/// selection and physical backend migration are not effects of this receipt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KvAllocationSnapshot {
+    pub domain: ResourceDomainIdentity,
+    pub accepted_domain: Option<ResourceDomainIdentity>,
+    pub revision: u64,
+    pub preferences: AutomaticAllocationPreferences,
+    pub applicable: bool,
+    pub pool: KvPoolState,
+}
+
 impl ResourceDomain {
     pub fn new(
         identity: ResourceDomainIdentity,
@@ -103,7 +119,69 @@ impl ResourceDomain {
     /// a new effective instance — but it happens only through the registry so
     /// the uniqueness check always sees the change.
     pub(crate) fn observe_incarnation(&self, incarnation: &str) {
-        self.identity.write().engine_incarnation = Some(incarnation.to_string());
+        // Same lock order as preference CAS/readback. A preference cannot
+        // cross an observed restart, even if its numeric revision is current.
+        let mut identity = self.identity.write();
+        let mut pool = self.kv.write();
+        if identity.engine_incarnation.as_deref() != Some(incarnation) {
+            pool.allocation_preferences.applicable = false;
+        }
+        identity.engine_incarnation = Some(incarnation.to_string());
+    }
+
+    /// Called only by the broker with this domain's installed allocator.
+    pub(crate) fn compare_and_apply_kv_preferences(
+        &self,
+        allocator: &KvAllocator,
+        expected_domain: &ResourceDomainIdentity,
+        expected_revision: u64,
+        preferences: AutomaticAllocationPreferences,
+    ) -> Result<KvAllocationSnapshot, AllocationPreferenceError> {
+        preferences.validate()?;
+        let identity = self.identity.read();
+        let mut pool = self.kv.write();
+        if *identity != *expected_domain || !pool.matches_allocation_domain(&identity) {
+            return Err(AllocationPreferenceError::DomainChanged);
+        }
+        if identity.engine_incarnation.is_none() {
+            return Err(AllocationPreferenceError::UnknownIncarnation);
+        }
+        if pool.allocation_preferences.revision != expected_revision {
+            return Err(AllocationPreferenceError::RevisionChanged {
+                expected: expected_revision,
+                actual: pool.allocation_preferences.revision,
+            });
+        }
+        if !allocator.accepts_automatic_preferences() {
+            return Err(AllocationPreferenceError::UnsupportedPolicy);
+        }
+        let revision = expected_revision.checked_add(1)
+            .ok_or(AllocationPreferenceError::RevisionExhausted)?;
+        pool.allocation_preferences = KvPreferenceState {
+            revision, domain: Some(identity.clone()), preferences, applicable: true,
+        };
+        allocator.replan(&mut pool);
+        Ok(Self::kv_allocation_snapshot_locked(&identity, &pool))
+    }
+
+    pub(crate) fn kv_allocation_snapshot(&self) -> KvAllocationSnapshot {
+        let identity = self.identity.read();
+        let pool = self.kv.read();
+        Self::kv_allocation_snapshot_locked(&identity, &pool)
+    }
+
+    fn kv_allocation_snapshot_locked(
+        identity: &ResourceDomainIdentity,
+        pool: &KvPoolState,
+    ) -> KvAllocationSnapshot {
+        let selected = &pool.allocation_preferences;
+        KvAllocationSnapshot {
+            domain: identity.clone(), accepted_domain: selected.domain.clone(),
+            revision: selected.revision, preferences: selected.preferences,
+            applicable: pool.allocation_preferences_applicable()
+                && selected.domain.as_ref() == Some(identity),
+            pool: pool.clone(),
+        }
     }
 
     /// Shared accounting for the broker owner. External callers admit only

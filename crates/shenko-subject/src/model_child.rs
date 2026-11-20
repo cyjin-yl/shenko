@@ -2164,7 +2164,7 @@ impl ModelChildHandler {
         let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
         let quota_send = match quota_dispatch_gate(
             &self.store,
-            &contract.provider_binding,
+            broker,
             request_id,
             &invocation.cancellation,
             &quota_strategies,

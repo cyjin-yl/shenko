@@ -306,11 +306,10 @@ impl BrokerHandle {
         self.registry.profiles()
     }
 
-    /// The provider/model pairs this broker can really run right now.
-    ///
-    /// This is the live view a routing or quota decision uses. It is decided
-    /// by what is installed and reachable, never by a catalog of model names:
-    /// a model that is not installed here simply does not appear.
+    /// Installed profile inventory, without runtime availability or reachability
+    /// checks. Profile enumeration and binding lookup are separate reads, so
+    /// replacement can also change the inventory during collection. Use
+    /// `serves_model` for fresh eligibility on this handle's exact transport.
     pub fn available_providers(&self) -> Vec<AvailableProvider> {
         self.registry
             .profiles()
@@ -331,16 +330,13 @@ impl BrokerHandle {
             .collect()
     }
 
-    /// Whether this handle can really serve one model on its own transport.
-    ///
-    /// A routing decision resolves the model before the request is sealed, so
-    /// the sealed binding is one the broker can execute. The sealed
-    /// comparison itself stays exact.
+    /// Fresh eligibility on this handle's exact installed profile and transport:
+    /// the runtime must declare the model and currently report availability.
+    /// This is not a probe or a reservation, and must not gate reconciliation
+    /// of an original request. `for_model` and `runtime_for` retain their
+    /// transport-compatible recovery semantics.
     pub fn serves_model(&self, model: &str) -> bool {
-        self.binding
-            .with_model(model)
-            .ok()
-            .is_some_and(|binding| self.registry.runtime_for(&binding).is_some())
+        self.registry.serves_model(&self.binding, model)
     }
 
     /// Restore an original armed request before admitting any new inference.
@@ -517,6 +513,26 @@ impl BrokerHandle {
     pub fn rebalance_kv(&self) -> Result<AllocationPlan, KvError> {
         let mut pool = self.domain.kv_mut();
         self.kv.rebalance(&mut pool)
+    }
+
+    /// Conditionally adopt typed KV automatic-planning preferences on this
+    /// handle's actual physical owner. Does not change compute scheduling, C,
+    /// K, running readers, reservations, or original unknown-outcome custody.
+    pub fn compare_and_apply_kv_preferences(
+        &self,
+        expected_domain: &crate::resource::ResourceDomainIdentity,
+        expected_revision: u64,
+        preferences: crate::kv::AutomaticAllocationPreferences,
+    ) -> Result<crate::resource::KvAllocationSnapshot, crate::kv::AllocationPreferenceError> {
+        self.domain.compare_and_apply_kv_preferences(
+            &self.kv, expected_domain, expected_revision, preferences,
+        )
+    }
+
+    /// Read accepted preferences and the last plan actually consumed under
+    /// the same domain/pool locks; reading never causes a planning decision.
+    pub fn kv_allocation_snapshot(&self) -> crate::resource::KvAllocationSnapshot {
+        self.domain.kv_allocation_snapshot()
     }
 
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {

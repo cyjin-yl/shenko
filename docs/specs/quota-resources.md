@@ -507,3 +507,22 @@ reader before changing accounting. Failure to resolve an original resource owner
 is an ordinary error with existing debt retained, never a panic or permission
 to release Unknown capacity. No constructor fallback or new recovery source is
 introduced by this grouping.
+
+
+## 2026-11-20：当前 quota backend 资格与本地 PMA 路径补充
+
+以上规范与历史实现状态段落按原始字节保留；其中“由封口绑定推导 backend 可用性、等待 broker 访问器”的旧状态描述由本节补充当前实现事实。本补充描述源码行为；本次 main 适配包尚未运行 native 验证，不把 composition 的既有结果记作本包通过。
+
+新请求的 gate 传入实际选定的 `BrokerHandle`，通过 `serves_model` 在同一 registry 读锁下按绑定 profile id 查当前安装，要求 runtime 声明的 model 精确相等、`available()` 为真，且 transport 身份兼容。封口模型及原有本地/云约束仍须匹配；Profile 身份比较借用字段，历史绑定沿用 runtime 的 `same_transport` 比较。该读数是安装与 runtime 自报的当前资格，不是网络探测、物理可达性证明或计算/KV 预留，也没有跨 durable admission 与派发的资格租约。无 quota policy 的路径保留原有旁路。
+
+等待后重新读取最新 policy 及同一个已选定 send 的 admitted/armed 状态。若 detached snapshot 之后另一个 entrant 已经提升同一个 send，而 durable admission 基于旧资格返回 `CapacityBlocked`，gate 在传播拒绝前再读这个 send 的原始历史，并只为新观察到的提升重新计算资格；不会换 send、撤销原始 charge/attempt/pacing/lineage 或创建第二次预算。已被识别为原始历史的真实拒绝以及未提升的新请求拒绝仍按原样返回。
+
+主体、有限模型 child 与需要推理的 PMA 共用 gate；PMA 的 `call: None` 本地策略决定不进入 quota gate，携带 `send_id: None` 走原有 native authority 与 durable decision 结算，不创建 quota send/reservation/provider attempt。原有 native authority attempt 仍须存在。这里仅说明新鲜本地执行路径；历史本地 attempt 的恢复先注册 broker inference recovery 而可能产生 unknown charge 的独立缺陷尚不由本补充修复。
+
+封口前 quota-driven 模型选择、物理 KV、provider 可达性及撤下 runtime 后完整原始 model-child 恢复仍是独立边界。本节不改 S0/request/child 格式、generation 或 CAS root 协议。
+
+### 2026-11-20：transport 的调用方选模资格更正
+
+本更正保留以上原始字节，替代上节“runtime 声明的 model 精确相等”这一过强描述。新请求资格由实际安装的 `ProviderRuntime::accepts_model(model)` 声明；默认实现仅接受配置的精确模型，本地及其他固定模型 runtime 继续使用该严格默认。Anthropic transport 显式接受调用方封口选择的模型，与既有 `validate_binding` 及实际 wire 使用封口模型的行为一致，配置模型不是远端模型白名单。后续自定义 remote runtime 通过同一 trait 声明自己的选模能力，不由 broker 枚举 backend family。
+
+同一 registry 读锁下的安装身份、精确 transport 匹配、`available()` 与 Stub 拒绝仍全部有效；封口模型及原有本地/云约束仍须匹配。本声明不引入 fallback、网络探测或远端模型可用性保证，不改变原始请求恢复语义。源码修正需由集成方运行原有 cloud-child wire/send 绑定场景及固定模型、撤下、不可用和 transport 替换对照后取得证据；本补充不声称这些检查已经通过。

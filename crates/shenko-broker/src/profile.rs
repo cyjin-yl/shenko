@@ -241,12 +241,18 @@ impl ProviderProfile {
     /// Identity comparison of two profiles. The credential fingerprint is part
     /// of it: two accounts on one endpoint are different bindings.
     pub fn matches(&self, other: &ProviderProfile) -> bool {
+        self.model_id == other.model_id && self.matches_except_model(other)
+    }
+
+    /// Identity comparison that ignores the model. One runtime serves the
+    /// models of its own transport; the sealed request still names the exact
+    /// model that goes on the wire.
+    pub fn matches_except_model(&self, other: &ProviderProfile) -> bool {
         self.profile_id == other.profile_id
             && self.revision == other.revision
             && self.backend_family == other.backend_family
             && self.transport == other.transport
             && self.endpoint_origin == other.endpoint_origin
-            && self.model_id == other.model_id
             && self.api_version == other.api_version
             && self.sdk == other.sdk
             && self.request_schema_revision == other.request_schema_revision
@@ -261,15 +267,6 @@ impl ProviderProfile {
             && self.engine_incarnation == other.engine_incarnation
             && self.default_max_tokens == other.default_max_tokens
             && self.serializer_revision == other.serializer_revision
-    }
-
-    /// Identity comparison that ignores the model. One runtime serves the
-    /// models of its own transport; the sealed request still names the exact
-    /// model that goes on the wire.
-    pub fn matches_except_model(&self, other: &ProviderProfile) -> bool {
-        let mut profile = other.clone();
-        profile.model_id = self.model_id.clone();
-        self.matches(&profile)
     }
 
     /// Structural validation performed before a profile may be sealed.
