@@ -246,6 +246,11 @@ jobs:
           cache-dependency-path: |
             crates/shenko-ui/web/pnpm-lock.yaml
             .ci/web/proto-ui/pnpm-lock.yaml
+      - name: Verify the optional DSH tool bridge with its pinned runtime
+        run: |
+          mkdir -p .ci/dsh
+          npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
+          npm test --prefix adapters/dsh 2>&1 | tee .ci/dsh/test.log
       - name: Build the real public closure, typecheck, test and independently rebuild
         run: python3 scripts/ci/web_assets.py check
       - name: Retain expected and rebuilt bytes, sources, provenance and failures
@@ -259,4 +264,5 @@ jobs:
             .ci/web/committed
             .ci/web/source/src/static
             .ci/web/source/web/generated
+            .ci/dsh/test.log
           if-no-files-found: error
