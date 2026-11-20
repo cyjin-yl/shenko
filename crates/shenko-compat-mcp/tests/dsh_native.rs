@@ -271,6 +271,13 @@ async fn dsh_tools_keep_native_receipts_across_restart_and_disable() -> Result<(
     resumed["unknown_durable"] = durable(&store, &unknown)?;
     ensure!(resumed["success_durable"] == first["success_durable"] && resumed["unknown_durable"] == first["unknown_durable"],
         "disable/reconciliation changed the retained DSH evidence");
+    let recovery_task = store.external_task(uncertain.task_id)?;
+    ensure!(matches!(&recovery_task.state, TaskState::Pending { .. })
+        && matches!(&recovery_task.dispatch_eligibility, DispatchEligibility::Parked { .. })
+        && recovery_task.memos.get(shenko_store::child::NATIVE_PARK).and_then(Value::as_str) == Some("reconciling")
+        && recovery_task.memos.get(shenko_store::child::NATIVE_RECOVERY).and_then(Value::as_bool) == Some(true),
+        "original Unknown did not remain available for reconciliation: {recovery_task:?}");
+    resumed["recovery_task_after_shutdown"] = serde_json::to_value(recovery_task)?;
     let observed_pids = pids(&root)?;
     ensure!(observed_pids.len() == 2 && observed_pids.iter().copied().all(joined)
         && witness(&root)? == "add\neffect-before-timeout\ndisposed\ndisposed\n", "shutdown left a process or replayed an effect");
