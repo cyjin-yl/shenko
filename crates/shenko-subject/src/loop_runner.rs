@@ -10,7 +10,7 @@ use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextI
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
-use shenko_kernel::hooks::{HookPayload, HookRegistry};
+use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
 use shenko_types::commit::CommitRef;
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
@@ -1500,7 +1500,7 @@ async fn execute_step(
         // The hook graph this step dispatches under is sealed together with
         // the request. An absent hook runtime is a typed refusal: an empty
         // graph would pretend that hooks ran.
-        let hook_graph_ref = seal_hook_graph(&store, seq, hook_registry.as_ref())?;
+        let hook_graph_ref = seal_hook_graph(&store, seq, hooks_ref.as_ref())?;
         // The provider selection is resolved BEFORE the seal: the request
         // states the exact account/profile/model it will use, and the
         // dispatch still compares the sealed binding with the live broker
@@ -2758,14 +2758,14 @@ fn commit_s0(
     Ok(())
 }
 
-/// Seal the exact hook graph this step dispatches under. The binding is the
-/// runtime's own sealed form, so the sealed plan and the graph that actually
-/// ran can be compared. An absent hook runtime is a typed refusal: an empty
+/// Seal the exact leased hook graph this step dispatches under. The binding
+/// comes from the captured snapshot, so a registry swap cannot change the
+/// sealed identity. An absent hook runtime is a typed refusal: an empty
 /// graph would pretend that hooks ran.
 fn seal_hook_graph(
     store: &shenko_store::store::Store,
     seq: u64,
-    hooks: Option<&Arc<HookRegistry>>,
+    hooks: Option<&HookSnapshot>,
 ) -> Result<ObjectRef, ShenkoError> {
     let hooks = hooks.ok_or_else(|| {
         ShenkoError::other(
