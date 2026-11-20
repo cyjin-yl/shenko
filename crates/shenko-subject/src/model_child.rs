@@ -2018,7 +2018,9 @@ impl ModelChildHandler {
         let Some(target) = &contract.reply_target else {
             return Ok(None);
         };
-        if reply.body.trim().is_empty() || grant.expires_at <= chrono::Utc::now() {
+        if reply.body.trim().is_empty() || grant.expires_at <= chrono::Utc::now()
+            || !grant.allowed_message_types.iter().any(|kind| kind == "text")
+        {
             return Ok(None);
         }
         Ok(Some(PublicationIntent {
@@ -3685,6 +3687,31 @@ mod grant_account_tests {
         // version, is not a grant this child can use.
         assert_eq!(cognition_grant(&[tool(READ_TOOL, TOOL_VERSION + 1)]), None);
         assert_eq!(cognition_grant(&[]), None);
+    }
+
+
+    /// Normal producer path: fixed target and current grant alone do not
+    /// authorize text when the literal grant permits only another kind.
+    #[test]
+    fn reply_intent_requires_authored_text_capability() -> anyhow::Result<()> {
+        let dir = std::env::temp_dir().join(format!("shenko-text-grant-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir)?;
+        let store = Arc::new(shenko_store::Store::open(dir.join("store.db"), dir.join("cas"))?);
+        let (_, broker) = shenko_broker::broker::Broker::offline()?;
+        let handler = ModelChildHandler::new(store, broker, cordis_core::Context::new())?;
+        for allowed in [vec![], vec!["image".to_owned()], vec!["text".to_owned()]] {
+            let mut authored = spec("qq:9", None);
+            authored.reply_grant.as_mut().unwrap().allowed_message_types = allowed.clone();
+            let frozen = contract(authored, CONTRACT_SCHEMA)?;
+            let reply = handler.reply_intent(&frozen, &ModelChildReply { body: "Original reply".into() })?;
+            assert_eq!(reply.is_some(), allowed.iter().any(|kind| kind == "text"));
+            if let Some(reply) = reply {
+                assert_eq!(reply.target, frozen.reply_target.unwrap());
+                assert_eq!(reply.content, "Original reply");
+                assert_eq!(reply.reply_grant_id, frozen.reply_grant.map(|grant| grant.grant_id));
+            }
+        }
+        Ok(())
     }
 
 }
