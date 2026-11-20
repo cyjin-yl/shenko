@@ -28,12 +28,7 @@ pub(crate) async fn start(
     config: StartConfig,
 ) -> Result<()> {
     let StartConfig { port, pause_at_start, name, channels, ssh_targets } = config;
-    if channels.napcat.napcat.is_some() {
-        anyhow::ensure!(
-            channels.napcat.napcat_account.is_some_and(|account| account > 0),
-            "NapCat persistent ingress requires --napcat-account or NAPCAT_BOT_QQ"
-        );
-    }
+    let _ = channels.napcat.configured_account()?;
     info!(
         data_dir=%data_dir.display(), port,
         name=name.as_deref().unwrap_or("(unnamed)"),

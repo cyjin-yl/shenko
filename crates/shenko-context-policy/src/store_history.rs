@@ -69,7 +69,7 @@ struct ProjectionIndex {
     calls: BTreeMap<u64, IndexedCall>,
     by_binding: HashMap<String, Vec<u64>>,
     #[cfg(test)]
-    scanned_raw: usize,
+    call_rows_scanned: usize,
 }
 
 struct IndexedCall {
@@ -238,16 +238,15 @@ impl HistorySource for StoreHistory {
             }
         }
         let mut from = index.leaf.map_or(0, |leaf| leaf.saturating_add(1));
-        // Warm recovery is paged. Steady state reads only the appended tail;
-        // ordinary historical messages never accumulate in this cache.
+        // SQLite selects call/result rows over original ancestral segments.
+        // Fixed bounds and a global row limit avoid loading ordinary bodies.
         while from <= through {
-            let to = from.saturating_add(511).min(through);
-            for event in self.store.branch_history_range(self.session_id,
-                i64::try_from(from).map_err(storage)?, i64::try_from(to).map_err(storage)?)
-                .map_err(storage)? {
+            let page = self.store.branch_history_call_page(self.session_id,
+                i64::try_from(from).map_err(storage)?, i64::try_from(through).map_err(storage)?, 512)
+                .map_err(storage)?;
+            for event in page.events {
                 #[cfg(test)]
-                { index.scanned_raw += 1; }
-                if !matches!(event.event_type.as_str(), "tool_call" | "tool_result") { continue; }
+                { index.call_rows_scanned += 1; }
                 let mut payload = serde_json::from_str::<Payload>(&event.data).unwrap_or_default();
                 let scope = event.session_id;
                 let mut item = self.item(event)?;
@@ -260,9 +259,16 @@ impl HistorySource for StoreHistory {
                 }
                 index.calls.insert(item.at.seq, IndexedCall { scope, payload, item });
             }
-            index.leaf = Some(to);
-            if to == through { break; }
-            from = to + 1;
+            match page.next_from {
+                Some(next) => {
+                    from = u64::try_from(next).map_err(storage)?;
+                    index.leaf = Some(from - 1);
+                }
+                None => {
+                    index.leaf = Some(through);
+                    break;
+                }
+            }
         }
         index.revision = Some(revision);
         Ok(index.calls.range(..=through).map(|(_, call)| call.item.clone()).collect())
@@ -1061,6 +1067,37 @@ mod projection_index_tests {
         // Typed retained-operation fixture through the public ledger writer.
         // This verifies cache invalidation, not a provider effect/admission.
         let object = store.cas.seal_object(b"{}", "application/json", "fixtures", "fixture", 1).unwrap().object;
+        use shenko_types::ids::{BranchId, ControllerEpoch, RuntimeGeneration};
+        use shenko_types::subject::{GenesisRef, SubjectBranchHead, SubjectGenesis,
+            SubjectMode, SubjectStep, SubjectStepState};
+        use shenko_types::task::TaskRecord;
+        let commit = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+        let genesis = SubjectGenesis {
+            genesis_id: EntityId::new(), subject_id: agent, bootstrap_id: EntityId::new(),
+            launch_id: EntityId::new(), seed_manifest_ref: object.clone(),
+            initial_profile_ref: object.clone(), home_manifest_ref: object.clone(),
+            bootstrap_event_ref: object.clone(), created_commit: commit,
+        };
+        let root = TaskRecord::subject_root(EntityId::new(), agent, object.clone(), commit);
+        let mut head = SubjectBranchHead {
+            branch_origin: None, agent_id: agent, branch_id: BranchId(scope.0),
+            subject_root_task_id: root.task_id, controller_epoch: ControllerEpoch(0),
+            software_generation: RuntimeGeneration("projection-index-fixture".into()),
+            genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id: genesis.genesis_id },
+            committed_step_no: 0, committed_step_id: None, committed_at: commit,
+            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            mode_reason_ref: None, record_revision: RecordRevision(0),
+        };
+        let step = SubjectStep {
+            step_id: head.next_step_id, branch_id: head.branch_id.clone(), step_no: 1,
+            expected_parent_commit: commit, controller_epoch: head.controller_epoch,
+            software_generation: head.software_generation.clone(), state: SubjectStepState::Planned,
+            input_plan_ref: None, context_revision: None, active_request_id: None,
+            active_attempt_id: None, model_result_ref: None, model_outcome_ref: None,
+            decision_ref: None, commit_ref: None, retry_reason_ref: None,
+            record_revision: RecordRevision(0), created_by_step_id: None,
+        };
+        head.committed_at = store.initialize_genesis(&genesis, &head, &step, &root).unwrap().commit_ref;
         let mut operation = OperationRecord {
             record_schema_version: 1, operation_id, record_revision: RecordRevision(0),
             task_id: EntityId::new(), logical_key: "index-fixture".into(), operation_name: "fixture".into(),
@@ -1093,14 +1130,21 @@ mod projection_index_tests {
         batch.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
             seq: 1, event_type: "user".into(), role: "user".into(), data: "long raw history ".repeat(4096) });
         store.commit(batch).unwrap();
+        let parent_scope = scope;
+        let scope = EntityId::new();
+        let fork = store.fork_subject_branch(&head, BranchId(scope.0), "projection cache ancestry").unwrap();
+        assert_eq!(fork.parent_history_leaf, Some(1));
         let cache = Arc::new(HistoryProjectionCache::default());
         let history = StoreHistory::with_cache(store.clone(), scope, Arc::new(crate::estimate_tokens), cache.clone());
         let first = history.call_items(1).unwrap();
         assert!(matches!(first[0].kind, ItemKind::ToolCall { status: CallStatus::Pending, .. }));
         assert!(first[0].text.is_empty());
-        assert_eq!(cache.inner.lock().scanned_raw, 2);
+        assert_eq!(cache.inner.lock().call_rows_scanned, 1);
+        assert_eq!(cache.inner.lock().leaf, Some(1));
+        assert_eq!(cache.inner.lock().calls[&0].scope, parent_scope,
+            "inherited metadata retains the original evidence scope");
         history.call_items(1).unwrap();
-        assert_eq!(cache.inner.lock().scanned_raw, 2, "a second projection must not reread old raw bodies");
+        assert_eq!(cache.inner.lock().call_rows_scanned, 1, "a second projection must not reread calls");
         operation.record_revision = RecordRevision(1);
         operation.state = OperationState::Resolved;
         operation.outcome = Some(OperationOutcome::Succeeded);
@@ -1110,18 +1154,39 @@ mod projection_index_tests {
         store.commit(terminal).unwrap();
         assert!(matches!(history.call_items(1).unwrap()[0].kind,
             ItemKind::ToolCall { status: CallStatus::Executed { ok: true }, .. }));
-        assert_eq!(cache.inner.lock().scanned_raw, 2, "changed execution must use the binding index");
+        assert_eq!(cache.inner.lock().call_rows_scanned, 1, "changed execution must use the binding index");
         let mut tail = WriteBatch::new();
         tail.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
             seq: 2, event_type: "user".into(), role: "user".into(), data: "new tail".into() });
+        tail.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: parent_scope,
+            seq: 2, event_type: "tool_result".into(), role: "tool".into(),
+            data: serde_json::json!({"call_id":operation_id,"operation_id":operation_id,
+                "text":"parent append outside frozen prefix"}).to_string() });
         store.commit(tail).unwrap();
-        history.call_items(2).unwrap();
-        assert_eq!(cache.inner.lock().scanned_raw, 3);
+        assert_eq!(history.call_items(2).unwrap().len(), 1,
+            "post-fork parent calls are outside the child's ancestral bounds");
+        assert_eq!(cache.inner.lock().call_rows_scanned, 1, "ordinary tail bodies never enter call pages");
+        assert_eq!(cache.inner.lock().leaf, Some(2), "an empty call page still exhausts its raw bound");
+        let mut result = WriteBatch::new();
+        result.session_event_upserts.push(RawSessionEvent { event_id: EntityId::new(), session_id: scope,
+            seq: 3, event_type: "tool_result".into(), role: "tool".into(),
+            data: serde_json::json!({"v":1,"call_id":operation_id,"operation_id":operation_id,
+                "text":"original result"}).to_string() });
+        store.commit(result).unwrap();
+        assert_eq!(history.call_items(2).unwrap().len(), 1, "fixed bound excludes the late result");
+        let calls = history.call_items(3).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(matches!(calls[1].kind, ItemKind::ToolResult { status: CallStatus::Executed { ok: true }, .. }));
+        assert_eq!(cache.inner.lock().call_rows_scanned, 2);
+        assert_eq!(history.read_range(1, 3).unwrap()[2].text, "original result");
         drop(history);
         drop(store);
         let reopened = Arc::new(Store::open(db, cas).unwrap());
         let history = StoreHistory::new(reopened, scope, Arc::new(crate::estimate_tokens));
-        assert!(matches!(history.call_items(2).unwrap()[0].kind,
+        let rebuilt = history.call_items(3).unwrap();
+        assert_eq!(rebuilt.len(), 2);
+        assert_eq!(history.cache.inner.lock().call_rows_scanned, 2);
+        assert!(matches!(rebuilt[0].kind,
             ItemKind::ToolCall { status: CallStatus::Executed { ok: true }, .. }));
         drop(history);
         let _ = std::fs::remove_dir_all(dir);

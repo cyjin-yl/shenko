@@ -73,6 +73,45 @@ pub struct SubjectBranchInput {
     pub seq: i64,
 }
 
+/// Original call/result rows in ascending semantic-history sequence order.
+/// `next_from` is an inclusive continuation within the caller's fixed upper
+/// bound. None means that bound was exhausted, including empty segments.
+#[derive(Debug)]
+pub struct BranchHistoryCallPage {
+    pub events: Vec<StoredSessionEvent>,
+    pub next_from: Option<i64>,
+}
+
+fn history_call_page_conn(conn: &Connection, branch: EntityId, from: i64, through: i64,
+    limit: usize) -> Result<BranchHistoryCallPage, ShenkoError>
+{
+    if limit == 0 {
+        return Err(ShenkoError::other("call page limit must be positive"));
+    }
+    let sql_limit = i64::try_from(limit)
+        .map_err(|_| ShenkoError::other("call page limit exceeds SQLite INTEGER"))?;
+    let mut events = Vec::new();
+    let mut query = conn.prepare_cached(&format!(
+        "SELECT {} FROM session_events WHERE session_id=?1 AND seq BETWEEN ?2 AND ?3 \
+         AND event_type IN ('tool_call', 'tool_result') ORDER BY seq LIMIT ?4",
+        crate::session_events::COLUMNS,
+    )).map_err(storage_error)?;
+    for (scope, lower, upper) in history_segments(conn, branch, from, through)? {
+        let rows = query.query_map(params![scope.to_string(), lower, upper,
+            sql_limit - events.len() as i64], crate::session_events::row).map_err(storage_error)?;
+        for row in rows {
+            events.push(crate::session_events::parse_row(row.map_err(storage_error)?)?);
+        }
+        if events.len() == limit {
+            let next_from = events.last()
+                .and_then(|event| event.seq.checked_add(1))
+                .filter(|next| *next <= through);
+            return Ok(BranchHistoryCallPage { events, next_from });
+        }
+    }
+    Ok(BranchHistoryCallPage { events, next_from: None })
+}
+
 pub(crate) fn input_links(conn: &Connection, step: EntityId)
     -> Result<Vec<SubjectBranchInput>, ShenkoError>
 {
@@ -476,6 +515,20 @@ impl Store {
         Ok(event)
     }
 
+    /// Select only original call/result rows over the frozen ancestral prefix
+    /// and this branch's suffix. The limit applies globally across segments;
+    /// payloads and original evidence scopes remain uninterpreted and intact.
+    /// Each page resolves ancestry and reads rows in one SQLite transaction.
+    pub fn branch_history_call_page(&self, branch: EntityId, from: i64, through: i64,
+        limit: usize) -> Result<BranchHistoryCallPage, ShenkoError>
+    {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction().map_err(storage_error)?;
+        let page = history_call_page_conn(&tx, branch, from, through, limit)?;
+        tx.commit().map_err(storage_error)?;
+        Ok(page)
+    }
+
     pub fn branch_history_leaf_seq(&self, branch: EntityId) -> Result<Option<i64>, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction().map_err(storage_error)?;
@@ -693,4 +746,120 @@ pub(crate) fn validate_branch_rows(rows: &[crate::cognition_archive::CognitionRo
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod call_page_tests {
+    use super::*;
+    use shenko_types::ids::{ControllerEpoch, LedgerSeq, RuntimeGeneration};
+    use shenko_types::subject::GenesisRef;
+
+    fn event(conn: &Connection, scope: EntityId, seq: i64, kind: &str, data: &str)
+        -> StoredSessionEvent
+    {
+        conn.execute("INSERT OR IGNORE INTO raw_sessions(session_id,agent_id,started_at,data)
+            VALUES (?1,?1,'','{}')", [scope.to_string()]).unwrap();
+        let event = StoredSessionEvent { event_id: EntityId::new(), session_id: scope,
+            seq, event_type: kind.into(), role: "fixture".into(), data: data.into() };
+        conn.execute("INSERT INTO session_events(event_id,session_id,seq,event_type,role,data)
+            VALUES (?1,?2,?3,?4,?5,?6)", params![event.event_id.to_string(), scope.to_string(),
+                seq, kind, event.role, data]).unwrap();
+        event
+    }
+
+    // A reader fixture, not a claim about fork admission. The stored receipt
+    // gives history_segments the same typed frozen bounds as a durable fork.
+    fn fork(conn: &Connection, parent: EntityId, child: EntityId, leaf: i64) {
+        let commit = CommitRef::new(EntityId::new(), LedgerSeq::ZERO);
+        let head = SubjectBranchHead {
+            branch_origin: None, agent_id: parent, branch_id: BranchId(parent.0),
+            subject_root_task_id: EntityId::new(), controller_epoch: ControllerEpoch(0),
+            software_generation: RuntimeGeneration("call-page-fixture".into()),
+            genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id: EntityId::new() },
+            committed_step_no: 0, committed_step_id: None, committed_at: commit,
+            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            mode_reason_ref: None, record_revision: RecordRevision(0),
+        };
+        let receipt = SubjectBranchFork {
+            schema_version: 2, agent_id: parent, branch_id: BranchId(child.0),
+            parent_head: head, parent_snapshot_id: Digest::blake3(b"reader fixture"),
+            parent_history_leaf: Some(leaf), parent_history_count: 0,
+            parent_history_digest: Digest::blake3(b"reader fixture"), parent_note_revision: None,
+            inherited_inputs: vec![], root_task_id: EntityId::new(), first_step_id: EntityId::new(),
+            created_commit: commit, reason: "bounded reader fixture".into(),
+        };
+        conn.execute("INSERT INTO subject_branch_forks
+            (branch_id,agent_id,parent_branch_id,data,created_commit_seq) VALUES (?1,?2,?2,?3,0)",
+            params![child.to_string(), parent.to_string(), serde_json::to_string(&receipt).unwrap()]).unwrap();
+    }
+
+    #[test]
+    fn call_pages_preserve_original_ancestry_bounds_order_and_global_limit() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::migrations::run_migrations(&conn).unwrap();
+        let (root, child, middle, grandchild, sibling) =
+            (EntityId::new(), EntityId::new(), EntityId::new(), EntityId::new(), EntityId::new());
+        let first = event(&conn, root, 0, "tool_call", "{\"v\":99,\"call_id\":\"same\"}");
+        let repeated = event(&conn, root, 2, "tool_result", "uninterpreted malformed payload");
+        for seq in (1..=500).filter(|seq| *seq != 2) {
+            event(&conn, root, seq, "user", &"ordinary body ".repeat(1024));
+        }
+        fork(&conn, root, child, 500);
+        let child_call = event(&conn, child, 501, "tool_call", "{\"call_id\":\"same\"}");
+        fork(&conn, child, middle, 501);
+        event(&conn, middle, 502, "assistant", "empty call segment");
+        fork(&conn, middle, grandchild, 502);
+        let result = event(&conn, grandchild, 503, "tool_result", "{\"call_id\":\"same\"}");
+        event(&conn, grandchild, 504, "user", "ordinary tail");
+        event(&conn, root, 505, "tool_call", "later parent must not leak");
+        event(&conn, child, 506, "tool_result", "later child must not leak");
+        event(&conn, middle, 507, "tool_call", "later middle must not leak");
+        fork(&conn, root, sibling, 500);
+        event(&conn, sibling, 501, "tool_result", "sibling must not leak");
+
+        let page = history_call_page_conn(&conn, grandchild, 0, 504, 3).unwrap();
+        assert_eq!(page.events, vec![first.clone(), repeated.clone(), child_call.clone()]);
+        assert_eq!(page.next_from, Some(502), "limit is global across ancestral segments");
+        let rest = history_call_page_conn(&conn, grandchild, page.next_from.unwrap(), 504, 3).unwrap();
+        assert_eq!(rest.events, vec![result.clone()], "an empty middle segment cannot stop enumeration");
+        assert_eq!(rest.next_from, None);
+        let bounded = history_call_page_conn(&conn, grandchild, 2, 502, 10).unwrap();
+        assert_eq!(bounded.events, vec![repeated, child_call]);
+        assert_eq!(bounded.next_from, None);
+        let mut from = 0;
+        let mut paged = Vec::new();
+        loop {
+            let page = history_call_page_conn(&conn, grandchild, from, 504, 1).unwrap();
+            assert!(page.events.len() <= 1);
+            paged.extend(page.events);
+            match page.next_from { Some(next) => from = next, None => break }
+        }
+        assert_eq!(paged, vec![first, bounded.events[0].clone(), bounded.events[1].clone(), result]);
+        assert!(history_call_page_conn(&conn, grandchild, 504, 504, 1).unwrap().events.is_empty());
+        assert!(history_call_page_conn(&conn, grandchild, 5, 4, 1).unwrap().events.is_empty());
+        assert!(history_call_page_conn(&conn, grandchild, 0, 504, 0).is_err());
+    }
+
+    #[test]
+    fn call_page_partial_index_supports_selective_sequence_search() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::migrations::run_migrations(&conn).unwrap();
+        let scope = EntityId::new();
+        event(&conn, scope, 0, "tool_call", "original call");
+        for seq in 1..=256 {
+            event(&conn, scope, seq, "user", "ordinary body");
+        }
+        conn.execute_batch("ANALYZE session_events;").unwrap();
+        // Only stable plan properties: the named partial index participates in
+        // a SEARCH. Do not pin SQLite's wording, node IDs or cost estimates.
+        let mut explain = conn.prepare(&format!(
+            "EXPLAIN QUERY PLAN SELECT {} FROM session_events WHERE session_id=?1 \
+             AND seq BETWEEN ?2 AND ?3 AND event_type IN ('tool_call', 'tool_result') \
+             ORDER BY seq LIMIT ?4", crate::session_events::COLUMNS)).unwrap();
+        let plan = explain.query_map(params![scope.to_string(), 0, 1000, 512],
+            |row| row.get::<_, String>(3)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert!(plan.iter().any(|detail| detail.contains("SEARCH")
+            && detail.contains("idx_session_events_calls")), "{plan:?}");
+    }
 }
