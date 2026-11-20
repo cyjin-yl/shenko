@@ -37,8 +37,9 @@ fn command(root: &Path, log_level: &str) -> Command {
 
 #[test]
 fn cli_only_napcat_zero_account_is_refused_before_store_open() -> Result<()> {
-    let root = tempfile::tempdir()?;
-    let data_dir = root.path().join("occupied-data");
+    let root = std::env::temp_dir().join(format!("shenko-start-napcat-{}", EntityId::new()));
+    fs::create_dir(&root)?;
+    let data_dir = root.join("occupied-data");
     fs::write(&data_dir, b"original file")?;
     let output = command(&data_dir, "warn")
         .args(["start", "--napcat-cli-url", "http://127.0.0.1:9", "--napcat-account", "0"])
