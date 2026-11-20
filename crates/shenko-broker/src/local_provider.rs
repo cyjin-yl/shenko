@@ -569,60 +569,60 @@ fn local_body(payload: &InferencePayload, model: &str) -> Result<serde_json::Val
     Ok(body)
 }
 
-/// Render message parts for an OpenAI-compatible surface. A text-only message
-/// keeps the plain string form; a message with an image carries ordered parts.
+/// Render message parts for an OpenAI-compatible surface. Messages without
+/// images keep the plain string form, including rich parts projected to text;
+/// messages with an image carry the same projections as ordered content parts.
 pub(crate) fn openai_content(parts: &[InferencePart]) -> Result<serde_json::Value> {
     if !parts.iter().any(InferencePart::is_image) {
-        let text = parts
-            .iter()
-            .filter_map(|part| match part {
-                InferencePart::Text { text } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect::<String>();
+        let mut text = String::new();
+        for part in parts {
+            if let Some(projected) = openai_text(part) {
+                text.push_str(&projected);
+            }
+        }
         return Ok(serde_json::Value::String(text));
     }
     let mut blocks = Vec::with_capacity(parts.len());
     for part in parts {
-        match part {
-            InferencePart::Text { text } => blocks.push(serde_json::json!({
-                "type": "text",
-                "text": text,
-            })),
-            InferencePart::Image { media_type, bytes } => {
-                validate_image_part(media_type, bytes)?;
-                let mut url = String::with_capacity(
-                    13 + media_type.len() + bytes.len().div_ceil(3) * 4,
-                );
-                url.push_str("data:");
-                url.push_str(media_type);
-                url.push_str(";base64,");
-                base64::engine::general_purpose::STANDARD.encode_string(bytes, &mut url);
-                let mut block = serde_json::json!({
-                    "type": "image_url",
-                    "image_url": {},
-                });
-                block["image_url"]["url"] = serde_json::Value::String(url);
-                blocks.push(block);
-            }
-            InferencePart::Document { source, media_type, title, .. } => {
-                blocks.push(serde_json::json!({
-                    "type": "text",
-                    "text": document_text(source, media_type.as_deref(), title.as_deref()),
-                }));
-            }
-            InferencePart::Citation { text, .. } => {
-                blocks.push(serde_json::json!({ "type": "text", "text": text }));
-            }
-            InferencePart::SearchResult { source, title, content, .. } => {
-                blocks.push(serde_json::json!({
-                    "type": "text",
-                    "text": format!("[{source}] {}\n{content}", title.as_deref().unwrap_or_default()),
-                }));
-            }
+        if let Some(text) = openai_text(part) {
+            blocks.push(serde_json::json!({ "type": "text", "text": text }));
+        } else if let InferencePart::Image { media_type, bytes } = part {
+            validate_image_part(media_type, bytes)?;
+            let mut url = String::with_capacity(
+                13 + media_type.len() + bytes.len().div_ceil(3) * 4,
+            );
+            url.push_str("data:");
+            url.push_str(media_type);
+            url.push_str(";base64,");
+            base64::engine::general_purpose::STANDARD.encode_string(bytes, &mut url);
+            let mut block = serde_json::json!({
+                "type": "image_url",
+                "image_url": {},
+            });
+            block["image_url"]["url"] = serde_json::Value::String(url);
+            blocks.push(block);
         }
     }
     Ok(serde_json::Value::Array(blocks))
+}
+
+/// One shared text projection for string and image-containing messages.
+/// Existing text is borrowed; only structured text projections allocate.
+fn openai_text(part: &InferencePart) -> Option<std::borrow::Cow<'_, str>> {
+    use std::borrow::Cow;
+
+    match part {
+        InferencePart::Text { text } | InferencePart::Citation { text, .. } => {
+            Some(Cow::Borrowed(text))
+        }
+        InferencePart::Document { source, media_type, title, .. } => Some(Cow::Owned(
+            document_text(source, media_type.as_deref(), title.as_deref()),
+        )),
+        InferencePart::SearchResult { source, title, content, .. } => Some(Cow::Owned(
+            format!("[{source}] {}\n{content}", title.as_deref().unwrap_or_default()),
+        )),
+        InferencePart::Image { .. } => None,
+    }
 }
 
 /// The plain-text projection of a document block for transports without a

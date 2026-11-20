@@ -471,4 +471,90 @@ mod tests {
             serde_json::json!({ "include_usage": true })
         );
     }
+
+    /// Rich text must survive the native selector with or without an image.
+    /// The same expected projections bind the shared local renderer and both
+    /// native request modes without contacting any backend.
+    #[test]
+    fn rich_parts_survive_with_and_without_images() {
+        use crate::request::InferencePart;
+        use serde_json::json;
+        use std::sync::Arc;
+
+        let provider = provider();
+        let mut payload = payload(BTreeMap::new());
+        let parts = vec![
+            InferencePart::text("before\n"),
+            InferencePart::Document {
+                source: "document-source".into(),
+                media_type: Some("text/plain".into()),
+                title: Some("Document title".into()),
+                citations_enabled: true,
+            },
+            InferencePart::text("\nbetween\n"),
+            InferencePart::Citation {
+                text: "citation text".into(),
+                cited_text: "cited passage".into(),
+                document_index: Some(0),
+                document_title: Some("Document title".into()),
+            },
+            InferencePart::SearchResult {
+                source: "search-source".into(),
+                title: Some("Search title".into()),
+                content: "search body".into(),
+                citations_enabled: true,
+            },
+            InferencePart::text("\nafter"),
+        ];
+        let expected_text = concat!(
+            "before\n[document text/plain] Document title (document-source)",
+            "\nbetween\ncitation text[search-source] Search title\nsearch body\nafter",
+        );
+        let expected_blocks = json!([
+            {"type": "text", "text": "before\n"},
+            {"type": "text", "text": "[document text/plain] Document title (document-source)"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AQID"}},
+            {"type": "text", "text": "\nbetween\n"},
+            {"type": "text", "text": "citation text"},
+            {"type": "text", "text": "[search-source] Search title\nsearch body"},
+            {"type": "text", "text": "\nafter"},
+        ]);
+        for with_image in [false, true] {
+            payload.messages[0].parts = parts.clone();
+            if with_image {
+                payload.messages[0].parts.insert(
+                    2,
+                    InferencePart::image("image/png", Arc::from([1u8, 2, 3])),
+                );
+            }
+            let expected = if with_image { expected_blocks.clone() } else { json!(expected_text) };
+            assert_eq!(
+                crate::local_provider::openai_content(&payload.messages[0].parts).unwrap(),
+                expected,
+            );
+            for stream in [false, true] {
+                let body = provider.body(&payload, "fixture-model", stream).unwrap();
+                assert_eq!(body["messages"][1]["content"], expected);
+                assert_eq!(body["messages"][0], json!({"role": "system", "content": "system"}));
+                assert_eq!(body["messages"][1]["role"], "user");
+            }
+        }
+        assert_eq!(crate::local_provider::openai_content(&[]).unwrap(), json!(""));
+        assert_eq!(
+            crate::local_provider::openai_content(&[
+                InferencePart::text("plain "), InferencePart::text("text\n"),
+            ]).unwrap(),
+            json!("plain text\n"),
+        );
+        for (media_type, bytes) in [("image/png", vec![]), ("text/plain", vec![1])] {
+            payload.messages[0].parts = vec![
+                InferencePart::text("before"),
+                InferencePart::image(media_type, Arc::from(bytes)),
+            ];
+            assert!(crate::local_provider::openai_content(&payload.messages[0].parts).is_err());
+            for stream in [false, true] {
+                assert!(provider.body(&payload, "fixture-model", stream).is_err());
+            }
+        }
+    }
 }
