@@ -212,7 +212,7 @@ async fn recover_interrupted_local(
     let mut execution = Box::pin(initial.execute(invocation));
     tokio::time::timeout(Duration::from_secs(10), async {
         tokio::select! {
-            result = &mut execution => anyhow::bail!("execution passed the armed interruption: {:?}", result),
+            _ = &mut execution => anyhow::bail!("execution passed the armed interruption"),
             _ = armed.notified() => Ok::<_, anyhow::Error>(()),
         }
     }).await??;
