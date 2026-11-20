@@ -12,10 +12,8 @@ use shenko_types::{ids::EntityId, operation::{OperationOutcome, OperationState}}
 use std::{fs, net::SocketAddr, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, sync::Arc, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[allow(dead_code)]
 #[path = "../../../crates/shenko-store/tests/support/canonical_native.rs"]
 mod canonical_native;
-#[allow(dead_code)]
 #[path = "../tests/support/process_runtime.rs"]
 mod process_runtime;
 
