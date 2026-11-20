@@ -256,7 +256,8 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     }
     // This guard outlives the Tokio runtime. In particular, cancellation of
     // an async task is not proof that a blocking/provider operation has ended.
-    let (owner, data_dir) = if matches!(&command, Command::Start { .. }) {
+    let (owner, data_dir) = if let Command::Start { napcat, napcat_cli_url, napcat_account, .. } = &command {
+        runtime_napcat::configured_account(napcat.is_some() || napcat_cli_url.is_some(), *napcat_account)?;
         let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
             data_dir: data_dir.clone(), ..Default::default()
         });

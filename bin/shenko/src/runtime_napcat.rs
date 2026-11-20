@@ -18,12 +18,16 @@ pub(crate) struct NapCatOptions {
 
 impl NapCatOptions {
     pub(crate) fn configured_account(&self) -> Result<Option<u64>> {
-        if self.napcat.is_none() && self.napcat_cli_url.is_none() {
-            return Ok(None);
-        }
-        self.napcat_account.filter(|account| *account > 0).map(Some)
-            .context("NapCat persistent ingress requires a positive --napcat-account or NAPCAT_BOT_QQ")
+        configured_account(self.napcat.is_some() || self.napcat_cli_url.is_some(), self.napcat_account)
     }
+}
+
+pub(crate) fn configured_account(ingress_configured: bool, account: Option<u64>) -> Result<Option<u64>> {
+    if !ingress_configured {
+        return Ok(None);
+    }
+    account.filter(|account| *account > 0).map(Some)
+        .context("NapCat persistent ingress requires a positive --napcat-account or NAPCAT_BOT_QQ")
 }
 
 /// The composed NapCat installation inputs, grouped so the installer
