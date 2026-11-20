@@ -103,9 +103,10 @@ fn history_call_page_conn(conn: &Connection, branch: EntityId, from: i64, throug
             events.push(crate::session_events::parse_row(row.map_err(storage_error)?)?);
         }
         if events.len() == limit {
-            let last = events.last().expect("positive full page").seq;
-            return Ok(BranchHistoryCallPage { next_from: last.checked_add(1)
-                .filter(|next| *next <= through), events });
+            let next_from = events.last()
+                .and_then(|event| event.seq.checked_add(1))
+                .filter(|next| *next <= through);
+            return Ok(BranchHistoryCallPage { events, next_from });
         }
     }
     Ok(BranchHistoryCallPage { events, next_from: None })
