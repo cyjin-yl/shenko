@@ -24,7 +24,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use shenko_store::config::{
-    ConfigAdoption, ConfigAttemptOwner, ConfigChange, ConfigChangeDraft, ConfigEntry, ConfigReceipt,
+    ConfigAdoption, ConfigAttemptOwner, ConfigChange, ConfigChangeAdmission, ConfigChangeDraft,
+    ConfigEntry, ConfigReceipt,
 };
 use shenko_store::store::Store;
 use shenko_types::ids::EntityId;
@@ -488,30 +489,7 @@ impl ConfigService {
             .store
             .config_change_by_origin(&request.origin_identity, &request.logical_key)?
         {
-            if self.same_desired(&existing, &request.desired)? {
-                // A reclaim of an intent whose process died must answer with
-                // the reconciled record, not with a raw `applying` row: the
-                // handler is never re-run, and an unprovable effect stays
-                // unknown.
-                let existing = match self.settle_change(&existing).map_err(|error| {
-                    ConfigError::ApplyUnsettled {
-                        change_id: existing.change_id,
-                        effect_status: EffectStatus::Unknown,
-                        detail: error.to_string(),
-                    }
-                })? {
-                    Settle::Settled { change, .. } => change,
-                    Settle::Kept { .. } => existing,
-                };
-                return Ok(ConfigApplyResult {
-                    change: existing,
-                    replayed: true,
-                });
-            }
-            return Err(ConfigError::LogicalKeyReused(format!(
-                "'{}/{}' under origin '{}' already belongs to a different desired value",
-                existing.namespace, existing.logical_key, existing.origin_identity
-            )));
+            return self.replay_apply(existing, &request.desired);
         }
         let handler = self.handler(&request.namespace)?;
         let descriptor = handler.descriptor();
@@ -564,7 +542,14 @@ impl ConfigService {
             // process is gone instead of guessing whether an effect happened.
             attempt: Some(self.attempt_owner()),
         };
-        let change = self.store.commit_config_change(&draft)?;
+        let change = match self.store.commit_config_change(&draft)? {
+            ConfigChangeAdmission::Claimed(change) => change,
+            // The pre-lookup can race another caller. Only the transaction
+            // that inserted the intent may enter the namespace's effect.
+            ConfigChangeAdmission::Existing(change) => {
+                return self.replay_apply(change, &request.desired);
+            }
+        };
         let outcome = handler.apply(&change, &request.desired);
         let (state, receipt, adopted) = match outcome {
             Ok(outcome) => {
@@ -614,6 +599,28 @@ impl ConfigService {
             change: settled,
             replayed: false,
         })
+    }
+
+    fn replay_apply(&self, existing: ConfigChange, desired: &Value) -> Result<ConfigApplyResult, ConfigError> {
+        if !self.same_desired(&existing, desired)? {
+            return Err(ConfigError::LogicalKeyReused(format!(
+                "'{}/{}' under origin '{}' already belongs to a different desired value",
+                existing.namespace, existing.logical_key, existing.origin_identity
+            )));
+        }
+        // Recovery observes the original owner and receipt. It never claims
+        // the effect again, including while that owner is still applying.
+        let existing = match self.settle_change(&existing).map_err(|error| {
+            ConfigError::ApplyUnsettled {
+                change_id: existing.change_id,
+                effect_status: EffectStatus::Unknown,
+                detail: error.to_string(),
+            }
+        })? {
+            Settle::Settled { change, .. } => change,
+            Settle::Kept { .. } => existing,
+        };
+        Ok(ConfigApplyResult { change: existing, replayed: true })
     }
 
     /// The current value a live consumer reports, or `None` when the

@@ -99,6 +99,11 @@ composition root: `bin/shenko/src/lib.rs`.
   retains `EffectStatus::Unknown` and the original operation for reconciliation,
   including interrupted or still-owned replay. Neither current-value equality
   nor reading/recovering the original origin runs the namespace apply again.
+- The Store transaction returns a distinct `Claimed` or `Existing` admission.
+  Only the caller that inserted the origin may invoke its namespace handler.
+  A concurrent same-origin caller returns the original change and its owner,
+  even if it passed the earlier lookup before that change was committed. An
+  existing or interrupted intent is never promoted into a fresh execution claim.
 - The composed `shenko.quota/policy` handler reads a complete `QuotaPolicy`
   and rejects every field the typed deserializer would ignore, including
   nested fields such as a misspelled admission interval. Default fields may
