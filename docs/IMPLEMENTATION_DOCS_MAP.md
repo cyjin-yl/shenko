@@ -112,6 +112,7 @@
   - [DSH v0 合同与 Why](specs/ecosystem-adapters.md#dsh-tool-compat-v0)；[配置、检查、导入与使用说明](../adapters/dsh/README.md)。
   - `check` 真实装载并清理插件；`profile` 仅生成静态连接资料；`serve` 拥有外部 Node 宿主。Node 是唯一安装权威，Store 是调用/未知结果的事实来源。
   - 范围限可独立执行的工具；不提供完整 DSH agent/session、LLM、UI 或 prompt/Skill 注入。模块可用性、实测插件与模型使用效果分别取证；路径与连接摘要不等于传递依赖的内容快照。
+  - [2026-11-20 桥接验证](evidence/dsh-bridge-2026-11-20.md)保留真实计算器与宿主协议记录；[2026-11-21 原生接续记录](evidence/dsh-native-2026-11-21.md)保留实际 Store/native 旅程、Unknown 原回执接续与撤回结果，范围限固定 fixture 及同一 Rust 进程内的代际关闭重开。
 
 - **Poppy 身份、账号与 UCP 商务（shenko-compat-poppy）** — 已接线，必须显式编译 `compat-poppy` 并启用 `compat.poppy`。主体接口包括 `compat.poppy.discover:1`、`compat.poppy.account:1`、`compat.poppy.request:1` 和 `compat.poppy.commerce:1`。装配根 `bin/shenko/src/poppy.rs` 及其子模块复用安装观察、native handler 和持久效果回执；协议 crate 不依赖 Store 或 Subject。
   - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)

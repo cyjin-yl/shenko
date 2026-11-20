@@ -104,6 +104,13 @@ jobs:
           export SHENKO_UPDATE_BUILD_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/update-build"
           export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
+      - name: Retain the DSH receipt as a small standalone artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-native-evidence
+          path: .ci/evidence/dsh/native-journey.json
+          if-no-files-found: ignore
       - name: Retain native fixture receipts
         if: always()
         uses: actions/upload-artifact@v4
