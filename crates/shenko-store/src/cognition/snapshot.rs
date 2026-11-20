@@ -20,7 +20,7 @@ use crate::cognition_archive::{
     CognitionGitDescriptor, CognitionManifest, CognitionObjectDescriptor, CognitionRow,
     write_manifest, write_payload,
 };
-use crate::store::Store;
+use crate::store::{Store, StorePublication};
 
 use super::admission::{
     archive_membership_gaps, is_local_control_class, local_fact_classes, memory_intent_binding_gaps,
@@ -117,10 +117,21 @@ impl Store {
     /// exist and must hash to its digest, otherwise the snapshot is
     /// incomplete and cannot be claimed recoverable.
     pub fn export_cognition(&self, options: &CognitionSnapshotOptions) -> Result<CognitionExport> {
-        self.export_cognition_under(options, None)
+        let publication = Arc::new(self.ledger.acquire_cas_publication()?);
+        self.export_cognition_owned(options, publication, None)
     }
 
+    /// The caller acquires publication before its original physical permit.
+    /// The result shares that lease until the last archive read and Drop.
     pub fn export_cognition_under(&self, options: &CognitionSnapshotOptions,
+        publication: &StorePublication,
+        permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionExport> {
+        let publication = publication.retain_cas(&self.cas)?;
+        self.export_cognition_owned(options, publication, permit)
+    }
+
+    fn export_cognition_owned(&self, options: &CognitionSnapshotOptions,
+        publication: Arc<crate::roots::CasWriteLease>,
         permit: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionExport> {
         let collected = self.collect_snapshot(options, true, permit)?;
         let fingerprint = fingerprint_of(&collected);
@@ -156,6 +167,7 @@ impl Store {
             cas: Arc::clone(&self.cas),
             files: collected.files,
             git_bundle: collected.git_bundle,
+            _publication: publication,
         })
     }
 
@@ -186,6 +198,7 @@ impl Store {
         &self,
         options: &CognitionSnapshotOptions,
     ) -> Result<(Digest, LedgerSeq)> {
+        let _publication = self.ledger.acquire_cas_publication()?;
         let collected = self.collect_snapshot(options, false, None)?;
         let fingerprint = fingerprint_of(&collected);
         let high_water = collected.high_water;

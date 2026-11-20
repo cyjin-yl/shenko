@@ -75,6 +75,9 @@ mod rows;
 mod snapshot;
 mod tasks;
 
+pub(crate) use closure::{collect_object_references, collect_references, declared_text_object_roots, is_json_reference};
+pub(crate) use rows::archive_rows;
+
 /// Local bookkeeping of the replication exchange, plus the declared recovery
 /// source facts. Bookkeeping never enters the fingerprint: recording an
 /// export or acknowledgement must not create new debt. `recovery_sources`
@@ -247,6 +250,8 @@ pub struct CognitionExport {
     files: Vec<(CognitionFileDescriptor, PathBuf)>,
     /// The memory history, as a Git bundle.
     git_bundle: Option<Vec<u8>>,
+    /// Retains the selected CAS closure through every delayed/repeated read.
+    _publication: Arc<crate::roots::CasWriteLease>,
 }
 
 
