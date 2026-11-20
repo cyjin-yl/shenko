@@ -59,12 +59,15 @@
       "acceptance_case_ids": [],
       "implementation_refs": [
         "crates/shenko-subject/src/loop_runner.rs#run_subject_loop",
-        "crates/shenko-subject/src/inbox.rs#Inbox"
+        "crates/shenko-subject/src/inbox.rs#Inbox",
+        "crates/shenko-store/src/store.rs#locally_materialized_subject"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "S0/S1状态机实现，持续主体，每步登记唯一后继",
+      "note": "S0/S1状态机实现，持续主体，每步登记唯一后继；2026-11-20 #339–#342 追加源码绑定的 receipt-scope 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-subject/src/loop_runner.rs",
@@ -189,12 +192,15 @@
       "acceptance_case_ids": [],
       "implementation_refs": [
         "crates/shenko-broker/src/broker.rs#Broker",
-        "crates/shenko-update/src/lib.rs#handoff"
+        "crates/shenko-update/src/lib.rs#handoff",
+        "crates/shenko-store/src/raw_session.rs#Store::append_update_build_observation"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "BrokerHandle submit/dispatch + shenko-update A/B 自升级/回滚状态机（runtime 接线待做）",
+      "note": "BrokerHandle submit/dispatch + shenko-update A/B 自升级/回滚状态机（已有更新装配，完整自主升级仍未验证）；2026-11-20 #339–#342 追加源码绑定的 paused-build 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-broker/src/broker.rs",
@@ -262,12 +268,16 @@
       "acceptance_case_ids": [],
       "implementation_refs": [
         "bin/shenko/src/main.rs#main",
-        "crates/shenko-store/src/store.rs#Store"
+        "crates/shenko-store/src/store.rs#Store",
+        "crates/shenko-store/src/store.rs#locally_materialized_subject",
+        "crates/shenko-store/src/cognition/reconcile.rs#apply_recovery_fact"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "§44.6 genesis atomic commit: SubjectGenesis+BranchHead+FirstStep in one TX",
+      "note": "§44.6 genesis atomic commit: SubjectGenesis+BranchHead+FirstStep in one TX；2026-11-20 #339–#342 追加源码绑定的 receipt-scope, output-archive 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "bin/shenko/src/main.rs",
@@ -946,11 +956,15 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-store/src/raw_session.rs#Store::append_update_build_observation"
+      ],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。；2026-11-20 #339–#342 追加源码绑定的 paused-build 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。"
     },
     {
       "requirement_id": "R050",
@@ -1877,11 +1891,16 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "bin/shenko/src/document.rs#install",
+        "crates/shenko-exec-host/src/document_task.rs#DocumentParseHandler::recover_main"
+      ],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。；2026-11-20 #339–#342 追加源码绑定的 installed-recovery 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。"
     },
     {
       "requirement_id": "R100",
@@ -2065,11 +2084,17 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-store/src/raw_session.rs#Store::append_update_build_observation",
+        "crates/shenko-store/src/runtime_boundary.rs#validate_paused_head",
+        "crates/shenko-store/src/store.rs#locally_materialized_subject"
+      ],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。；2026-11-20 #339–#342 追加源码绑定的 paused-build, receipt-scope 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。"
     },
     {
       "requirement_id": "R111",
@@ -2343,11 +2368,15 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-exec-host/src/document_task.rs#DocumentParseHandler::recover_main"
+      ],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。；2026-11-20 #339–#342 追加源码绑定的 installed-recovery 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。"
     },
     {
       "requirement_id": "R122",
@@ -2554,11 +2583,16 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-store/src/output_parts.rs#OutputPartCursor",
+        "crates/shenko-ui/src/ws.rs#recv_stream"
+      ],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。；2026-11-20 #339–#342 追加源码绑定的 output-replay 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。"
     },
     {
       "requirement_id": "R132",
@@ -2574,12 +2608,16 @@
       "implementation_refs": [
         "crates/shenko-subject/src/outbox.rs#committed_after",
         "crates/shenko-ui/src/ws.rs#ws_handler",
-        "bin/shenko/src/main.rs#main"
+        "bin/shenko/src/main.rs#main",
+        "crates/shenko-store/src/output_parts.rs#OutputPartCursor",
+        "crates/shenko-ui/src/ws.rs#recv_stream"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "docs/evidence/merged-components-342-20261120.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "subject outbox broadcast → UI WS 时间线；UI 输入经 inbox 回主体；前端与持久 outbox ledger 未完成",
+      "note": "subject outbox broadcast → UI WS 时间线；UI 输入经 inbox 回主体；持久 output-part 页及生产接收 helper 已有组件证据；完整浏览器与输入旅程仍未验证；2026-11-20 #339–#342 追加源码绑定的 output-replay 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-subject/src/outbox.rs",
@@ -2961,15 +2999,18 @@
         "crates/shenko-store/src/cognition.rs#CognitionSnapshotOptions",
         "crates/shenko-store/src/recovery_sources.rs#RecoverySource",
         "crates/shenko-store/src/intents.rs#CommittedIntent",
-        "bin/shenko/src/node_sync.rs#spawn_runtime"
+        "bin/shenko/src/node_sync.rs#spawn_runtime",
+        "crates/shenko-store/src/cognition/rows.rs#TABLES",
+        "crates/shenko-store/src/cognition/reconcile.rs#apply_recovery_fact"
       ],
       "evidence_refs": [
         "docs/evidence/c17-native-first-journey-20261025.json",
-        "docs/evidence/node-sync-cognition-20261026.json"
+        "docs/evidence/node-sync-cognition-20261026.json",
+        "docs/evidence/merged-components-342-20261120.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "#71 adds model-independent main-app export/import of durable cognition and recursive CAS, Git memory, original S1 receipts, declared live NapCat ingress committed WAL and verified extraction without provider activation. Unavailable-source native recovery is a bounded same-PVE observation, not encrypted disk-image resurrection, arbitrary provider-store discovery, zero loss or full A49 completion.",
+      "note": "#71 adds model-independent main-app export/import of durable cognition and recursive CAS, Git memory, original S1 receipts, declared live NapCat ingress committed WAL and verified extraction without provider activation. Unavailable-source native recovery is a bounded same-PVE observation, not encrypted disk-image resurrection, arbitrary provider-store discovery, zero loss or full A49 completion.；2026-11-20 #339–#342 追加源码绑定的 output-archive 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-node/src/lib.rs",
@@ -3340,17 +3381,19 @@
         "crates/shenko-broker/src/broker.rs#BrokerHandle::submit_stream_recorded",
         "crates/shenko-broker/src/stream.rs#ControlGate::classify_line",
         "crates/shenko-broker/src/stream.rs#is_control_line",
-        "crates/shenko-subject/src/loop_runner.rs#execute_step"
+        "crates/shenko-subject/src/loop_runner.rs#execute_step",
+        "crates/shenko-ui/src/ws.rs#recv_stream"
       ],
       "evidence_refs": [
         "shenko-broker --lib a_streamed_call_reaches_the_reader_surface_and_the_receipt_owner：1 条通过——合并后 main 375238a，容器内 cargo test --offline --locked",
-        "shenko-broker --lib：6 passed / 0 failed"
+        "shenko-broker --lib：6 passed / 0 failed",
+        "docs/evidence/merged-components-342-20261120.json"
       ],
       "blockers": [
         "RT20 缺真实 provider、主体、持久 journal、公开提交与无生产者界面的完整证据。"
       ],
       "satisfied": false,
-      "note": "源码已接入 journal、公开流与控制行过滤；RT20 既有脚本化 broker 测试只证明组件路径，真实 provider/主体至已提交公开正文及无生产者 UI 的完整运行仍未验证。",
+      "note": "源码已接入 journal、公开流与控制行过滤；RT20 既有脚本化 broker 测试只证明组件路径，真实 provider/主体至已提交公开正文及无生产者 UI 的完整运行仍未验证。；2026-11-20 #339–#342 追加源码绑定的 output-replay 组件观察及各自 protected CI 引用；见 docs/evidence/merged-components-342-20261120.json。分阶段/组合候选、原失败与后续通过分别保留，完整 canonical case 未因此通过。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-subject/src/stream_journal.rs",
