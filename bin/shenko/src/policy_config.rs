@@ -14,7 +14,7 @@ use shenko_store::{
 };
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 use shenko_ui::config_service::{
-    ConfigApplication, ConfigApplyOutcome, ConfigNamespace, ConfigNamespaceHandler,
+    ConfigApplication, ConfigApplyOutcome, ConfigApplyRefusal, ConfigNamespace, ConfigNamespaceHandler,
     builtin_contract,
 };
 
@@ -80,12 +80,13 @@ impl ConfigNamespaceHandler for QuotaNamespace {
         let mut ignored = Vec::new();
         let policy: shenko_quota::QuotaPolicy =
             serde_ignored::deserialize(desired, |path| ignored.push(path.to_string()))
-                .context("resource policy must be one complete QuotaPolicy")?;
-        ensure!(
-            ignored.is_empty(),
-            "resource policy contains unknown fields: {}",
-            ignored.join(", ")
-        );
+                .context("resource policy must be one complete QuotaPolicy")
+                .map_err(ConfigApplyRefusal::new)?;
+        if !ignored.is_empty() {
+            return Err(ConfigApplyRefusal::new(anyhow::anyhow!(
+                "resource policy contains unknown fields: {}", ignored.join(", ")
+            )).into());
+        }
         let policy_receipt = self.0.record_quota_policy(&policy, chrono::Utc::now())?;
         ensure!(
             self.0.latest_quota_policy()?.as_ref() == Some(&policy),
@@ -300,7 +301,8 @@ impl ConfigNamespaceHandler for ContextPreferenceNamespace {
     }
 
     fn apply(&self, change: &ConfigChange, desired: &Value) -> Result<ConfigApplyOutcome> {
-        let adoption = self.registry.apply_preference(parse_preference(desired)?);
+        let preference = parse_preference(desired).map_err(ConfigApplyRefusal::new)?;
+        let adoption = self.registry.apply_preference(preference);
         let observation = self.store.seal_config_object(
             &json!({
                 "schema_version": 1, "change_id": change.change_id,
