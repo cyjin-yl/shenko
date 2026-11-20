@@ -35,6 +35,22 @@ fn command(root: &Path, log_level: &str) -> Command {
     command
 }
 
+#[test]
+fn cli_only_napcat_zero_account_is_refused_before_store_open() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let data_dir = root.path().join("occupied-data");
+    fs::write(&data_dir, b"original file")?;
+    let output = command(&data_dir, "warn")
+        .args(["start", "--napcat-cli-url", "http://127.0.0.1:9", "--napcat-account", "0"])
+        .output()?;
+    ensure!(!output.status.success(), "zero NapCat account was admitted");
+    let stderr = String::from_utf8(output.stderr)?;
+    ensure!(stderr.contains("NapCat persistent ingress requires a positive --napcat-account"),
+        "startup did not refuse the account before opening the data path: {stderr}");
+    ensure!(fs::read(data_dir)? == b"original file", "startup changed the existing data path");
+    Ok(())
+}
+
 struct OwnedRuntime(Child);
 
 impl OwnedRuntime {

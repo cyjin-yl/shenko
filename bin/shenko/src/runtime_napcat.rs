@@ -16,6 +16,16 @@ pub(crate) struct NapCatOptions {
     pub(crate) napcat_cli_url: Option<String>,
 }
 
+impl NapCatOptions {
+    pub(crate) fn configured_account(&self) -> Result<Option<u64>> {
+        if self.napcat.is_none() && self.napcat_cli_url.is_none() {
+            return Ok(None);
+        }
+        self.napcat_account.filter(|account| *account > 0).map(Some)
+            .context("NapCat persistent ingress requires a positive --napcat-account or NAPCAT_BOT_QQ")
+    }
+}
+
 /// The composed NapCat installation inputs, grouped so the installer
 /// signature states its work rather than the composition root's arity.
 pub(super) struct NapCatInstall<'a> {
@@ -34,15 +44,16 @@ pub(super) async fn install(input: NapCatInstall<'_>) -> Result<Option<cordis_co
         supervisor, store, data_dir, agent_id, subject_inbox,
         channel_registry, consumer_cancel, options,
     } = input;
-    let NapCatOptions { napcat, napcat_account, napcat_access_token, napcat_admin_qq, napcat_file_root, napcat_file_host, napcat_cli_url } = options;
+    let account = options.configured_account()?;
+    let NapCatOptions { napcat, napcat_access_token, napcat_admin_qq, napcat_file_root, napcat_file_host, napcat_cli_url, .. } = options;
     // The connector-scoped definition stays owned by the composed channel services.
     let mut _native_contacts_plugin = None;
     // 5. Start NapCat if configured
-    if napcat.is_some() || napcat_cli_url.is_some() {
+    if let Some(account) = account {
         let napcat_config = shenko_channel_napcat::config::NapCatConfig {
             ws_url: napcat.clone().unwrap_or_default(),
             access_token: napcat_access_token,
-            bot_qq: napcat_account.expect("NapCat account validated before startup"),
+            bot_qq: account,
             admin_qq: napcat_admin_qq.clone(),
             file_root: napcat_file_root.clone(),
             file_host: napcat_file_host.clone(),
