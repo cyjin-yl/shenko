@@ -56,6 +56,9 @@ pub enum Command {
         target: String,
     },
     /// Start Shenko agent with UI and continuous thought loop
+    #[command(group(clap::ArgGroup::new("napcat_ingress")
+        .args(["napcat", "napcat_cli_url"])
+        .multiple(true)))]
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
@@ -72,7 +75,7 @@ pub enum Command {
         #[arg(long, env = "NAPCAT_WS_URL")]
         napcat: Option<String>,
         /// Account bound to the persistent ingress database (not an admin grant).
-        #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
+        #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat_ingress")]
         napcat_account: Option<u64>,
         /// Transport token of the NapCat endpoint. Sensitive: it is sent as
         /// an Authorization header and never appears in URLs, logs, receipts
