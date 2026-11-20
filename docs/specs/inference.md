@@ -168,6 +168,19 @@ NInfer、Strata、vLLM、1Cat-vLLM 各自有 profile 构造器（`profile::nativ
 - KV 的物理容量、保留与迁移在本次实现中没有真实后端证据；未观测即未知。
 - 四个原生后端的原生 operation 在没有对应部署探测响应时保持 `Unknown`。
 
+### 原生 operation 声明与驻留诊断
+
+探测分类保留 operation 的 `available`、`requires_configuration`、`unsupported`
+与 `unknown` 状态。肯定的名称数组、值为 `true` 的具名字段，以及具名对象中明确的
+`availability: "available"`，可表达部署声明的支持。具名字段为 `false`、`null`、
+未知结构或未知状态时保持 `Unknown`；仅出现键名不证明操作可用。相互冲突的声明
+在同一快照内归为 `Unknown`，原始探测资料完整保留，不按文档顺序选择赢家。
+
+只有明确可用的操作才进入 `KvCapabilities`。请求命名了尚未证明可用的驻留选项时，
+既有 allocator 保留该 lease 的 `affinity_gap` 与 advisory 保证。可用声明至多提供
+best-effort 保证；物理池容量、请求实际生效、原生句柄和硬保留仍需要各自的证据。
+此分类不增加传输能力，也不把 HTTP 成功转换为 KV 操作的完成回执。
+
 <a id="spec-13"></a>
 <!-- migrated-contract: SPEC:13 -->
 # 13 推理调度与 KV 池

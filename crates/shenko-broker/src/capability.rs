@@ -278,22 +278,22 @@ pub fn classify_operations(
         .iter()
         .flat_map(|family| candidate_operations(family))
     {
-        // A backend may demonstrate an operation by naming it, or by a literal
-        // field of the family it reported (for example the engine's cache
-        // configuration saying prefix caching is enabled). Both are evidence
-        // that the deployment exposed the operation; neither is evidence that a
-        // particular request took effect.
+        // A name in an affirmative list, a true flag or an explicit available
+        // declaration can show deployment support. A map key can also describe
+        // an unavailable operation, so its value must survive classification.
         let labelled = evidence.iter().find_map(|document| {
             document_enables_operation(document, name)
         });
-        let named = evidence
+        let declared = evidence
             .iter()
-            .any(|document| document_names_operation(document, name));
+            .filter_map(|document| document_operation_availability(document, name))
+            .chain(labelled.as_ref().map(|_| OperationAvailability::Available))
+            .reduce(merge_operation_availability);
         // A figure read from the engine's own configuration is an engine-level
         // fact (the deployment enabled it), not a per-request control. The
         // guarantee stays best effort either way: an enabled cache is not a
         // reservation, and no probe shows one request took effect.
-        let operation = if named || labelled.is_some() {
+        let operation = if declared == Some(OperationAvailability::Available) {
             OperationDeclaration {
                 name: name.to_string(),
                 availability: OperationAvailability::Available,
@@ -314,16 +314,27 @@ pub fn classify_operations(
         } else {
             OperationDeclaration {
                 name: name.to_string(),
-                availability: OperationAvailability::Unknown,
+                availability: declared.unwrap_or(OperationAvailability::Unknown),
                 scope: OperationScope::Request,
                 guarantee: Guarantee::Advisory,
                 native_namespace: (!namespace.is_empty()).then(|| namespace.to_string()),
                 evidence: None,
-                reason: Some(
-                    "this deployment did not declare the operation in its probe response; \
-                     an accepted request is not evidence that it took effect"
-                        .into(),
-                ),
+                reason: Some(match declared {
+                    Some(OperationAvailability::RequiresConfiguration) => {
+                        "the backend declared that this operation requires configuration"
+                    }
+                    Some(OperationAvailability::Unsupported) => {
+                        "the backend declared that this operation is unsupported"
+                    }
+                    Some(_) => {
+                        "the probe declaration is unknown, nonaffirmative or conflicting; \
+                         the raw evidence is retained and no operation support is claimed"
+                    }
+                    None => {
+                        "this deployment did not declare the operation in its probe response; \
+                         an accepted request is not evidence that it took effect"
+                    }
+                }.into()),
             }
         };
         operations.push(operation);
@@ -331,24 +342,57 @@ pub fn classify_operations(
     operations
 }
 
-/// Whether a probe document names an operation. The backend may declare its
-/// capabilities as an object key or inside an array of names; both are
-/// literal, structural evidence.
-fn document_names_operation(document: &serde_json::Value, name: &str) -> bool {
+/// Read affirmative names and operation-keyed declarations without promoting a
+/// negative value into availability. A structured declaration uses the same
+/// availability vocabulary as the capability snapshot; other shapes stay
+/// unknown. Scope and reservation guarantees are never inferred from a name.
+fn document_operation_availability(
+    document: &serde_json::Value,
+    name: &str,
+) -> Option<OperationAvailability> {
     match document {
         serde_json::Value::Object(map) => {
-            if map.contains_key(name) {
-                return true;
-            }
-            map.values().any(|value| document_names_operation(value, name))
+            let declared = map.get(name).map(|value| match value {
+                serde_json::Value::Bool(true) => OperationAvailability::Available,
+                serde_json::Value::Object(fields) => {
+                    match fields.get("availability").and_then(serde_json::Value::as_str) {
+                        Some("available") => OperationAvailability::Available,
+                        Some("requires_configuration") => OperationAvailability::RequiresConfiguration,
+                        Some("unsupported") => OperationAvailability::Unsupported,
+                        _ => OperationAvailability::Unknown,
+                    }
+                }
+                _ => OperationAvailability::Unknown,
+            });
+            map.iter()
+                .filter(|(key, _)| key.as_str() != name)
+                .filter_map(|(_, value)| document_operation_availability(value, name))
+                .chain(declared)
+                .reduce(merge_operation_availability)
         }
-        serde_json::Value::Array(items) => {
-            items.iter().any(|item| match item {
-                serde_json::Value::String(text) => text == name,
-                other => document_names_operation(other, name),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                serde_json::Value::String(text) if text == name => {
+                    Some(OperationAvailability::Available)
+                }
+                other => document_operation_availability(other, name),
             })
-        }
-        _ => false,
+            .reduce(merge_operation_availability),
+        _ => None,
+    }
+}
+
+/// Conflicting probe declarations have no authoritative winner. Unknown is
+/// sticky within one snapshot, independent of document or object-key order.
+fn merge_operation_availability(
+    left: OperationAvailability,
+    right: OperationAvailability,
+) -> OperationAvailability {
+    if left == right {
+        left
+    } else {
+        OperationAvailability::Unknown
     }
 }
 
