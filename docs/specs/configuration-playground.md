@@ -90,6 +90,15 @@ composition root: `bin/shenko/src/lib.rs`.
   `local_seq = updated_commit_seq`.
 - Optimistic base: `expected_base_revision` mismatch → `BASE_CONFIG_STALE`,
   never a silent overwrite.
+- Apply failure and effect certainty are separate. A namespace may return
+  `ConfigApplyRefusal` only when it established that no consumer effect
+  occurred; the failed desired revision then carries a `rejected` receipt.
+  Other handler errors retain a failed attempt and an unknown effect. A lost
+  settlement returns `CONFIG_APPLY_UNSETTLED` with the original change id;
+  it cannot become a refusal through storage-error text. `config.manage`
+  retains `EffectStatus::Unknown` and the original operation for reconciliation,
+  including interrupted or still-owned replay. Neither current-value equality
+  nor reading/recovering the original origin runs the namespace apply again.
 - The composed `shenko.quota/policy` handler reads a complete `QuotaPolicy`
   and rejects every field the typed deserializer would ignore, including
   nested fields such as a misspelled admission interval. Default fields may
