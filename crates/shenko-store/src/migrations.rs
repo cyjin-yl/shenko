@@ -5,6 +5,10 @@ use rusqlite::{Connection, OptionalExtension};
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Step 1 (v1): base schema, incl. the legacy `memory_entries` table.
     conn.execute_batch(SCHEMA_V1)?;
+    // Rebuildable call enumeration index; no raw fact or archive schema changes.
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_session_events_calls
+        ON session_events(session_id, seq)
+        WHERE event_type IN ('tool_call', 'tool_result');")?;
     // 加法迁移不改写已有历史；旧重复步会显式阻止迁移，不能静默选赢家。
     conn.execute_batch(
         "
