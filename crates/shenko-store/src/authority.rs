@@ -98,6 +98,9 @@ pub(crate) struct AuthorityReservation {
     /// Only unbound standalone authority keeps the physical permit here;
     /// otherwise the actual provider guard owns it before its Node lock.
     permit: Option<shenko_types::installation::InstallationPermit>,
+    /// Declared last so provider guard/physical permit retire before CAS
+    /// ownership, including action_unmaterialized in our Drop implementation.
+    _publication: crate::roots::CasWriteLease,
 }
 
 impl AuthorityRuntime {
@@ -106,6 +109,7 @@ impl AuthorityRuntime {
     }
 
     pub(crate) fn reserve(&self, ledger: &crate::ledger::Ledger) -> Result<AuthorityReservation, ShenkoError> {
+        let publication = ledger.acquire_cas_publication()?;
         let provider = self.provider.read().clone();
         let mut permit = ledger.acquire_installation(true)?;
         let guard = provider.as_ref().map(|provider| match permit.take() {
@@ -116,12 +120,14 @@ impl AuthorityRuntime {
             guard,
             provider, recorded: AtomicBool::new(false), admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false,
             permit,
+            _publication: publication,
         })
     }
 
-    pub(crate) fn prepare(&self, ledger: &crate::ledger::Ledger, admission: CommitAdmission) -> Result<AuthorityReservation, ShenkoError> {
+    pub(crate) fn prepare(&self, ledger: &crate::ledger::Ledger, admission: CommitAdmission,
+        publication: crate::roots::CasWriteLease) -> Result<AuthorityReservation, ShenkoError> {
         let Some(provider) = self.provider.read().clone() else {
-            return Ok(AuthorityReservation::unbound(ledger.acquire_installation(true)?));
+            return Ok(AuthorityReservation::unbound(ledger.acquire_installation(true)?, publication));
         };
         let grant = provider.prepare(&admission)?;
         if grant.as_ref().is_some_and(|grant| grant.admission != admission) {
@@ -138,7 +144,7 @@ impl AuthorityRuntime {
         let guard = acquired.inspect_err(|_| {
             if let Some(grant) = &grant { provider.action_unmaterialized(grant); }
         })?;
-        Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(admission), grant, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false, permit: None })
+        Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(admission), grant, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false, permit: None, _publication: publication })
     }
 }
 
@@ -152,9 +158,9 @@ impl AuthorityReservation {
         storage_failure: impl FnOnce(&E) -> bool,
     ) -> Result<T, E> {
         if self.recovery || self.grant.as_ref().is_some_and(|grant| grant.replayed) {
-            ledger.with_maintenance_mutation_under(self.installation_permit(), write, storage_failure)
+            ledger.with_maintenance_mutation_owned_under(&self._publication, self.installation_permit(), write, storage_failure)
         } else {
-            ledger.with_mutation_under(self.installation_permit(), write, storage_failure)
+            ledger.with_owned_installation_mutation(&self._publication, self.installation_permit(), true, write, storage_failure)
         }
     }
     pub(crate) fn admission(&self) -> Option<&CommitAdmission> {
@@ -182,9 +188,10 @@ impl AuthorityReservation {
     /// Capture absence without rereading the source. An adapter attached
     /// afterward must not upgrade this unordered action into a guarded one;
     /// the final transaction will reject its new durable required policy.
-    fn unbound(permit: Option<shenko_types::installation::InstallationPermit>) -> Self {
+    fn unbound(permit: Option<shenko_types::installation::InstallationPermit>,
+        publication: crate::roots::CasWriteLease) -> Self {
         Self { guard: None, provider: None, recorded: AtomicBool::new(false),
-            admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false, permit }
+            admission: None, grant: None, expected_tasks: Vec::new(), expected_steps: Vec::new(), recovery: false, permit, _publication: publication }
     }
 
     pub(crate) fn check(
@@ -356,6 +363,7 @@ impl Store {
         if provider.source_id().is_empty() {
             return Err(authority_fenced("authority source identity is empty"));
         }
+        let publication = self.ledger.acquire_cas_publication()?;
         let permit = self.ledger.acquire_installation(true)?;
         let guard = match permit {
             Some(permit) => provider.acquire_installed(None, permit)?,
@@ -365,7 +373,7 @@ impl Store {
         if installed.as_ref().is_some_and(|old| old.source_id() != provider.source_id()) {
             return Err(authority_fenced("a different authority source is already attached"));
         }
-        self.ledger.with_mutation_under(guard.installation_permit(), || {
+        self.ledger.with_owned_installation_mutation(&publication, guard.installation_permit(), true, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let source: Option<String> = tx.query_row(
@@ -402,6 +410,7 @@ impl Store {
             let current = self.reserve_authority()?;
             current.check(&self.ledger.conn.lock(), self.capabilities.incarnation, Some(head.agent_id))?;
         }
+        let publication = self.ledger.acquire_cas_publication()?;
         position.aliases.sort(); position.aliases.dedup();
         position.reads.sort(); position.reads.dedup();
         let snapshot_tasks = position.expected_tasks.iter().chain(&position.snapshot_tasks).cloned().collect::<Vec<_>>();
@@ -423,7 +432,7 @@ impl Store {
             expected_head_revision: position.bind_parent.then_some(head.record_revision),
             controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
             operation_id: position.operation_id, attempt_id: position.attempt_id, payload_ref,
-        })?;
+        }, publication)?;
         reservation.expected_tasks = position.expected_tasks;
         reservation.expected_steps = position.expected_steps;
         Ok(reservation)
@@ -436,7 +445,10 @@ impl Store {
     pub(crate) fn reserve_sealed_admission(
         &self, admission: CommitAdmission, expected_tasks: Vec<TaskRecord>, expected_steps: Vec<SubjectStep>,
     ) -> Result<AuthorityReservation, ShenkoError> {
-        let mut reservation = self.ledger.authority.prepare(&self.ledger, admission)?;
+        // Earlier external sealing must already hold its own publication
+        // owner through this transfer; this lease cannot protect a prior seal.
+        let publication = self.ledger.acquire_cas_publication()?;
+        let mut reservation = self.ledger.authority.prepare(&self.ledger, admission, publication)?;
         reservation.expected_tasks = expected_tasks;
         reservation.expected_steps = expected_steps;
         Ok(reservation)
@@ -565,6 +577,7 @@ impl Store {
         expected_tasks: Vec<TaskRecord>, expected_steps: Vec<SubjectStep>,
     ) -> Result<AuthorityReservation, ShenkoError> {
         grant.replayed = true;
+        let publication = self.ledger.acquire_cas_publication()?;
         let provider = self.ledger.authority.provider.read().clone()
             .ok_or_else(|| authority_fenced("original admission recovery requires its actual authority source"))?;
         let permit = self.ledger.acquire_installation(false)?;
@@ -576,7 +589,7 @@ impl Store {
             provider.action_unmaterialized(&grant);
         })?;
         Ok(AuthorityReservation { guard: Some(guard), provider: Some(provider), recorded: AtomicBool::new(false), admission: Some(grant.admission.clone()),
-            grant: Some(grant), expected_tasks, expected_steps, recovery: true, permit: None })
+            grant: Some(grant), expected_tasks, expected_steps, recovery: true, permit: None, _publication: publication })
     }
 
     /// Reuse the same typed closure verifier as cognition replication. Every
@@ -618,7 +631,7 @@ impl Store {
         if stamp.subject_id != expected.agent_id || stamp.branch_id != expected.branch_id {
             return Err(authority_fenced("authority does not own this actual subject branch"));
         }
-        self.ledger.with_mutation_under(reservation.installation_permit(), || {
+        self.ledger.with_owned_installation_mutation(&reservation._publication, reservation.installation_permit(), true, || {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
             let mut head = checked_head_mode(&tx, expected, false)?;

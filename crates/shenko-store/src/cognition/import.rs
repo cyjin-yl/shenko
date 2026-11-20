@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::io::Read;
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
@@ -17,7 +18,7 @@ use crate::cognition_archive::{
     CognitionFileDescriptor, CognitionFileOrigin, CognitionGap, CognitionGitDescriptor, CognitionManifest,
     CognitionRow, read_archive,
 };
-use crate::store::Store;
+use crate::store::{Store, StorePublication};
 
 use super::admission::{
     LOCAL_CONTROL_CLASSES, archive_membership_gaps, check_archive_membership,
@@ -52,6 +53,8 @@ pub struct PreparedCognitionImport {
     files: Vec<(CognitionFileDescriptor, Vec<u8>)>,
     git_history: Option<(CognitionGitDescriptor, Vec<u8>)>,
     gaps: Vec<CognitionGap>,
+    // Last field: abandon all staged values before retiring CAS ownership.
+    publication: Arc<crate::roots::CasWriteLease>,
 }
 
 impl Store {
@@ -65,13 +68,16 @@ impl Store {
         reader: R,
         options: &CognitionImportOptions,
     ) -> Result<CognitionImportOutcome> {
-        self.import_cognition_archive_under(reader, options, None)
+        let prepared = self.prepare_cognition_import(reader, options)?;
+        self.apply_prepared_cognition_import_under(prepared, None)
     }
 
+    /// Borrow the CAS owner acquired before the caller's physical exclusion.
     pub fn import_cognition_archive_under<R: Read>(&self, reader: R,
         options: &CognitionImportOptions,
+        publication: &StorePublication,
         borrowed: Option<&shenko_types::installation::InstallationPermit>) -> Result<CognitionImportOutcome> {
-        let prepared = self.prepare_cognition_import(reader, options)?;
+        let prepared = self.prepare_cognition_import_under(reader, options, publication)?;
         self.apply_prepared_cognition_import_under(prepared, borrowed)
     }
 
@@ -79,6 +85,22 @@ impl Store {
     /// permit. Publication still rechecks import order and all live conflicts.
     pub fn prepare_cognition_import<R: Read>(&self, reader: R,
         options: &CognitionImportOptions) -> Result<PreparedCognitionImport> {
+        let publication = Arc::new(self.ledger.acquire_cas_publication()?);
+        self.prepare_cognition_import_owned(reader, options, publication)
+    }
+
+    /// Keep the original enclosing owner's lease, without acquiring a new
+    /// shared lock beneath an Update/Root physical reservation.
+    pub fn prepare_cognition_import_under<R: Read>(&self, reader: R,
+        options: &CognitionImportOptions,
+        publication: &StorePublication) -> Result<PreparedCognitionImport> {
+        let publication = publication.retain_cas(&self.cas)?;
+        self.prepare_cognition_import_owned(reader, options, publication)
+    }
+
+    fn prepare_cognition_import_owned<R: Read>(&self, reader: R,
+        options: &CognitionImportOptions,
+        publication: Arc<crate::roots::CasWriteLease>) -> Result<PreparedCognitionImport> {
         let mut files: Vec<(CognitionFileDescriptor, Vec<u8>)> = Vec::new();
         let mut git_history: Option<(CognitionGitDescriptor, Vec<u8>)> = None;
         let mut manifest = {
@@ -151,7 +173,7 @@ impl Store {
         Ok(PreparedCognitionImport {
             target_incarnation: self.capabilities.incarnation,
             target_ledger: self.ledger.ledger_id(), options: options.clone(),
-            manifest, files, git_history, gaps,
+            manifest, files, git_history, gaps, publication,
         })
     }
 
@@ -162,7 +184,11 @@ impl Store {
         ensure!(prepared.target_incarnation == self.capabilities.incarnation
             && prepared.target_ledger == self.ledger.ledger_id(),
             "prepared cognition import belongs to another Store receiver");
-        let PreparedCognitionImport { options, manifest, files, git_history, gaps, .. } = prepared;
+        // Declare before all physical/import/SQL guards, and retain through
+        // their retirement on success and every error path.
+        let PreparedCognitionImport { options, manifest, files, git_history, gaps,
+            publication, .. } = prepared;
+        publication.validate_cas(self.cas.base())?;
         let peer_id = options.peer_id.unwrap_or(EntityId::nil());
         let verified_objects = manifest.objects.len();
         let fingerprint = manifest.fingerprint.clone();
@@ -216,7 +242,7 @@ impl Store {
         // All required row conflicts are decided while the IMMEDIATE ledger
         // transaction is still held, before any file or Git publication.
         let (applied, verified_files, restored_git_history) =
-            self.apply_rows(&manifest, peer_id, &files, &git_history, &options, permit)?;
+            self.apply_rows(&manifest, &files, &git_history, &options, &publication, permit)?;
         let conflicts = applied.conflicts;
 
         self.record_receipt(
@@ -228,6 +254,7 @@ impl Store {
             applied.updated,
             applied.unchanged,
             conflicts.len(),
+            &publication,
             permit,
         )?;
 
@@ -258,15 +285,17 @@ impl Store {
     /// continuing source advances instead of looking like a divergence. A row
     /// that this store changed on its own keeps the local value and is
     /// reported as a conflict.
+    /// Row and file/Git baselines use the peer bound in the import options.
     fn apply_rows(
         &self,
         manifest: &CognitionManifest,
-        peer_id: EntityId,
         files: &[(CognitionFileDescriptor, Vec<u8>)],
         git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
         options: &CognitionImportOptions,
+        publication: &crate::roots::CasWriteLease,
         permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<(CognitionApplyOutcome, usize, bool)> {
+        let peer_id = options.peer_id.unwrap_or(EntityId::nil());
         let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
             TABLES
@@ -276,8 +305,8 @@ impl Store {
         });
         // Local retirement roots must survive rollback of the imported facts.
         // Reserve and register them before the transaction can move any bytes.
-        let retirements = self.prepare_file_retirements(manifest, peer_id, options, permit)?;
-        self.ledger.with_maintenance_mutation_under(permit,
+        let retirements = self.prepare_file_retirements(manifest, peer_id, options, publication, permit)?;
+        self.ledger.with_maintenance_mutation_owned_under(publication, permit,
             || {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn

@@ -383,6 +383,18 @@ fn same_original(a: &EvidenceReceipt, b: &EvidenceReceipt) -> bool {
     a.raw_ref.digest == b.raw_ref.digest && a.raw_ref.bytes == b.raw_ref.bytes
 }
 
+/// The raw `data` of every preserved conflict, read in the caller's snapshot.
+///
+/// Refused evidence is a durable local owner even when it is outside the
+/// replication catalogue. Reading it allocates no export order or fingerprint.
+pub(crate) fn conflict_rows(conn: &rusqlite::Connection) -> AnyResult<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT data FROM evidence_receipt_conflicts ORDER BY rowid")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(rows)
+}
+
 fn differing_fields(a: &EvidenceReceipt, b: &EvidenceReceipt) -> AnyResult<Vec<String>> {
     let (left, right) = (fact(a)?, fact(b)?);
     let (Some(left), Some(right)) = (left.as_object(), right.as_object()) else {
