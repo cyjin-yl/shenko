@@ -3,6 +3,7 @@
   "documents": [
     "docs/decisions/0006-meta-perception-continuation-2026-11-11.md",
     "docs/decisions/0008-files-encounters-attachments-2026-11-19.md",
+    "docs/decisions/0009-agent-loop-tools-and-self-optimization-2026-11-20.md",
     "docs/decisions/product-rulings.md",
     "docs/governance/COMPLETION.md",
     "docs/governance/development-contract.md",
