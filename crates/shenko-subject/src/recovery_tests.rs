@@ -24,6 +24,9 @@ mod obligation_partition_tests;
 #[path = "request_recovery_tests.rs"]
 mod request_recovery_tests;
 
+#[path = "subject_attachment_tests.rs"]
+mod subject_attachment_tests;
+
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
     let dir = std::env::temp_dir().join(format!("shenko-recovery-{}", EntityId::new()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1437,7 +1440,7 @@ fn execution_commit_during_projection_is_rejected() {
     };
     let window = shenko_context_policy::CommittedWindow::genesis();
     let error = crate::context_projection::project_payload_stable(
-        &store, &window, &history, "fixture".into(), None, 10, &[],
+        &store, scope, &window, &history, "fixture".into(), None, 10, &[],
         crate::context_projection::IDLE_CONTINUATION_PROMPT,
     ).err().expect("a mutation during execution reads must invalidate the projection");
     assert!(matches!(error, ShenkoError::ResnapshotRequired { .. }));

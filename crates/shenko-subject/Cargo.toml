@@ -18,6 +18,9 @@ shenko-awareness-core = { path = "../shenko-awareness-core" }
 # The pluggable memory-intervention policy and its contribution producer.
 shenko-memory = { path = "../shenko-memory" }
 blake3 = { workspace = true }
+png = { workspace = true }
+# Hard output admission before png's internal IDAT drain; already locked.
+flate2 = "1.1"
 # The frozen step input carries inference parts with shared image bytes.
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
@@ -37,6 +40,8 @@ futures = { workspace = true }
 # so the lock file keeps one HTTP stack.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 [dev-dependencies]
+base64 = { workspace = true }
+crc32fast = "1"
 shenko-kernel = { path = "../shenko-kernel" }
 shenko-compact-budget = { path = "../shenko-compact-budget" }
 shenko-channel-napcat = { path = "../shenko-channel-napcat" }
