@@ -143,7 +143,6 @@ pub struct SealedGenerationBinding {
 
 impl SealedGenerationBinding {
     /// A role that is an installed process unit.
-    #[allow(clippy::too_many_arguments)]
     pub fn prepared_unit(
         role: PreparedRole,
         unit: SealedUnitIdentity,

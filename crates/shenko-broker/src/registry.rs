@@ -207,17 +207,17 @@ impl ProviderRegistry {
         if incoming.is_none() {
             return Err(PreparedSourceAttachError::NoGenerationPublished);
         }
-        if let Some(attached) = prepared.as_ref() {
-            if !Arc::ptr_eq(attached, &source) {
-                let attached_ref = attached.generation_ref();
-                if attached_ref == incoming {
-                    return Err(PreparedSourceAttachError::AlreadyAttached);
-                }
-                return Err(PreparedSourceAttachError::DifferentGeneration {
-                    attached: attached_ref,
-                    incoming,
-                });
+        if let Some(attached) = prepared.as_ref()
+            && !Arc::ptr_eq(attached, &source)
+        {
+            let attached_ref = attached.generation_ref();
+            if attached_ref == incoming {
+                return Err(PreparedSourceAttachError::AlreadyAttached);
             }
+            return Err(PreparedSourceAttachError::DifferentGeneration {
+                attached: attached_ref,
+                incoming,
+            });
         }
         Ok(PreparedProviderAttachment {
             prepared,
@@ -277,15 +277,14 @@ impl ProviderRegistry {
     /// The runtime of one profile id.
     pub fn get(&self, profile_id: &str) -> Option<Arc<dyn ProviderRuntime>> {
         let prepared = self.prepared.read().as_ref().map(Arc::clone);
-        if let Some(source) = prepared {
-            if let Some(binding) = source
+        if let Some(source) = prepared
+            && let Some(binding) = source
                 .current_bindings()
                 .into_iter()
                 .find(|binding| binding.profile_id() == profile_id)
-            {
-                return source.runtime_for(&binding)
-                    .filter(|runtime| runtime.binding().same_transport(&binding));
-            }
+        {
+            return source.runtime_for(&binding)
+                .filter(|runtime| runtime.binding().same_transport(&binding));
         }
         self.entries
             .read()
@@ -330,12 +329,11 @@ impl ProviderRegistry {
         // served by the exact generation it was sealed against; the compiled
         // entries below cannot match it because the binding comparison includes
         // that prepared identity.
-        if let Some(source) = self.prepared.read().as_ref() {
-            if let Some(runtime) = source.runtime_for(binding) {
-                if runtime.binding().same_transport(binding) {
-                    return Some(runtime);
-                }
-            }
+        if let Some(source) = self.prepared.read().as_ref()
+            && let Some(runtime) = source.runtime_for(binding)
+            && runtime.binding().same_transport(binding)
+        {
+            return Some(runtime);
         }
         if binding.prepared().is_some() {
             return None;
@@ -361,17 +359,16 @@ impl ProviderRegistry {
     /// or a model refused by its runtime, and never gates original-request reconciliation.
     pub(crate) fn serves_model(&self, binding: &ProviderBinding, model: &str) -> bool {
         let prepared = self.prepared.read();
-        if let Some(source) = prepared.as_ref() {
-            if let Some(current) = source.current_bindings().into_iter()
+        if let Some(source) = prepared.as_ref()
+            && let Some(current) = source.current_bindings().into_iter()
                 .find(|current| current.profile_id() == binding.profile_id())
-            {
-                if !current.same_transport(binding) {
-                    return false;
-                }
-                return source.runtime_for(&current).is_some_and(|runtime|
-                    runtime.accepts_model(model) && runtime.available()
-                        && runtime.binding().same_transport(&current));
+        {
+            if !current.same_transport(binding) {
+                return false;
             }
+            return source.runtime_for(&current).is_some_and(|runtime|
+                runtime.accepts_model(model) && runtime.available()
+                    && runtime.binding().same_transport(&current));
         }
         if binding.prepared().is_some() {
             return false;
@@ -471,6 +468,54 @@ impl Plugin for ProviderRegistryHost {
     }
 }
 
+/// Installs one provider runtime for the lifetime of this Fiber generation.
+///
+/// A restart or an update installs a new epoch; the previous installation is
+/// removed by its own cleanup, so a late dispose cannot uninstall the
+/// successor.
+pub struct ProviderInstaller {
+    runtime: Arc<dyn ProviderRuntime>,
+}
+
+impl ProviderInstaller {
+    pub fn new(runtime: Arc<dyn ProviderRuntime>) -> Self {
+        Self { runtime }
+    }
+}
+
+impl Plugin for ProviderInstaller {
+    type Config = Arc<dyn ProviderRuntime>;
+    type Input = Arc<dyn ProviderRuntime>;
+    type PrepareError = std::io::Error;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed("provider-installer")
+    }
+
+    fn inject(&self) -> InjectSpec {
+        InjectSpec::none().require(ProviderRegistry::NAME)
+    }
+
+    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        config.profile().validate().map_err(std::io::Error::other)?;
+        Ok(config)
+    }
+
+    async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
+        let registry = ctx
+            .try_service::<ProviderRegistry>()
+            .map_err(std::io::Error::other)?;
+        let profile_id = input.profile().profile_id.clone();
+        let epoch = registry.install(Arc::clone(input));
+        ctx.effect_sync(move || {
+            registry.uninstall(&profile_id, epoch);
+        })
+        .map_err(std::io::Error::other)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -497,16 +542,16 @@ mod tests {
         }
         fn available(&self) -> bool { self.available }
         async fn complete(&self, _: &InferenceRequest) -> Result<InferenceResponse> {
-            anyhow::bail!("fixture provider runtime has no wire")
+            Err(anyhow::anyhow!("fixture provider runtime has no wire"))
         }
         async fn stream(&self, _: &InferenceRequest, _: &BoundedStreamPublisher) -> Result<StreamOutcome> {
-            anyhow::bail!("fixture provider runtime has no wire")
+            Err(anyhow::anyhow!("fixture provider runtime has no wire"))
         }
         async fn count_tokens(&self, _: &InferenceRequest) -> Result<TokenCount> {
-            anyhow::bail!("fixture provider runtime has no wire")
+            Err(anyhow::anyhow!("fixture provider runtime has no wire"))
         }
         async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
-            anyhow::bail!("fixture provider runtime has no wire")
+            Err(anyhow::anyhow!("fixture provider runtime has no wire"))
         }
     }
 
@@ -657,53 +702,5 @@ mod tests {
         assert_eq!(selected.prepared(), original.prepared());
         assert!(selected.same_transport(&original));
         assert_eq!(selected.model(), "selected-model");
-    }
-}
-
-/// Installs one provider runtime for the lifetime of this Fiber generation.
-///
-/// A restart or an update installs a new epoch; the previous installation is
-/// removed by its own cleanup, so a late dispose cannot uninstall the
-/// successor.
-pub struct ProviderInstaller {
-    runtime: Arc<dyn ProviderRuntime>,
-}
-
-impl ProviderInstaller {
-    pub fn new(runtime: Arc<dyn ProviderRuntime>) -> Self {
-        Self { runtime }
-    }
-}
-
-impl Plugin for ProviderInstaller {
-    type Config = Arc<dyn ProviderRuntime>;
-    type Input = Arc<dyn ProviderRuntime>;
-    type PrepareError = std::io::Error;
-    type ApplyError = std::io::Error;
-
-    fn name(&self) -> Cow<'_, str> {
-        Cow::Borrowed("provider-installer")
-    }
-
-    fn inject(&self) -> InjectSpec {
-        InjectSpec::none().require(ProviderRegistry::NAME)
-    }
-
-    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
-        config.profile().validate().map_err(std::io::Error::other)?;
-        Ok(config)
-    }
-
-    async fn apply(&self, ctx: Context, input: &Self::Input) -> Result<(), Self::ApplyError> {
-        let registry = ctx
-            .try_service::<ProviderRegistry>()
-            .map_err(std::io::Error::other)?;
-        let profile_id = input.profile().profile_id.clone();
-        let epoch = registry.install(Arc::clone(input));
-        ctx.effect_sync(move || {
-            registry.uninstall(&profile_id, epoch);
-        })
-        .map_err(std::io::Error::other)?;
-        Ok(())
     }
 }
