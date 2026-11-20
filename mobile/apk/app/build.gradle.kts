@@ -7,7 +7,8 @@ plugins {
 
 android {
     namespace = "org.shenko.node"
-    compileSdk = 35
+    // Required by the pinned Dhizuku-API 2.7.0; min/target SDK stay independent.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.shenko.node"
