@@ -657,19 +657,10 @@ code.row-sub, code.row-title { font-size: 12px; }
 
 @media (max-width: 719px) {
   .shell { grid-template-rows: 50px minmax(0, 1fr); }
-  .body { padding-bottom: calc(49px + env(safe-area-inset-bottom)); }
+  .body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .topbar { grid-template-columns: minmax(0, 1fr) auto; padding: 0 6px 0 14px; }
   .topbar-actions .sk-toggle, .topbar-actions [data-pui-style~="shenko-status-chip"] { display: none; }
-  .lensbar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; justify-self: stretch;
-    padding: 4px 8px calc(2px + env(safe-area-inset-bottom)); border-top: 0.5px solid var(--line);
-    background: color-mix(in oklch, var(--canvas) 82%, transparent);
-    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
-  }
-  .lens-switch { display: flex; width: 100%; justify-content: space-between; }
-  .lensbar > * { width: 100%; }
-  .lens-item { flex: 1; justify-content: center; height: 44px; flex-direction: column; gap: 2px; font-size: 10px; font-weight: 500; }
-  .lens { bottom: calc(49px + env(safe-area-inset-bottom)); }
+  .lens { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .timeline-column { padding: 16px 14px 28px; }
   .entries { padding-left: 22px; }
   .entries::before { left: 5px; }
@@ -698,6 +689,9 @@ code.row-sub, code.row-title { font-size: 12px; }
 .tabs { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .lensbar { flex: 1 1 0; display: flex; justify-content: flex-end; justify-self: auto; }
 .topbar-actions { flex: none; }
+/* Phone tab bar and its 更多 sheet; laid out in the narrow-screen block below. */
+:root { --tabbar-h: 50px; }
+.tabbar { display: none; }
 .tab-switch {
   display: inline-flex; gap: 2px; padding: 3px;
   border-radius: 9px; background: var(--sunken); border: 0; box-shadow: none;
@@ -993,7 +987,7 @@ code.row-sub, code.row-title { font-size: 12px; }
   .im-row { --avatar-ring: var(--canvas); }
   .shell:has(.im[data-pane="thread"]) { grid-template-rows: minmax(0, 1fr); }
   .shell:has(.im[data-pane="thread"]) .topbar,
-  .shell:has(.im[data-pane="thread"]) .lensbar { display: none; }
+  .shell:has(.im[data-pane="thread"]) .tabbar { display: none; }
   .shell:has(.im[data-pane="thread"]) .body { padding-bottom: 0; }
   .im-head {
     display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; justify-items: center; align-items: center;
@@ -1012,12 +1006,39 @@ code.row-sub, code.row-title { font-size: 12px; }
   .im-head-title { font-size: 12px; font-weight: 500; }
   .im-head-sub { display: none; }
   .im-thread { grid-template-rows: auto minmax(0, 1fr) auto; }
-  /* The lens bar is the tab bar: icon over a short label, the open one in
-     the accent colour rather than a filled pill. */
-  .lens-label { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip: auto; }
-  .lens-switch { background: transparent; border: 0; box-shadow: none; padding: 0; gap: 0; }
-  .lens-item { padding: 0; color: var(--muted); }
-  .lens-item[data-active] { color: var(--im-blue); background: transparent; box-shadow: none; }
+  /* One tab bar of real destinations: icon over a short label, the current
+     one in the accent colour. The top tabs and the lens bar step aside; every
+     lens is reached from 更多, which stays current while one is open. */
+  .tabs, .lensbar { display: none; }
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    display: flex; height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    padding: 2px 8px env(safe-area-inset-bottom); border-top: 0.5px solid var(--line);
+    background: color-mix(in oklch, var(--canvas) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .tabbar-item {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    appearance: none; border: 0; background: transparent; padding: 0; color: var(--muted);
+    font: inherit; font-size: 10.5px; font-weight: 500; line-height: 1;
+  }
+  .tabbar-item[aria-current] { color: var(--im-blue); }
+  .tabbar-item:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; border-radius: 8px; }
+  .more-sheet {
+    border-left: 0; border-top: 1px solid var(--line); border-radius: 14px 14px 0 0;
+    max-height: 75dvh; padding-bottom: env(safe-area-inset-bottom);
+  }
+  .more-list { list-style: none; margin: 0; padding: 4px 8px 12px; overflow-y: auto; }
+  .more-item {
+    width: 100%; min-height: 50px; display: flex; align-items: center; gap: 14px; padding: 0 12px;
+    appearance: none; border: 0; border-radius: 10px; background: transparent;
+    color: var(--ink); font: inherit; font-size: 15px; text-align: left;
+  }
+  .more-item:active { background: var(--hover); }
+  .more-item[aria-current] { color: var(--im-blue); }
+  .more-item:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+  .more-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .more-item > svg:last-child { color: var(--faint); }
   .im-messages { padding: 10px 12px 14px; }
   .im-line { max-width: 82%; }
   .composer-im { padding: 4px 8px 8px; }
