@@ -29,6 +29,7 @@ use shenko_store::config::{
 use shenko_store::store::Store;
 use shenko_types::ids::EntityId;
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionedRef};
+use shenko_types::operation::EffectStatus;
 
 use crate::playground::stable_id;
 
@@ -81,6 +82,18 @@ pub struct ConfigApplyOutcome {
     pub detail: String,
 }
 
+/// Positive evidence that this invocation refused the namespace effect before
+/// changing its consumer. Other handler errors do not establish no effect.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:#}")]
+pub struct ConfigApplyRefusal(anyhow::Error);
+
+impl ConfigApplyRefusal {
+    pub fn new(error: anyhow::Error) -> Self {
+        Self(error)
+    }
+}
+
 /// The runtime contract of one namespace. Plugins implement it; the service
 /// owns the durable facts.
 pub trait ConfigNamespaceHandler: Send + Sync {
@@ -93,7 +106,9 @@ pub trait ConfigNamespaceHandler: Send + Sync {
     fn consumers(&self) -> Vec<String>;
 
     /// Apply the desired value. The handler owns the real effect; the
-    /// service records what it observed.
+    /// service records what it observed. Return `ConfigApplyRefusal` only when
+    /// no consumer effect occurred. An arbitrary error can follow a mutation
+    /// and leaves that effect unknown, even though the attempt failed.
     fn apply(&self, change: &ConfigChange, desired: &Value) -> Result<ConfigApplyOutcome>;
 }
 
@@ -198,6 +213,21 @@ pub struct ConfigApplyResult {
     pub replayed: bool,
 }
 
+impl ConfigApplyResult {
+    /// Interpret durable evidence, including replay. A legacy failed receipt
+    /// does not prove that its handler left the consumer untouched.
+    pub fn effect_status(&self) -> EffectStatus {
+        match (
+            self.change.state.as_str(),
+            self.change.receipt.as_ref().map(|receipt| receipt.outcome.as_str()),
+        ) {
+            ("applied", Some("applied")) => EffectStatus::Complete,
+            ("failed", Some("rejected")) => EffectStatus::None,
+            _ => EffectStatus::Unknown,
+        }
+    }
+}
+
 /// What happened to one committed-but-unsettled configuration change when the
 /// service looked at it — (CFG02).
 ///
@@ -245,6 +275,12 @@ pub enum ConfigError {
     Denied(String),
     #[error("CONFIG_INTERNAL: {0}")]
     Internal(String),
+    #[error("CONFIG_APPLY_UNSETTLED: change {change_id}: {detail}")]
+    ApplyUnsettled {
+        change_id: EntityId,
+        effect_status: EffectStatus,
+        detail: String,
+    },
 }
 
 impl ConfigError {
@@ -257,6 +293,21 @@ impl ConfigError {
             Self::LogicalKeyReused(_) => "CONFIG_LOGICAL_KEY_REUSED",
             Self::Denied(_) => "CONFIG_DENIED",
             Self::Internal(_) => "CONFIG_INTERNAL",
+            Self::ApplyUnsettled { .. } => "CONFIG_APPLY_UNSETTLED",
+        }
+    }
+
+    /// Only established refusals prove no namespace effect. An internal
+    /// failure may have lost the original apply or its settlement evidence.
+    pub fn apply_effect_status(&self) -> EffectStatus {
+        match self {
+            Self::UnknownNamespace(_)
+            | Self::UnknownKey(_)
+            | Self::BaseConfigStale(_)
+            | Self::LogicalKeyReused(_)
+            | Self::Denied(_) => EffectStatus::None,
+            Self::ApplyUnsettled { effect_status: EffectStatus::None, .. } => EffectStatus::None,
+            Self::Internal(_) | Self::ApplyUnsettled { .. } => EffectStatus::Unknown,
         }
     }
 }
@@ -442,7 +493,13 @@ impl ConfigService {
                 // the reconciled record, not with a raw `applying` row: the
                 // handler is never re-run, and an unprovable effect stays
                 // unknown.
-                let existing = match self.settle_change(&existing)? {
+                let existing = match self.settle_change(&existing).map_err(|error| {
+                    ConfigError::ApplyUnsettled {
+                        change_id: existing.change_id,
+                        effect_status: EffectStatus::Unknown,
+                        detail: error.to_string(),
+                    }
+                })? {
                     Settle::Settled { change, .. } => change,
                     Settle::Kept { .. } => existing,
                 };
@@ -523,11 +580,16 @@ impl ConfigService {
             }
             Err(error) => {
                 // The desired value stays saved and unadopted. The failure is
-                // a fact about the attempt, not a silent rollback.
+                // a fact about the attempt, not proof the consumer is unchanged.
+                // Only an explicit refusal can establish no namespace effect.
                 let receipt = ConfigReceipt {
                     receipt_id: EntityId::new(),
                     change_id: change.change_id,
-                    outcome: "failed".into(),
+                    outcome: if error.is::<ConfigApplyRefusal>() {
+                        "rejected"
+                    } else {
+                        "failed"
+                    }.into(),
                     detail: format!("{error:#}"),
                     observation_refs: Vec::new(),
                     recorded_at: change.updated_commit,
@@ -535,8 +597,21 @@ impl ConfigService {
                 ("failed", receipt, Vec::new())
             }
         };
+        let effect_status = if receipt.outcome == "rejected" {
+            EffectStatus::None
+        } else {
+            EffectStatus::Unknown
+        };
+        // The handler has returned, so a failed durable settlement cannot be
+        // converted back into a pre-effect refusal by a storage error's text.
+        let settled = self.store.finish_config_change(change.change_id, state, receipt, adopted)
+            .map_err(|error| ConfigError::ApplyUnsettled {
+                change_id: change.change_id,
+                effect_status,
+                detail: error.to_string(),
+            })?;
         Ok(ConfigApplyResult {
-            change: self.store.finish_config_change(change.change_id, state, receipt, adopted)?,
+            change: settled,
             replayed: false,
         })
     }
