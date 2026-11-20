@@ -3636,6 +3636,126 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     Ok(())
 }
 
+/// Native capture still owns complete table witnesses for semantic reads.
+/// A trigger's point read therefore makes this whole table a dependency;
+/// unlike S1's streamed ranges, native capture must refuse its oversized set.
+#[cfg(feature = "test-support")]
+#[test]
+fn canonical_native_t2_refuses_oversized_touched_readset_before_publication() -> Result<()> {
+    use shenko_store::test_support::with_sqlite_work_observation;
+    use shenko_types::{evidence::*, ids::EntityId, operation::*};
+
+    // Separate fresh production consumers: one with unrelated large history,
+    // one with exactly the same bytes read by its real task-update trigger.
+    // Neither case changes the 128 MiB capture or 64 MiB image budgets.
+    for touched in [false, true] {
+        let fixture = NativeT2Fixture::new(false)?;
+        let store = &fixture.store;
+        let claim = &fixture.parent;
+        let (ctx, mut operation, mut attempt) = draft_dispatch_operation(
+            store, &claim.invocation, "touched-readset-effect", claim.operation_id)?;
+        assert!(store.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?.is_none());
+        let effect_path = fixture.dir.join("effect.log");
+        std::fs::write(&effect_path, b"one original effect\n")?;
+        let effect = std::fs::read(&effect_path)?;
+        let raw = store.cas.seal_object(&effect, "text/plain", "native-readset", "text", 1)?.object;
+        let receipt_id = EntityId::new();
+        let receipt = EvidenceReceipt {
+            record_schema_version: 1, receipt_id, operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id), source_id: "native-readset".into(),
+            source_instance_id: "original-executor".into(),
+            source_event_key: Some(format!("ended:{}", attempt.attempt_id)),
+            producer_epoch: Some(attempt.epoch.0), producer_schema_version: Some("1".into()),
+            raw_ref: raw.clone(), decoder_ref: Some(attempt.implementation_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level: Some(ObservationLevel::PostconditionVerified), normalized_ref: None,
+            observed_at: Some(chrono::Utc::now()), received_commit: attempt.armed_commit,
+        };
+        let operation = store.record_external_evidence(operation.operation_id, attempt.attempt_id,
+            receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+        let original_e1 = store.external_evidence(receipt_id)?;
+        let original_task = store.external_task(claim.task.task_id)?;
+        let original_attempt = store.external_attempt(attempt.attempt_id)?;
+        let conn = rusqlite::Connection::open(fixture.dir.join("head.db"))?;
+        // Multiple rows distinguish the trigger's single keyed read from the
+        // complete postimage scan that runs out of the real capture budget.
+        conn.execute_batch("CREATE TABLE native_capacity_readset(id INTEGER PRIMARY KEY,payload BLOB);
+            WITH RECURSIVE n(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM n WHERE id<129)
+                INSERT INTO native_capacity_readset SELECT id,zeroblob(1024*1024) FROM n;")?;
+        if touched {
+            conn.execute_batch("CREATE TRIGGER native_capacity_read AFTER UPDATE ON tasks BEGIN
+                SELECT length(payload) FROM native_capacity_readset WHERE id=1; END;")?;
+        }
+        let before = store.current_commit_seq()?;
+        let grants = serde_json::to_value(&fixture.state.lock().grants)?;
+        let snapshot = || -> Result<Vec<(String, i64)>> {
+            ["commit_log", "control_prepared_transitions", "control_materializations",
+                "operations", "attempts", "evidence_receipts", "native_evidence_materializations",
+                "task_results", "inbox_events"].into_iter().map(|table| {
+                    Ok((table.to_owned(), conn.query_row(&format!("SELECT count(*) FROM {table}"), [],
+                        |row| row.get(0))?))
+                }).collect()
+        };
+        let rows_before = snapshot()?;
+        let started = std::time::Instant::now();
+        let (completion, work) = with_sqlite_work_observation(store,
+            || store.complete_native_task(claim, &operation));
+        let elapsed = started.elapsed();
+        let scans = work.iter().filter(|statement|
+            statement.sql == "SELECT \"id\",\"payload\" FROM \"native_capacity_readset\"")
+            .collect::<Vec<_>>();
+        if touched {
+            let error = completion.expect_err("a native full read witness must exhaust the production budget");
+            assert!(error.to_string().contains("capture budget exceeded: row capture exceeds 128 MiB memory budget"), "{error:#}");
+            assert_eq!(scans.len(), 1, "refuse during the first complete postimage; no preimage scan");
+            let scan = scans[0];
+            assert!(scan.rows > 1 && scan.rows < 129, "a real prefix of the complete table was visited: {scan:?}");
+            assert!(i64::from(scan.fullscan_steps) >= scan.rows as i64 - 1, "{scan:?}");
+            assert!(scan.vm_steps > 0);
+            assert_eq!(store.current_commit_seq()?, before);
+            assert_eq!(snapshot()?, rows_before, "no preparation, grant receipt, result or inbox publication");
+            assert_eq!(serde_json::to_value(&fixture.state.lock().grants)?, grants);
+            assert_eq!(serde_json::to_value(store.external_task(claim.task.task_id)?)?, serde_json::to_value(&original_task)?);
+            assert!(store.native_task_result(claim.task.task_id)?.is_none());
+        } else {
+            let result = completion?.context("unrelated history allows ordinary T2")?;
+            assert_eq!(result.receipt_id, receipt_id);
+            assert!(scans.is_empty(), "unrelated history has no capture scan");
+            assert!(store.control_admission_applied_here(&fixture.chosen()?.admission)?);
+        }
+        assert_eq!(store.external_evidence(receipt_id)?, original_e1);
+        assert_eq!(serde_json::to_value(store.external_operation(operation.operation_id)?)?, serde_json::to_value(&operation)?);
+        assert_eq!(serde_json::to_value(store.external_attempt(attempt.attempt_id)?)?, serde_json::to_value(&original_attempt)?);
+        assert_eq!(store.cas.read_object(&raw.digest)?, effect);
+        assert_eq!(std::fs::read(&effect_path)?, effect);
+        assert_eq!(conn.query_row("SELECT count(*) FROM native_capacity_readset
+            WHERE length(payload)=1024*1024 AND payload=zeroblob(1024*1024)", [],
+            |row| row.get::<_, i64>(0))?, 129);
+        // Emit actual SQL, delivered rows, fullscan/VM steps and durations.
+        // No latency threshold is added: the outer native observer supplies
+        // its normal deadline, and zero-ns SQLite samples remain honest zeros.
+        eprintln!("native_touched_readset_work {}", serde_json::json!({
+            "touched": touched, "consumer": "Store::complete_native_task",
+            "task_id": claim.task.task_id, "operation_id": operation.operation_id,
+            "attempt_id": attempt.attempt_id, "receipt_id": receipt_id,
+            "history_rows": 129, "payload_bytes_per_row": 1024*1024,
+            "history_bytes": 129*1024*1024, "capture_budget_bytes": 128*1024*1024,
+            "image_budget_bytes": 64*1024*1024, "elapsed_nanoseconds": elapsed.as_nanos(),
+            "readset_scan": scans, "writer_statements": work,
+        }));
+        // Reopen must retain the same original E1 and, for the refused case,
+        // no prepared T2 to recover. This is readback, not a second consumer.
+        let reopened = fixture.reopen()?;
+        assert_eq!(reopened.external_evidence(receipt_id)?, original_e1);
+        if touched {
+            assert_eq!(reopened.current_commit_seq()?, before);
+            assert_eq!(serde_json::to_value(reopened.external_task(claim.task.task_id)?)?, serde_json::to_value(original_task)?);
+            assert!(reopened.native_task_result(claim.task.task_id)?.is_none());
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn canonical_native_arming_keeps_original_intent_without_reissuing_execution() -> Result<()> {
     use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::AlreadyCommitted}, cognition::CognitionImportOptions};

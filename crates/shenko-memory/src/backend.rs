@@ -264,14 +264,16 @@ impl StoreMemoryBackend {
         self
     }
 
-    fn knowledge_sync(&self, entry: &MemoryEntry) {
-        let Some(git) = &self.git else { return };
-        if let Err(error) = git.sync_entry(entry) {
+    fn knowledge_sync(&self, entry: &MemoryEntry) -> bool {
+        let Some(git) = &self.git else { return true };
+        if let Err(error) = git.sync_projected_entry(&self.store, entry) {
             // The Git knowledge repo is explainable text, not the truth of
             // record: a sync failure is logged, never fails the durable
             // commit and never fabricates a Git ref.
             tracing::warn!(error = %error, entry_id = %entry.entry_id, "memory knowledge sync failed");
+            return false;
         }
+        true
     }
 
     /// The durable reason of a conflicted admission replay, if any.
@@ -421,7 +423,7 @@ impl MemoryBackend for StoreMemoryBackend {
         for id in pending {
             match self.worker.process_intent(id) {
                 Ok(ProcessOutcome::Committed(entry)) => {
-                    self.knowledge_sync(&entry);
+                    if !self.knowledge_sync(&entry) { outcome.failed += 1; }
                     outcome.committed += 1;
                 }
                 Ok(ProcessOutcome::Conflicted { .. }) => outcome.conflicts += 1,
@@ -457,11 +459,7 @@ impl MemoryBackend for StoreMemoryBackend {
             .len()
             .saturating_sub(live);
         let git = match &self.git {
-            Some(git) => git.health().unwrap_or(GitHealth {
-                repository: None,
-                head: None,
-                commits: 0,
-            }),
+            Some(git) => git.health()?,
             None => GitHealth { repository: None, head: None, commits: 0 },
         };
         Ok(MemoryHealth {

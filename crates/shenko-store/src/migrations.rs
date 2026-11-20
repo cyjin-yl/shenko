@@ -5,6 +5,10 @@ use rusqlite::{Connection, OptionalExtension};
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Step 1 (v1): base schema, incl. the legacy `memory_entries` table.
     conn.execute_batch(SCHEMA_V1)?;
+    // Rebuildable call enumeration index; no raw fact or archive schema changes.
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_session_events_calls
+        ON session_events(session_id, seq)
+        WHERE event_type IN ('tool_call', 'tool_result');")?;
     // 加法迁移不改写已有历史；旧重复步会显式阻止迁移，不能静默选赢家。
     conn.execute_batch(
         "
@@ -91,6 +95,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // migration reads subject_intents.
     ensure_memory_knowledge_columns(conn)?;
     ensure_memory_intent_envelope(conn)?;
+    crate::memory_git_ack::ensure_memory_git_ack_schema(conn)?;
     conn.execute_batch(crate::child::SCHEMA)?;
     conn.execute_batch(crate::runtime_boundary::SCHEMA)?;
     // Semantic waits (R143): additive, own tables only. The wait

@@ -30,6 +30,7 @@ pub use local_installation::{
 pub mod cas;
 pub mod ledger;
 pub mod memory;
+pub mod memory_git_ack;
 pub mod research;
 pub mod identity;
 pub mod session_events;
