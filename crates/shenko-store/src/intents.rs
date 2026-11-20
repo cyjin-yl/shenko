@@ -1278,11 +1278,10 @@ fn deliver_child_dialogue(
                 .into(),
         ));
     }
-    let mut inbox: Vec<DialogueDelivery> = target
-        .memos
-        .get(DIALOGUE_INBOX)
-        .and_then(|value| serde_json::from_value(value.clone()).ok())
-        .unwrap_or_default();
+    let mut inbox: Vec<DialogueDelivery> = match target.memos.remove(DIALOGUE_INBOX) {
+        Some(value) => serde_json::from_value(value)?,
+        None => Vec::new(),
+    };
     if inbox
         .iter()
         .any(|delivery| delivery.intent_id == intent.intent_id)
