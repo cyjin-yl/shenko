@@ -1581,6 +1581,214 @@ async fn reconcile_refuses_to_revive_a_fenced_retired_writer() {
     fixture.cleanup();
 }
 
+/// A prepared slot predates a real S1 successor. Final paused catch-up must
+/// retain its source creation metadata while allocating local control commits,
+/// otherwise the genuine archive refuses the row the boundary copy just made.
+#[test]
+#[cfg(unix)]
+fn paused_catchup_preserves_source_creation_times_for_a_later_successor() {
+    use rusqlite::{params, types::Value, Connection};
+    use shenko_types::subject::{StepDecision, SubjectModelOutcome};
+
+    // Compare every archived column, including the JSON bytes, while keeping
+    // the physical receiver commit coordinate out of the source fact identity.
+    fn archived_row(conn: &Connection, sql: &str, key: EntityId) -> Vec<(String, Value)> {
+        let mut statement = conn.prepare(sql).unwrap();
+        let columns: Vec<_> = statement.column_names().iter().map(|name| name.to_string()).collect();
+        statement.query_row([key.to_string()], |row| {
+            columns.iter().enumerate().filter(|(_, name)| name.as_str() != "updated_commit_seq")
+                .map(|(index, name)| Ok((name.clone(), row.get::<_, Value>(index)?)))
+                .collect()
+        }).unwrap()
+    }
+
+    let fixture = installation();
+    let source_db = fixture.live_slot.join(SLOT_DB_FILENAME);
+    let (head, mut step) = fixture.store.load_subject(fixture.agent_id).unwrap();
+    let scope = EntityId(head.branch_id.0);
+    let profile = Digest::blake3(b"paused-successor-creation-profile");
+    // Use the owning canonical_native fixture's real policy-backed window
+    // chain and persist the model/profile binding through StoreWindowLog.
+    let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
+        shenko_context_policy::StoreWindowLog::new(fixture.store.clone(), scope),
+    ));
+    ledger.rebind_model(1, &profile.0).unwrap();
+    let window = ledger.current().unwrap();
+    let live = AbSlot {
+        generation: fixture.generation.clone(), slot_dir: fixture.live_slot.clone(),
+        db_path: source_db.clone(), cas_dir: fixture.data_dir.join("cas"),
+        artifact_path: None, artifact_digest: None, is_active: true,
+    };
+    let target = RuntimeGeneration::new("creation-time-candidate");
+    let slot = slots::copy_slot(
+        &live, &SlotLayout::new(fixture.data_dir.clone()), &target,
+    ).unwrap();
+    // The ordinary prepare path opens the published copy and imports once
+    // before the source advances, establishing genuine source row baselines.
+    drop(Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap());
+    let initial = migration::import_delta(&source_db, &slot.db_path, &fixture.data_dir.join("cas")).unwrap();
+    assert!(initial.blocked_units.is_empty(), "initial typed import refused: {:?}", initial.blocked_units);
+    assert_eq!(initial.uncovered_source_commits, 0);
+    assert!(Path::new(initial.archive_path.as_deref().unwrap()).is_file());
+
+    // Drive the ordinary Store transitions through a real committed S1. The
+    // sealed result is fixture evidence; this regression makes no model claim.
+    let staged = fixture.store.stage_subject_inputs(&head, &step, &[]).unwrap();
+    let input_raw_event_ids: Vec<_> = staged.iter().map(|record| record.event_id).collect();
+    let events: Vec<_> = staged.iter().map(|record| {
+        let data: serde_json::Value = serde_json::from_str(&record.data).unwrap();
+        data["inbox_event"].clone()
+    }).collect();
+    let plan = serde_json::json!({
+        "schema_version": 12, "step_id": step.step_id, "step_no": step.step_no,
+        "events": events, "reconciliation_docket": [], "semantic_wait": null,
+        "identity": null, "identity_provider_revision": "shenko.identity/default@1",
+        "provider_binding": null,
+        "provider_selection": {"schema_version": 1, "binding": null, "model": null,
+            "profile_id": null, "profile_revision": null, "credential_fingerprint": null,
+            "resource_domain_id": null, "serializer_revision": null},
+        "request_id": "00000000-0000-0000-0000-000000000000",
+        "context": {
+            "source": { "scope_id": scope,
+                "source_commit_seq": fixture.store.current_commit_seq().unwrap(),
+                "leaf_seq": fixture.store.session_leaf_seq(scope).unwrap(),
+                "input_raw_event_ids": input_raw_event_ids, "window_id": window.id,
+                "window_generation": window.generation, "model_generation": 1 },
+            "profile_digest": profile,
+            "estimated_input_tokens": null, "budget_input_tokens": null,
+            "trigger_budget_input_tokens": null,
+            "budget_provenance": "Store fixture without measured current input",
+            "reserved_output_tokens": 4096, "unfinished_call_ids": [],
+            "capabilities": null, "observed_input_tokens": null,
+            "token_counter": "heuristic:cjk-1-other-4@1; not a provider tokenizer",
+            "policy_contract": shenko_context_policy::CONTRACT_VERSION,
+            "selection": {"outcome": "unavailable", "reason": "store_fixture_without_model_capabilities"}
+        },
+        "payload": {"system_prompt": "paused successor metadata fixture", "messages": [],
+            "max_tokens": 4096, "tools": []}
+    });
+    step.input_plan_ref = Some(fixture.store.cas.seal_object(
+        &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans", "subject_step_input", 12,
+    ).unwrap().object);
+    step.state = SubjectStepState::Preparing;
+    step.record_revision = RecordRevision(1);
+    fixture.store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
+    step.state = SubjectStepState::AwaitingModel;
+    step.record_revision = RecordRevision(2);
+    step.active_request_id = Some(EntityId::new());
+    fixture.store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+    let raw = fixture.store.cas.seal_object(
+        b"fixture result", "text/plain", "test", "raw", 1,
+    ).unwrap().object;
+    step.model_result_ref = Some(raw.clone());
+    step.model_outcome_ref = Some(seal(&fixture.store, &serde_json::to_value(SubjectModelOutcome {
+        schema_version: 2, request_id: step.active_request_id.unwrap(), result_ref: raw.clone(),
+        stop_reason: "end_turn".into(), raw_response: "fixture result".into(), usage: None,
+    }).unwrap()));
+    step.state = SubjectStepState::ResultRecorded;
+    step.record_revision = RecordRevision(3);
+    fixture.store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+    let successor = EntityId::new();
+    let decision = StepDecision {
+        schema_version: 8,
+        output: shenko_types::output::ParsedOutput {
+            schema_version: 5, step_id: step.step_id, raw_ref: raw,
+            text: "fixture result".into(), controls: vec![],
+        },
+        identity_intent: None, step_id: step.step_id,
+        input_plan_ref: step.input_plan_ref.clone().unwrap(), model_result_ref: step.model_result_ref.clone(),
+        applied_steering_refs: vec![], event_dispositions: vec![], delegated_task_intents: vec![],
+        child_dialogue_intents: vec![], memory_intents: vec![], policy_intents: vec![],
+        publication_intents: vec![], pending_obligations: vec![], attention_policy: None,
+        evidence_refs: vec![], unknown_acknowledgements: vec![], successor_step_id: successor,
+    };
+    step.decision_ref = Some(seal(&fixture.store, &serde_json::to_value(decision).unwrap()));
+    step.state = SubjectStepState::Committed;
+    step.record_revision = RecordRevision(4);
+    fixture.store.commit_step_and_advance_head(&step, &head, successor).unwrap();
+    let request_id = EntityId::new();
+    fixture.store.request_subject_quiesce(fixture.agent_id, request_id).unwrap();
+    let (advanced, _) = fixture.store.load_subject(fixture.agent_id).unwrap();
+    let paused = fixture.store.pause_subject_at_boundary(&advanced).unwrap().unwrap();
+    assert_eq!(paused.next_step_id, successor);
+    assert_eq!(paused.committed_step_id, Some(step.step_id));
+
+    // Exact source metadata makes this independent of SQLite's one-second
+    // wall clock resolution. No production row or archive bytes are rewritten.
+    let source = Connection::open(&source_db).unwrap();
+    assert_eq!(source.execute(
+        "UPDATE subject_branch_heads SET created_at='2001-02-03 04:05:06' WHERE agent_id=?1",
+        [fixture.agent_id.to_string()],
+    ).unwrap(), 1);
+    assert_eq!(source.execute(
+        "UPDATE subject_steps SET created_at='2002-03-04 05:06:07' WHERE step_id=?1 AND branch_id=?2",
+        params![successor.to_string(), paused.branch_id.0.to_string()],
+    ).unwrap(), 1);
+    let source_head = archived_row(&source, "SELECT * FROM subject_branch_heads WHERE agent_id=?1", fixture.agent_id);
+    let source_step = archived_row(&source, "SELECT * FROM subject_steps WHERE step_id=?1", successor);
+    let source_boundary = fixture.store.subject_quiesce(request_id).unwrap().unwrap();
+    let source_selector = fixture.store.activation_selector(fixture.agent_id).unwrap();
+
+    let copied = slots::open_slot_db(&slot).unwrap();
+    let absent: i64 = copied.query_row("SELECT count(*) FROM subject_steps WHERE step_id=?1",
+        [successor.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(absent, 0, "the prepared copy must genuinely predate the successor");
+    let old_created: String = copied.query_row("SELECT created_at FROM subject_branch_heads WHERE agent_id=?1",
+        [fixture.agent_id.to_string()], |row| row.get(0)).unwrap();
+    assert_ne!(old_created, "2001-02-03 04:05:06");
+    drop(copied);
+    let receiver = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap();
+    assert_ne!(receiver.ledger.ledger_id(), fixture.store.ledger.ledger_id());
+    let before_copy = receiver.current_commit_seq().unwrap();
+    receiver.copy_paused_activation_boundary(&fixture.store, fixture.agent_id).unwrap();
+    let local_boundary = receiver.subject_quiesce(request_id).unwrap().unwrap();
+    let requested_at = local_boundary.requested_at;
+    let boundary_at = local_boundary.boundary_at.unwrap();
+    assert_eq!(requested_at.ledger_id, receiver.ledger.ledger_id());
+    assert_eq!(boundary_at.ledger_id, receiver.ledger.ledger_id());
+    assert_eq!(requested_at.seq.0, before_copy + 1);
+    assert_eq!(boundary_at.seq.0, requested_at.seq.0 + 1);
+    assert_ne!(boundary_at, source_boundary.boundary_at.unwrap());
+    assert_ne!(boundary_at.seq, source_boundary.boundary_at.unwrap().seq);
+    assert_eq!(receiver.activation_selector(fixture.agent_id).unwrap(), source_selector);
+    let copied = slots::open_slot_db(&slot).unwrap();
+    assert_eq!(archived_row(&copied, "SELECT * FROM subject_branch_heads WHERE agent_id=?1", fixture.agent_id), source_head);
+    assert_eq!(archived_row(&copied, "SELECT * FROM subject_steps WHERE step_id=?1", successor), source_step);
+    for (table, key, id) in [("subject_branch_heads", "agent_id", fixture.agent_id), ("subject_steps", "step_id", successor)] {
+        let seq: i64 = copied.query_row(&format!("SELECT updated_commit_seq FROM {table} WHERE {key}=?1"),
+            [id.to_string()], |row| row.get(0)).unwrap();
+        assert_eq!(seq as u64, boundary_at.seq.0);
+    }
+    for commit in [requested_at, boundary_at] {
+        let exists: i64 = copied.query_row("SELECT count(*) FROM commit_log WHERE ledger_id=?1 AND seq=?2",
+            params![commit.ledger_id.to_string(), commit.seq.0 as i64], |row| row.get(0)).unwrap();
+        assert_eq!(exists, 1, "the receiver owns both physical control commits");
+    }
+    assert_eq!(receiver.load_subject(fixture.agent_id).unwrap().0.mode, SubjectMode::Paused);
+    drop(copied);
+
+    // Use the production archive writer/consumer, including its divergence
+    // guards, rather than constructing or modifying an archive in the test.
+    let report = migration::import_delta(&source_db, &slot.db_path, &fixture.data_dir.join("cas")).unwrap();
+    assert!(report.blocked_units.is_empty(), "typed import refused: {:?}", report.blocked_units);
+    assert_eq!(report.uncovered_source_commits, 0);
+    assert!(report.rows_written() > 0, "the older committed S1 must really be imported");
+    assert!(Path::new(report.archive_path.as_deref().unwrap()).is_file());
+    let copied = slots::open_slot_db(&slot).unwrap();
+    assert_eq!(archived_row(&copied, "SELECT * FROM subject_branch_heads WHERE agent_id=?1", fixture.agent_id), source_head);
+    assert_eq!(archived_row(&copied, "SELECT * FROM subject_steps WHERE step_id=?1", successor), source_step);
+    let committed = receiver.get_step(&head.branch_id, step.step_id).unwrap().unwrap();
+    assert_eq!(committed.state, SubjectStepState::Committed);
+    assert_eq!(committed.commit_ref.unwrap().ledger_id, fixture.store.ledger.ledger_id());
+    assert_eq!(archived_row(&source, "SELECT * FROM subject_steps WHERE step_id=?1", successor), source_step);
+    assert_eq!(fixture.store.activation_selector(fixture.agent_id).unwrap(), source_selector);
+    drop(copied);
+    drop(source);
+    drop(receiver);
+    drop(ledger);
+    fixture.cleanup();
+}
+
 /// The forward hand-over really commits: real slot copy with its own ledger
 /// writer identity, real typed catch-up of the paused boundary, the selector
 /// CAS with a strictly larger epoch, a clean successor for the new controller,

@@ -37,5 +37,8 @@ windows-sys = { version = "=0.61.2", features = [
     "Win32_System_Threading",
 ] }
 
+[dev-dependencies]
+shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
