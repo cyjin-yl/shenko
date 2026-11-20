@@ -2930,7 +2930,7 @@ fn canonical_s1_conflicting_readset_and_partial_sql_fault_never_publish_a_receip
 
 /// One real S1 sequence with the installed authority fixture: unrelated large
 /// history and large complete read ranges permit a bounded canonical result;
-/// an oversized actual delta retains the decision without weaker admission.
+/// oversized actual deltas use the separate original-plan capacity consumers.
 /// The row-engine journey separately verifies rollback and observer failures.
 #[test]
 fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() -> Result<()> {
@@ -3014,36 +3014,122 @@ fn canonical_s1_capacity_is_local_to_captured_rows_and_retains_the_decision() ->
         assert_eq!(applied["transition_ref"], serde_json::to_value(reference)?);
         assert!(source.control_admission_applied_here(&grant.admission)?);
     }
-    // A changed 12 MiB NUL text cell really does exceed the serialized-delta
-    // cap. It stays an unchosen original decision, not a generic admission.
-    conn.execute_batch("CREATE TRIGGER capacity_write AFTER UPDATE ON subject_branch_heads BEGIN
-        UPDATE capacity_extension SET payload=payload||char(0) WHERE id=1; END;")?;
+    Ok(())
+}
+
+// Production limits, real trigger writes, original authority and ordinary
+// receipts. A lost choose reply is an admission failure, never S1 success;
+// recovery must use that same chosen original plan without canonical retry.
+fn s1_capacity_original_plan_commits(retained_rows: bool, lose_reply: bool) -> Result<()> {
+    use shenko_store::ControlRecoveryOutcome;
+    use shenko_types::{ids::EntityId, subject::SubjectStepState};
+    let installation = tempfile::tempdir()?;
+    let dir = installation.path();
+    let source = Arc::new(Store::open(dir.join("head.db"), dir.join("cas"))?);
+    let agent = initialize_subject_in_with_route(&source, b"S1 two capacity limits", None)?;
+    let chosen = canonical_source(&source, agent, lose_reply)?;
+    let conn = rusqlite::Connection::open(dir.join("head.db"))?;
+    conn.execute_batch("CREATE TABLE capacity_delta(id INTEGER PRIMARY KEY,payload);")?;
+    let bytes = if retained_rows { 129 * 1024 * 1024i64 } else { 12 * 1024 * 1024i64 };
+    if retained_rows {
+        // One retained preimage exceeds 128 MiB before JSON is considered.
+        conn.execute("INSERT INTO capacity_delta VALUES(1,zeroblob(?1))", [bytes])?;
+        conn.execute_batch("CREATE TRIGGER capacity_write AFTER UPDATE ON subject_branch_heads BEGIN
+            UPDATE capacity_delta SET payload=substr(payload,1,length(payload)-1) WHERE id=1; END;")?;
+    } else {
+        // Both 12 MiB NUL text images fit retained memory, but escaping each
+        // NUL as six JSON bytes independently exceeds the 64 MiB image cap.
+        conn.execute("INSERT INTO capacity_delta VALUES(1,CAST(zeroblob(?1) AS TEXT))", [bytes])?;
+        conn.execute_batch("CREATE TRIGGER capacity_write AFTER UPDATE ON subject_branch_heads BEGIN
+            UPDATE capacity_delta SET payload=payload||char(0) WHERE id=1; END;")?;
+    }
     let (head, planned) = source.load_subject(agent)?;
     let result = recorded_result(&source, &head, planned)?;
     let next = EntityId::new();
-    let step = committed_candidate(&source, result, next);
-    let decision = step.decision_ref.as_ref().context("original capacity-refused decision")?;
+    let step = committed_candidate(&source, result.clone(), next);
+    let decision = step.decision_ref.as_ref().context("original decision")?;
     let original_decision = source.cas.read_object(&decision.digest)?;
-    let prior_grant = chosen.lock().clone().context("prior committed grant")?;
-    let before_length: i64 = conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_extension", [], |row| row.get(0))?;
-    let error = source.commit_step_and_advance_head(&step, &head, next).unwrap_err();
-    assert!(error.to_string().contains("64 MiB admission budget"), "{error}");
-    assert_eq!(chosen.lock().as_ref().map(|grant| &grant.grant_id), Some(&prior_grant.grant_id),
-        "capacity cannot create an alternate ordinary grant");
-    assert_eq!(source.cas.read_object(&decision.digest)?, original_decision);
-    assert_eq!(source.load_subject(agent)?.0.committed_at, head.committed_at);
-    assert!(source.get_step(&head.branch_id, next)?.is_none());
-    assert_eq!(conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_extension", [], |row| row.get::<_, i64>(0))?, before_length);
+    let before_seq = source.current_commit_seq()?;
+    let receipt = source.commit_step_and_advance_head(&step, &head, next);
+    let grant = chosen.lock().clone().context("ordinary original-plan admission was actually ordered")?;
+    let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&grant.admission.payload_ref.digest)?)?;
+    assert!(envelope["action"].get("transition_ref").is_none(), "not a canonical transition");
+    assert_eq!(envelope["action"]["step"], serde_json::to_value(&step)?);
+    assert_eq!(envelope["action"]["expected_head"], serde_json::to_value(&head)?);
+    assert_eq!(envelope["action"]["next_step_id"], serde_json::to_value(next)?);
+    assert_eq!(conn.query_row("SELECT count(*) FROM control_prepared_transitions", [], |row| row.get::<_, i64>(0))?, 0,
+        "capacity rollback must leave no durable canonical preparation");
     let reports = source.session_events_range(EntityId(head.branch_id.0), 0, i64::MAX)?
         .into_iter().filter(|event| event.event_type == "runtime_error")
         .map(|event| serde_json::from_str::<serde_json::Value>(&event.data))
         .collect::<serde_json::Result<Vec<_>>>()?.into_iter()
         .filter(|event| event["kind"] == "store_capture_budget").collect::<Vec<_>>();
     assert_eq!(reports.len(), 1);
-    assert!(reports[0]["message"].as_str().context("capacity fact")?.contains("no weaker admission was attempted"));
+    let message = reports[0]["message"].as_str().context("precise capacity diagnostic")?;
+    assert!(message.contains(if retained_rows { "128 MiB" } else { "64 MiB admission budget" }), "{message}");
+    assert!(message.contains("admission and COMMIT are not yet confirmed"), "{message}");
+    let committed = if lose_reply {
+        let error = receipt.unwrap_err();
+        assert!(error.to_string().contains("fixture lost chosen reply"), "{error}");
+        assert_eq!(serde_json::to_value(source.load_subject(agent)?.0)?, serde_json::to_value(&head)?);
+        assert_eq!(serde_json::to_value(source.get_step(&head.branch_id, step.step_id)?)?, serde_json::to_value(Some(&result))?);
+        assert!(source.get_step(&head.branch_id, next)?.is_none());
+        assert_eq!(conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_delta", [], |row| row.get::<_, i64>(0))?, bytes);
+        assert!(!source.control_admission_applied_here(&grant.admission)?);
+        let objects = source.admission_objects(&grant.admission.payload_ref)?;
+        assert_eq!(source.recover_control_admission(&grant, &objects, true)?, ControlRecoveryOutcome::RecoveredOriginal);
+        source.load_subject(agent)?.0.committed_at
+    } else {
+        receipt?.commit_ref
+    };
+    assert!(committed.seq.0 > before_seq);
+    assert_eq!(source.cas.read_object(&decision.digest)?, original_decision);
+    let mut expected = step.clone();
+    expected.commit_ref = Some(committed);
+    assert_eq!(serde_json::to_value(source.get_step(&head.branch_id, step.step_id)?)?, serde_json::to_value(Some(expected))?);
+    let (advanced, successor) = source.load_subject(agent)?;
+    assert_eq!(advanced.committed_at, committed);
+    assert_eq!(advanced.committed_step_id, Some(step.step_id));
+    assert_eq!(advanced.next_step_id, next);
+    assert_eq!(successor.step_id, next);
+    assert_eq!(successor.created_by_step_id, Some(step.step_id));
+    assert_eq!(successor.state, SubjectStepState::Planned);
+    assert_eq!(conn.query_row("SELECT count(*) FROM subject_steps WHERE json_extract(data,'$.created_by_step_id')=?1",
+        [step.step_id.to_string()], |row| row.get::<_, i64>(0))?, 1);
+    let applied: serde_json::Value = serde_json::from_str(&conn.query_row(
+        "SELECT data FROM control_materializations WHERE action_id=?1", [grant.admission.action_id.to_string()],
+        |row| row.get::<_, String>(0))?)?;
+    assert_eq!(applied["admission"], serde_json::to_value(&grant.admission)?);
+    assert_eq!(applied["committed_at"], serde_json::to_value(committed)?);
+    assert!(applied.get("transition_ref").is_none());
+    assert_eq!(conn.query_row("SELECT count(*) FROM commit_log WHERE ledger_id=?1 AND seq=?2",
+        rusqlite::params![committed.ledger_id.to_string(), committed.seq.0 as i64], |row| row.get::<_, i64>(0))?, 1);
+    assert!(source.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(conn.query_row("SELECT length(CAST(payload AS BLOB)) FROM capacity_delta", [], |row| row.get::<_, i64>(0))?,
+        bytes + if retained_rows { -1 } else { 1 }, "exactly one committed trigger effect");
     assert_eq!(conn.query_row("SELECT count(*) FROM operations", [], |row| row.get::<_, i64>(0))?, 0);
     assert_eq!(conn.query_row("SELECT count(*) FROM attempts", [], |row| row.get::<_, i64>(0))?, 0);
+    let watermark = source.current_commit_seq()?;
+    let objects = source.admission_objects(&grant.admission.payload_ref)?;
+    assert_eq!(source.recover_control_admission(&grant, &objects, true)?, ControlRecoveryOutcome::Applied);
+    assert_eq!(source.current_commit_seq()?, watermark);
+    drop(conn);
+    drop(source);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert!(reopened.control_admission_applied_here(&grant.admission)?);
+    assert_eq!(reopened.load_subject(agent)?.0.committed_at, committed);
+    Ok(())
+}
 
+#[test]
+fn canonical_s1_retained_row_capacity_uses_original_ordinary_commit() -> Result<()> {
+    for lose_reply in [false, true] { s1_capacity_original_plan_commits(true, lose_reply)?; }
+    Ok(())
+}
+
+#[test]
+fn canonical_s1_serialized_image_capacity_uses_original_ordinary_commit() -> Result<()> {
+    for lose_reply in [false, true] { s1_capacity_original_plan_commits(false, lose_reply)?; }
     Ok(())
 }
 
