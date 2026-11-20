@@ -57,7 +57,9 @@ object ShizukuUserShell {
         }
 
         override fun destroy() {
-            // Shizuku tears the user-service process down after unbind.
+            // Shizuku 13.1.5 requests destruction on its reserved oneway
+            // Binder transaction. Exit only this dedicated user-service process.
+            System.exit(0)
         }
 
     }
