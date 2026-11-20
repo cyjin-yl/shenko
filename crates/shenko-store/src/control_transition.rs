@@ -638,7 +638,8 @@ fn sealed_image_bytes<T: Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Shenk
 }
 
 /// These two pre-preparation capacity refusals preserve a precise diagnostic.
-/// They never authorize a weaker admission or a second semantic evaluation.
+/// S1 alone may then attempt its original plan through ordinary ordered
+/// admission. Prepared/chosen transitions and native execution never use it.
 pub(crate) fn capture_budget_refusal(error: &ShenkoError) -> bool {
     matches!(error, ShenkoError::Conflict(message)
         if message == ROW_CAPTURE_REFUSAL || message == IMAGE_CAPTURE_REFUSAL)

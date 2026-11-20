@@ -7,6 +7,7 @@ pub mod activation;
 pub mod capabilities;
 pub mod channel;
 pub mod cognitive_root;
+pub mod content_root;
 pub mod commit;
 pub mod cognition;
 pub mod effect;

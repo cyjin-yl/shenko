@@ -197,6 +197,13 @@ container: the collector records the digest as an alias AND descends into
 the map's other values, so a manifest that names its artifact inline does
 not hide the objects it points at.
 
+Generic `application/json` and `+json` references retain their verified
+bytes even when JSON decoding fails; decoding only discovers additional
+references. Declared cognitive-root, unit-selector and WASM-state schemas
+still require valid content and their required child objects. A generic or
+opaque alias cannot satisfy a later declared schema for the same digest.
+Missing bytes, inconsistent lengths and digest mismatches remain blocking.
+
 <a id="content-stream-journal"></a>
 ## Content stream journal
 
