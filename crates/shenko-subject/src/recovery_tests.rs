@@ -4189,6 +4189,83 @@ impl HookHandler for FailingHook {
     }
 }
 
+/// Force the publication between capture and sealing, without scheduler timing
+/// or a test-only production callback. Use the real lifecycle publication API
+/// and the same Store/CAS helper that seals production S0 hook bindings.
+#[tokio::test]
+async fn hook_graph_seal_keeps_captured_binding_after_registry_upgrade() {
+    use shenko_types::object::{ArtifactRef, Digest, SchemaRef, VersionedRef};
+
+    let (_dir, store, _agent) = fixture();
+    let registry = HookRegistry::new();
+    let plugin_id = EntityId::new();
+    let old_id = EntityId::new();
+    let new_id = EntityId::new();
+    // Follow hook_generation_lifecycle's real install/upgrade fixture. The
+    // existing handler suffices: dispatch outcomes retain exact handler IDs.
+    let entry = |hook_id, label: &str| {
+        let digest = Digest::blake3(format!("hook-impl/{label}").as_bytes());
+        HookEntry::new(
+            HookSpec {
+                hook_id,
+                plugin_id,
+                point: HookPointId::RUNTIME_CAPABILITY_CHANGED,
+                name: label.into(),
+                schema_version: HOOK_SCHEMA_VERSION,
+                point_major: STANDARD_HOOK_POINT_MAJOR,
+                implementation: VersionedRef {
+                    artifact: ArtifactRef {
+                        digest: digest.clone(),
+                        locator: format!("test:hook/{label}"),
+                    },
+                    symbol: format!("hook.{label}.handle"),
+                    schema: SchemaRef {
+                        name: "hook-payload-v1".into(),
+                        major: HOOK_SCHEMA_VERSION,
+                        digest,
+                    },
+                },
+                before: vec![],
+                after: vec![],
+                requires: vec![],
+                possible_model_call: false,
+                deterministic: true,
+            },
+            Arc::new(FailingHook(Arc::new(std::sync::atomic::AtomicBool::new(false)))),
+        )
+    };
+    registry.install_generation(vec![entry(old_id, "seal-a")]).unwrap();
+    let captured = registry.snapshot();
+    let expected = serde_json::to_value(captured.binding()).unwrap();
+
+    registry.upgrade_generation(plugin_id, vec![entry(new_id, "seal-b")]).unwrap();
+    let current = registry.snapshot();
+    assert_ne!(captured.graph_digest(), current.graph_digest());
+    assert_eq!(registry.live_leases(captured.generation()), 1);
+
+    let object = super::seal_hook_graph(&store, 1, Some(&captured)).unwrap();
+    let sealed: serde_json::Value = serde_json::from_slice(
+        &super::read_sealed(&store, &object).unwrap(),
+    ).unwrap();
+    // Complete equality includes revision, member implementations and the
+    // captured lease epoch, even after another snapshot issues a newer epoch.
+    assert_eq!(sealed, expected);
+    assert_ne!(sealed, serde_json::to_value(registry.binding()).unwrap());
+
+    let payload = HookPayload::CapabilityChanged {
+        capability_id: "test.capability".into(),
+        enabled: true,
+    };
+    let old_dispatch = captured.dispatch(&payload).await;
+    let new_dispatch = current.dispatch(&payload).await;
+    assert!(old_dispatch.allows());
+    assert!(new_dispatch.allows());
+    assert_eq!(old_dispatch.graph_digest, captured.binding().graph_digest);
+    assert_eq!(new_dispatch.graph_digest, current.binding().graph_digest);
+    assert_eq!(old_dispatch.results.iter().map(|outcome| outcome.hook_id).collect::<Vec<_>>(), vec![old_id]);
+    assert_eq!(new_dispatch.results.iter().map(|outcome| outcome.hook_id).collect::<Vec<_>>(), vec![new_id]);
+}
+
 fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::HookRegistration, Arc<std::sync::atomic::AtomicBool>) {
     let hooks = HookRegistry::new();
     let failing = Arc::new(std::sync::atomic::AtomicBool::new(true));

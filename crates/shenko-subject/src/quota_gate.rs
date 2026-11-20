@@ -17,13 +17,14 @@ Ready(Option<EntityId>),
 Cancelled, }
 
 pub(crate) async fn quota_dispatch_gate(store: &shenko_store::store::Store,
-binding: &shenko_broker::request::ProviderBinding,
+broker: &shenko_broker::broker::BrokerHandle,
 request_id: EntityId,
 cancel: &tokio_util::sync::CancellationToken,
 strategies: &shenko_quota::QuotaStrategies,
 native: Option<&shenko_types::task::TaskInvocation>,
 subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> { use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
 
+let binding = broker.binding();
 if store.latest_quota_policy()?.is_none() {
     return Ok(QuotaGate::Ready(None));
 }
@@ -76,15 +77,21 @@ loop {
     let Some(policy) = store.latest_quota_policy()? else {
         return Ok(QuotaGate::Ready(None));
     };
-    // A profile is usable only if its declared model runs on the actual
-    // sealed backend: the bound model name plus the local/cloud split.
+    // Read-only refresh of this SAME selected send: another entrant may have
+    // admitted/armed it during the bounded wait. Current installation cannot
+    // revoke that original history. Never select a replacement send here.
+    let reconciling_original = quota_send_is_original(store, send_id)?;
+    // Fresh admission needs the exact installed runtime, its declared model,
+    // compatible transport identity and runtime availability. The request is
+    // already sealed: this gate cannot select another model or transport.
     let availability: std::collections::HashMap<String, shenko_quota::BackendState> = policy
         .profiles
         .iter()
         .map(|profile| {
             let usable = profile.local
                 == matches!(binding, shenko_broker::request::ProviderBinding::Local { .. })
-                && profile.model_ref == binding.model();
+                && profile.model_ref == binding.model()
+                && (reconciling_original || broker.serves_model(&profile.model_ref));
             (
                 profile.profile_id.clone(),
                 if usable {
@@ -97,6 +104,38 @@ loop {
         .collect();
     let now = chrono::Utc::now();
     let latest = store.latest_quota_decision()?;
+    // Eligibility can call into the runtime after our detached reservation
+    // read. Another entrant may have admitted and armed this same send in
+    // that interval. Reuse its durable admission before recording a new
+    // routing decision: re-admission would rewrite the original metadata.
+    // A changed policy still takes the normal decision/admission path.
+    if let Some((admitted_policy, admitted_decision)) = &latest
+        && admitted_policy.policy_id == policy.policy_id
+        && admitted_policy.revision == policy.revision
+    {
+        let pacer = store.quota_pacer()?;
+        if let Some(reservation) = pacer.reservation(&send_id)
+            && reservation.admission.state == AdmissionState::Admitted
+            && reservation.admission.decision_id == admitted_decision.decision_id
+        {
+            let profile = admitted_policy.profiles.iter().find(|profile|
+                Some(&profile.profile_id) == reservation.admission.profile_id.as_ref())
+                .ok_or_else(|| ShenkoError::conflict("admitted profile is not configured"))?;
+            if profile.model_ref != binding.model()
+                || profile.local != matches!(binding,
+                    shenko_broker::request::ProviderBinding::Local { .. })
+            {
+                return Err(ShenkoError::conflict(
+                    "original quota admission differs from the sealed backend",
+                ));
+            }
+            // Replay arming authenticates the request lineage and
+            // every original armed attempt in one Store transaction.
+            // An admitted send not yet armed follows the same owner.
+            store.arm_quota_send(request_id, &reservation.admission)?;
+            return Ok(QuotaGate::Ready(Some(send_id)));
+        }
+    }
     let (policy_in_use, decision) = match &latest {
         Some((policy_in_use, decision))
             if decision.decided_at <= now
@@ -295,6 +334,13 @@ loop {
             }
         }
         AdmissionOutcome::CapacityBlocked { reason } => {
+            // Durable admission may observe a promotion after our detached
+            // snapshot. Recompute only for that same send's new original
+            // history; a fresh refusal or an already-reconciled refusal is
+            // still terminal. No send, charge or dispatch authority is minted.
+            if !reconciling_original && quota_send_is_original(store, send_id)? {
+                continue;
+            }
             return Err(ShenkoError::other(format!(
                 "capacity_blocked: {reason}"
             )));
@@ -311,6 +357,17 @@ loop {
         }
     }
 } }
+
+/// Classification of this selected send only, including a promotion that
+/// happened while routing/admission used a detached snapshot.
+fn quota_send_is_original(store: &shenko_store::store::Store, send_id: EntityId)
+    -> Result<bool, ShenkoError>
+{
+    use shenko_quota::{AdmissionState, DispatchEvidence};
+    Ok(store.quota_pacer()?.reservation(&send_id).is_some_and(|reservation|
+        reservation.admission.state == AdmissionState::Admitted
+            || reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)))
+}
 
 /// The armed reservation of the exact wire send `send_id` this step
 /// dispatched, verified against durable lineage: the send must be bound to
@@ -448,6 +505,52 @@ mod policy_change_tests {
     use shenko_quota::*;
     use std::{sync::Arc, time::Duration};
 
+    type AvailabilityReadHook = Box<dyn FnOnce() -> anyhow::Result<()> + Send>;
+
+    // Availability belongs to the installed runtime. All wire methods retain
+    // the real provider implementation; this scenario never dispatches them.
+    struct AvailabilityRuntime {
+        provider: Arc<shenko_broker::provider::AnthropicProvider>,
+        available: std::sync::atomic::AtomicBool,
+        // One synchronous independent Store transaction at the exact runtime
+        // read, after the gate has detached its selected-send snapshot.
+        on_read: parking_lot::Mutex<Option<AvailabilityReadHook>>,
+        on_read_result: parking_lot::Mutex<Option<anyhow::Result<()>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl shenko_broker::registry::ProviderRuntime for AvailabilityRuntime {
+        fn profile(&self) -> &shenko_broker::profile::ProviderProfile { self.provider.profile() }
+        fn binding(&self) -> shenko_broker::request::ProviderBinding { self.provider.binding() }
+        fn accepts_model(&self, model: &str) -> bool {
+            shenko_broker::registry::ProviderRuntime::accepts_model(self.provider.as_ref(), model)
+        }
+        fn available(&self) -> bool {
+            let on_read = self.on_read.lock().take();
+            if let Some(on_read) = on_read {
+                let result = on_read();
+                *self.on_read_result.lock() = Some(result);
+            }
+            self.available.load(std::sync::atomic::Ordering::SeqCst)
+        }
+        async fn complete(&self, request: &shenko_broker::request::InferenceRequest)
+            -> anyhow::Result<shenko_broker::request::InferenceResponse> {
+            shenko_broker::registry::ProviderRuntime::complete(self.provider.as_ref(), request).await
+        }
+        async fn stream(&self, request: &shenko_broker::request::InferenceRequest,
+            publisher: &shenko_broker::stream::BoundedStreamPublisher)
+            -> anyhow::Result<shenko_broker::stream::StreamOutcome> {
+            shenko_broker::registry::ProviderRuntime::stream(self.provider.as_ref(), request, publisher).await
+        }
+        async fn count_tokens(&self, request: &shenko_broker::request::InferenceRequest)
+            -> anyhow::Result<shenko_broker::registry::TokenCount> {
+            shenko_broker::registry::ProviderRuntime::count_tokens(self.provider.as_ref(), request).await
+        }
+        async fn probe(&self) -> anyhow::Result<shenko_broker::capability::BackendCapabilitySnapshot> {
+            shenko_broker::registry::ProviderRuntime::probe(self.provider.as_ref()).await
+        }
+    }
+
     /// A saved resource-policy change must affect a send still waiting for
     /// admission, without resealing its provider or minting a second send.
     #[test]
@@ -495,22 +598,111 @@ mod policy_change_tests {
             admission_pacing: AdmissionPacing::default(),
         };
         store.record_quota_policy(&policy, chrono::Utc::now())?;
-        // Only the frozen binding is used by admission; no provider request
-        // is sent and this fixture makes no claim about real cloud quota.
-        let provider = shenko_broker::provider::AnthropicProvider::with_endpoint(
+        // Exercise the actual live eligibility read and its quota caller.
+        // These are installation facts; no network/model request is sent.
+        let provider = Arc::new(shenko_broker::provider::AnthropicProvider::with_endpoint(
             "synthetic-not-a-credential".into(),
             "http://127.0.0.1:1".into(),
             "bound-model",
+        ));
+        let registry = Arc::new(shenko_broker::registry::ProviderRegistry::new());
+        let epoch = registry.install(provider.clone());
+        let domain = shenko_broker::resource::ResourceDomain::new(
+            shenko_broker::resource::ResourceDomainIdentity {
+                domain_id: provider.profile().resource_domain_id.clone(),
+                engine_identity: "quota-eligibility-fixture".into(),
+                engine_incarnation: None,
+                epoch: 1,
+            },
+            1,
+            shenko_broker::admission::CapacityProvenance::Unknown,
+            None,
+            shenko_broker::admission::CapacityProvenance::Unknown,
         );
-        let binding = provider.binding();
+        let (_runner, broker) = shenko_broker::broker::Broker::with_registry(
+            Arc::clone(&registry), domain,
+        )?;
+        let (_offline_runner, offline) = shenko_broker::broker::Broker::offline()?;
+        anyhow::ensure!(!offline.serves_model("stub"));
+        anyhow::ensure!(broker.serves_model("bound-model"));
+        // Anthropic sends the sealed caller-selected model, even when it
+        // differs from this transport's configured default.
+        let selected = broker.for_model("caller-selected-model")?;
+        anyhow::ensure!(selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(broker.for_binding(selected.binding()).is_ok());
+        // The actual fixed-model local runtime retains strict fresh
+        // eligibility; transport-compatible recovery remains available.
+        let (_fixed_runner, fixed) = shenko_broker::broker::Broker::with_local_provider(
+            shenko_broker::local_provider::LocalModelProvider::new(
+                "http://127.0.0.1:1".into(), "fixed-model".into(),
+            ), 1,
+        )?;
+        anyhow::ensure!(fixed.serves_model("fixed-model"));
+        let undeclared = fixed.for_model("undeclared-model")?;
+        anyhow::ensure!(!undeclared.serves_model("undeclared-model"));
+        anyhow::ensure!(fixed.for_binding(undeclared.binding()).is_ok());
+        // Exercise the borrowed Profile path as well as the legacy binding.
+        let profile_broker = broker.for_binding(&provider.profile().binding())?;
+        anyhow::ensure!(profile_broker.serves_model("bound-model"));
+        let selected_profile = profile_broker.for_model("caller-selected-model")?;
+        anyhow::ensure!(selected_profile.serves_model("caller-selected-model"));
+        anyhow::ensure!(registry.uninstall(&provider.profile().profile_id, epoch));
+        anyhow::ensure!(!broker.serves_model("bound-model"));
+        anyhow::ensure!(!profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
+        let unavailable = Arc::new(AvailabilityRuntime {
+            provider: Arc::clone(&provider),
+            available: std::sync::atomic::AtomicBool::new(false),
+            on_read: parking_lot::Mutex::new(None),
+            on_read_result: parking_lot::Mutex::new(None),
+        });
+        registry.install(unavailable.clone());
+        anyhow::ensure!(!matches!(broker.binding(), shenko_broker::request::ProviderBinding::Stub { .. }));
+        anyhow::ensure!(!broker.serves_model("bound-model"));
+        anyhow::ensure!(!profile_broker.serves_model("bound-model"));
+        let refused_request = EntityId::new();
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
+        let before_refusal = serde_json::to_value(store.quota_pacer()?)?;
+        let refusal = tokio::time::timeout(Duration::from_secs(5), quota_dispatch_gate(
+            &store, &broker, refused_request, &tokio_util::sync::CancellationToken::new(),
+            &QuotaStrategies::baseline(), None, None,
+        )).await?;
+        let Err(refusal) = refusal else { anyhow::bail!("fresh unavailable runtime must refuse admission"); };
+        anyhow::ensure!(refusal.to_string().contains("capacity_blocked"), "unexpected refusal: {refusal}");
+        anyhow::ensure!(store.quota_send_ids(refused_request)?.is_empty());
+        anyhow::ensure!(serde_json::to_value(store.quota_pacer()?)? == before_refusal);
+        anyhow::ensure!(store.quota_attempts("synthetic", "policy-wait-fixture")?.is_empty());
+        // Only runtime availability changes; identity remains exactly equal.
+        unavailable.available.store(true, std::sync::atomic::Ordering::SeqCst);
+        anyhow::ensure!(broker.serves_model("bound-model"));
+        anyhow::ensure!(profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(selected_profile.serves_model("caller-selected-model"));
+        // The same profile id/model at a different endpoint is not eligible
+        // for this already selected handle's transport identity.
+        registry.install(Arc::new(shenko_broker::provider::AnthropicProvider::with_endpoint(
+            "synthetic-not-a-credential".into(),
+            "http://127.0.0.1:2".into(),
+            "bound-model",
+        )));
+        anyhow::ensure!(!broker.serves_model("bound-model"));
+        anyhow::ensure!(!profile_broker.serves_model("bound-model"));
+        anyhow::ensure!(!selected.serves_model("caller-selected-model"));
+        anyhow::ensure!(!selected_profile.serves_model("caller-selected-model"));
+        let restored_epoch = registry.install(provider);
+        anyhow::ensure!(broker.serves_model("bound-model"));
+        anyhow::ensure!(profile_broker.serves_model("bound-model"));
         let request_id = EntityId::new();
         let cancel = tokio_util::sync::CancellationToken::new();
         let run_store = Arc::clone(&store);
         let run_cancel = cancel.clone();
+        let original_broker = broker.clone();
         let run = tokio::spawn(async move {
             quota_dispatch_gate(
                 &run_store,
-                &binding,
+                &broker,
                 request_id,
                 &run_cancel,
                 &QuotaStrategies::baseline(),
@@ -531,13 +723,37 @@ mod policy_change_tests {
         policy.revision = 2;
         policy.on_unknown = UnknownQuota::Admit;
         store.record_quota_policy(&policy, chrono::Utc::now())?;
+        // A second entrant admits and arms the SAME waiting send. The first
+        // entrant must refresh its original-history classification on wake.
+        let promoted = quota_dispatch_gate(
+            &store, &original_broker, request_id,
+            &tokio_util::sync::CancellationToken::new(),
+            &QuotaStrategies::baseline(), None, None,
+        ).await?;
+        anyhow::ensure!(matches!(promoted, QuotaGate::Ready(Some(send)) if send == waiting[0].0));
+        let original_reservation = serde_json::to_value(store.quota_pacer()?.reservation(&waiting[0].0))?;
+        let original_attempts = serde_json::to_value(store.quota_attempts("synthetic", "policy-wait-fixture")?)?;
+        anyhow::ensure!(registry.uninstall(original_broker.binding().profile_id(), restored_epoch));
+        anyhow::ensure!(!original_broker.serves_model("bound-model"));
         // Uses the production bounded wait; the test does not change policy
         // timings or substitute a decision/dispatcher implementation.
         let outcome = tokio::time::timeout(Duration::from_secs(35), run).await;
         cancel.cancel();
         let result = outcome???;
         anyhow::ensure!(matches!(result, QuotaGate::Ready(Some(send)) if send == waiting[0].0));
+        // An armed original keeps its exact reservation after uninstall.
+        // Fresh eligibility is false, but it cannot gate reconciliation or
+        // manufacture another send/charge for the original request.
+        anyhow::ensure!(!original_broker.serves_model("bound-model"));
+        let reconciled = quota_dispatch_gate(
+            &store, &original_broker, request_id,
+            &tokio_util::sync::CancellationToken::new(),
+            &QuotaStrategies::baseline(), None, None,
+        ).await?;
+        anyhow::ensure!(matches!(reconciled, QuotaGate::Ready(Some(send)) if send == waiting[0].0));
         anyhow::ensure!(store.quota_send_ids(request_id)? == waiting);
+        anyhow::ensure!(serde_json::to_value(store.quota_pacer()?.reservation(&waiting[0].0))? == original_reservation);
+        anyhow::ensure!(serde_json::to_value(store.quota_attempts("synthetic", "policy-wait-fixture")?)? == original_attempts);
         let (_, decision) = store
             .latest_quota_decision()?
             .context("missing quota admission decision")?;
@@ -547,4 +763,127 @@ mod policy_change_tests {
         Ok(())
         })
     }
+    /// Force promotion after the detached waiting snapshot, while the runtime
+    /// read reports unavailable, before durable admission sees NoBackend.
+    #[test]
+    fn selected_send_promotion_during_eligibility_preserves_original() -> anyhow::Result<()> {
+        fn admit_selected(store: &shenko_store::Store, policy: &QuotaPolicy,
+            request: EntityId, send: EntityId) -> anyhow::Result<AdmissionOutcome>
+        {
+            let strategies = QuotaStrategies::baseline();
+            let availability = std::collections::HashMap::from([
+                ("cloud".to_owned(), BackendState::Available),
+            ]);
+            let decision = strategies.route(RouteRequest {
+                policy, forecasts: &[], availability: &availability,
+                previous: None, work: None, now: chrono::Utc::now(),
+            })?;
+            store.record_quota_decision(&decision)?;
+            Ok(store.admit_quota_send_with(&strategies, request, policy,
+                &decision, send, &availability, chrono::Utc::now())?.outcome)
+        }
+        tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+        let root = std::env::temp_dir().join(format!("shenko-quota-promotion-{}", EntityId::new()));
+        std::fs::create_dir_all(&root)?;
+        let store = Arc::new(shenko_store::Store::open(root.join("store.db"), root.join("cas"))?);
+        let mut policy = QuotaPolicy {
+            policy_id: EntityId::new(),
+            revision: 1,
+            profiles: vec![ModelProfile {
+                profile_id: "cloud".into(),
+                model_ref: "bound-model".into(),
+                local: false,
+                cost_per_request: vec![WindowCost {
+                    window: WindowRef {
+                        provider_id: "synthetic".into(),
+                        account_scope_ref: "policy-wait-fixture".into(),
+                        window_key: "requests".into(),
+                    },
+                    unit: "requests".into(),
+                    amount: Range::point(1.0).context("fixture cost must be finite")?,
+                }],
+                effort_levels: Vec::new(),
+            }],
+            assumptions: Vec::new(),
+            min_progress_per_hour: 0.0,
+            switching_hysteresis: 0.0,
+            on_unknown: UnknownQuota::Block,
+            allow_overage: false,
+            spending_authority_ref: None,
+            decision_ttl: chrono::Duration::minutes(5),
+            observation_sources: Vec::new(),
+            objective: PolicyObjective::Balanced,
+            target_utilization_range: None,
+            planning_horizon: None,
+            emergency_reserve_by_window: Vec::new(),
+            uncertainty_margin: None,
+            admission_pacing: AdmissionPacing::default(),
+        };
+        store.record_quota_policy(&policy, chrono::Utc::now())?;
+        let request = EntityId::new();
+        let send = EntityId::new();
+        let waiting = admit_selected(&store, &policy, request, send)?;
+        anyhow::ensure!(matches!(&waiting, AdmissionOutcome::Quota(admission)
+            | AdmissionOutcome::Existing { admission }
+            if admission.state != AdmissionState::Admitted));
+        anyhow::ensure!(!quota_send_is_original(&store, send)?);
+        let lineage = store.quota_send_ids(request)?;
+        anyhow::ensure!(lineage == vec![(send, 0)]);
+        policy.revision = 2;
+        policy.on_unknown = UnknownQuota::Admit;
+        store.record_quota_policy(&policy, chrono::Utc::now())?;
+        let promoted_snapshot = Arc::new(std::sync::Mutex::new(None));
+        let hook_snapshot = Arc::clone(&promoted_snapshot);
+        let hook_store = Arc::clone(&store);
+        let runtime = Arc::new(AvailabilityRuntime {
+            provider: Arc::new(shenko_broker::provider::AnthropicProvider::with_endpoint(
+                "synthetic-not-a-credential".into(), "http://127.0.0.1:1".into(), "bound-model")),
+            available: std::sync::atomic::AtomicBool::new(false),
+            on_read: parking_lot::Mutex::new(Some(Box::new(move || {
+                // This is a real second durable entrant, not a fabricated
+                // receipt. It promotes only the already-selected send.
+                let promoted = admit_selected(&hook_store, &policy, request, send)?;
+                let admission = match promoted {
+                    AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission }
+                        if admission.state == AdmissionState::Admitted => admission,
+                    other => anyhow::bail!("independent promotion failed: {other:?}"),
+                };
+                hook_store.arm_quota_send(request, &admission)?;
+                *hook_snapshot.lock().map_err(|_| anyhow::anyhow!("fixture snapshot lock"))? = Some((
+                    serde_json::to_value(hook_store.quota_pacer()?.reservation(&send))?,
+                    serde_json::to_value(hook_store.quota_attempts("synthetic", "policy-wait-fixture")?)?,
+                    serde_json::to_value(hook_store.latest_quota_decision()?)?,
+                ));
+                Ok(())
+            }))),
+            on_read_result: parking_lot::Mutex::new(None),
+        });
+        let registry = Arc::new(shenko_broker::registry::ProviderRegistry::new());
+        registry.install(runtime.clone());
+        let domain = shenko_broker::resource::ResourceDomain::new(
+            shenko_broker::resource::ResourceDomainIdentity {
+                domain_id: runtime.provider.profile().resource_domain_id.clone(),
+                engine_identity: "promotion-interleaving".into(), engine_incarnation: None, epoch: 1,
+            }, 1, shenko_broker::admission::CapacityProvenance::Unknown,
+            None, shenko_broker::admission::CapacityProvenance::Unknown,
+        );
+        let (_runner, broker) = shenko_broker::broker::Broker::with_registry(registry, domain)?;
+        let outcome = quota_dispatch_gate(&store, &broker, request,
+            &tokio_util::sync::CancellationToken::new(), &QuotaStrategies::baseline(), None, None).await;
+        runtime.on_read_result.lock()
+            .take().context("the promotion hook must execute inside eligibility")??;
+        anyhow::ensure!(matches!(outcome?, QuotaGate::Ready(Some(id)) if id == send));
+        let original = promoted_snapshot.lock().map_err(|_| anyhow::anyhow!("fixture snapshot lock"))?
+            .take().context("the original armed accounting must be captured")?;
+        anyhow::ensure!(serde_json::to_value(store.quota_pacer()?.reservation(&send))? == original.0);
+        anyhow::ensure!(serde_json::to_value(store.quota_attempts("synthetic", "policy-wait-fixture")?)? == original.1);
+        anyhow::ensure!(serde_json::to_value(store.latest_quota_decision()?)? == original.2);
+        anyhow::ensure!(store.quota_send_ids(request)? == lineage);
+        anyhow::ensure!(!broker.serves_model("bound-model"));
+        drop(store);
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+        })
+    }
+
 }

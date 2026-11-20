@@ -367,6 +367,8 @@ fn a_symmetric_workload_reaches_an_even_split_and_follows_the_demand_afterwards(
     let admitted = allocator.acquire(&mut pool, child).unwrap();
     assert_eq!(admitted.plan.subject_units, Some(500));
     assert_eq!(admitted.plan.children_units, Some(500));
+    assert_eq!(admitted.plan.preference_revision, Some(0));
+    assert_eq!(pool.last_allocation.unwrap().preference_revision, Some(0));
     assert_eq!(pool.leases["main"].retention.entitled_units, 500);
     assert_eq!(pool.leases["child"].retention.entitled_units, 500);
 
@@ -377,6 +379,168 @@ fn a_symmetric_workload_reaches_an_even_split_and_follows_the_demand_afterwards(
     let admitted = allocator.acquire(&mut pool, smaller).unwrap();
     assert_eq!(admitted.plan.subject_units, Some(800));
     assert_eq!(admitted.plan.children_units, Some(200));
+}
+
+#[test]
+fn automatic_preferences_cas_is_domain_bound_and_keeps_original_custody() -> anyhow::Result<()> {
+    use shenko_broker::{AllocationPreferenceError, AutomaticAllocationPreferences, ExternalClientUsage};
+    use shenko_types::ids::EntityId;
+
+    let (_broker, handle) = Broker::with_local_provider(
+        LocalModelProvider::new("http://127.0.0.1:1".into(), "fixture".into()), 2,
+    )?;
+    let domain = handle.domain();
+    let unknown = domain.identity();
+    let weighted = AutomaticAllocationPreferences {
+        subject_rebuild_weight: 8, children_rebuild_weight: 1,
+    };
+    assert_eq!(handle.compare_and_apply_kv_preferences(&unknown, 0, weighted),
+        Err(AllocationPreferenceError::UnknownIncarnation));
+    handle.domains().observe_incarnation(&unknown.domain_id, "inc-a")?;
+    let identity = domain.identity();
+    domain.apply_kv_capacity(Some(1000), CapacityProvenance::Configured);
+    // Retained contexts after a capacity shrink. Both are still being read,
+    // so no plan can count their over-capacity occupancy as already free.
+    {
+        let mut pool = domain.kv_mut();
+        for (context, side) in [("main", LeaseSide::Main), ("child", LeaseSide::Child)] {
+            let mut lease = ContextLease::new(context, side, 600);
+            lease.state = if side == LeaseSide::Child {
+                LeaseState::Transferring
+            } else {
+                LeaseState::Resident
+            };
+            lease.readers = 1;
+            lease.retention.used_units = 600;
+            pool.leases.insert(context.into(), lease);
+        }
+        pool.unknown_reads.insert("original-request".into(), "main".into());
+    }
+    let request = EntityId::new();
+    let retained_guard = domain.recover_unknown();
+    domain.quarantine(request, 0, "original unknown request");
+    domain.register_external_client(ExternalClientUsage {
+        client_ref: "external".into(), units: 1, enforceable: true, evidence: None,
+    });
+    let budget = domain.compute_budget();
+    let debt = domain.quarantined_debt();
+    let reservations = domain.external_clients();
+    let baseline = handle.rebalance_kv()?;
+    assert_eq!((baseline.subject_units, baseline.children_units), (Some(500), Some(500)));
+    let adopted = handle.compare_and_apply_kv_preferences(&identity, 0, weighted)?;
+    assert_eq!(adopted.revision, 1);
+    assert!(adopted.applicable);
+    assert_eq!(adopted.accepted_domain.as_ref(), Some(&identity));
+    let actual = adopted.pool.last_allocation.unwrap();
+    assert_eq!(actual.preference_revision, Some(1));
+    assert!(actual.subject_units.unwrap() > baseline.subject_units.unwrap());
+    assert_eq!(actual.subject_units.unwrap() + actual.children_units.unwrap(), 1000);
+    assert_eq!(adopted.pool.occupied_units(), 1200);
+    assert_eq!(adopted.pool.capacity_units, Some(1000));
+    assert_eq!(adopted.pool.unknown_reads["original-request"], "main");
+    for lease in adopted.pool.leases.values() {
+        assert_eq!(lease.readers, 1);
+        assert_eq!(lease.state, if lease.side == LeaseSide::Child {
+            LeaseState::Transferring
+        } else {
+            LeaseState::Resident
+        });
+        assert_eq!(lease.retention.used_units, 600);
+    }
+    assert_eq!(handle.kv_allocation_snapshot(), adopted);
+    assert_eq!(domain.compute_budget(), budget);
+    assert_eq!(domain.quarantined_debt(), debt);
+    assert_eq!(domain.external_clients(), reservations);
+    assert!(domain.try_admit().is_none());
+
+    let mut wrong_epoch = identity.clone();
+    wrong_epoch.epoch += 1;
+    let mut wrong_engine = identity.clone();
+    wrong_engine.engine_identity.push_str("-other");
+    let mut wrong_domain = identity.clone();
+    wrong_domain.domain_id.push_str("-other");
+    for wrong in [&wrong_epoch, &wrong_engine, &wrong_domain] {
+        assert_eq!(handle.compare_and_apply_kv_preferences(wrong, 1, weighted),
+            Err(AllocationPreferenceError::DomainChanged));
+    }
+    assert_eq!(handle.compare_and_apply_kv_preferences(&identity, 0, weighted),
+        Err(AllocationPreferenceError::RevisionChanged { expected: 0, actual: 1 }));
+    assert_eq!(handle.compare_and_apply_kv_preferences(&identity, 1,
+        AutomaticAllocationPreferences { subject_rebuild_weight: 0, children_rebuild_weight: 1 }),
+        Err(AllocationPreferenceError::InvalidWeights));
+    assert_eq!(handle.kv_allocation_snapshot(), adopted);
+
+    // A later real planning boundary records the revision actually consumed.
+    assert_eq!(handle.rebalance_kv()?.preference_revision, Some(1));
+    // A capability observation may arrive before registry reconciliation.
+    // It cannot make the old accepted physical identity effective again.
+    domain.kv_mut().identity.engine_incarnation = Some("inc-b".into());
+    assert!(!handle.kv_allocation_snapshot().applicable);
+    assert_eq!(handle.compare_and_apply_kv_preferences(&identity, 1, weighted),
+        Err(AllocationPreferenceError::DomainChanged));
+    handle.domains().observe_incarnation(&identity.domain_id, "inc-b")?;
+    let stale = handle.kv_allocation_snapshot();
+    assert_eq!(stale.revision, 1);
+    assert!(!stale.applicable);
+    assert_eq!(stale.pool.last_allocation.unwrap().preference_revision, Some(1));
+    assert_eq!(handle.compare_and_apply_kv_preferences(&identity, 1, weighted),
+        Err(AllocationPreferenceError::DomainChanged));
+    assert_eq!(handle.rebalance_kv()?.preference_revision, None);
+    assert_eq!(handle.kv_snapshot().occupied_units(), 1200);
+    let restored = handle.compare_and_apply_kv_preferences(
+        &domain.identity(), 1, AutomaticAllocationPreferences::default(),
+    )?;
+    assert_eq!(restored.revision, 2);
+    assert!(restored.applicable);
+    assert_eq!(restored.pool.last_allocation.unwrap().preference_revision, Some(2));
+    assert_eq!(domain.compute_budget(), budget);
+    assert_eq!(domain.quarantined_debt(), debt);
+    assert_eq!(domain.external_clients(), reservations);
+    // Only original reconciliation is allowed to end the C charge.
+    assert!(domain.reconcile_debt(request));
+    retained_guard.release_terminal();
+    Ok(())
+}
+
+#[test]
+fn automatic_preferences_have_one_cas_winner_and_unknown_k_stays_unknown() -> anyhow::Result<()> {
+    use shenko_broker::{AllocationPreferenceError, AutomaticAllocationPreferences};
+    use std::sync::{Arc, Barrier};
+
+    let (_broker, handle) = Broker::with_local_provider(
+        LocalModelProvider::new("http://127.0.0.1:1".into(), "fixture".into()), 1,
+    )?;
+    let before = handle.domain().identity();
+    handle.domains().observe_incarnation(&before.domain_id, "inc-a")?;
+    let identity = handle.domain().identity();
+    let barrier = Arc::new(Barrier::new(2));
+    let results = std::thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for weight in [2, 8] {
+            let handle = handle.clone();
+            let identity = identity.clone();
+            let barrier = Arc::clone(&barrier);
+            workers.push(scope.spawn(move || {
+                barrier.wait();
+                handle.compare_and_apply_kv_preferences(&identity, 0,
+                    AutomaticAllocationPreferences {
+                        subject_rebuild_weight: weight, children_rebuild_weight: 1,
+                    })
+            }));
+        }
+        workers.into_iter().map(|worker| worker.join().unwrap()).collect::<Vec<_>>()
+    });
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(results.iter().filter(|result| matches!(result,
+        Err(AllocationPreferenceError::RevisionChanged { expected: 0, actual: 1 }))).count(), 1);
+    let winner = results.into_iter().find_map(Result::ok).unwrap();
+    assert_eq!(handle.kv_allocation_snapshot(), winner);
+    assert_eq!(winner.pool.capacity_units, None);
+    let actual = winner.pool.last_allocation.unwrap();
+    assert_eq!(actual.preference_revision, Some(1));
+    assert_eq!((actual.subject_units, actual.children_units), (None, None));
+    assert_eq!(actual.guarantee, RetentionGuarantee::Advisory);
+    Ok(())
 }
 
 #[test]

@@ -22,6 +22,11 @@
 //! The decision is durable before it is visible: the reminder row, its
 //! provenance and the usage receipt live in the store, and the contribution
 //! body is a sealed object rather than inline text.
+//!
+//! A policy decision without a provider call recovers under its original
+//! native authority alone; it must not register an unknown inference charge.
+//! Existing historical charges require separate evidence and are not retired
+//! by local decision settlement.
 
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
@@ -213,6 +218,8 @@ pub struct PmaEvaluateHandler {
     /// request is admitted under the same set as the subject, never a second
     /// policy source. An absent publication is the baseline.
     quota_strategies: shenko_quota::QuotaStrategies,
+    #[cfg(test)]
+    pause_after_arm: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl PmaEvaluateHandler {
@@ -227,6 +234,8 @@ impl PmaEvaluateHandler {
             policy,
             publisher: None,
             quota_strategies: shenko_quota::QuotaStrategies::baseline(),
+            #[cfg(test)]
+            pause_after_arm: None,
         }
     }
 
@@ -450,14 +459,20 @@ impl PmaEvaluateHandler {
             observed_at: Some(chrono::Utc::now()),
             received_commit: operation.prepared_commit,
         };
-        self.store.record_intervention_settlement(
-            operation.operation_id,
-            attempt.attempt_id,
-            evidence,
-            OperationOutcome::Succeeded,
-            EffectStatus::Complete,
-            Some(&reminder),
-        )?;
+        if frozen.decided_without_call {
+            self.store.record_local_intervention_settlement(
+                operation, attempt, evidence, &reminder,
+            )?;
+        } else {
+            self.store.record_intervention_settlement(
+                operation.operation_id,
+                attempt.attempt_id,
+                evidence,
+                OperationOutcome::Succeeded,
+                EffectStatus::Complete,
+                Some(&reminder),
+            )?;
+        }
         Ok(reminder)
     }
 
@@ -730,20 +745,30 @@ impl NativeTaskHandler for PmaEvaluateHandler {
         task: &TaskRecord,
         operation_id: EntityId,
     ) -> Result<OperationRecord> {
-        let operation = self.store.external_operation(operation_id)?;
+        let mut operation = self.store.external_operation(operation_id)?;
         ensure!(
             operation.task_id == task.task_id && operation.operation_name == PMA_OPERATION,
             "original memory intervention operation mismatch"
         );
         let frozen = read_frozen(&self.store, &operation.final_input_ref)?;
         ensure!(frozen.task_id == task.task_id, "original memory intervention task mismatch");
-        let attempt = self.store.external_operation_attempt(operation_id)?;
-        self.broker.register_recovered(Arc::new(RecoveryReceipt {
-            store: Arc::clone(&self.store),
-            operation: operation.clone(),
-            attempt: attempt.clone(),
-            frozen: frozen.clone(),
-        }))?;
+        let mut attempt = self.store.external_operation_attempt(operation_id)?;
+        // A sealed local decision has native authority, but no inference to
+        // recover. Validate its original lineage without creating provider
+        // debt; historical charges are not adjusted. Inference recovery keeps
+        // its existing reader and performs that validation there.
+        if frozen.decided_without_call {
+            (operation, attempt) =
+                read_original_attempt(&self.store, &operation, &attempt, &frozen)?;
+            read_original_no_send(&self.store, &attempt, &frozen)?;
+        } else {
+            self.broker.register_recovered(Arc::new(RecoveryReceipt {
+                store: Arc::clone(&self.store),
+                operation: operation.clone(),
+                attempt: attempt.clone(),
+                frozen: frozen.clone(),
+            }))?;
+        }
         if operation.state == OperationState::Resolved {
             return Ok(operation);
         }
@@ -870,12 +895,12 @@ impl InferenceRecoverySource for RecoveryReceipt {
     }
 }
 
-fn read_original_terminal(
+fn read_original_attempt(
     store: &Store,
     original: &OperationRecord,
     original_attempt: &AttemptRecord,
     frozen: &FrozenIntervention,
-) -> Result<Option<InferenceResult>> {
+) -> Result<(OperationRecord, AttemptRecord)> {
     let operation = store.external_operation(original.operation_id)?;
     let attempt = store.external_attempt(original_attempt.attempt_id)?;
     ensure!(
@@ -893,6 +918,47 @@ fn read_original_terminal(
             && operation.input_digest == operation.final_input_ref.digest,
         "recovered memory intervention operation/input identity mismatch"
     );
+    if frozen.decided_without_call {
+        ensure!(
+            operation.record_revision == original.record_revision
+                && operation.authority_ref.delegation_id == original.authority_ref.delegation_id
+                && operation.authority_ref.delegation_revision == original.authority_ref.delegation_revision
+                && operation.authority_ref.decision_ref == original.authority_ref.decision_ref,
+            "recovered local intervention original authority changed"
+        );
+    }
+    Ok((operation, attempt))
+}
+
+fn read_original_no_send(
+    store: &Store,
+    attempt: &AttemptRecord,
+    frozen: &FrozenIntervention,
+) -> Result<()> {
+    let reference = attempt.transport_ref.as_ref()
+        .context("original local intervention lacks no-send marker")?;
+    let bytes = store.cas.read_object(&reference.digest)?;
+    ensure!(
+        bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
+        "original local no-send marker CAS mismatch"
+    );
+    let marker: InferenceSendBinding = serde_json::from_slice(&bytes)?;
+    ensure!(
+        marker.schema_version == 1
+            && marker.request_id == frozen.request_id
+            && marker.send_id.is_none(),
+        "original local intervention no-send marker mismatch"
+    );
+    Ok(())
+}
+
+fn read_original_terminal(
+    store: &Store,
+    original: &OperationRecord,
+    original_attempt: &AttemptRecord,
+    frozen: &FrozenIntervention,
+) -> Result<Option<InferenceResult>> {
+    let (operation, attempt) = read_original_attempt(store, original, original_attempt, frozen)?;
     if attempt.dispatch_stage != AttemptDispatchStage::Ended {
         return Ok(None);
     }
@@ -977,9 +1043,9 @@ impl PmaEvaluateHandler {
         });
         // The quota-bound send is selected before the attempt is armed: the
         // armed attempt must carry the exact send that may go out.
-        let quota_send = match quota_dispatch_gate(
+        let quota_send = if plan.call.is_some() { match quota_dispatch_gate(
             &self.store,
-            &binding,
+            &broker,
             request_id,
             &tokio_util::sync::CancellationToken::new(),
             &self.quota_strategies,
@@ -994,6 +1060,10 @@ impl PmaEvaluateHandler {
             QuotaGate::Cancelled => {
                 anyhow::bail!("memory intervention cancelled before the quota-bound T1")
             }
+        } } else {
+            // A local policy decision has no provider send or quota charge.
+            // Its native authority and durable decision still settle below.
+            None
         };
         let send_binding = InferenceSendBinding { schema_version: 1, request_id, send_id: quota_send };
         let transport_ref = seal(&self.store, &send_binding, "pma-selected-send")?;
@@ -1142,6 +1212,12 @@ impl PmaEvaluateHandler {
                 .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
         {
             return Ok(existing);
+        }
+
+        #[cfg(test)]
+        if let Some(armed) = &self.pause_after_arm {
+            armed.notify_one();
+            std::future::pending::<()>().await;
         }
 
         let reminder = match (plan.call, payload) {
@@ -1295,3 +1371,7 @@ pub fn carried_bank_kinds() -> [BankEntryKind; 3] {
         BankEntryKind::OpenGoal,
     ]
 }
+
+#[cfg(test)]
+#[path = "intervention_recovery_tests.rs"]
+mod recovery_tests;

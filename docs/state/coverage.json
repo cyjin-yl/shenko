@@ -2639,11 +2639,16 @@
       "implementation_state": "not_assessed",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "bin/shenko/src/runtime_plugins.rs#install_native_definitions",
+        "bin/shenko/src/runtime_start.rs#start",
+        "crates/shenko-ui/src/config_task.rs#ConfigHandler",
+        "crates/shenko-ui/src/config_service.rs#ConfigService"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "2026-11-20 当前源码定位修正：runtime_plugins::install_native_definitions 注册 ConfigHandler 及共享 ConfigService（含 QuotaNamespace），runtime_start::start 将同一服务交给 UiServer；config.manage 的发现、读取、预览、修改与恢复入口有源码连接。保留原 not_assessed、全部 B/case/evidence 字段及 satisfied=false；本次仅补充实现定位，不凭源码升级状态。完整所有配置覆盖、CFG01–CFG03、主体自主对话使用、desired/采用/健康及恢复旅程仍需各自真实证据。合同见 docs/specs/configuration-playground.md#spec-43-1 与 #spec-43-3。"
     },
     {
       "requirement_id": "R134",
@@ -2662,14 +2667,19 @@
       ],
       "implementation_refs": [
         "crates/shenko-ui/src/playground.rs#PlaygroundState",
-        "crates/shenko-ui/src/server.rs#UiServer"
+        "crates/shenko-ui/src/server.rs#UiServer",
+        "bin/shenko/src/runtime_plugins.rs#install_native_definitions",
+        "bin/shenko/src/runtime_start.rs#start",
+        "crates/shenko-ui/src/playground_backend.rs#RuntimeBinding",
+        "crates/shenko-ui/src/playground_backend.rs#PlaygroundBackendHandler",
+        "crates/shenko-ui/src/playground_backend.rs#ArtifactServiceController"
       ],
       "evidence_refs": [
         "shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)。PG07 已在合并后 main 上真跑通过（shenko-ui --lib a_readers_action_is_bound_to_a_revision_and_a_request）；后端仍是 canned echo，故 satisfied=false。",
+      "note": "2026-11-20 当前源码定位修正：生产 install_native_definitions 注册 PlaygroundBackendHandler、ArtifactServiceController 及共享 PlaygroundState/PlaygroundManageHandler；RuntimeBinding 有 wasi-command 与 host-process 两条真实实现分支，execute 分别调用 WasmRuntime::run_wasi_module 与服务 controller.invoke，旧的 canned echo 描述不适用于本次绑定源码。保留原 verified_real 条目、PG07 关联及原 helper 引用；该历史 a_readers_action_is_bound_to_a_revision_and_a_request 结果仅为组件/helper 范围，不据此宣称完整 PG07 通过。保留 partial 与 satisfied=false；PG01–PG05、PG06/PG07 的完整主体/浏览器、状态感知、持久化、恢复与长期运行仍需对应真实旅程证据。合同见 docs/specs/configuration-playground.md#spec-43-2、#spec-43-3 与 #spec-57-6。",
       "reference_migration": {
         "implementation_refs": [
           "crates/shenko-ui/src/playground.rs",
