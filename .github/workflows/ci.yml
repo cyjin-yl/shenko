@@ -89,6 +89,8 @@ jobs:
           export SHENKO_COMPONENT_PROCESS_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/component-process"
           export SHENKO_START_BOUNDARY_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/start-boundary"
           export SHENKO_NATIVE_E1_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/native-e1"
+          export SHENKO_NATIVE_ARTIFACT_ROOT="$GITHUB_WORKSPACE/.ci/evidence/native-artifacts"
+          mkdir -p "$SHENKO_NATIVE_ARTIFACT_ROOT"
           export SHENKO_PTY_WRITE_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/pty-write"
           export SHENKO_UPDATE_BUILD_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/update-build"
           export SHENKO_SOURCE_REVISION="$GITHUB_SHA"

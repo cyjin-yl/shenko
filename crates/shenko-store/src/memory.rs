@@ -1250,38 +1250,6 @@ impl Store {
         Ok(lineage)
     }
 
-    /// Record the Git knowledge commit and path of an entry after the text
-    /// form was committed to the memory repository. The SQLite
-    /// row stays the truth of record; the Git ref is explainable text.
-    pub fn mark_memory_git(
-        &self,
-        entry_id: EntityId,
-        git_commit: &str,
-        git_path: &str,
-    ) -> Result<(), ShenkoError> {
-        self.ledger.with_mutation(
-            || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
-                let changed = tx
-                    .execute(
-                        "UPDATE memory_entries SET git_commit=?2, git_path=?3,
-                         updated_at=datetime('now') WHERE entry_id=?1",
-                        params![entry_id.to_string(), git_commit, git_path],
-                    )
-                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
-                if changed != 1 {
-                    return Err(ShenkoError::not_found("memory entry"));
-                }
-                tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
-                Ok(())
-            },
-            memory_storage_failure,
-        )
-    }
-
     fn query_entries(
         &self,
         sql: &str,
