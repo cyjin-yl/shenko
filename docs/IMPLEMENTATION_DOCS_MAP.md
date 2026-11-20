@@ -108,6 +108,11 @@
 
 ## 能力与插件
 
+- **DSH 工具兼容（`adapters/dsh`）** — 部分已接线：独立 Node 程序使用上游 Cordis、DSH 工具运行时和 native executor，将明确选定的插件导出为 stdio MCP；现有 `compat.mcp` 连接安装与 native handler 承载调用，Rust 主体与内核没有专用 DSH 分支。
+  - [DSH v0 合同与 Why](specs/ecosystem-adapters.md#dsh-tool-compat-v0)；[配置、检查、导入与使用说明](../adapters/dsh/README.md)。
+  - `check` 真实装载并清理插件；`profile` 仅生成静态连接资料；`serve` 拥有外部 Node 宿主。Node 是唯一安装权威，Store 是调用/未知结果的事实来源。
+  - 范围限可独立执行的工具；不提供完整 DSH agent/session、LLM、UI 或 prompt/Skill 注入。模块可用性、实测插件与模型使用效果分别取证；路径与连接摘要不等于传递依赖的内容快照。
+
 - **Poppy 身份、账号与 UCP 商务（shenko-compat-poppy）** — 已接线，必须显式编译 `compat-poppy` 并启用 `compat.poppy`。主体接口包括 `compat.poppy.discover:1`、`compat.poppy.account:1`、`compat.poppy.request:1` 和 `compat.poppy.commerce:1`。装配根 `bin/shenko/src/poppy.rs` 及其子模块复用安装观察、native handler 和持久效果回执；协议 crate 不依赖 Store 或 Subject。
   - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)
   - `shenko compat poppy discover <https-origin>` 是独立的公开诊断命令，不创建主体任务。

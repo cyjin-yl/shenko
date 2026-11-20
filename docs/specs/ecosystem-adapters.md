@@ -727,3 +727,74 @@ UCP 接线的检查见[后续增量验证记录](../evidence/poppy-operational-2
 [UCP extension](https://personalagentprotocol.org/docs/1.0/extensions/ucp)、
 [UCP 2026-08-25](https://ucp.dev/2026-08-25/specification/overview/)、
 [DPoP / RFC 9449](https://www.rfc-editor.org/rfc/rfc9449)。
+
+<a id="dsh-tool-compat-v0"></a>
+## DSH 工具插件兼容 v0
+
+**来源与 Why。** 作者于 2026-11-20 明确提出：「看看能不能给 shenko 加个兼容层兼容部分 dsh
+插件」。本节的 DSH 指 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)，
+接口调研基线是 [`2e39e70496aa02986ca6a820c5d497e816b69d7e`](https://github.com/deepseek-ai/deepseek-harness/tree/2e39e70496aa02986ca6a820c5d497e816b69d7e)。
+目标是复用已经存在的工具实现，同时保留 Shenko 的主体、调度、安装和效果事实。兼容范围由
+插件实际依赖和执行合同决定；不能用成功导入模块证明整个 DSH 插件生态可用。
+
+### 进程边界与唯一安装权威
+
+可选桥接程序位于 [`adapters/dsh`](../../adapters/dsh/README.md)。它在独立 Node 进程中使用
+真实的 `@deepseek-ai/cordis`、DSH `SystemPrompt`、`ToolsService` 与 `NativeToolExecutor`，
+装载配置中明确选定的模块，再用上游 MCP SDK 导出工具。两侧 Cordis 各自管理本侧资源；
+TypeScript 插件不作为 Rust 动态插件加载。
+
+Shenko 仍只安装普通 MCP 连接单元，由现有 `compat.mcp.request:1` 执行。DSH 桥接程序是
+本节新增的外层传输适配，不是内置的厂商 MCP 服务；既有 Rust MCP 客户端保持原合同。
+不新增 `compat.dsh` 安装权威、不修改主体或账本、不另设调度器。节点可独立撤回这一连接，
+其他 MCP 连接不受影响；撤回整个 `compat.mcp` 才会同时撤回该适配器承载的连接。
+
+### 支持范围与明确缺口
+
+| 能力 | v0 合同 |
+| --- | --- |
+| 普通 DSH 工具插件 | 使用真实 Cordis 生命周期和 DSH 工具注册、参数校验与 native 执行；插件依赖必须由已挂载服务实际满足；需要 Agent 状态的条件 `when` 工具明确不支持 |
+| 工具目录和调用 | 提供 MCP `tools/list`、`tools/call`；成功的 canonical value 映射到 `structuredContent.value`，工具错误保持失败；不能解析的附件内容明确报错 |
+| 插件配置 | 接受显式 JSON 配置与本地编译后 `.js` / `.mjs` / `.cjs` 入口；相对入口按配置文件目录解析；不解释完整 DSH profile/patch 图，不自动安装用户插件或补造依赖 |
+| system prompt、动态上下文与 Skill | `SystemPrompt` 是 DSH 工具运行时的内部依赖；其中内容不自动注入 Shenko 主体，v0 不桥接这些认知合同 |
+| DSH agent/session、LLM、UI 与交互审批 | 不提供这些宿主能力；依赖缺失或调用无法执行时明确失败，不以空实现冒充兼容 |
+| 节点迁移 | 安装事实可以沿既有机制同步；Node、模块、路径、外部服务和凭据的可用性仍是执行节点的本地事实 |
+
+工具函数自行调用外部模型并不意味着该推理已进入 Shenko broker。v0 不提供 DSH 模型服务，
+也不宣称任意插件内部调用已经获得调度、额度或未知占用的统一管理。
+
+### 配置、检查与启用
+
+配置版本为 `schemaVersion: 1`；`plugins` 中每项指定唯一 `id`、本地 `entry` 和插件的 `config`。
+`envRefs` 使用「子进程变量名 → 当前节点变量名」映射。完整示例、参数和命令见
+[桥接程序说明](../../adapters/dsh/README.md)。
+
+`profile` 只读取和校验静态配置，输出现有 `McpConnection` JSON；不 import 插件、运行其
+初始化、读取凭据值或安装依赖。`check` 则真实加载选定模块、应用插件、检查工具与依赖，
+最后清理；它会执行插件代码，不能被描述为静态检查。`serve` 在 stdio 上运行同一宿主。
+
+生成连接资料后，使用既有 `shenko compat mcp import ... --unit-id dsh.<name> --enabled`，
+并启用 `compat.mcp`。连接启用与适配器启用是两个安装事实。生成资料和导入资料均不等于
+插件已经在当前节点运行成功，也不自动把全部工具 schema 常驻到主体 prompt。
+
+### 版本、效果和清理
+
+生成资料将配置文件原始字节的 SHA-256 写入启动参数；启动时不匹配就拒绝加载，修改配置后
+必须重新生成并导入资料。该约束仍不绑定路径指向的全部 JavaScript 与传递依赖。上游来源、
+桥接程序锁文件和实际模块版本须保留；原地替换同一路径的代码不产生内容冻结保证。升级前
+撤回原连接并等待实际退出，更新安装后重新检查，再启用；旧未知操作不因此重放。
+
+调用沿用现有 T1 → 协议派发 → E1，`isError` 保持失败，超时、传输丢失或无法确认的
+取消保持 Unknown。原生子任务执行不占据主体主思考流；即时消息与后台工作的先后仍由
+[主体合同](subject-runtime.md#background-self-modification-and-interactive-ingress--2026-11-17)决定。
+桥接程序采用宿主调用期限与工具自身期限的较小值，并向 DSH 执行传递取消；取消或超时
+关闭协议连接，不返回伪造的已完成工具结果。随后清理本进程插件；没有收到真实停止证据时，
+不能由本地取消推断远端副作用已停止。Shenko 的现有 MCP 代际拥有外层进程回收和等待退出责任。
+
+### 验证边界
+
+验证必须分别说明：上游 API 与固定依赖的接线、选定插件的真实加载与工具调用、失败/取消/
+清理、Shenko Store 原生调用，以及模型是否能正确选择和使用该能力。`check` 成功只描述
+这一配置在这一节点的装载结果；fixture、SDK 往返或现有 MCP 测试不替代真实模型效果，
+也不证明未测插件、所有设备或完整 DSH 部署兼容。可重复命令见桥接程序说明，实测计算器
+插件的源版本、依赖组合、结果与后续协议检查见[验证记录](../evidence/dsh-bridge-2026-11-20.md)。
