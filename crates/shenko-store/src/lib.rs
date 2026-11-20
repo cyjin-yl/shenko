@@ -28,6 +28,8 @@ pub use local_installation::{
     HomeInstallationBinding, LocalInstallationProvisioning, LOCAL_HOME_CODEC, LOCAL_HOME_NAMESPACE,
 };
 pub mod cas;
+/// Shared-CAS roots, publication leases and retained owner exclusions.
+pub mod roots;
 pub mod ledger;
 pub mod memory;
 pub mod research;
@@ -67,6 +69,7 @@ pub mod artifacts;
 pub use store::*;
 pub use activation::*;
 pub use cas::*;
+pub use roots::*;
 pub use ledger::*;
 pub use memory::*;
 pub use research::*;

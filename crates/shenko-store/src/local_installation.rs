@@ -261,7 +261,7 @@ fn source_installation(
     Ok((genesis, installation))
 }
 
-fn read_provisioning(
+pub(crate) fn read_provisioning(
     conn: &Connection,
     cas: &ContentStore,
 ) -> Result<Option<LocalInstallationProvisioning>, ShenkoError> {

@@ -33,6 +33,9 @@ pub(crate) fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
             }
         }
         RootCli::Capture => {
+            // Keep each seal and the root fact that names it under one lease.
+            // This starts before bootstrap provisioning can publish content.
+            let _publication = shenko_store::roots::CasWriteLease::acquire(store.cas.base())?;
             use shenko_types::cognitive_root::*;
             use shenko_types::cognition::*;
 
