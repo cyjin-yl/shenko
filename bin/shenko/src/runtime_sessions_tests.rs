@@ -7,9 +7,9 @@ use shenko_subject::{NativeChildPlugin, NativeChildService};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
-const KINDS: [&str; 7] = [
+const KINDS: [&str; 8] = [
     "ssh.exec", "ssh.pty", "omp.seat", "claude.seat",
-    "seat.observe", "seat.respond", "seat.fleet",
+    "seat.observe", "seat.respond", "seat.fleet", "seat.attach.local",
 ];
 
 fn installed(native: &NativeChildService, supervisor: &Supervisor) -> Result<()> {
@@ -32,7 +32,7 @@ fn withdrawn(native: &NativeChildService, supervisor: &Supervisor) -> Result<()>
 }
 
 #[test]
-fn seat_generation_restart_dispose_and_reinstall_own_all_seven_handlers() -> Result<()> {
+fn seat_generation_restart_dispose_and_reinstall_own_all_eight_handlers() -> Result<()> {
     tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
         let root = std::env::temp_dir().join(format!("shenko-seat-generation-{}", EntityId::new()));
         std::fs::create_dir(&root)?;
@@ -48,7 +48,7 @@ fn seat_generation_restart_dispose_and_reinstall_own_all_seven_handlers() -> Res
             installed(&native, &supervisor)?;
             let initial_revision = supervisor.runtime.revision();
 
-            // Same owner Fiber: the former generation must withdraw all seven
+            // Same owner Fiber: the former generation must withdraw all eight
             // registrations before re-applying the same sealed Store input.
             supervisor.restart(&owner).await?;
             installed(&native, &supervisor)?;

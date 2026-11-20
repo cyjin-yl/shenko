@@ -1,7 +1,7 @@
 //! Installed native task authority for SSH exec/PTY and seat observation —
 //!
 //!
-//! Seven native children, all wired to the same runtime the binary installs:
+//! Eight native children, all wired to the same runtime the binary installs:
 //!
 //! | kind | handler | what it really does |
 //! | --- | --- | --- |
@@ -12,6 +12,7 @@
 //! | `seat.observe` | [`SeatObserveHandler`] | observes one attached seat; questions become durable before the observation returns |
 //! | `seat.respond` | [`SeatRespondHandler`] | answers one durable question with lease preflight + compare-and-swap decision |
 //! | `seat.fleet` | [`SeatFleetHandler`] | bounded read-only inventory of durable seats and observed transports |
+//! | `seat.attach.local` | [`LocalSeatAttachHandler`] | authenticated owner request for exact observation-only local attachment |
 //!
 //! Every handler follows the same at-most-once contract as the other native
 //! children: freeze the input to CAS, arm the exact operation id, perform
@@ -44,6 +45,8 @@ use shenko_types::{
 use std::sync::Arc;
 use std::time::Duration;
 mod support;
+mod local_attach;
+pub use local_attach::*;
 
 const EXEC_CONTRACT: &[u8] = b"shenko.ssh.exec/v1: one exact remote command over the registered-CAS trust binding and an owned stream; the installer resolves the exact selected key locally; remote exit255 is a real status here; recovery queries only the original observation, never resends";
 const PTY_CONTRACT: &[u8] = b"shenko.ssh.pty/v1: one live PTY seat over the registered-CAS trust binding; the seat record, the v2 writer lease and the runtime attachment are recorded under the trusted operation id; recovery reads the durable seat facts, never re-opens the PTY";

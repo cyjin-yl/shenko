@@ -96,6 +96,31 @@ CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
     ON seat_answer_decisions(question_id, updated_commit_seq);
 "#;
 
+/// Exact Linux process/server observation for a local tmux pane. This is
+/// evidence, not ownership or a continuous target-side write fence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalTmuxIdentity {
+    pub boot_id: String,
+    pub pane_pid: u32,
+    pub pane_start_ticks: u64,
+    pub server_pid: u32,
+    pub server_start_ticks: u64,
+    pub socket_path: String,
+}
+
+impl LocalTmuxIdentity {
+    pub fn validate(&self) -> Result<()> {
+        ensure!(!self.boot_id.trim().is_empty(), "local tmux boot identity unavailable");
+        ensure!(self.pane_pid > 0 && self.pane_start_ticks > 0,
+            "local tmux pane process identity unavailable");
+        ensure!(self.server_pid > 0 && self.server_start_ticks > 0,
+            "local tmux server process identity unavailable");
+        ensure!(!self.socket_path.is_empty(), "local tmux socket identity unavailable");
+        Ok(())
+    }
+}
+
 /// Current physical reach of a seat — locator fields.
 /// Kept as one sealed shape so future adapters add fields without changing
 /// the records table. A pane id, a remote session anchor or a host string
@@ -114,6 +139,10 @@ pub enum SeatLocation {
         pane_id: String,
         cwd: String,
         current_command: String,
+        /// Absent on legacy records and remote tmux locators. Never infer
+        /// this identity from today's occupant during restart recovery.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        local_identity: Option<LocalTmuxIdentity>,
     },
     /// Managed remote agent over the native SSH PTY transport.
     /// Identity uniqueness comes from the single-writer lease, not a pane.
@@ -146,6 +175,14 @@ pub enum SeatLocation {
 }
 
 impl SeatLocation {
+    fn validate_local_identity(&self) -> Result<()> {
+        if let Self::Tmux { host, local_identity: Some(identity), .. } = self {
+            ensure!(host == "local", "local tmux identity cannot describe an SSH target");
+            identity.validate()?;
+        }
+        Ok(())
+    }
+
     /// The `(host, location key)` this location claims for the
     /// one-active-seat-per-location invariant. tmux seats claim a pane,
     /// managed RPC seats claim their durable session anchor; SSH PTY seats
@@ -197,6 +234,9 @@ pub struct SeatRecord {
     pub adapter: String,
     pub adapter_version: String,
     pub location: SeatLocation,
+    /// Original operation of an observation-only, owner-selected attachment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_only_operation: Option<EntityId>,
     /// Seat this record succeeds; the predecessor keeps its own history.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub supersedes: Option<EntityId>,
@@ -735,6 +775,14 @@ fn check_seat_task(seat: &SeatRecord, task_id: EntityId) -> Result<()> {
     Ok(())
 }
 
+fn check_seat_writable(seat: &SeatRecord) -> Result<()> {
+    ensure!(seat.read_only_operation.is_none(), seat_error(
+        "seat_read_only", RetryStrategy::NeverAutomatically,
+        serde_json::json!({"seat_id": seat.seat_id, "operation_id": seat.read_only_operation}),
+    ));
+    Ok(())
+}
+
 /// Read one task row inside a caller's transaction. The seat fence binds a
 /// task revision, so the revision has to be read from the same transaction
 /// that admits the write — never from a separate lock acquisition.
@@ -1025,6 +1073,95 @@ fn write_decision(tx: &Transaction<'_>, decision: &SeatAnswerDecisionRecord, seq
 }
 
 impl Store {
+    /// Fresh owner-request admission after the installed handler's T1. Seat
+    /// and original lease commit together; no location or lease is displaced.
+    /// Recovery reads these records instead of invoking this fresh path.
+    pub fn bind_local_read_only_seat(
+        &self,
+        invocation: &shenko_types::task::TaskInvocation,
+        operation_id: EntityId,
+        owning_task_id: EntityId,
+        owning_task_revision: TaskRevision,
+        location: SeatLocation,
+    ) -> Result<(SeatRecord, SeatLease)> {
+        ensure!(matches!(&location, SeatLocation::Tmux {
+            host, local_identity: Some(_), ..
+        } if host == "local"), "read-only attachment requires exact local identity");
+        location.validate_local_identity()?;
+        // The original CAS input, rather than fresh caller arguments, owns the
+        // selected task/revision, principal and complete physical locator.
+        let original = self.external_operation(operation_id)?;
+        let bytes = self.cas.read_object(&original.final_input_ref.digest)?;
+        ensure!(bytes.len() as u64 == original.final_input_ref.bytes
+            && shenko_types::object::Digest::blake3(&bytes) == original.input_digest
+            && original.input_digest == original.final_input_ref.digest,
+            "attachment original input closure mismatch");
+        let frozen: serde_json::Value = serde_json::from_slice(&bytes)?;
+        ensure!(frozen["schema_version"] == 1
+            && frozen["request"]["task_id"] == serde_json::json!(owning_task_id)
+            && frozen["owning_task_revision"] == serde_json::json!(owning_task_revision)
+            && frozen["request"]["location"] == serde_json::to_value(&location)?,
+            "attachment arguments differ from original owner request");
+        let installation_id: EntityId = serde_json::from_value(frozen["installation_id"].clone())?;
+        let principal: shenko_types::object::ObjectRef = serde_json::from_value(frozen["principal_ref"].clone())?;
+        ensure!(self.owner_grant(installation_id)?.is_some_and(|grant| grant.human_principal_ref == principal),
+            "attachment original owner grant mismatch");
+        let seat_id = EntityId::derived("local-seat-attach-seat/v1", operation_id.to_string().as_bytes());
+        let lease_id = EntityId::derived("local-seat-attach-lease/v1", operation_id.to_string().as_bytes());
+        self.ledger.with_mutation(|| {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if let Some(seat) = read_seat(&tx, seat_id)? {
+                ensure!(seat.task_id == owning_task_id && seat.location == location
+                    && seat.read_only_operation == Some(operation_id), "attachment identity conflict");
+                let lease = read_lease(&tx, lease_id)?
+                    .ok_or_else(|| ShenkoError::not_found("original attachment lease missing"))?;
+                tx.commit()?;
+                return Ok((seat, lease));
+            }
+            let task = read_task_row(&tx, invocation.task_id)?
+                .ok_or_else(|| ShenkoError::not_found("attachment request task missing"))?;
+            ensure!(self.native_invocation_current_tx(&tx, &task, invocation)?,
+                "stale attachment invocation or generation");
+            ensure!(task.kind == "seat.attach.local" && task.created_by_step_id.is_none()
+                && task.memos.get("owner_local_seat_request") == Some(&serde_json::json!(true))
+                && task.owner == (shenko_types::task::TaskOwner::Task { id: owning_task_id }),
+                "attachment lacks an admitted owner request");
+            let operation_json: String = tx.query_row("SELECT data FROM operations WHERE operation_id=?1",
+                [operation_id.to_string()], |row| row.get(0))?;
+            let operation: shenko_types::operation::OperationRecord = serde_json::from_str(&operation_json)?;
+            ensure!(operation.task_id == task.task_id && operation.operation_name == "seat.attach.local.v1"
+                && operation.final_input_ref == task.input_ref
+                && operation.state == shenko_types::operation::OperationState::InFlight,
+                "attachment original operation mismatch");
+            let owner = read_task_row(&tx, owning_task_id)?
+                .ok_or_else(|| ShenkoError::not_found("selected attachment task missing"))?;
+            ensure!(owner.agent_id == task.agent_id && owner.task_revision == owning_task_revision
+                && owner.abort_request.is_none() && !owner.is_terminal(), "selected attachment task changed");
+            claim_seat_location(&tx, &location, None)?;
+            let seq = self.ledger.allocate_seq(&tx)?;
+            let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+            let seat = SeatRecord {
+                schema_version: 1, seat_id, incarnation: SeatIncarnation(0), task_id: owning_task_id,
+                adapter: "tmux".into(), adapter_version: "tmux-capture-v1".into(), location,
+                read_only_operation: Some(operation_id), supersedes: None, status: SeatStatus::Active,
+                record_revision: RecordRevision(0), created_commit: commit, updated_commit: commit,
+            };
+            let lease = SeatLease {
+                schema_version: 2, lease_id, seat_id, holder_task_id: owning_task_id,
+                acquired_at_incarnation: seat.incarnation, lease_epoch: 1,
+                fence_capability: format!("local-read-only:{operation_id}"), legacy_writer: false,
+                state: SeatLeaseState::Current, ended_reason: None, superseded_by: None,
+                record_revision: RecordRevision(0), created_commit: commit, updated_commit: commit,
+            };
+            write_seat(&tx, &seat, seq.0)?;
+            write_lease(&tx, &lease, seq.0)?;
+            seat_log(&tx, self, commit, 2)?;
+            tx.commit()?;
+            Ok((seat, lease))
+        }, storage_failure)
+    }
+
     /// Register a newly discovered seat. Returns the existing record when the
     /// id is already known (idempotent re-registration after a restart).
     /// Refuses a second active seat at an already-claimed pane inside the same
@@ -1037,6 +1174,7 @@ impl Store {
         adapter_version: impl Into<String>,
         location: SeatLocation,
     ) -> Result<SeatRecord> {
+        location.validate_local_identity()?;
         let adapter = adapter.into();
         let adapter_version = adapter_version.into();
         self.ledger.with_mutation(
@@ -1061,6 +1199,7 @@ impl Store {
                     adapter: adapter.into(),
                     adapter_version: adapter_version.into(),
                     location,
+                    read_only_operation: None,
                     supersedes: None,
                     status: SeatStatus::Active,
                     record_revision: RecordRevision(0),
@@ -1141,6 +1280,7 @@ impl Store {
                 let seat = read_seat(&tx, decision.seat_id)?
                     .ok_or_else(|| ShenkoError::not_found("arm_seat_answer_decision: unknown seat"))?;
                 check_seat_task(&seat, decision.task_id)?;
+                check_seat_writable(&seat)?;
                 ensure!(
                     seat.status == SeatStatus::Active,
                     seat_error(
@@ -1339,6 +1479,7 @@ impl Store {
         adapter_version: impl Into<String>,
         location: SeatLocation,
     ) -> Result<SeatRecord> {
+        location.validate_local_identity()?;
         let adapter = adapter.into();
         let adapter_version = adapter_version.into();
         self.ledger.with_mutation(
@@ -1379,6 +1520,7 @@ impl Store {
                     adapter: adapter.into(),
                     adapter_version: adapter_version.into(),
                     location,
+                    read_only_operation: None,
                     supersedes: Some(previous),
                     status: SeatStatus::Active,
                     record_revision: RecordRevision(0),
@@ -1652,6 +1794,7 @@ impl Store {
             )
         })?;
         check_seat_task(&seat, task_id)?;
+        check_seat_writable(&seat)?;
         if seat.status != SeatStatus::Active {
             return Err(seat_error(
                 "seat_retired",
@@ -2051,6 +2194,7 @@ impl Store {
                 );
                 let seat = read_seat(&tx, decision.seat_id)?
                     .ok_or_else(|| ShenkoError::not_found("seat_answer_decision: unknown seat"))?;
+                check_seat_writable(&seat)?;
                 ensure!(
                     seat.record_revision == expected.seat_revision,
                     seat_error(
@@ -2316,5 +2460,48 @@ impl SeatRecord {
             )
             .optional()?;
         data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
+    }
+}
+
+#[cfg(test)]
+mod local_tmux_identity_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_locator_stays_explicitly_without_identity() -> Result<()> {
+        let json = serde_json::json!({"kind":"tmux", "host":"local", "session":"owned",
+            "window":0, "pane":1, "pane_id":"%4", "cwd":"/project", "current_command":"omp"});
+        let location: SeatLocation = serde_json::from_value(json.clone())?;
+        assert!(matches!(&location, SeatLocation::Tmux { local_identity: None, .. }));
+        assert_eq!(serde_json::to_value(location)?, json);
+        Ok(())
+    }
+
+    #[test]
+    fn local_identity_roundtrips_without_changing_location_claim() -> Result<()> {
+        let mut location: SeatLocation = serde_json::from_value(serde_json::json!({
+            "kind":"tmux", "host":"local", "session":"owned", "window":0, "pane":1,
+            "pane_id":"%4", "cwd":"/project", "current_command":"omp",
+            "local_identity":{"boot_id":"boot-a", "pane_pid":41, "pane_start_ticks":123,
+                "server_pid":20, "server_start_ticks":80, "socket_path":"/owned/tmux.sock"}
+        }))?;
+        location.validate_local_identity()?;
+        assert_eq!(location.claim_key(), Some(("local", "%4")));
+        assert_eq!(serde_json::from_str::<SeatLocation>(&serde_json::to_string(&location)?)?, location);
+        if let SeatLocation::Tmux { host, .. } = &mut location { *host = "ssh-target".into(); }
+        assert!(location.validate_local_identity().is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn partial_or_empty_identity_is_never_complete() -> Result<()> {
+        assert!(serde_json::from_value::<LocalTmuxIdentity>(serde_json::json!({
+            "boot_id":"boot-a", "pane_pid":41
+        })).is_err());
+        let identity = LocalTmuxIdentity { boot_id: "boot-a".into(), pane_pid: 41,
+            pane_start_ticks: 0, server_pid: 20, server_start_ticks: 80,
+            socket_path: "/owned/tmux.sock".into() };
+        assert!(identity.validate().is_err());
+        Ok(())
     }
 }

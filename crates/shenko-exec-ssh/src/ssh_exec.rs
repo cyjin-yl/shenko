@@ -407,10 +407,104 @@ pub fn extract_question_lines(plain: &str) -> Vec<String> {
         .collect()
 }
 
+fn parse_local_identity_line(
+    stdout: &str,
+    expected_pane: &str,
+) -> Result<(TmuxPane, u32, String)> {
+    let line = stdout.strip_suffix('\n').unwrap_or(stdout);
+    let fields: Vec<_> = line.split('\t').collect();
+    anyhow::ensure!(fields.len() == 13 && !line.contains('\n'),
+        "local tmux identity response is incomplete or ambiguous");
+    let pane = parse_pane_line(line)
+        .ok_or_else(|| anyhow::anyhow!("local tmux pane identity unavailable"))?;
+    anyhow::ensure!(pane.pane_id == expected_pane && pane.pane_pid > 0 && fields[10] == "0",
+        "local tmux pane is missing, dead or replaced");
+    anyhow::ensure!(!fields[0].is_empty(), "local tmux session unavailable");
+    fields[1].parse::<u32>()?;
+    fields[2].parse::<u32>()?;
+    let server_pid: u32 = fields[11].parse()?;
+    anyhow::ensure!(server_pid > 0 && !fields[12].is_empty(),
+        "local tmux server identity unavailable");
+    Ok((pane, server_pid, fields[12].to_owned()))
+}
+
+/// Linux stat field 22, after the *last* closing comm parenthesis. The comm
+/// field may itself contain spaces and parentheses. Never use argv or a
+/// rounded wall-clock start time as a replacement for this kernel token.
+fn linux_process_start_ticks(stat: &str, expected_pid: u32) -> Result<u64> {
+    let (pid, _) = stat.split_once(" (")
+        .ok_or_else(|| anyhow::anyhow!("process stat has no pid/comm boundary"))?;
+    anyhow::ensure!(pid.parse::<u32>()? == expected_pid && expected_pid > 0,
+        "process stat pid mismatch");
+    let (_, tail) = stat.rsplit_once(") ")
+        .ok_or_else(|| anyhow::anyhow!("process stat has no comm/state boundary"))?;
+    let mut fields = tail.split_whitespace();
+    let state = fields.next().ok_or_else(|| anyhow::anyhow!("process state unavailable"))?;
+    anyhow::ensure!(state != "Z" && state != "X" && state != "x", "process has exited");
+    let ticks: u64 = fields.nth(18)
+        .ok_or_else(|| anyhow::anyhow!("process start token unavailable"))?.parse()?;
+    anyhow::ensure!(ticks > 0, "process start token unavailable");
+    Ok(ticks)
+}
+
+#[cfg(test)]
+mod local_incarnation_tests {
+    use super::*;
+
+    #[test]
+    fn process_start_uses_kernel_field_with_parentheses_in_comm() -> Result<()> {
+        let mut tail = vec!["0"; 22];
+        tail[0] = "S";
+        tail[19] = "987654321";
+        let stat = format!("42 (agent ) with (spaces)) {}", tail.join(" "));
+        assert_eq!(linux_process_start_ticks(&stat, 42)?, 987654321);
+        assert!(linux_process_start_ticks(&stat, 43).is_err());
+        assert!(linux_process_start_ticks("42 (agent) S 1 2", 42).is_err());
+        tail[0] = "Z";
+        assert!(linux_process_start_ticks(&format!("42 (agent) {}", tail.join(" ")), 42).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn local_observation_refuses_missing_dead_and_ambiguous_server_identity() -> Result<()> {
+        let valid = "owned\t0\t1\t%4\tomp\t/project\t1\t80\t24\t41\t0\t20\t/owned/tmux.sock\n";
+        let (pane, server, socket) = parse_local_identity_line(valid, "%4")?;
+        assert_eq!(pane.pane_pid, 41);
+        assert_eq!(server, 20);
+        assert_eq!(socket, "/owned/tmux.sock");
+        assert!(parse_local_identity_line(valid, "%5").is_err());
+        assert!(parse_local_identity_line(&valid.replace("\t0\t20\t", "\t1\t20\t"), "%4").is_err());
+        assert!(parse_local_identity_line(&valid.replace("\t20\t", "\t0\t"), "%4").is_err());
+        assert!(parse_local_identity_line(&format!("{valid}{valid}"), "%4").is_err());
+        assert!(parse_local_identity_line("owned\t0\t1\t%4\tomp\t/project\t1\t80\t24", "%4").is_err());
+        Ok(())
+    }
+}
+
+fn read_local_process_identity(
+    pane: &TmuxPane,
+    server_pid: u32,
+    socket_path: String,
+) -> Result<shenko_store::LocalTmuxIdentity> {
+    let identity = shenko_store::LocalTmuxIdentity {
+        boot_id: std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?.trim().to_owned(),
+        pane_pid: pane.pane_pid,
+        pane_start_ticks: linux_process_start_ticks(
+            &std::fs::read_to_string(format!("/proc/{}/stat", pane.pane_pid))?, pane.pane_pid)?,
+        server_pid,
+        server_start_ticks: linux_process_start_ticks(
+            &std::fs::read_to_string(format!("/proc/{server_pid}/stat"))?, server_pid)?,
+        socket_path,
+    };
+    identity.validate()?;
+    Ok(identity)
+}
+
 /// Tmux seat adapter — discovers and controls tmux panes.
 /// This is the first required seat path: "已存在的 tmux 前台 TUI"
 pub struct TmuxSeat {
     executor: SshExecutor,
+    local: bool,
     observation_seq: std::sync::atomic::AtomicU64,
 }
 
@@ -418,6 +512,7 @@ impl TmuxSeat {
     pub fn local() -> Self {
         Self {
             executor: SshExecutor::new(SshTarget::default()),
+            local: true,
             observation_seq: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -425,8 +520,43 @@ impl TmuxSeat {
     pub fn remote(target: SshTarget) -> Self {
         Self {
             executor: SshExecutor::over_ssh(target),
+            local: false,
             observation_seq: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Observe local pane/server identity without changing tmux state. Two
+    /// matching tmux reads bracket two matching /proc reads; failure is
+    /// unavailable evidence, never a command-name fallback. Remote discovery
+    /// retains its existing contract and never reads this host's /proc.
+    pub(crate) async fn local_pane_identity(
+        &self,
+        pane_id: &str,
+    ) -> Result<(TmuxPane, shenko_store::LocalTmuxIdentity)> {
+        anyhow::ensure!(self.local, "local identity requires the local tmux transport");
+        anyhow::ensure!(pane_id.strip_prefix('%').is_some_and(|id|
+            !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
+            "invalid exact tmux pane id");
+        let command = format!(
+            "tmux display-message -p -t {} '{}\t#{{pid}}\t#{{socket_path}}'",
+            shell_quote(pane_id), PANE_FORMAT,
+        );
+        let first = self.executor.run_command(&command).await?;
+        first.require_success()?;
+        let (pane, server_pid, socket_path) = parse_local_identity_line(&first.stdout, pane_id)?;
+        let identity = read_local_process_identity(&pane, server_pid, socket_path)?;
+        let second = self.executor.run_command(&command).await?;
+        second.require_success()?;
+        anyhow::ensure!(first.stdout == second.stdout,
+            "local tmux locator changed during identity observation");
+        anyhow::ensure!(
+            std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?.trim() == identity.boot_id
+                && linux_process_start_ticks(&std::fs::read_to_string(
+                    format!("/proc/{}/stat", pane.pane_pid))?, pane.pane_pid)? == identity.pane_start_ticks
+                && linux_process_start_ticks(&std::fs::read_to_string(
+                    format!("/proc/{server_pid}/stat"))?, server_pid)? == identity.server_start_ticks,
+            "local tmux process incarnation changed during observation");
+        Ok((pane, identity))
     }
 
     /// List all tmux panes. Returns empty Vec if tmux not running.

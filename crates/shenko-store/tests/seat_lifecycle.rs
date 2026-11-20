@@ -24,6 +24,7 @@ fn location(pane: &str) -> SeatLocation {
     SeatLocation::Tmux {
         host: "local".into(), session: "dev".into(), window: 0, pane: 0,
         pane_id: pane.into(), cwd: "/project".into(), current_command: "omp".into(),
+        local_identity: None,
     }
 }
 
