@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Shenko Node</string>
+    <string name="node_start_hint">Start the node, then open its local UI when ready.</string>
+    <string name="node_start">Start node</string>
+    <string name="node_start_requested">Node start requested. This does not confirm runtime readiness.</string>
+    <string name="node_start_failed">Node start could not be requested: %1$s</string>
+    <string name="node_open_ui">Open Shenko</string>
+    <string name="node_browser_unavailable">No browser is available to open the local UI.</string>
 </resources>
