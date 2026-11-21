@@ -689,10 +689,25 @@ fn recovery_stop_during_owned_teardown(root: &Path, port: u16, observer: &Observ
     ensure!(term_after > term_before, "real election did not change the old runtime's binding");
     drop(node);
     runtime.signal_group(libc::SIGCONT)?;
-    // The dispatcher observes the new authority before a control mutation;
-    // it cancels the old request while this transaction holds its E1 writer.
-    observer.closed_inference.recv_timeout(Duration::from_secs(3))?;
-    observed("inference_transport_closed_before_sigint")?;
+    observed("authority_changed_and_process_continued")?;
+    // Cancellation reports its original request before synchronous error/E1
+    // journaling. That journal is deliberately held here; the Tokio HTTP
+    // connection driver need not produce physical EOF before it can progress.
+    let request_identity = request_id.to_string();
+    let cancellation_deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let bytes = fs::read(root.join(format!("{label}.log")))?;
+        let log = String::from_utf8_lossy(&bytes);
+        ensure!(!log.contains("host shutdown signal observed"),
+            "a host signal preceded the controlled authority failure");
+        if log.lines().any(|line| line.contains("INFERENCE_OBSERVATION_STOPPED")
+            && line.contains(&request_identity)) { break; }
+        ensure!(runtime.0.try_wait()?.is_none(), "runtime exited before its failure cancellation was observed");
+        ensure!(Instant::now() < cancellation_deadline,
+            "original request cancellation was not observed before cleanup SIGINT");
+        thread::sleep(Duration::from_millis(10));
+    }
+    observed("original_request_cancellation_observed_before_sigint")?;
     ensure!(runtime.0.try_wait()?.is_none(), "runtime abandoned its blocked E1 writer");
     runtime.signal_group(libc::SIGINT)?;
     observed("sigint_sent_during_owned_cleanup")?;
@@ -711,6 +726,9 @@ fn recovery_stop_during_owned_teardown(root: &Path, port: u16, observer: &Observ
         "installation ownership was released while E1 was still blocked");
     barrier.rollback()?;
     observed("original_e1_writer_released")?;
+    observer.closed_inference.recv_timeout(Duration::from_secs(5))
+        .context("original HTTP transport did not end after its cleanup writer was released")?;
+    observed("original_transport_end_confirmed")?;
     let status = runtime.wait_for(Duration::from_secs(30))?;
     ensure!(!status.success() && status.code().is_some(), "stop erased the original recovery failure: {status}");
     let log = fs::read_to_string(root.join(format!("{label}.log")))?;
