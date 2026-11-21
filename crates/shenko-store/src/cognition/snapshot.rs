@@ -162,6 +162,7 @@ impl Store {
             git_history,
             gaps: collected.gaps,
         };
+        crate::cognition_archive::validate_manifest_schema(&manifest)?;
         Ok(CognitionExport {
             manifest,
             cas: Arc::clone(&self.cas),
