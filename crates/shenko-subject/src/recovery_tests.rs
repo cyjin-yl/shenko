@@ -2156,6 +2156,13 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     .unwrap();
     assert_eq!(rejection.request_id, request_id.unwrap());
     assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.error.details["line"], 1);
+    assert!(
+        rejection.error.details["reason"]
+            .as_str()
+            .unwrap()
+            .contains("same line")
+    );
     assert_eq!(rejection.replacement_step_id, subject.step.step_id);
     let correction = super::frozen_input(&store, &subject.step).unwrap();
     assert_eq!(correction.events[0].event_id, event.event_id);
@@ -2177,6 +2184,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
         "[delegate]"
     );
     assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
+    assert!(correction_text(&correction.payload.messages[2]).contains("same line"));
     anyhow::ensure!(correction.schema_version == 15);
     let counted = crate::context_projection::estimate_payload_tokens(&correction.payload, 0)
         .context("complete plaintext correction must be countable")?;
