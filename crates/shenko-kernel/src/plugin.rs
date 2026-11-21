@@ -14,10 +14,40 @@ use cordis_core::logger::{Exporter, Level, LogRecord};
 use cordis_core::lifecycle::UpdateOutcome;
 use cordis_core::{Context, FiberHandle, Plugin, PreparedChange, PreparedPlugin};
 use parking_lot::Mutex;
-use tokio::sync::oneshot;
+use tokio::sync::Mutex as AsyncMutex;
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::{ErrorObservation, ErrorSite};
+use crate::preparation::{PreparationAdmission, PreparationScope};
+
+#[derive(Default)]
+struct Stop {
+    owner: Option<JoinHandle<Result<()>>>,
+    outcome: Option<std::result::Result<(), Arc<anyhow::Error>>>,
+}
+
+/// Capability held by an external shutdown observer. Only begin_stop can
+/// produce it, before shutdown starts awaiting participating scopes. Keep this
+/// ticket outside those scopes; waiting for it from their cleanup self-waits.
+#[derive(Clone)]
+pub struct StopObservation {
+    completion: Arc<StopCompletion>,
+}
+struct StopCompletion {
+    state: AsyncMutex<Stop>,
+    retryable_refusal: AtomicBool,
+    registry: Arc<AtomicBool>,
+}
+
+#[derive(Debug)]
+struct StopFailure(Arc<anyhow::Error>);
+impl std::fmt::Display for StopFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { std::fmt::Display::fmt(&self.0, f) }
+}
+impl std::error::Error for StopFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(self.0.as_ref().as_ref()) }
+}
 
 #[derive(Default)]
 struct Diagnostics {
@@ -37,14 +67,12 @@ impl Exporter for Diagnostics {
             // actual unable-to-continue boundary (check_outcomes then refuses
             // every admission), not every subsequent diagnostic record.
             let was_unknown = self.unknown.swap(true, Ordering::SeqCst);
-            if !was_unknown {
-                if let Some(errors) = &self.errors {
-                    errors.observe(
-                        ErrorSite::new("cordis_lifecycle", module_path!()),
-                        format!("Cordis lifecycle failure: {}", record.text()),
-                        serde_json::json!({ "record_level": format!("{:?}", record.level()) }),
-                    );
-                }
+            if !was_unknown && let Some(errors) = &self.errors {
+                errors.observe(
+                    ErrorSite::new("cordis_lifecycle", module_path!()),
+                    format!("Cordis lifecycle failure: {}", record.text()),
+                    serde_json::json!({ "record_level": format!("{:?}", record.level()) }),
+                );
             }
         }
     }
@@ -53,7 +81,9 @@ impl Exporter for Diagnostics {
 pub struct PluginRegistry {
     context: Context,
     shutdown: CancellationToken,
+    stop: Mutex<Option<StopObservation>>,
     stopping: Arc<AtomicBool>,
+    preparation: Arc<PreparationAdmission>,
     diagnostics: Arc<Diagnostics>,
     errors: Arc<ErrorObservation>,
 }
@@ -76,10 +106,20 @@ impl PluginRegistry {
         context
             .add_exporter(diagnostics.clone())
             .expect("fresh Cordis root is active");
+        let preparation = PreparationAdmission::new(shutdown.clone());
+        // The permanent root retains this publication's cleanup claim when
+        // the handle drops. Keep the closed gate discoverable after stop so
+        // late preparation reports Closed rather than a missing attachment.
+        let _preparation_publication = match context.provide(preparation.clone()) {
+            Ok(publication) => publication,
+            Err(error) => panic!("fresh Cordis root admits preparation gate: {error:?}"),
+        };
         Self {
             context,
             shutdown,
+            stop: Mutex::new(None),
             stopping: Arc::new(AtomicBool::new(false)),
+            preparation,
             diagnostics,
             errors,
         }
@@ -114,8 +154,7 @@ impl PluginRegistry {
         self.check_outcomes()?;
         let context = self.context.clone();
         let shutdown = self.shutdown.clone();
-        let (send, receive) = oneshot::channel();
-        self.context.spawn_attributed(async move {
+        let owner = self.context.spawn_attributed(async move {
             // Cancellation interrupts pending apply; the native Runtime gate,
             // not this select poll, linearizes attach against terminal shutdown.
             let result = tokio::select! {
@@ -126,11 +165,12 @@ impl PluginRegistry {
             // Return this creation's actual result, even if another Fiber has
             // since reported unknown cleanup. The caller must receive the live
             // handle; host health only gates subsequent admission/restart.
-            let _ = send.send(result);
+            result
         });
-        receive
-            .await
-            .context("plugin creation owner lost; outcome unknown")?
+        // Attributed tasks are user-owned. Join the actual owner, so admission
+        // does not report completion while its future still retains Context.
+        // Dropping this wait detaches the task; committed creation continues.
+        owner.await.context("plugin creation owner lost; outcome unknown")?
     }
 
     /// Destructive same-Fiber restart, not atomic graph activation/handoff.
@@ -183,38 +223,90 @@ impl PluginRegistry {
         Ok(outcome)
     }
 
-    /// Terminally close admission and await every native resident Fiber.
-    /// A concurrent/reentrant stop refuses immediately, rather than waiting on
-    /// the very lifecycle callback that must return for shutdown to finish.
-    /// Caller cancellation abandons only the wait. Retry after an in-progress or
-    /// recursive refusal to observe completion; errors never clear the unknown latch.
-    pub async fn stop(&self) -> Result<()> {
+    /// Begin the original terminal shutdown and return its external observation
+    /// capability before awaiting any cleanup. Active/reentrant calls refuse,
+    /// so a participating cleanup cannot obtain the ticket by calling this.
+    pub fn begin_stop(&self) -> Result<StopObservation> {
         anyhow::ensure!(
-            self.stopping
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok(),
+            self.stopping.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok(),
             "plugin shutdown already in progress; do not wait from a lifecycle callback"
         );
         self.shutdown.cancel();
-        let context = self.context.clone();
-        let stopping = self.stopping.clone();
-        let diagnostics = self.diagnostics.clone();
-        let (send, receive) = oneshot::channel();
-        self.context.spawn_attributed(async move {
-            // Cordis closes attach and freezes its flat resident authority in
-            // one critical section, including native Context compositions and
-            // old allocations already detached by a cancelled typed removal.
-            let result = context
-                .close_plugins()
-                .await
-                .map_err(Into::into)
-                .and_then(|()| check_outcomes(&diagnostics));
-            stopping.store(false, Ordering::SeqCst);
-            let _ = send.send(result);
+        let mut stop = self.stop.lock();
+        if let Some(observation) = &*stop
+            && !observation.completion.retryable_refusal.load(Ordering::SeqCst)
+        {
+            self.stopping.store(false, Ordering::SeqCst);
+            return Ok(observation.clone());
+        }
+        let completion = Arc::new(StopCompletion {
+            state: AsyncMutex::new(Stop::default()),
+            retryable_refusal: AtomicBool::new(false),
+            registry: self.stopping.clone(),
         });
-        receive
-            .await
-            .context("plugin shutdown owner lost; cleanup outcome unknown")?
+        let settled = completion.clone();
+        let context = self.context.clone();
+        let preparation = self.preparation.clone();
+        let diagnostics = self.diagnostics.clone();
+        let stopping = self.stopping.clone();
+        let owner = self.context.spawn_attributed(async move {
+            let result = async {
+                // Closing the same admission gate waits any already admitted
+                // internal scope creation. No new scope can follow typed detach.
+                preparation.close().await;
+                context.remove_plugins::<PreparationScope>().await?;
+                // Cordis contains cleanup errors diagnostically. A completed
+                // removal proves physical settlement even after a historical
+                // failure; retain its diagnostic when closing remaining Fibers.
+                context.close_plugins().await?;
+                check_outcomes(&diagnostics)
+            }.await;
+            // A native recursion refusal is precommit for that native removal.
+            // Keep its original ticket/result, while permitting a later external
+            // begin_stop to finish retirement after the refusing scope returns.
+            settled.retryable_refusal.store(result.as_ref().err().is_some_and(|error|
+                error.downcast_ref::<cordis_core::lifecycle::LifecycleRecursion>().is_some()), Ordering::SeqCst);
+            stopping.store(false, Ordering::SeqCst);
+            result
+        });
+        {
+            let Ok(mut state) = completion.state.try_lock() else {
+                unreachable!("new original stop has no observer");
+            };
+            state.owner = Some(owner);
+        }
+        let observation = StopObservation { completion };
+        *stop = Some(observation.clone());
+        Ok(observation)
+    }
+
+    /// Observe only the original ticket already held outside participating
+    /// cleanup. Multiple ticket clones await the same retained owner/result.
+    /// Cancellation abandons this observer, never the original join handle.
+    pub async fn wait_stopped(&self, observation: &StopObservation) -> Result<()> {
+        anyhow::ensure!(Arc::ptr_eq(&self.stopping, &observation.completion.registry),
+            "stop observation belongs to a different plugin registry");
+        let mut stop = observation.completion.state.lock().await;
+        if let Some(outcome) = &stop.outcome {
+            return outcome.clone().map_err(|error| StopFailure(error).into());
+        }
+        let Some(owner) = stop.owner.as_mut() else {
+            unreachable!("original kernel stop owner");
+        };
+        let outcome = owner.await
+            .context("plugin shutdown owner lost; cleanup outcome unknown")
+            .and_then(|result| result)
+            .map_err(Arc::new);
+        drop(stop.owner.take());
+        stop.outcome = Some(outcome.clone());
+        outcome.map_err(|error| StopFailure(error).into())
+    }
+
+    /// Terminally stop with the existing active/reentrant refusal. An external
+    /// caller needing cancellation/reobservation uses begin_stop + wait_stopped.
+    pub async fn stop(&self) -> Result<()> {
+        let observation = self.begin_stop()?;
+        self.wait_stopped(&observation).await
     }
 }
 
