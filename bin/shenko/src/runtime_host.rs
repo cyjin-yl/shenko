@@ -128,8 +128,8 @@ impl SignalObserver {
                     registered.send(Ok(())).context("host signal registration receiver closed")?;
                     tokio::select! {
                         biased;
-                        result = &mut signal => {
-                            result.context("observe host shutdown signal")?;
+                        _signal_result = &mut signal => {
+                            _signal_result.context("observe host shutdown signal")?;
                             stop.request();
                         }
                         _ = observer_shutdown.cancelled() => {}
