@@ -252,5 +252,20 @@ UTC/monotonic 观测；调用返回仍不等于应用接收，30 秒停止窗口
 当前收敛工作需保留原创建 step 的精确条件及当前 successor 的存在/绑定校验，
 并在真实源码、现有恢复测试和完整模型旅程上验证，不能丢弃旧版本的完整见证或改写旧 chosen 事实。
 
+### 新 native 见证的实际回归
+
+`66a7935c` 在同一实际开发容器执行了 [12 项定向回归](daily-readiness-20261122/scoped-66a7935c/summary.json)：
+11 项通过，1 项失败，原进程退出码为 1。已通过的包括带 post-choice S0 推进的 129 MiB 原生链、
+8 项 archive admission、新 writer 的 obligation 归档重开/中继，以及跨账本 canonical S1 恢复。
+
+[原 first-claim 失败日志](daily-readiness-20261122/scoped-66a7935c/first-claim.log.gz)
+在最后正例恢复处取得 `ReconciliationRequired`。
+[失败安装的只读比较](daily-readiness-20261122/scoped-66a7935c/first-claim-fixture-comparison.json)
+证明测试负控的恢复 SQL 漏了第八列 `created_at`：source creator 仍符合冻结见证，
+follower 的时间列被 `INSERT OR REPLACE` 默认值改写，其余规范列一致。完整行校验因此正确拒绝。
+修复 `dcff5a86` 让三个负控各自通过真实 archive/import 和 learned S1 建立独立接收者，
+保留各自协调债务，不再恢复或覆盖错误状态；最终正例使用未被修改的原 follower。
+原失败安装、退出码和分母均保留，重跑回执须另行记录。
+
 固定最终 release 候选的完整浏览器回执和新候选计时仍待取得。
 在这些回执写入前，本记录不宣称首条完整真实任务已收口或重复运行已通过。
