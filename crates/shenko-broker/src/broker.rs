@@ -796,6 +796,11 @@ pub struct Broker {
 }
 
 impl Broker {
+    /// The exact registry served by this broker, including its prepared source.
+    pub fn registry(&self) -> &Arc<ProviderRegistry> {
+        &self.registry
+    }
+
     pub fn new() -> Result<(Self, BrokerHandle)> {
         Self::from_env_with_admission(AdmissionController::nominal())
     }
@@ -1364,6 +1369,7 @@ impl ProviderRuntime for OfflineRuntime {
             engine_incarnation: None,
             default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
             serializer_revision: 2,
+            process_generation: None,
         });
         &PROFILE
     }
@@ -1505,6 +1511,7 @@ mod tests {
                 engine_incarnation: None,
                 default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
                 serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+                process_generation: None,
             });
             &PROFILE
         }

@@ -771,6 +771,7 @@ mod tests {
             engine_incarnation: incarnation.map(str::to_string),
             default_max_tokens: 1024,
             serializer_revision: 1,
+            process_generation: None,
         }
     }
 
