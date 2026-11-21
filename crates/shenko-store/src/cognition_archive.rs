@@ -45,7 +45,7 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// be a silent loss of the subject's attitudes, so the schema is bumped
 /// instead of smuggling them in as optional rows. A schema-5 receiver rejects
 /// this archive at the version gate, and a current reader still admits
-/// schemas 2..=7 and 10 after complete format, closure and membership admission.
+/// schemas 2..=7 and 10..=11 after complete format, closure and membership admission.
 /// Two original producers independently used schema 7: dialogue endpoints and
 /// messages, or forks and immutable parent-head history. Each declares exactly
 /// its complete native family, even when empty. This build owns the fork/history
@@ -53,16 +53,19 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// The combined format is schema 8; required evidence-conflict/Root facts are
 /// schema 9. Neither is implemented by this writer.
 /// Schema 10 retains the fork/history family and permits the direct native
-/// creator-key/successor-predicate readers. All new exports use 10, including
-/// snapshots without a native transition: an older schema-7 reader must reject
+/// creator-key/successor-predicate readers, retaining their original meaning.
+/// Schema 11 additionally declares direct paired arm and childless original T2
+/// codec 4 with row-schema-4 operation, attempt and receipt selectors.
+/// All new exports use 11, including
+/// snapshots without a native transition: an older schema-10 reader must reject
 /// at the manifest boundary rather than copy facts it cannot later interpret.
-pub const ARCHIVE_SCHEMA: u32 = 10;
+pub const ARCHIVE_SCHEMA: u32 = 11;
 
 /// Validate the original producer format before reading or publishing payloads.
 /// The two native schema-7 families remain distinct; combining them requires
 /// their own writer format and both domains' complete recovery owners.
 pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<()> {
-    ensure!(matches!(manifest.schema, 2..=7 | ARCHIVE_SCHEMA),
+    ensure!(matches!(manifest.schema, 2..=7 | 10 | ARCHIVE_SCHEMA),
         "unsupported cognition archive schema {}", manifest.schema);
     if manifest.schema >= 6 {
         ensure!(!manifest.fact_classes.is_empty(),
@@ -85,9 +88,9 @@ pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<(
         ensure!((dialogue == 0b11 && lineage == 0)
                 || (dialogue == 0 && lineage == 0b11),
             "schema-7 archive must identify exactly one native producer: dialogue or fork/history");
-    } else if manifest.schema == ARCHIVE_SCHEMA {
+    } else if matches!(manifest.schema, 10 | ARCHIVE_SCHEMA) {
         ensure!(dialogue == 0 && lineage == 0b11,
-            "schema-10 archive requires fork/history membership without dialogue facts");
+            "schema-{} archive requires fork/history membership without dialogue facts", manifest.schema);
     } else {
         ensure!(dialogue == 0 && lineage == 0,
             "historical archive cannot claim later dialogue or fork/history membership");
