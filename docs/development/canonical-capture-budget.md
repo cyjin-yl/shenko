@@ -70,7 +70,7 @@ progress is the mechanism this fix targets. The original error alone does not
 identify the changed row at the precise failure instant. The absence of an
 operation or attempt did not make those selected actions safe to retry.
 
-Direct first claims use claim codec 2. The original proof-bearing paired
+The subject-witness increment introduced claim codec 2. The original proof-bearing paired
 T1 and childless original T2 format introduced codec 3 and row schema 3;
 old claim 1, arm/T2 1–2 and ordinary dispatch retain their original row schema 1
 semantics. Only the independently verified S1/claim/E1 chain can use the new
@@ -113,6 +113,14 @@ is a later observation, not a reconstruction of every cell at the error instant.
 The later missing-materialization error does not make the chosen arm safe to
 replace or execute again. These failed receipts remain failures.
 
+New direct first claims use claim codec 3 / row schema 4 and freeze only the
+absence of their deterministic original operation's physical PK. This is the
+same predicate as `evaluate_claim`; it does not add arm's JSON-alias or logical
+key semantics. The typed claim reader requires exactly that selector and an
+empty matching image. Both source capture and application requery the point
+before and after the task write. Old claim 1/2 objects retain their full
+operation witnesses and original row-schema 1/3 interpretations.
+
 The printf executor now requests the existing paired native T1/dispatch permit.
 Only its fresh return permits the original execution; replay and recovery still
 return a factual read. For a proven direct S1/claim chain, new arm codec 4 binds
@@ -152,7 +160,8 @@ refused. Full schemas and trigger definitions remain bound, and preimages,
 absence, writes and postimages are checked under one final IMMEDIATE transaction.
 Ordinary arm/T2 and generic dispatch keep their original format. Old arm/T2
 codecs 1–2 still require row schema 1; codec 3 requires row schema 3; only codec 4
-accepts row schema 4. Claim codec 2 continues to use row schema 3. Rows 1–3 cannot
+accepts row schema 4. Claim codec 2 continues to use row schema 3; claim codec 3
+requires row schema 4. Rows 1–3 cannot
 carry a selector. This introduces no retry, serialization of unrelated tasks,
 replacement chosen action or receiver execution permission.
 
@@ -163,13 +172,17 @@ only admit schema 10 or earlier refuse schema 11 before payload CAS publication.
 The archive gate does not version raw Node object transport.
 
 The existing direct-chain regression adds six necessary windows: real unrelated
-E1 progress after the target arm's choice and after its T2 choice, trigger/view
+E1 progress after the target claim's choice and after its arm choice, trigger/view
 dependency refusal, logical-key absence conflict, a same-ID uppercase UUID
 under another physical key, and a T2 selector naming another attempt. It retains
 the original malformed-E1, staged-E1 rollback, foreign parking, one-effect,
 lost-reply, reopen and replay assertions. The archive increment adds three
 focused schema-10 compatibility windows, for nine new windows across existing
-test functions. No new test function or test factory is introduced. Static
+test functions. No new test function or test factory is introduced.
+
+The learned T2 receiver lacks the unrelated source operation/attempt/E1 entirely
+and still must retain its exact original result; T2's original lost-reply,
+rollback and replay checks remain in that same chain. Static
 review checks the explicit legacy codec/row pairing; it is not a Rust execution
 receipt. These candidate checks and the next actual model journey still require
 the integration owner's scoped execution; this source change does not turn the
@@ -187,7 +200,7 @@ The native full witnesses remain history-dependent at these concrete paths:
 
 | Path | Still retained complete read dependencies | Consequence |
 | --- | --- | --- |
-| `claim_transition::evaluate_claim` | `operations` (original-operation absence) and subject heads | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
+| `claim_transition::evaluate_claim` | Subject heads; old claim-1/2 objects also retain full `operations` | Claim 3 uses its original-operation PK absence. Full retained images still share the 128 MiB capture limit; sealed transitions remain limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
 | `arming_transition::evaluate_arm` | Ordinary paths retain full `operations` and `attempts`; all paths retain full `subject_intents` (publication absence) and subject heads | Direct arm 4 retains its two typed absence predicates instead of every unrelated row, but still scans/parses operations and attempts. Ordinary/non-direct ancestry also retains `tasks` and `subject_steps`. |
 | `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Generic dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 4 narrows its task/creator and original operation/attempt/receipt reads while retaining current-successor validation. |
 

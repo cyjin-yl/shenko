@@ -105,8 +105,10 @@ writer version; physical table existence alone supplies none of that admission.
 Schema 10 retains the complete fork/history family and excludes dialogue facts.
 It declares the direct native creator-key/successor-predicate readers: claim
 codec 2, paired arm codec 3 and childless original T2 codec 3. Schema 11 retains
-the same family and additionally declares direct paired arm and childless
-original T2 codec 4 with row-schema-4 operation, attempt and receipt selectors.
+the same family and additionally declares direct claim codec 3 and direct
+paired arm/childless original T2 codec 4 with row-schema-4 operation, attempt
+and receipt selectors. Claim 3 binds only its original physical operation PK
+absence; retained claim 2 keeps its complete operation witness.
 The capability declaration does not move generic dispatch or ordinary native
 transitions onto those selectors. All new exports use 11,
 including snapshots without those objects. A schema-10 reader therefore refuses

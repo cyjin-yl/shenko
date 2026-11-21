@@ -1,13 +1,16 @@
 # Canonical first claim of an S1 native delegation
 
-Current reader update (2026-11-22): new claims use codec 2 with the
-[creator-key and current-successor witness](canonical-capture-budget.md#direct-native-subject-witness-2026-11-22).
+Current reader update (2026-11-22): new claims use codec 3 / row schema 4 with the
+[creator-key, current-successor and original-operation PK witness](canonical-capture-budget.md#direct-native-operation-predicates-2026-11-22-candidate).
 The version-1 design and its original verification record below remain valid
 for retained version-1 bytes; their complete step-table witness is not rewritten.
+Claim codec 2 remains bound to row schema 3 and its complete operation image.
+Only codec 3 uses the deterministic operation's physical-PK absence selector;
+it does not add arm's decoded-JSON identity or logical-key predicates.
 The new reader preserves the same birth proof, exact Running result, authority
 and one-live-permit rules. New archives declare
 [schema 11](../specs/durable-state.md), which retains the
-schema-10 creator witness and also declares the later direct arm/T2 readers.
+schema-10 creator witness and also declares claim 3 and the later direct arm/T2 readers.
 
 ## Exact scope
 
