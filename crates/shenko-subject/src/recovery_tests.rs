@@ -3033,7 +3033,15 @@ async fn canonical_root_json_text_survives_reopen_and_archive() -> anyhow::Resul
 #[tokio::test]
 async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Result<()> {
     let (dir, store, agent) = fixture();
-    let mut subject = state(store.clone(), agent).unwrap();
+    // The wait must retain an installed provider's real binding in its S0.
+    // commit_output cancels before dispatch and then records the fixture result.
+    let (_broker, handle) = shenko_broker::broker::Broker::with_local_provider(
+        shenko_broker::local_provider::LocalModelProvider::new(
+            "http://127.0.0.1:1".into(), "semantic-wait-fixture".into(),
+        ),
+        1,
+    )?;
+    let mut subject = state(store.clone(), agent)?.with_broker(handle.clone());
     let first = commit_output(
         &store,
         &mut subject,
@@ -3049,6 +3057,11 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() -> anyhow::Resu
     assert!(wait.is_active());
     assert_eq!(wait.condition, "实验出现足以判断的结果");
     assert_eq!(wait.created_step_id, first);
+    let origin = store.get_step(&subject.head.branch_id, first)?
+        .context("the wait retains its original committed step")?;
+    assert_eq!(Some(&wait.context_ref), origin.input_plan_ref.as_ref());
+    let origin_input = super::frozen_input(&store, &origin)?;
+    assert_eq!(origin_input.provider_binding.as_ref(), Some(handle.binding()));
     assert_eq!(
         wait.deadline_at
             .signed_duration_since(wait.started_at)
