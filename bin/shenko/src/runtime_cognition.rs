@@ -56,22 +56,12 @@ pub(crate) async fn install(
             info!(unit = %unit, "legacy awareness unit installed");
         }
     }
-    // Perception units are definitions; the facts come from sources
-    // bound to the exact installed revisions. Bind the shipped ones
-    // before the first request so it has an archived observation
-    // instead of a pending state. A source that cannot observe is
-    // reported as unavailable in the cards — it is not a reason to
-    // refuse to open the node.
-    match shenko_awareness_core::bind_builtin_perception_sources(
-        Arc::clone(&cognition_node),
-        cognition.perception(),
-    ) {
-        Ok(bound) => info!(units = ?bound, "cognition perception sources bound"),
-        Err(error) => tracing::warn!(
-            %error,
-            "perception sources not bound; their cards stay unknown on this node"
-        ),
-    }
+    // One native generation owns recurring passive acquisition and archival.
+    // Readiness means its first finite batch completed; a failed source is
+    // disclosed as Unavailable, independently of installation read failures.
+    let _perception_owner = supervisor.spawn(
+        crate::runtime_perception::RuntimePerceptionPlugin, Arc::clone(&cognition),
+    ).await?;
     // Publish the one catalog so any plugin — including a finite
     // child's handler — discloses the same installed units. Publishing
     // grants nothing: a reader still has to be able to make the call
