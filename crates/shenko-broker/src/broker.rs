@@ -1815,6 +1815,46 @@ mod tests {
         assert!(starts.try_recv().is_err());
         assert_eq!(handle.active_count(), 0);
 
+        // A host can stop after handlers queued work but before the original
+        // broker runner starts. With real capacity available, its stopped
+        // drain must record the original NeverDispatched receipt without
+        // entering the provider, charging capacity or losing queue ownership.
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1))).unwrap();
+        let request_id = EntityId::new();
+        let payload = InferencePayload {
+            system_prompt: String::new(),
+            messages: vec![InferenceMessage::text("user", "queued before host admission")],
+            max_tokens: Some(16), tools: vec![], native_options: BTreeMap::new(),
+        };
+        let receipt = Arc::new(RecordingReceipt {
+            request_id, binding: handle.binding().clone(), payload: payload.clone(),
+            results: Mutex::new(Vec::new()),
+        });
+        let (result_tx, result_rx) = oneshot::channel();
+        handle.submit_recorded(InferenceRequest {
+            request_id, agent_id: EntityId::new(), conversation_id: EntityId::new(),
+            provider_binding: handle.binding().clone(), priority: InferencePriority::Subject,
+            epoch: ControllerEpoch(1), payload: payload.clone(), result_tx,
+        }, receipt.clone()).unwrap();
+        handle.request_stop();
+        let run = tokio::spawn(broker.run());
+        let cancelled = tokio::time::timeout(Duration::from_secs(2), result_rx).await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), run).await.unwrap().unwrap();
+        assert_eq!(cancelled.request_id, request_id);
+        assert_eq!(cancelled.status, InferenceStatus::Cancelled);
+        assert_eq!(cancelled.termination.kind, TerminationKind::NeverDispatched);
+        assert!(cancelled.effective.matches_seal(handle.binding(), &payload));
+        assert!(starts.try_recv().is_err());
+        assert_eq!(provider.max_active.load(Ordering::SeqCst), 0);
+        assert_eq!(handle.active_count(), 0);
+        {
+            let recorded = receipt.results.lock().unwrap();
+            assert_eq!(recorded.len(), 1);
+            assert_eq!(recorded[0].request_id, request_id);
+            assert_eq!(recorded[0].termination.kind, TerminationKind::NeverDispatched);
+        }
+
         // An owned provider future really panics after dispatch. Its original
         // receipt must still reach Unknown, keep C charged and let the runner
         // join, without admitting the pending request behind it.

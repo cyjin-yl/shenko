@@ -813,6 +813,23 @@ async fn native_printf_result_survives_real_process_reopen() {
         })),
         &[settling_task], vec![],
     );
+    // Installation can observe host stop before its runtime token is
+    // cancelled. The real consumer entry must not start either worker or
+    // claim this pending task in that window. Keep the later live execution
+    // as the positive control, including its one original effect/receipt.
+    let host_stop = crate::runtime_host::HostStop::default();
+    host_stop.request();
+    let startup_cancel = tokio_util::sync::CancellationToken::new();
+    let before_admission = serde_json::to_value(store.external_task(settling_task).unwrap()).unwrap();
+    let denied = crate::runtime_consumers::RuntimeConsumers::spawn(
+        &store, &native, agent, Some(closed_inbox.sender()), &dir, &startup_cancel, &host_stop,
+    );
+    let rejected = denied.is_none();
+    if let Some(consumers) = denied { consumers.stop().await.unwrap(); }
+    assert!(rejected, "a stopped host started its native/replication consumers");
+    assert!(!startup_cancel.is_cancelled(), "host stop was inferred from a runtime failure token");
+    assert_eq!(serde_json::to_value(store.external_task(settling_task).unwrap()).unwrap(), before_admission);
+    assert!(store.native_task_result(settling_task).unwrap().is_none());
     let settling_cancel = tokio_util::sync::CancellationToken::new();
     let mut settling_dispatcher = tokio::spawn(
         shenko_subject::dispatch::run_committed_dispatcher(
@@ -839,17 +856,13 @@ async fn native_printf_result_survives_real_process_reopen() {
 
     let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
     let cancel = tokio_util::sync::CancellationToken::new();
-    let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
-        store.clone(),
-        native.clone(),
-        agent,
-        Some(inbox.sender()),
-        cancel.clone(),
-        cancel.clone(),
-    ));
+    let running_host = crate::runtime_host::HostStop::default();
+    let consumers = crate::runtime_consumers::RuntimeConsumers::spawn(
+        &store, &native, agent, Some(inbox.sender()), &dir, &cancel, &running_host,
+    ).unwrap();
     let events = inbox.recv_batch(2, 2_000).await;
     cancel.cancel();
-    dispatcher.await.unwrap().unwrap();
+    consumers.stop().await.unwrap();
     assert_eq!(events.len(), 2);
     let settled = store.native_task_result(settling_task).unwrap().unwrap();
     assert!(matches!(&settled.outcome, TaskOutcome::Succeeded));
