@@ -1,0 +1,695 @@
+{
+  "schema_version": 1,
+  "source_revision": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+  "source_binding": "The retained runner requires an exact clean git HEAD equal to its candidate argument and exports SHENKO_SOURCE_REVISION before any cargo test.",
+  "remote_evidence_directory": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a",
+  "receipt_storage_device": {
+    "name": "doesvm",
+    "device_id": "ec69e76d-71fb-4bc8-8671-c089fd87096f"
+  },
+  "execution_container": "shenko-build-r71",
+  "started_at_utc": "2026-11-21T21:42:06Z",
+  "finished_at_utc": "2026-11-21T21:51:35Z",
+  "wall_interval_seconds": 569.0,
+  "exit_code": 1,
+  "selected_tests": 17,
+  "passed_tests": 15,
+  "failed_tests": 2,
+  "cargo_invocations": 10,
+  "runner": {
+    "path": "runner.sh",
+    "bytes": 5100,
+    "sha256": "b5e497310689f85dfa969f48406cda8f3380b8096517f8f220b2cdae332db2cf",
+    "remote_last_write_mtime_utc": "2026-11-21T21:42:06.119781+00:00"
+  },
+  "toolchain": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "node": "v24.22.1"
+  },
+  "tests": [
+    {
+      "label": "native-chain",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 83.04,
+      "selected_tests": [
+        {
+          "name": "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/native-chain.log",
+        "bytes": 20338,
+        "sha256": "dfbfcd526cffd8be40abc2adeeddbc33919c0dc80907c0e36c3c074003871dfc",
+        "last_write_mtime_utc": "2026-11-21T21:44:01.335974+00:00"
+      },
+      "gzip_log": {
+        "path": "native-chain.log.gz",
+        "bytes": 4072,
+        "sha256": "9c72f4de829f9f9d9434a19412fedd12907ab473c5cc28eb2ffa3c4d78baa1ac",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "first-claim",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 101,
+      "status": "FAILED",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 70.89,
+      "selected_tests": [
+        {
+          "name": "canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker",
+          "status": "FAILED"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/first-claim.log",
+        "bytes": 7544,
+        "sha256": "9509cef8b9ce4f069a59d9f7666352d0550e5570f0b34900fb6a6b1d537b17a7",
+        "last_write_mtime_utc": "2026-11-21T21:45:13.537848+00:00"
+      },
+      "gzip_log": {
+        "path": "first-claim.log.gz",
+        "bytes": 2453,
+        "sha256": "77912ccf0e8d1520dcb0ca254e910da6d10903dcb0b2a8cff4777ea97cffeb3f",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "native-dispatch",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 101,
+      "status": "FAILED",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 6.84,
+      "selected_tests": [
+        {
+          "name": "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+          "status": "FAILED"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/native-dispatch.log",
+        "bytes": 7166,
+        "sha256": "40ad9a201fb2b478dd8671793adb716d8fed766d9bdea5e96d00c8b4f4838c43",
+        "last_write_mtime_utc": "2026-11-21T21:45:20.839240+00:00"
+      },
+      "gzip_log": {
+        "path": "native-dispatch.log.gz",
+        "bytes": 2319,
+        "sha256": "c01740edb012d2ad2a7764b8c2fcb5f664b37fff27995abef8916e9ece46a8cf",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "legacy-arm",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_native_arming_keeps_original_intent_without_reissuing_execution",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 17.02,
+      "selected_tests": [
+        {
+          "name": "canonical_native_arming_keeps_original_intent_without_reissuing_execution",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/legacy-arm.log",
+        "bytes": 6857,
+        "sha256": "22e3b051a1ee4a01d8cf4b6496034822ba61d8a6b012e263ad1e7895c3bf90a5",
+        "last_write_mtime_utc": "2026-11-21T21:45:38.243174+00:00"
+      },
+      "gzip_log": {
+        "path": "legacy-arm.log.gz",
+        "bytes": 2218,
+        "sha256": "357ecfbc2c5d643f4389139d37930e1b0fb5b86b36169ba706d7bca41c7585f9",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "generic-t2",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 17.66,
+      "selected_tests": [
+        {
+          "name": "canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_debt",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/generic-t2.log",
+        "bytes": 6865,
+        "sha256": "4bdccb9c91cfc723b6e20c46f328fc138334b3b7b4189357c07917b01c4c8e64",
+        "last_write_mtime_utc": "2026-11-21T21:45:56.306143+00:00"
+      },
+      "gzip_log": {
+        "path": "generic-t2.log.gz",
+        "bytes": 2229,
+        "sha256": "de4ea6a1a5d09944e7fe674df190743738ad8c2126227fb4bcf621c1729bd18a",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "generic-t2-children",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 11.19,
+      "selected_tests": [
+        {
+          "name": "canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/generic-t2-children.log",
+        "bytes": 6860,
+        "sha256": "9050905d3a71acd5b06b22f9d71a83d84f0d027dec9cb66e71f94c356a14703b",
+        "last_write_mtime_utc": "2026-11-21T21:46:07.927767+00:00"
+      },
+      "gzip_log": {
+        "path": "generic-t2-children.log.gz",
+        "bytes": 2222,
+        "sha256": "99c1c1745ceea02816024231ac392067a70acf407db7068b5805c6a608693f4c",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "cli-printf",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko",
+        "--lib",
+        "--all-features",
+        "recovery_integration_tests::native_printf_result_survives_real_process_reopen",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 57,
+      "execution_seconds": 11.69,
+      "selected_tests": [
+        {
+          "name": "recovery_integration_tests::native_printf_result_survives_real_process_reopen",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/cli-printf.log",
+        "bytes": 39607,
+        "sha256": "3958c182fb260328093b29af2c0670cf1e06feff9f028f2d247489829e2e5dc7",
+        "last_write_mtime_utc": "2026-11-21T21:47:46.646063+00:00"
+      },
+      "gzip_log": {
+        "path": "cli-printf.log.gz",
+        "bytes": 8055,
+        "sha256": "7e42ac2baaf00625e6e9db483691d719d17a2f49a84f4ea084a35ccdbca33843",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 2,
+      "excluded_nested_harness_summaries": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 57,
+          "execution_seconds": 1.57
+        }
+      ],
+      "summary_selection_reason": "The CLI test re-executes its test executable with SHENKO_NATIVE_PRINTF_REOPEN_HELPER, awaits success, then checks reopen in the parent. The final summary is the outer selected test; the earlier helper summary is retained but not added to the 17-test denominator."
+    },
+    {
+      "label": "broker-queue-stop",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-broker",
+        "--lib",
+        "--all-features",
+        "broker::tests::fair_rotation_real_concurrency_fifo_and_zero_capacity_queueing",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 30,
+      "execution_seconds": 0.1,
+      "selected_tests": [
+        {
+          "name": "broker::tests::fair_rotation_real_concurrency_fifo_and_zero_capacity_queueing",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/broker-queue-stop.log",
+        "bytes": 2890,
+        "sha256": "981de6e0bf0e6d0135e0e2b1ac395b54e1bc7bd9b121ee6b5ea982e4eed2a1c0",
+        "last_write_mtime_utc": "2026-11-21T21:48:02.064891+00:00"
+      },
+      "gzip_log": {
+        "path": "broker-queue-stop.log.gz",
+        "bytes": 1238,
+        "sha256": "3d895025004811c4f4a424c0530094c798881712fed4ca557bdc98da5abfe202",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1,
+      "log_interpretation": "The captured controlled provider panic is part of the existing fixture; the outer harness reports one pass and the cargo exit is zero."
+    },
+    {
+      "label": "start-boundary",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko",
+        "--test",
+        "start_boundary",
+        "--all-features",
+        "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 1,
+      "execution_seconds": 83.88,
+      "selected_tests": [
+        {
+          "name": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/start-boundary.log",
+        "bytes": 36109,
+        "sha256": "3089f4f9efc6e34e0526bf0a2959a097faf763b90f3c459630755024c3774c77",
+        "last_write_mtime_utc": "2026-11-21T21:49:48.347593+00:00"
+      },
+      "gzip_log": {
+        "path": "start-boundary.log.gz",
+        "bytes": 7610,
+        "sha256": "1adfc69dd4c7bbb31d76d99f82e769634839aceea938fb4fb35c75c64933ef22",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    },
+    {
+      "label": "archive-admission",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-p",
+        "shenko-store",
+        "--lib",
+        "cognition::archive_admission_tests",
+        "-j4",
+        "--",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 8,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 31,
+      "execution_seconds": 90.99,
+      "selected_tests": [
+        {
+          "name": "cognition::archive_admission_tests::generic_json_recovery_keeps_integrity_and_declared_schemas_required",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::unknown_fact_does_not_produce_a_verified_partial_import",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::captured_json_stream_does_not_extend_the_recovery_graph",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::later_typed_alias_expands_its_real_child_on_both_sides",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::generic_json_recovery_preserves_verified_bytes_and_archive_facts",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::cognition_atoms_travel_and_are_required_archive_facts",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::reordered_labels_cannot_publish_a_paused_head_or_files",
+          "status": "ok"
+        },
+        {
+          "name": "cognition::archive_admission_tests::native_seven_format_refusal_precedes_payload_and_store_publication",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/archive-admission.log",
+        "bytes": 8321,
+        "sha256": "01d4af51b55135174bca4996a1661f6fffc60f9f0ebe10ab4c21ada7cd2c4f9b",
+        "last_write_mtime_utc": "2026-11-21T21:51:35.311332+00:00"
+      },
+      "gzip_log": {
+        "path": "archive-admission.log.gz",
+        "bytes": 2610,
+        "sha256": "d4e0cc5745b75463426439279b8b4d12b0679d88eadc3d9a314fc5f86ef16e51",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1
+    }
+  ],
+  "fixture_failures": [
+    {
+      "label": "first-claim",
+      "observed_error": "invalid canonical Store transition: native read selectors differ from the original action plan",
+      "diagnosis": "The existing malformed-retained-grant fixture removes the operations dependency. Claim codec 3 / row schema 4 rejects the same omission at exact selector-set validation before the older missing operations dependency diagnostic expected at line 3411. The test is failed; the unchanged task and absent materialization assertions after that assertion were not reached in this run.",
+      "fixture_only_followup_commit": "fa01ac39ab7501285ca935708639460b1b091f05"
+    },
+    {
+      "label": "native-dispatch",
+      "observed_error": "protocol error: [writer] runtime_authority_fenced",
+      "diagnosis": "The post-exit database audit and exact source place the failure at a bare sibling WriteBatch after runtime authority attachment, before dispatch. Only root, parent and descendant exist; both claims are materialized, but sibling, operations, attempts, E1 and prepared transitions are absent. The dispatched-interleaving scenario was not reached.",
+      "audit_path": "native-dispatch-fixture-diagnosis.json",
+      "fixture_only_followup_commit": "3ca7b14f7f7355c34a7e21e8786adbda12a49e3a"
+    }
+  ],
+  "conditional_release": {
+    "status": "blocked",
+    "reason": "The retained runner exits when any scoped test fails, before creating its release directory or calling cargo build --release.",
+    "observed_at_utc": "2026-11-21T21:56:43.160641+00:00",
+    "release_directory_exists": false,
+    "release_binary_exists": false
+  },
+  "audit_artifacts": [
+    {
+      "path": "native-dispatch-fixture-diagnosis.json",
+      "bytes": 23425,
+      "sha256": "47c1fe2f93b293b2d8c4b245a922bdcff84429baf1361d606c5363376ba0b3d0",
+      "source": "Unmodified copy of observations/5f-native-dispatch-fixture-diagnosis.json; retained source-log hash matches this receipt."
+    }
+  ],
+  "original_small_receipts": [
+    {
+      "name": "archive-admission.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:51:35.334334+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "broker-queue-stop.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:48:02.080892+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "cli-printf.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:47:46.680065+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "exit.txt",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "mtime_utc": "2026-11-21T21:51:35.360335+00:00",
+      "inline_utf8": "1\n"
+    },
+    {
+      "name": "finished.txt",
+      "bytes": 21,
+      "sha256": "d9ac4f7fa061269776b262ef850f848205aa16ca0618e68a02d8a8717bcfd217",
+      "mtime_utc": "2026-11-21T21:51:35.361335+00:00",
+      "inline_utf8": "2026-11-21T21:51:35Z\n"
+    },
+    {
+      "name": "first-claim.exit",
+      "bytes": 4,
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "mtime_utc": "2026-11-21T21:45:13.555849+00:00",
+      "inline_utf8": "101\n"
+    },
+    {
+      "name": "generic-t2-children.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:46:07.950768+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "generic-t2.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:45:56.326144+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "legacy-arm.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:45:38.264175+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "native-chain.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:44:01.354975+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "native-dispatch.exit",
+      "bytes": 4,
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "mtime_utc": "2026-11-21T21:45:20.855241+00:00",
+      "inline_utf8": "101\n"
+    },
+    {
+      "name": "node.txt",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "mtime_utc": "2026-11-21T21:42:06.625808+00:00",
+      "inline_utf8": "v24.22.1\n"
+    },
+    {
+      "name": "rustc.txt",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "mtime_utc": "2026-11-21T21:42:06.339793+00:00",
+      "inline_utf8": "rustc 1.98.1 (48a229cea 2026-09-01)\n"
+    },
+    {
+      "name": "start-boundary.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T21:49:48.371595+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "started.txt",
+      "bytes": 21,
+      "sha256": "aadfb09fb27b67b1adce15d77f12430700be7661fd3f7f2015d11d22d6847bf1",
+      "mtime_utc": "2026-11-21T21:42:06.149783+00:00",
+      "inline_utf8": "2026-11-21T21:42:06Z\n"
+    }
+  ],
+  "verification": {
+    "all_raw_log_bytes_and_sha256_verified_after_transfer": true,
+    "all_gzip_bytes_and_sha256_verified_after_transfer": true,
+    "gzip_mtime": 0,
+    "runner_exact_utf8_bytes_verified": true,
+    "database_audit_exact_bytes_preserved": true,
+    "remote_read_only": true,
+    "new_tests_added": 0,
+    "model_calls_started": 0,
+    "cargo_commands_started_by_collector": 0
+  },
+  "scope_and_limits": [
+    "This is a completed scoped development-container regression receipt with 15 passes and 2 fixture failures, not an all-green result.",
+    "No model journey, new release binary, full workspace result, power-loss experiment or reliability rate is established by these tests.",
+    "Original stdout/stderr bytes are retained losslessly in gzip files. Exit, time and toolchain receipts are retained byte-for-byte as inline_utf8 with their original byte lengths and SHA-256.",
+    "Per-test execution_seconds are the outer Rust harness durations. Log mtimes are observed last-write times, not independent phase start or finish measurements.",
+    "The CLI helper subprocess summary is excluded from the selected-test denominator; raw nested output remains intact.",
+    "Both failures remain failures for 5f1e426a. The followup commits are fixture corrections, not evidence that their reruns passed. Reusing successful results at a later candidate requires a separate source-identity check; both corrected fixtures still require actual rerun.",
+    "The database diagnosis is a read after process exit and combines that snapshot with exact source; it is not a transaction snapshot at the instant of refusal."
+  ]
+}
