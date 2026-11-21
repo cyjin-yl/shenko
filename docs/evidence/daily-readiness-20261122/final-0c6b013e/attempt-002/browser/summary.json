@@ -1,0 +1,70 @@
+{
+  "checks": {
+    "browser_first_input_from_composer": true,
+    "browser_first_durable_receipt": true,
+    "browser_first_input_mode_matches_capability": true,
+    "browser_no_page_errors": true,
+    "browser_cleanup_complete": true
+  },
+  "observations": {
+    "served_manifest_sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+    "first_input_mode": {
+      "socket_id": 1,
+      "hello_index": 3,
+      "capabilities": {
+        "actions": true,
+        "append": true,
+        "attachments": true,
+        "committed_replay": true,
+        "documents": true,
+        "durable_input_receipts": true,
+        "steer": true,
+        "streaming": true,
+        "withdraw": true
+      },
+      "expected_mode": "steer",
+      "submitted_mode": "steer",
+      "accepted_receipt": {
+        "schema_version": 2,
+        "type": "receipt",
+        "submission_id": "01270aea-255f-494b-8a86-718870845590",
+        "stage": "accepted",
+        "mode": "steer",
+        "durability": "durable",
+        "event_id": "dc63d664-9264-480e-8446-c92bd50b5504",
+        "accepted_commit": "543c99ea-f9f8-4f9e-85b1-c970e65707dd/11",
+        "replayed": false,
+        "placement": {
+          "requested": "steer",
+          "actual": "next_boundary"
+        },
+        "detail": "已持久接纳；已通知当前循环，选入与处置另查回执。"
+      }
+    },
+    "streaming": {
+      "observed": true,
+      "received_stream_parts": 119,
+      "scope": "actual public wire frames only; no stream-quality or latency claim"
+    },
+    "accessibility": {
+      "aria_snapshot_phases": [
+        "opened",
+        "first-submitted",
+        "final"
+      ],
+      "screen_reader_tested": false
+    }
+  },
+  "errors": [],
+  "page_errors": [],
+  "cleanup": {
+    "capture_timeout_seconds": 15,
+    "owner_timeout_seconds": 10,
+    "final_capture": "complete",
+    "context": "complete",
+    "browser": "complete",
+    "driver": "complete"
+  },
+  "interruptions": [],
+  "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"
+}

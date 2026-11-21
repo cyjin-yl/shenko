@@ -1,0 +1,47 @@
+- link "跳到输入区":
+  - /url: "#composer-editor"
+- banner:
+  - button "未命名主体，打开主体详情": 未命名主体 2 件事进行中 · 第 1 轮
+  - navigation "视图":
+    - group "视图":
+      - button "对话" [pressed]
+      - button "Inspect"
+      - button "文件"
+  - navigation "镜头":
+    - group "在时间线旁打开":
+      - button "任务 （Ctrl/⌘ 1）"
+      - button "记忆 （Ctrl/⌘ 2）"
+      - button "Playground （Ctrl/⌘ 3）"
+      - button "配置 （Ctrl/⌘ 4）"
+  - text: 正在重连
+  - button "长代码行软换行"
+  - button "切换到深色"
+  - button "主体详情"
+- main:
+  - navigation "会话":
+    - group "会话":
+      - button "主体 22:12 收到 web_ui 的任务：一次有真实回执的有限委派实验。我现在的计划很清楚——同一轮里并行启动两个 child：一个用当前 provider 通路的有限模型 child（swift-qwen3.8-27b-nvfp4，省略 profile_id 保留本通路）独立算 19×23；另一个是已注册的 host.printf 原生 deterministic child，把标记 S1-77f6a42c0f38 原样喂给 /usr/bin/printf。两个都还没返回，所以我此刻不敢说任何结果，只启动、只等待。 关于回报方式：当前没有注册回复通道，普通正文不会送到对方手里，但任务要求\"在正文中报告\"，所以等真实 task_result 回来后，我在后续轮次的正文里如实写出计算值与 stdout 回显，并区分\"传输 ACK\"与\"应用后条件\"——printf 成功要看到退出码 0、stdout 与封存 text 完全一致、stderr 为空才算数。 启动两个 child，并开一个语义等待，直到两份真实回执都落到我的上下文里：" [pressed]:
+        - text: 主体
+        - time: 22:12
+        - text: 收到 web_ui 的任务：一次有真实回执的有限委派实验。我现在的计划很清楚——同一轮里并行启动两个 child：一个用当前 provider 通路的有限模型 child（swift-qwen3.8-27b-nvfp4，省略 profile_id 保留本通路）独立算 19×23；另一个是已注册的 host.printf 原生 deterministic child，把标记 S1-77f6a42c0f38 原样喂给 /usr/bin/printf。两个都还没返回，所以我此刻不敢说任何结果，只启动、只等待。 关于回报方式：当前没有注册回复通道，普通正文不会送到对方手里，但任务要求"在正文中报告"，所以等真实 task_result 回来后，我在后续轮次的正文里如实写出计算值与 stdout 回显，并区分"传输 ACK"与"应用后条件"——printf 成功要看到退出码 0、stdout 与封存 text 完全一致、stderr 为空才算数。 启动两个 child，并开一个语义等待，直到两份真实回执都落到我的上下文里：
+      - button "子代理 cc64 22:13 委派 · 运行中 运行中":
+        - text: 子代理 cc64
+        - time: 22:13
+        - text: 委派 · 运行中 运行中
+      - button "独立计算整数乘法 19×23，并在回复中直接给出最终整数结果。完成条件：回复里包含一个明确的整数答案，且经过至少一次独立验算。 22:13 委派 · 运行中 运行中":
+        - text: 独立计算整数乘法 19×23，并在回复中直接给出最终整数结果。完成条件：回复里包含一个明确的整数答案，且经过至少一次独立验算。
+        - time: 22:13
+        - text: 委派 · 运行中 运行中
+  - region "主体":
+    - text: 主体 直接对话
+    - paragraph: 今天 · 11月21日周六 22:12
+    - text: 请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-77f6a42c0f38。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。 已处理
+    - paragraph: 收到 web_ui 的任务：一次有真实回执的有限委派实验。我现在的计划很清楚——同一轮里并行启动两个 child：一个用当前 provider 通路的有限模型 child（swift-qwen3.8-27b-nvfp4，省略 profile_id 保留本通路）独立算 19×23；另一个是已注册的 host.printf 原生 deterministic child，把标记 S1-77f6a42c0f38 原样喂给 /usr/bin/printf。两个都还没返回，所以我此刻不敢说任何结果，只启动、只等待。
+    - paragraph: 关于回报方式：当前没有注册回复通道，普通正文不会送到对方手里，但任务要求"在正文中报告"，所以等真实 task_result 回来后，我在后续轮次的正文里如实写出计算值与 stdout 回显，并区分"传输 ACK"与"应用后条件"——printf 成功要看到退出码 0、stdout 与封存 text 完全一致、stderr 为空才算数。
+    - paragraph: 启动两个 child，并开一个语义等待，直到两份真实回执都落到我的上下文里：
+    - button "添加图片或文件" [disabled]
+    - textbox "向同一主体追加输入":
+      - /placeholder: 信息
+    - button "追加" [disabled]
+  - status
+- text: 连接中断，正在重连
