@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "source_commit": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "scope": "Closed-installation semantic evidence only; no reclassification or new model/test execution.",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 14258,
+      "sha256": "1f45f344f1110c3c446b7645f92241b9a0a58ea34f59bbb64c5330e211aebd22"
+    },
+    {
+      "path": "attempt-003-control-rejection.json",
+      "bytes": 1948,
+      "sha256": "a4d99beb6b60ae2841a416eac0b83efb6b417080cd5cf6a88176350d2dab0e73"
+    },
+    {
+      "path": "export.py",
+      "bytes": 15289,
+      "sha256": "c6fcbc06fa3d745971e8eb1490b605d4c640db222ae3e061a967dd8950ca038a"
+    },
+    {
+      "path": "observations.json",
+      "bytes": 235448,
+      "sha256": "060d6f838fcd9ec50aacd5cc912b7956c6c6a221fdbe5977ce037201e2af424a"
+    },
+    {
+      "path": "packets.tar.gz",
+      "bytes": 407469,
+      "sha256": "c2e12bb2b39f71962dc23c49a02c58f90bfd6c207dedbedd06763d44bc343603"
+    },
+    {
+      "path": "summarize.py",
+      "bytes": 13383,
+      "sha256": "241c089fad3e11bde1f67586a07ead5c15fe24045eecc58cc85c1214bd931f83"
+    }
+  ]
+}
