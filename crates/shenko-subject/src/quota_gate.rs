@@ -16,13 +16,312 @@ pub(crate) enum QuotaGate { /// Dispatch may proceed under the armed send id the
 Ready(Option<EntityId>),
 Cancelled, }
 
+/// Additive selection evidence in a subject's existing S0 provider projection.
+/// It is not admission, a send identity, or authority to alter a sealed request.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct FrozenQuotaSelection {
+    pub policy_id: EntityId,
+    pub policy_revision: u64,
+    pub policy_digest: shenko_types::object::Digest,
+    pub decision_id: EntityId,
+    pub profile_id: String,
+}
+
+pub(crate) struct SubjectQuotaRoute {
+    /// None preserves the configured path when no policy is recorded.
+    pub broker: Option<shenko_broker::broker::BrokerHandle>,
+    pub selection: Option<FrozenQuotaSelection>,
+}
+
+/// Resolve only installed, currently eligible runtimes. The configured
+/// transport wins when it can serve the model; otherwise exactly one installed
+/// transport must identify it. A model name cannot choose between accounts.
+fn installed_quota_route(
+    broker: &shenko_broker::broker::BrokerHandle,
+    bindings: &[shenko_broker::request::ProviderBinding],
+    profile: &shenko_quota::ModelProfile,
+) -> Result<Option<shenko_broker::broker::BrokerHandle>, ShenkoError> {
+    use shenko_broker::request::ProviderBinding;
+    let compatible = |binding: &ProviderBinding| profile.local == matches!(binding, ProviderBinding::Local { .. });
+    if compatible(broker.binding()) && !matches!(broker.binding(), ProviderBinding::Stub { .. }) {
+        let selected = if broker.binding().model() == profile.model_ref {
+            broker.clone()
+        } else {
+            broker.for_model(&profile.model_ref)
+                .map_err(|error| ShenkoError::conflict(format!("invalid quota model binding: {error:#}")))?
+        };
+        if selected.serves_model(&profile.model_ref) {
+            return Ok(Some(selected));
+        }
+    }
+    let mut selected = None;
+    for binding in bindings {
+        if !compatible(binding) || matches!(binding, ProviderBinding::Stub { .. }) {
+            continue;
+        }
+        let candidate = broker.for_binding(binding)
+            .map_err(|error| ShenkoError::conflict(format!("installed quota route cannot resolve its physical owner: {error:#}")))?;
+        let candidate = if binding.model() == profile.model_ref {
+            candidate
+        } else {
+            candidate.for_model(&profile.model_ref)
+                .map_err(|error| ShenkoError::conflict(format!("invalid quota model binding: {error:#}")))?
+        };
+        if !candidate.serves_model(&profile.model_ref) {
+            continue;
+        }
+        if selected.is_some() {
+            return Err(ShenkoError::conflict(
+                "quota model identifies multiple installed transports; bind the provider/account explicitly",
+            ));
+        }
+        selected = Some(candidate);
+    }
+    Ok(selected)
+}
+
+fn decision_is_current(
+    policy: &shenko_quota::QuotaPolicy,
+    decision: &shenko_quota::PolicyDecision,
+    availability: &std::collections::HashMap<String, shenko_quota::BackendState>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    decision.decided_at <= now && now < decision.valid_until
+        && decision.policy_id == policy.policy_id && decision.policy_revision == policy.revision
+        && decision.availability.len() == availability.len()
+        && decision.availability.iter().all(|observed|
+            availability.get(&observed.profile_id) == Some(&observed.state))
+}
+
+fn require_implicit_effort(decision: &shenko_quota::PolicyDecision) -> Result<(), ShenkoError> {
+    if let shenko_quota::Choice::Cloud { effort: Some(_), .. } = &decision.choice {
+        return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+            "QUOTA_EFFORT_BINDING_UNSUPPORTED",
+            shenko_types::error::ErrorScope::Request,
+            shenko_types::error::RetryStrategy::NewRevision,
+        ).with_details(serde_json::json!({
+            "reason": "quota effort has no typed provider semantic mapping; no request admitted"
+        }))));
+    }
+    Ok(())
+}
+
+/// Fresh Planned -> S0 only. Routing precedes any context projection. Quota
+/// waits re-read policy without a request, reservation, compute permit or seal;
+/// actual spending admission remains at the original post-seal send boundary.
+pub(crate) async fn select_subject_quota_route(
+    store: &shenko_store::Store,
+    broker: Option<&shenko_broker::broker::BrokerHandle>,
+    cancel: &tokio_util::sync::CancellationToken,
+    strategies: &shenko_quota::QuotaStrategies,
+    agent: EntityId,
+) -> Result<Option<SubjectQuotaRoute>, ShenkoError> {
+    loop {
+        let Some(policy) = store.latest_quota_policy()? else {
+            return Ok(Some(SubjectQuotaRoute { broker: None, selection: None }));
+        };
+        if cancel.is_cancelled() { return Ok(None); }
+        let broker = broker.ok_or_else(|| ShenkoError::other(
+            "capacity_blocked: quota selection has no installed broker",
+        ))?;
+        let bindings = broker.installed_bindings();
+        let mut routes = std::collections::HashMap::new();
+        let mut availability = std::collections::HashMap::new();
+        for profile in &policy.profiles {
+            let route = installed_quota_route(broker, &bindings, profile)?;
+            availability.insert(profile.profile_id.clone(), if route.is_some() {
+                shenko_quota::BackendState::Available
+            } else {
+                shenko_quota::BackendState::Unavailable
+            });
+            if let Some(route) = route { routes.insert(profile.profile_id.clone(), route); }
+        }
+        let now = chrono::Utc::now();
+        let latest = store.latest_quota_decision()?;
+        let decision = match &latest {
+            Some((_, decision)) if decision_is_current(&policy, decision, &availability, now) => decision.clone(),
+            _ => compute_quota_decision(
+                store, &policy, &availability, latest.as_ref().map(|(_, decision)| decision),
+                store.quota_work_evidence(agent)?.as_ref(), now, strategies,
+            )?,
+        };
+        require_implicit_effort(&decision)?;
+        let until = match &decision.choice {
+            shenko_quota::Choice::Cloud { profile_id, .. }
+            | shenko_quota::Choice::Local { profile_id } => {
+                let selected = routes.remove(profile_id).ok_or_else(||
+                    ShenkoError::conflict("quota strategy selected an ineligible installed route"))?;
+                return Ok(Some(SubjectQuotaRoute {
+                    broker: Some(selected),
+                    selection: Some(FrozenQuotaSelection {
+                        policy_id: policy.policy_id,
+                        policy_revision: policy.revision,
+                        policy_digest: decision.policy_digest,
+                        decision_id: decision.decision_id,
+                        profile_id: profile_id.clone(),
+                    }),
+                }));
+            }
+            shenko_quota::Choice::Wait { until }
+            | shenko_quota::Choice::ProviderExhausted { until, .. } => *until,
+            shenko_quota::Choice::ObservationBlocked { .. } => None,
+            shenko_quota::Choice::NoBackend => return Err(ShenkoError::other(
+                "capacity_blocked: no quota profile has an available installed runtime",
+            )),
+            shenko_quota::Choice::CapacityUnknown { .. } => return Err(ShenkoError::other(
+                "capacity_unknown: quota strategy could not establish an installed runtime",
+            )),
+        };
+        let wait = until.and_then(|at| (at - chrono::Utc::now()).to_std().ok())
+            .unwrap_or_else(|| std::time::Duration::from_secs(30))
+            .clamp(std::time::Duration::from_millis(50), std::time::Duration::from_secs(30));
+        tokio::select! {
+            _ = cancel.cancelled() => return Ok(None),
+            _ = tokio::time::sleep(wait) => {},
+        }
+    }
+}
+
+fn compute_quota_decision(
+    store: &shenko_store::Store,
+    policy: &shenko_quota::QuotaPolicy,
+    availability: &std::collections::HashMap<String, shenko_quota::BackendState>,
+    previous: Option<&shenko_quota::PolicyDecision>,
+    work: Option<&shenko_quota::WorkEvidence>,
+    now: chrono::DateTime<chrono::Utc>,
+    strategies: &shenko_quota::QuotaStrategies,
+) -> Result<shenko_quota::PolicyDecision, ShenkoError> {
+    // Forecast each (provider, account scope) the policy's cloud
+    // profiles touch, only from the latest recorded snapshot of
+    // a source the policy actually admits, computed under that
+    // source's own TTL/stale-use options.
+    let mut forecasts = Vec::new();
+    let mut scopes = std::collections::BTreeSet::new();
+    for profile in &policy.profiles {
+        if profile.local {
+            continue;
+        }
+        for cost in &profile.cost_per_request {
+            scopes.insert((
+                cost.window.provider_id.clone(),
+                cost.window.account_scope_ref.clone(),
+            ));
+        }
+    }
+    for (provider_id, scope) in scopes {
+        for source in &policy.observation_sources {
+            // A policy that pins a source contract forecasts from
+            // exactly that contract's reading. Two contracts of one
+            // source kind are different facts: a configured limit
+            // document and a usage report never stand in for each
+            // other.
+            let snapshot = match &source.contract {
+                Some(contract) => store.latest_quota_snapshot_for_contract(
+                    &provider_id,
+                    &scope,
+                    source.source_kind,
+                    contract,
+                )?,
+                None => store
+                    .latest_quota_snapshot_for_source(&provider_id, &scope, source.source_kind)?,
+            };
+            let Some(snapshot) = snapshot else {
+                continue;
+            };
+            let options = source.options();
+            let attempts = store.quota_attempts(&provider_id, &scope)?;
+            let assumptions: std::collections::HashMap<
+                String,
+                shenko_quota::WindowAssumptions,
+            > = policy
+                .assumptions
+                .iter()
+                .filter(|entry| {
+                    entry.window.provider_id == provider_id
+                        && entry.window.account_scope_ref == scope
+                })
+                .map(|entry| (entry.window.window_key.clone(), entry.value))
+                .collect();
+            // The forecast algorithm is a replaceable strategy
+            // Its refusal is a reconciliation fact,
+            // never a guessed or empty forecast: nothing about the
+            // account is assumed when the strategy declines.
+            let forecast = strategies
+                .forecast(shenko_quota::ForecastRequest {
+                    snapshot: &snapshot,
+                    attempts: &attempts,
+                    assumptions: &assumptions,
+                    now,
+                    options,
+                })
+                .map_err(|error| {
+                    ShenkoError::conflict(&format!(
+                        "quota forecast strategy refused: {error}"
+                    ))
+                })?;
+            store.record_quota_forecast(&forecast)?;
+            forecasts.push(forecast);
+        }
+    }
+    // The router is a replaceable strategy too; the recorded
+    // decision it produces is still validated against the recorded
+    // policy and forecasts by the durable admission path.
+    let decision = strategies
+        .route(shenko_quota::RouteRequest {
+            policy,
+            forecasts: &forecasts,
+            availability,
+            previous,
+            work,
+            now,
+        })
+        .map_err(|error| {
+            ShenkoError::conflict(&format!("quota policy cannot decide: {error}"))
+        })?;
+    store.record_quota_decision(&decision)?;
+    Ok(decision)
+}
+
 pub(crate) async fn quota_dispatch_gate(store: &shenko_store::store::Store,
 broker: &shenko_broker::broker::BrokerHandle,
 request_id: EntityId,
 cancel: &tokio_util::sync::CancellationToken,
 strategies: &shenko_quota::QuotaStrategies,
 native: Option<&shenko_types::task::TaskInvocation>,
-subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> { use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
+subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> {
+    quota_dispatch_gate_for_owner(store, broker, request_id, cancel, strategies,
+        QuotaOwner { native, subject_agent, selection: None }).await
+}
+
+pub(crate) async fn subject_quota_dispatch_gate(
+    store: &shenko_store::Store,
+    broker: &shenko_broker::broker::BrokerHandle,
+    request_id: EntityId,
+    cancel: &tokio_util::sync::CancellationToken,
+    strategies: &shenko_quota::QuotaStrategies,
+    agent: EntityId,
+    selection: Option<&FrozenQuotaSelection>,
+) -> Result<QuotaGate, ShenkoError> {
+    quota_dispatch_gate_for_owner(store, broker, request_id, cancel, strategies,
+        QuotaOwner { native: None, subject_agent: Some(agent), selection }).await
+}
+
+struct QuotaOwner<'a> {
+    native: Option<&'a shenko_types::task::TaskInvocation>,
+    subject_agent: Option<EntityId>,
+    selection: Option<&'a FrozenQuotaSelection>,
+}
+
+async fn quota_dispatch_gate_for_owner(
+    store: &shenko_store::Store,
+    broker: &shenko_broker::broker::BrokerHandle,
+    request_id: EntityId,
+    cancel: &tokio_util::sync::CancellationToken,
+    strategies: &shenko_quota::QuotaStrategies,
+    owner: QuotaOwner<'_>,
+) -> Result<QuotaGate, ShenkoError> {
+use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
+let QuotaOwner { native, subject_agent, selection } = owner;
 
 let binding = broker.binding();
 if store.latest_quota_policy()?.is_none() {
@@ -91,6 +390,7 @@ loop {
             let usable = profile.local
                 == matches!(binding, shenko_broker::request::ProviderBinding::Local { .. })
                 && profile.model_ref == binding.model()
+                && (reconciling_original || selection.is_none_or(|sealed| sealed.profile_id == profile.profile_id))
                 && (reconciling_original || broker.serves_model(&profile.model_ref));
             (
                 profile.profile_id.clone(),
@@ -155,98 +455,25 @@ loop {
                     "quota decision still requires recompute; reconcile snapshot evidence",
                 ));
             }
-            // Forecast each (provider, account scope) the policy's cloud
-            // profiles touch, only from the latest recorded snapshot of
-            // a source the policy actually admits, computed under that
-            // source's own TTL/stale-use options.
-            let mut forecasts = Vec::new();
-            let mut scopes = std::collections::BTreeSet::new();
-            for profile in &policy.profiles {
-                if profile.local {
-                    continue;
-                }
-                for cost in &profile.cost_per_request {
-                    scopes.insert((
-                        cost.window.provider_id.clone(),
-                        cost.window.account_scope_ref.clone(),
-                    ));
-                }
-            }
-            for (provider_id, scope) in scopes {
-                for source in &policy.observation_sources {
-                    // A policy that pins a source contract forecasts from
-                    // exactly that contract's reading. Two contracts of one
-                    // source kind are different facts: a configured limit
-                    // document and a usage report never stand in for each
-                    // other.
-                    let snapshot = match &source.contract {
-                        Some(contract) => store.latest_quota_snapshot_for_contract(
-                            &provider_id,
-                            &scope,
-                            source.source_kind,
-                            contract,
-                        )?,
-                        None => store
-                            .latest_quota_snapshot_for_source(&provider_id, &scope, source.source_kind)?,
-                    };
-                    let Some(snapshot) = snapshot else {
-                        continue;
-                    };
-                    let options = source.options();
-                    let attempts = store.quota_attempts(&provider_id, &scope)?;
-                    let assumptions: std::collections::HashMap<
-                        String,
-                        shenko_quota::WindowAssumptions,
-                    > = policy
-                        .assumptions
-                        .iter()
-                        .filter(|entry| {
-                            entry.window.provider_id == provider_id
-                                && entry.window.account_scope_ref == scope
-                        })
-                        .map(|entry| (entry.window.window_key.clone(), entry.value))
-                        .collect();
-                    // The forecast algorithm is a replaceable strategy
-                    // Its refusal is a reconciliation fact,
-                    // never a guessed or empty forecast: nothing about the
-                    // account is assumed when the strategy declines.
-                    let forecast = strategies
-                        .forecast(shenko_quota::ForecastRequest {
-                            snapshot: &snapshot,
-                            attempts: &attempts,
-                            assumptions: &assumptions,
-                            now,
-                            options,
-                        })
-                        .map_err(|error| {
-                            ShenkoError::conflict(&format!(
-                                "quota forecast strategy refused: {error}"
-                            ))
-                        })?;
-                    store.record_quota_forecast(&forecast)?;
-                    forecasts.push(forecast);
-                }
-            }
-            let previous = latest.as_ref().map(|(_, decision)| decision);
-            // The router is a replaceable strategy too; the recorded
-            // decision it produces is still validated against the recorded
-            // policy and forecasts by the durable admission path.
-            let decision = strategies
-                .route(shenko_quota::RouteRequest {
-                    policy: &policy,
-                    forecasts: &forecasts,
-                    availability: &availability,
-                    previous,
-                    work: work.as_ref(),
-                    now,
-                })
-                .map_err(|error| {
-                    ShenkoError::conflict(&format!("quota policy cannot decide: {error}"))
-                })?;
-            store.record_quota_decision(&decision)?;
+            let decision = compute_quota_decision(
+                store, &policy, &availability, latest.as_ref().map(|(_, decision)| decision),
+                work.as_ref(), now, strategies,
+            )?;
             (policy.clone(), decision)
         }
     };
+    // A replacement decision can withhold admission, but it cannot charge a
+    // fresh subject request at effort that was never sent in its S0 payload.
+    // Original admitted/armed history keeps its existing reconciliation path.
+    if subject_agent.is_some() && !reconciling_original
+        && let Err(error) = require_implicit_effort(&decision)
+    {
+        // A second entrant can promote this exact send while routing is
+        // reading detached evidence. Its original admission must be
+        // reconciled before a new semantic refusal is returned.
+        if quota_send_is_original(store, send_id)? { continue; }
+        return Err(error);
+    }
     let receipt = store.admit_quota_send_with(
         strategies,
         request_id,
