@@ -119,6 +119,7 @@ pub(super) fn local_fact_classes(include_local_control: bool) -> Vec<String> {
 /// carrying a row outside its own declared membership, is refused whole:
 /// the receiver never guesses which facts the archive meant to carry.
 pub(super) fn check_archive_membership(manifest: &CognitionManifest) -> Result<()> {
+    crate::cognition_archive::validate_manifest_schema(manifest)?;
     let known: HashSet<&str> = TABLES.iter().map(|spec| spec.name).collect();
     for class in &manifest.fact_classes {
         ensure!(

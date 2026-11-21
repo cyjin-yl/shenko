@@ -526,3 +526,25 @@ introduced by this grouping.
 本更正保留以上原始字节，替代上节“runtime 声明的 model 精确相等”这一过强描述。新请求资格由实际安装的 `ProviderRuntime::accepts_model(model)` 声明；默认实现仅接受配置的精确模型，本地及其他固定模型 runtime 继续使用该严格默认。Anthropic transport 显式接受调用方封口选择的模型，与既有 `validate_binding` 及实际 wire 使用封口模型的行为一致，配置模型不是远端模型白名单。后续自定义 remote runtime 通过同一 trait 声明自己的选模能力，不由 broker 枚举 backend family。
 
 同一 registry 读锁下的安装身份、精确 transport 匹配、`available()` 与 Stub 拒绝仍全部有效；封口模型及原有本地/云约束仍须匹配。本声明不引入 fallback、网络探测或远端模型可用性保证，不改变原始请求恢复语义。源码修正需由集成方运行原有 cloud-child wire/send 绑定场景及固定模型、撤下、不可用和 transport 替换对照后取得证据；本补充不声称这些检查已经通过。
+
+### 2026-11-21：主体 Planned → S0 的额度选模候选
+
+本节保留以上规范和历史状态的原始字节，补充本候选的主体实现范围。只有新鲜 `Planned` 步读取当前 quota policy，以实际安装的 broker registry、精确 transport 和 `serves_model` 资格运行既有 forecast/router 策略，再准备上下文。优先保留能够执行该模型的配置 transport；否则必须由唯一安装 transport 确定 provider/account，不通过模型名猜选多个账户。没有 policy 时仍使用配置路径。
+
+选择出的完整 provider/model binding 以及该精确 binding 的 metadata 能力，进入上下文 profile、model generation、输入投影和 S0。metadata 不借用 registry primary 或其它模型卡；无法取得所选模型的有效 metadata 卡时，尚未封口的步明确拒绝，卡片未给出的窗口上限仍为未知。配置的输出预算在同一次上下文准备中预留，并原样进入 payload 与 seal；本候选不从额度成本猜测输出 token 数。schema-15 的 `provider_selection` 增加可缺省的 quota 来源字段（policy id/revision/digest、decision id、profile id），既有字段、codec major 和旧 seal 含义保持不变。
+
+选模本身不预留额度、不创建 send、不取得 compute。封口后的 gate 仍重读当前 policy、校验封口模型与选定 profile、durable admit → arm → step CAS claim 精确 send，再提交原 broker 队列。政策更新可以暂缓或拒绝这笔尚未准入的请求，不能在旧 seal 内换模型。Preparing/RetryPending 派发解析封口中的完整 binding；AwaitingModel/ResultRecorded 恢复仍先查原尝试和原终态，不因当前默认模型、政策、能力或 runtime 撤下而替换旧请求、撤销历史费用或重复生成。
+
+`ModelProfile.effort_levels` 的名称尚没有到 provider-native 语义参数的类型化映射，额度策略也尚没有可封口的输出预算映射。主体新选择或新准入遇到 named effort 时，在创建相应 seal/新 admission 之前返回 `QUOTA_EFFORT_BINDING_UNSUPPORTED`，不会只按 effort 价格计费却发送隐式默认 effort；已经 admitted/armed 的原历史仍按原有路径对账。provider-effort、quota-derived 输出预算及有限模型 child 的封口前迁移仍是明确未完成的 §42.6 工作；物理 KV transport 也不在本候选范围。
+
+提议的主体回归使用真实 Store/S0、已安装的 native provider、loopback metadata/generation HTTP、原 receipt sink 和 S1 parser：配置模型的窗口小到无法投影，策略选择可运行的另一模型，其独立 metadata、完整 messages 和输出预算必须与 seal 一致；取消原 waiter 后保存迟到终态，再以更换政策和撤下原 runtime 的重开路径提交同一个请求及 seal。另外提议 named-effort 在 S0/send 之前的拒绝对照。它们目前均未运行，不构成真实模型行为、平台、物理 KV 或整项需求的验收。
+
+### 2026-11-22：额度选模与活动语义等待
+
+**Why。** [主体等待合同](subject-runtime.md#spec-41-5)要求活动语义等待沿原模型判断；一次策略更新或重开后的默认模型变化不能悄悄替换它，也不能让尚未封口的主体因为新 binding 与原等待不一致而退出。
+
+Planned 步先由 Store 观察等待的固定截止时间。仍活动的等待从自身 `context_ref` 回读原 S0，核对原步骤身份、CAS 完整性和 `model_binding_digest`，再解析精确 provider/model binding。若它就是配置 binding，沿原配置路径准备；否则只从已安装 registry 解析该 binding、取得其自身 metadata。这个路由约束来自本步封口的 `semantic_wait`，不冒充新的 quota 选模决定。
+
+保留原模型不授予额外消费权：派发仍经当前 quota policy、admit、arm 和原 send 对账。原 runtime 撤下或不能解析时，保留原等待和截止时间，明确报告不可用，不偷偷走替代 provider，不创建新的模型请求或重启 600 秒窗口。主体明确结束等待或 Store 观察到到期之后，下一个 Planned 步恢复按当前策略选模；已封口的请求始终按自己的原 binding 恢复。
+
+本候选增加两个针对性回归：策略偏好另一 provider 时原模型继续等待，重开并更换默认模型后核对原 runtime 撤下拒绝、恢复原 runtime、处理新消息、结束等待及下一步新路由；以及真实短期限到期、Store 重开后不再被已撤下的原模型约束。这些使用真实 Store、broker、loopback HTTP 与 S1 parser，脚本只提供 provider 响应。当前尚未运行，不能作为真实模型行为或完整多 provider 日用验收。

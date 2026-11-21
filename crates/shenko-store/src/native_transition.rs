@@ -5,7 +5,7 @@
 //! task and, after its ordinary children converge, its result and inbox entry.
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -521,6 +521,9 @@ impl Store {
         phase: NativeT2Phase,
         completion: CompletionMemo,
     ) -> Result<Option<TaskResult>, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("native.t2", crate::timing::Binding {
+            task_id: Some(task_id), operation_id: Some(completion.operation_id), ..Default::default()
+        });
         let (head, mut position) = self.task_admission_position(task_id, String::new())?;
         let task = position
             .expected_tasks
@@ -553,7 +556,7 @@ impl Store {
         position.operation_id = Some(plan.operation.operation_id);
         position.attempt_id = Some(plan.attempt.attempt_id);
         let evidence_fact = if matches!(plan.phase, NativeT2Phase::Complete { .. }) {
-            let conn = self.ledger.conn.lock();
+            let conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
             let reference =
                 self.native_completion_evidence(&conn, &plan.task, &plan.operation, &plan.attempt)?;
             if let Some(reference) = &reference {
@@ -614,6 +617,10 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("canonical.prepare", crate::timing::Binding {
+            subject_id: Some(head.agent_id), task_id: Some(plan.task.task_id), action_id: Some(action_id),
+            operation_id: Some(plan.operation.operation_id), attempt_id: Some(plan.attempt.attempt_id),
+        });
         let input_digest = plan.input_digest(head)?;
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok(prepared);
@@ -628,8 +635,8 @@ impl Store {
             position.expected_steps.clone(),
         );
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             self.check_dispatch_owner(&tx).map_err(source_error)?;
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
@@ -664,7 +671,7 @@ impl Store {
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?])
                 .map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(commit_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
             Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -804,6 +811,11 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("missing reserved T2 admission"))?;
+        let _phase = crate::timing::Phase::bound("canonical.apply", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let transition = self.read_native_transition(reference)?;
         transition.validate(admission)?;
         let envelope: serde_json::Value =
@@ -818,9 +830,8 @@ impl Store {
         }
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 match mode {
                     NativeApplyMode::Learned => authority.check_materialization(&tx)?,
@@ -878,7 +889,7 @@ impl Store {
                     (if transition.result.is_some() { 3 } else { 1 })
                         + if evidence_written { 3 } else { 0 },
                 )?;
-                tx.commit().map_err(commit_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
                 authority.materialized();
                 Ok(transition.result.clone())
             },

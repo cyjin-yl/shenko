@@ -783,3 +783,445 @@ async fn a_requested_pause_is_honoured_at_a_retry_boundary() {
     }
     assert!(extra <= 2, "the pause must bound the retry streak, saw {extra} extra attempts");
 }
+
+fn preseal_policy() -> shenko_quota::QuotaPolicy {
+    use shenko_quota::*;
+    QuotaPolicy {
+        policy_id: EntityId::new(), revision: 1,
+        profiles: vec![
+            ModelProfile {
+                profile_id: "alternate".into(), model_ref: "quota-alternate".into(), local: false,
+                cost_per_request: vec![WindowCost {
+                    window: WindowRef { provider_id: "wire-fixture".into(),
+                        account_scope_ref: "preseal-quota".into(), window_key: "requests".into() },
+                    unit: "requests".into(), amount: Range::point(1.0).unwrap(),
+                }], effort_levels: Vec::new(),
+            },
+            ModelProfile { profile_id: "configured".into(), model_ref: "configured-fixed".into(),
+                local: true, cost_per_request: Vec::new(), effort_levels: Vec::new() },
+        ],
+        assumptions: Vec::new(), min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
+        // This fixture explicitly authorizes unknown quota. No synthetic
+        // balance is recorded, and the real durable send is still charged.
+        on_unknown: UnknownQuota::Admit, allow_overage: false, spending_authority_ref: None,
+        decision_ttl: chrono::Duration::minutes(5), observation_sources: Vec::new(),
+        objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
+        emergency_reserve_by_window: Vec::new(), uncertainty_margin: None,
+        admission_pacing: AdmissionPacing::default(),
+    }
+}
+
+/// Real provider metadata and generation HTTP, with the terminal response
+/// held until the original subject waiter has gone away.
+async fn serve_preseal_selection(
+    listener: TcpListener,
+    wire: tokio::sync::oneshot::Sender<serde_json::Value>,
+    release: tokio::sync::oneshot::Receiver<()>,
+) {
+    let (mut metadata, _) = listener.accept().await.unwrap();
+    let mut headers = Vec::new();
+    while !headers.windows(4).any(|part| part == b"\r\n\r\n") {
+        let mut buffer = [0_u8; 4096];
+        let count = metadata.read(&mut buffer).await.unwrap();
+        assert_ne!(count, 0, "metadata read ended before its headers");
+        headers.extend_from_slice(&buffer[..count]);
+    }
+    assert!(std::str::from_utf8(&headers).unwrap().starts_with("GET /v1/models HTTP/1.1\r\n"));
+    let body = serde_json::json!({"data": [
+        {"id": "configured-fixed", "max_model_len": 1},
+        {"id": "quota-alternate", "max_model_len": 32768}
+    ]}).to_string();
+    metadata.write_all(format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len(),
+    ).as_bytes()).await.unwrap();
+    metadata.shutdown().await.unwrap();
+    let (mut generation, _) = listener.accept().await.unwrap();
+    wire.send(read_wire(&mut generation).await).unwrap();
+    release.await.unwrap();
+    let body = observing_body();
+    generation.write_all(format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len(),
+    ).as_bytes()).await.unwrap();
+    generation.shutdown().await.unwrap();
+}
+
+/// The configured model cannot fit even its output reservation. Only selecting
+/// the alternate installed provider before context preparation can reach this
+/// wire. A cancelled waiter, changed policy and withdrawn alternate runtime
+/// then force reopen to use the original terminal receipt and exact S0.
+#[tokio::test]
+async fn quota_selection_prepares_alternate_model_and_reopens_original_seal() {
+    use shenko_broker::{admission::CapacityProvenance, native_provider::NativeBackendProvider,
+        profile::native_backends, registry::ProviderRegistry,
+        resource::{ResourceDomain, ResourceDomainIdentity}};
+    let (dir, store, agent) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(serve_preseal_selection(listener, wire_tx, release_rx));
+    let configured = LocalModelProvider::new("http://127.0.0.1:1".into(), "configured-fixed".into())
+        .with_resource_domain("quota-selection", None);
+    let configured_binding = configured.binding();
+    // Strata's actual HTTP provider has one metadata read and no assumed
+    // metrics endpoint. This fixture claims no physical KV capability.
+    let alternate = NativeBackendProvider::new(native_backends::strata(
+        &endpoint, "quota-alternate", "quota-selection",
+    ), None).unwrap();
+    let selected_binding = shenko_broker::registry::ProviderRuntime::binding(&alternate);
+    let registry = Arc::new(ProviderRegistry::new());
+    registry.install(Arc::new(configured.clone()));
+    let alternate_epoch = registry.install(Arc::new(alternate));
+    let domain = ResourceDomain::new(ResourceDomainIdentity {
+        domain_id: "quota-selection".into(), engine_identity: "quota-selection-fixture".into(),
+        engine_incarnation: None, epoch: 1,
+    }, 1, CapacityProvenance::Unknown, None, CapacityProvenance::Unknown);
+    let (runner, handle) = Broker::with_registry(registry.clone(), domain).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let mut policy = preseal_policy();
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone())
+        .with_model_capabilities(Some(ProviderCapabilities {
+            binding: configured_binding.clone(), max_context_tokens: Some(1), vision: None,
+        }));
+    subject.max_tokens = 73;
+    let step_id = subject.step.step_id;
+    let cancel = CancellationToken::new();
+    let mut execution = Box::pin(execute_step(1, &[], &mut subject, &cancel));
+    let wire = tokio::time::timeout(Duration::from_secs(15), async {
+        tokio::select! {
+            _result = &mut execution => panic!("subject ended before the alternate wire: {_result:?}"),
+            _wire = wire_rx => _wire.expect("the real provider observed the request"),
+        }
+    }).await.expect("selection and context preparation must reach the alternate provider");
+    cancel.cancel();
+    assert!(tokio::time::timeout(Duration::from_secs(5), &mut execution).await.unwrap().unwrap().is_none());
+    drop(execution);
+    assert_eq!(subject.step.state, SubjectStepState::AwaitingModel);
+    assert_eq!(subject.broker.as_ref().unwrap().binding(), &configured_binding,
+        "routing does not replace the configured broker or its recovery registry");
+    let seal = subject.step.input_plan_ref.clone().unwrap();
+    let sealed_bytes = store.cas.read_object(&seal.digest).unwrap();
+    let input = super::super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(Digest::blake3(&sealed_bytes), seal.digest);
+    assert_eq!(input.provider_binding.as_ref(), Some(&selected_binding));
+    assert_eq!(input.provider_selection.binding.as_ref(), Some(&selected_binding));
+    let selection = input.provider_selection.quota.as_ref().unwrap();
+    assert_eq!(selection.profile_id, "alternate");
+    assert_eq!(selection.policy_id, policy.policy_id);
+    assert_eq!(selection.policy_revision, policy.revision);
+    assert_eq!(selection.policy_digest, shenko_quota::policy_digest(&policy).unwrap());
+    assert_ne!(selection.decision_id, EntityId::nil());
+    let caps = input.context.capabilities.as_ref().unwrap();
+    assert_eq!(caps.binding, selected_binding);
+    assert_eq!(caps.max_context_tokens, Some(32768), "metadata must select the exact model card");
+    assert_eq!(input.payload.max_tokens, Some(73));
+    assert_eq!(input.context.reserved_output_tokens, 73);
+    assert!(input.context.budget_input_tokens.unwrap() + input.context.reserved_output_tokens <= 32768);
+    let (generation, profile) = subject.context_registry.ledger().model_profile().unwrap().unwrap();
+    assert_eq!(generation, input.context.source.model_generation);
+    assert_eq!(profile, input.context.profile_digest.0);
+    assert_eq!(wire["model"], "quota-alternate");
+    assert_eq!(wire["max_tokens"], 73);
+    let mut expected_messages = Vec::new();
+    if !input.payload.system_prompt.is_empty() {
+        expected_messages.push(serde_json::json!({"role":"system", "content":input.payload.system_prompt}));
+    }
+    for message in &input.payload.messages {
+        let text = message.parts.iter().map(|part| match part {
+            InferencePart::Text { text } => text.as_str(),
+            _ => panic!("the fixture has no image parts"),
+        }).collect::<String>();
+        expected_messages.push(serde_json::json!({"role":message.role, "content":text}));
+    }
+    assert_eq!(wire["messages"], serde_json::json!(expected_messages));
+    let original = store.subject_request_attempt(input.request_id).unwrap().unwrap();
+    assert_eq!(original.input_plan_ref, seal);
+    assert_eq!(original.state, SubjectRequestState::Dispatched);
+    let send = original.send_id.unwrap();
+    let admission = store.quota_pacer().unwrap().reservation(&send).unwrap().admission.clone();
+    assert_eq!(admission.profile_id.as_deref(), Some("alternate"));
+    assert_eq!(handle.active_count(), 1, "cancelling the waiter keeps the original physical owner");
+
+    policy.revision += 1;
+    policy.profiles[0].effort_levels = vec![shenko_quota::EffortLevel {
+        effort: "unmapped-effort".into(), cost_per_request: policy.profiles[0].cost_per_request.clone(),
+    }];
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if store.subject_request_attempt(input.request_id).unwrap().unwrap().state == SubjectRequestState::Terminal {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("the original sink persists the late terminal without its waiter");
+    let terminal = store.subject_request_attempt(input.request_id).unwrap().unwrap().terminal.unwrap();
+    let result: InferenceResult = serde_json::from_slice(&store.cas.read_object(
+        &terminal.result_ref.as_ref().unwrap().digest,
+    ).unwrap()).unwrap();
+    assert_eq!(result.effective.provider_binding, selected_binding);
+    assert_eq!(result.effective.max_tokens, 73);
+    handle.request_stop();
+    tokio::time::timeout(Duration::from_secs(5), broker_task).await.unwrap().unwrap();
+    assert!(registry.uninstall(selected_binding.profile_id(), alternate_epoch));
+    drop((subject, store, handle, registry));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let (_runner, handle) = Broker::with_local_provider(configured, 1).unwrap();
+    assert!(!handle.serves_model("quota-alternate"));
+    super::super::restore_inference_accounting(&reopened, agent, &handle).unwrap();
+    let mut resumed = state(reopened.clone(), agent).unwrap().with_broker(handle.clone())
+        .with_model_capabilities(Some(ProviderCapabilities {
+            binding: configured_binding, max_context_tokens: Some(1), vision: None,
+        }));
+    resumed.max_tokens = 999;
+    assert!(tokio::time::timeout(Duration::from_secs(5),
+        execute_step(1, &[], &mut resumed, &CancellationToken::new()),
+    ).await.unwrap().unwrap().is_some());
+    let committed = reopened.get_step(&resumed.head.branch_id, step_id).unwrap().unwrap();
+    assert_eq!(committed.state, SubjectStepState::Committed);
+    assert_eq!(committed.active_request_id, Some(input.request_id));
+    assert_eq!(committed.input_plan_ref.as_ref(), Some(&seal));
+    assert_eq!(reopened.cas.read_object(&seal.digest).unwrap(), sealed_bytes);
+    assert_eq!(reopened.subject_request_attempts_for_step(agent, step_id).unwrap().len(), 1);
+    assert_eq!(reopened.quota_send_ids(input.request_id).unwrap().len(), 1);
+    assert_eq!(reopened.quota_pacer().unwrap().reservation(&send).unwrap().admission, admission);
+    assert_eq!(handle.active_count(), 0);
+    assert_eq!(resumed.head.committed_step_no, 1);
+    assert_eq!(resumed.step.step_no, 2);
+}
+
+#[tokio::test]
+async fn quota_named_effort_refuses_fresh_subject_before_s0_or_send() {
+    let (_dir, store, agent) = fixture();
+    let (_runner, handle) = Broker::with_anthropic_provider(
+        shenko_broker::provider::AnthropicProvider::with_endpoint(
+            "quota-effort-fixture".into(), "http://127.0.0.1:1".into(), "configured-fixed",
+        ), 1,
+    ).unwrap();
+    let mut policy = preseal_policy();
+    policy.profiles.truncate(1);
+    policy.profiles[0].effort_levels = vec![shenko_quota::EffortLevel {
+        effort: "unmapped-effort".into(), cost_per_request: policy.profiles[0].cost_per_request.clone(),
+    }];
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let error = execute_step(1, &[], &mut subject, &CancellationToken::new()).await.unwrap_err();
+    let shenko_types::error::ShenkoError::Protocol(error) = error else {
+        panic!("named effort must return a typed semantic-binding refusal");
+    };
+    assert_eq!(error.code, "QUOTA_EFFORT_BINDING_UNSUPPORTED");
+    let (_, step) = store.load_subject(agent).unwrap();
+    assert_eq!(step.state, SubjectStepState::Planned);
+    assert!(step.input_plan_ref.is_none());
+    assert!(store.subject_request_attempts_for_step(agent, step.step_id).unwrap().is_empty());
+    assert_eq!(store.quota_pacer().unwrap().reservations().count(), 0);
+    assert!(store.quota_attempts("wire-fixture", "preseal-quota").unwrap().is_empty());
+    assert_eq!(handle.active_count(), 0);
+}
+
+/// Script only provider replies; exercise the production metadata/HTTP,
+/// receipt, S0/S1 and parser paths. Metadata reads are not counted as sends.
+async fn serve_wait_routes(
+    listener: TcpListener,
+    replies: Vec<String>,
+    wires: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+) {
+    let mut index = 0;
+    while let Ok((mut socket, _)) = listener.accept().await {
+        let mut bytes = Vec::new();
+        let end = loop {
+            let mut chunk = [0_u8; 4096];
+            let count = socket.read(&mut chunk).await.unwrap();
+            assert_ne!(count, 0, "provider request ended before its headers");
+            bytes.extend_from_slice(&chunk[..count]);
+            if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                break end;
+            }
+        };
+        let headers = std::str::from_utf8(&bytes[..end]).unwrap().to_owned();
+        let (status, body) = if headers.starts_with("GET /v1/models ") {
+            ("200 OK", serde_json::json!({"data": [
+                {"id":"configured-fixed", "max_model_len":32768},
+                {"id":"quota-alternate", "max_model_len":32768},
+            ]}).to_string())
+        } else if headers.starts_with("GET /metrics ") {
+            ("404 Not Found", "{}".into())
+        } else {
+            assert!(headers.starts_with("POST /v1/chat/completions "));
+            let len: usize = headers.lines().find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().unwrap())
+            }).unwrap();
+            while bytes.len() < end + 4 + len {
+                let mut chunk = [0_u8; 4096];
+                let count = socket.read(&mut chunk).await.unwrap();
+                assert_ne!(count, 0, "provider request ended before its body");
+                bytes.extend_from_slice(&chunk[..count]);
+            }
+            wires.send(serde_json::from_slice(&bytes[end + 4..end + 4 + len]).unwrap()).unwrap();
+            let text = replies.get(index).unwrap_or_else(|| replies.last().unwrap());
+            index += 1;
+            ("200 OK", serde_json::json!({
+                "id":"semantic-wait-routing-fixture",
+                "choices":[{"message":{"role":"assistant", "content":text}, "finish_reason":"stop"}],
+                "usage":{"prompt_tokens":23, "completion_tokens":11},
+            }).to_string())
+        };
+        socket.write_all(format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len(),
+        ).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn quota_policy_change_and_reopen_preserve_active_wait_until_subject_ends_it() {
+    use shenko_broker::{admission::CapacityProvenance, native_provider::NativeBackendProvider,
+        profile::native_backends, registry::ProviderRegistry,
+        resource::{ResourceDomain, ResourceDomainIdentity}};
+    let (dir, store, agent) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let event = super::message("等待的结果到了，请继续处理这条新消息。");
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(serve_wait_routes(listener, vec![
+        "[wait] {\"condition\":\"出现新证据\",\"max_wait_secs\":600}".into(),
+        "[wait:continue]".into(),
+        format!("[wait:end] 新证据已经到达\n[dispose] {}", serde_json::json!({
+            "event_id":event.event_id, "disposition":"acknowledged",
+        })),
+        "继续处理后续工作。".into(),
+    ], wires_tx));
+    let configured = LocalModelProvider::new(endpoint.clone(), "configured-fixed".into())
+        .with_resource_domain("wait-routing", None);
+    let original_binding = configured.binding();
+    let alternate = NativeBackendProvider::new(native_backends::strata(
+        &endpoint, "quota-alternate", "wait-routing",
+    ), None).unwrap();
+    let alternate_binding = shenko_broker::registry::ProviderRuntime::binding(&alternate);
+    let registry = Arc::new(ProviderRegistry::new());
+    let original_epoch = registry.install(Arc::new(configured.clone()));
+    registry.install(Arc::new(alternate));
+    let domain = ResourceDomain::new(ResourceDomainIdentity {
+        domain_id:"wait-routing".into(), engine_identity:"wait-routing-fixture".into(),
+        engine_incarnation:None, epoch:1,
+    }, 1, CapacityProvenance::Unknown, None, CapacityProvenance::Unknown);
+    let (runner, handle) = Broker::with_registry(registry.clone(), domain.clone()).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let cancel = CancellationToken::new();
+    execute_step(1, &[], &mut subject, &cancel).await.unwrap().unwrap();
+    assert_eq!(wires_rx.recv().await.unwrap()["model"], "configured-fixed");
+    let original_wait = store.semantic_wait(agent).unwrap().unwrap();
+    assert!(original_wait.is_active());
+
+    // The current policy would normally choose the other installed provider.
+    let policy = preseal_policy();
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let candidate = crate::quota_gate::select_subject_quota_route(
+        &store, Some(&handle), &cancel, &subject.quota_strategies, agent,
+    ).await.unwrap().unwrap();
+    assert_eq!(candidate.broker.unwrap().binding(), &alternate_binding);
+    let continued_step = subject.step.step_id;
+    execute_step(2, &[], &mut subject, &cancel).await.unwrap().unwrap();
+    assert_eq!(wires_rx.recv().await.unwrap()["model"], "configured-fixed");
+    let continued_wait = store.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(continued_wait.wait_id, original_wait.wait_id);
+    assert_eq!(continued_wait.started_at, original_wait.started_at);
+    assert_eq!(continued_wait.deadline_at, original_wait.deadline_at);
+    let attempt = store.subject_request_attempts_for_step(agent, continued_step).unwrap().pop().unwrap();
+    let admission = store.quota_pacer().unwrap().reservation(&attempt.send_id.unwrap()).unwrap().admission.clone();
+    assert_eq!(admission.profile_id.as_deref(), Some("configured"), "the pinned wait still passes quota admission");
+    let input = super::super::frozen_input(&store,
+        &store.get_step(&subject.head.branch_id, continued_step).unwrap().unwrap()).unwrap();
+    assert_eq!(input.provider_binding.as_ref(), Some(&original_binding));
+    assert_eq!(input.semantic_wait.as_ref().unwrap().deadline_at, original_wait.deadline_at);
+    handle.request_stop();
+    broker_task.await.unwrap();
+    drop((subject, store, handle));
+
+    // Reopen with the alternate default. A withdrawn original must not turn
+    // into silent fallback, a new wait, a send or a forged spending receipt.
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    assert!(registry.uninstall(original_binding.profile_id(), original_epoch));
+    let (runner, handle) = Broker::with_registry(registry.clone(), domain).unwrap();
+    let handle = handle.for_binding(&alternate_binding).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let mut resumed = state(reopened.clone(), agent).unwrap().with_broker(handle.clone())
+        .with_model_capabilities(Some(ProviderCapabilities {
+            binding:alternate_binding.clone(), max_context_tokens:Some(32768), vision:None,
+        }));
+    let stopped_step = resumed.step.step_id;
+    let error = execute_step(3, std::slice::from_ref(&event), &mut resumed, &cancel).await.unwrap_err();
+    assert!(error.to_string().contains("semantic wait original provider is unavailable"));
+    assert_eq!(resumed.step.state, SubjectStepState::Planned);
+    assert!(resumed.step.input_plan_ref.is_none());
+    assert!(reopened.subject_request_attempts_for_step(agent, stopped_step).unwrap().is_empty());
+    assert!(wires_rx.try_recv().is_err(), "withdrawal cannot dispatch through the replacement");
+    let waiting = reopened.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(waiting.wait_id, original_wait.wait_id);
+    assert_eq!(waiting.deadline_at, original_wait.deadline_at);
+
+    registry.install(Arc::new(configured));
+    execute_step(3, std::slice::from_ref(&event), &mut resumed, &cancel).await.unwrap().unwrap();
+    let wire = wires_rx.recv().await.unwrap();
+    assert_eq!(wire["model"], "configured-fixed");
+    assert!(wire["messages"].to_string().contains("等待的结果到了"));
+    assert!(reopened.event_disposition_commit(agent, event.event_id).unwrap().is_some());
+    let ended = reopened.semantic_wait(agent).unwrap().unwrap();
+    assert!(matches!(ended.status, SemanticWaitStatus::Ended { .. }));
+    assert_eq!(ended.deadline_at, original_wait.deadline_at);
+    execute_step(4, &[], &mut resumed, &cancel).await.unwrap().unwrap();
+    assert_eq!(wires_rx.recv().await.unwrap()["model"], "quota-alternate");
+    assert_eq!(resumed.head.committed_step_no, 4);
+    handle.request_stop();
+    broker_task.await.unwrap();
+    server.abort();
+}
+
+#[tokio::test]
+async fn expired_wait_does_not_pin_a_reopened_subject_to_its_missing_original_model() {
+    let (dir, store, agent) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(serve_wait_routes(listener, vec![
+        "[wait] {\"condition\":\"等待短时观察\",\"max_wait_secs\":1}".into(),
+        "等待已经失效，继续正常工作。".into(),
+    ], wires_tx));
+    let (runner, handle) = Broker::with_local_provider(
+        LocalModelProvider::new(endpoint.clone(), "configured-fixed".into()), 1,
+    ).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    execute_step(1, &[], &mut subject, &CancellationToken::new()).await.unwrap().unwrap();
+    assert_eq!(wires_rx.recv().await.unwrap()["model"], "configured-fixed");
+    let original = store.semantic_wait(agent).unwrap().unwrap();
+    handle.request_stop();
+    broker_task.await.unwrap();
+    drop((subject, store, handle));
+    let until_expiry = (original.deadline_at - chrono::Utc::now()).to_std().unwrap_or_default();
+    tokio::time::sleep(until_expiry + Duration::from_millis(20)).await;
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let (runner, handle) = Broker::with_local_provider(
+        LocalModelProvider::new(endpoint, "replacement".into()), 1,
+    ).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let mut resumed = state(reopened.clone(), agent).unwrap().with_broker(handle.clone());
+    execute_step(2, &[], &mut resumed, &CancellationToken::new()).await.unwrap().unwrap();
+    assert_eq!(wires_rx.recv().await.unwrap()["model"], "replacement");
+    let expired = reopened.semantic_wait(agent).unwrap().unwrap();
+    assert!(matches!(expired.status, SemanticWaitStatus::Expired { .. }));
+    assert_eq!(expired.wait_id, original.wait_id);
+    assert_eq!(expired.started_at, original.started_at);
+    assert_eq!(expired.deadline_at, original.deadline_at);
+    assert_eq!(resumed.head.committed_step_no, 2);
+    handle.request_stop();
+    broker_task.await.unwrap();
+    server.abort();
+}

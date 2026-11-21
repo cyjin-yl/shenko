@@ -6,7 +6,7 @@
 //! original marker and source commit without running any provider.
 use std::collections::BTreeMap;
 
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -315,6 +315,10 @@ impl Store {
         operation: OperationRecord,
         attempt: AttemptRecord,
     ) -> Result<NativeDispatchTransition, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("native.dispatch_commit", crate::timing::Binding {
+            task_id: Some(invocation.task_id), operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id), ..Default::default()
+        });
         let (head, mut position) =
             self.task_admission_position(invocation.task_id, String::new())?;
         let task = position
@@ -361,6 +365,10 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("canonical.prepare", crate::timing::Binding {
+            subject_id: Some(head.agent_id), task_id: Some(plan.task.task_id), action_id: Some(action_id),
+            operation_id: Some(plan.operation.operation_id), attempt_id: Some(plan.attempt.attempt_id),
+        });
         let input_digest = plan.input_digest(head)?;
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok((prepared, false));
@@ -371,8 +379,8 @@ impl Store {
             .reserve_authority()?
             .with_read_conditions(position.expected_tasks.clone(), Vec::new());
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             if !self.native_invocation_current_tx(&tx, &plan.task, &plan.invocation).map_err(source_error)? {
                 return Err(conflict("source invocation was fenced before preparation"));
@@ -408,7 +416,7 @@ impl Store {
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?])
                 .map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(storage_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
             Ok((PreparedTransition { admission, transition_ref }, true))
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -497,6 +505,11 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("missing dispatch admission"))?;
+        let _phase = crate::timing::Phase::bound("canonical.apply", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let transition = self.read_dispatch_transition(reference)?;
         transition.validate(admission)?;
         let envelope: serde_json::Value =
@@ -513,12 +526,11 @@ impl Store {
         }
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 if admission_materialized(&tx, admission)? {
-                    tx.commit().map_err(storage_error)?;
+                    crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                     authority.materialized();
                     return Ok(NativeDispatchTransition::AlreadyCommitted);
                 }
@@ -562,7 +574,7 @@ impl Store {
                     transition.rows.created_at,
                 )?;
                 self.record_subject_commit(&tx, local_commit, 1)?;
-                tx.commit().map_err(storage_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                 authority.materialized();
                 Ok(
                     if matches!(mode, DispatchApplyMode::Current)

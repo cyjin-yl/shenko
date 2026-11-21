@@ -651,6 +651,14 @@ WebUI 初始只呈现主体的一条时间线和输入框。输入接入同一 s
 
 <!-- /migrated-contract: SPEC:21.12 -->
 
+### 当前统一发送入口
+
+上述迁移块保留首版原文。当前统一发送入口沿用已合入的
+[one-send 设计](https://github.com/cyjin-yl/shenko/commit/a0f008a7c262209f1b6ce6333aa5d00f8421c8a1)：
+当前连接的 `hello.capabilities.steer` 为真时请求 `steer`，否则在允许追加输入时请求
+`append`。这是当前默认发送行为的更新；实际接纳位置仍以持久回执为准，
+`steer` 的请求本身不证明已在活动模型请求内生效。
+
 <a id="spec-41-18"></a>
 <!-- migrated-contract: SPEC:41.18 -->
 ## 41.18 WebInputSubmission 规范接口

@@ -43,7 +43,7 @@ or claim a complete software handoff.
 
 ## Run
 
-Use Python with `websockets==16.0`, an actual model endpoint, and a CLI built from
+Use Python 3.11+ with `websockets==16.0`, an actual model endpoint, and a CLI built from
 the revision named in the command. Preserve the model checkpoint/quantization,
 runtime identity, context size, and sampling parameters with the run's evidence.
 
@@ -67,6 +67,56 @@ the paused and accepted snapshots show whether any request was admitted before
 each explicit resume. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
+
+### Repeated candidate and recovery evidence
+
+Pass `--repeat 3 --browser --timing` to run three complete journeys sequentially
+against the same binary and served model card. Each attempt uses a fresh
+installation and retains both the first-task and restart phases under
+`attempt-NNN`. `batch-summary.json` is checkpointed after every attempt and
+reports passed, failed and unattempted runs. A failed attempt remains in the
+success-rate denominator; binary or model-card drift stops the batch and
+leaves the remaining runs explicitly unattempted. Model-card equality is an
+observed serving identity, not proof that weight bytes did not change; record
+the checkpoint/template/runtime identity separately for a deployment claim.
+Only response-generation metadata (`permission` and `created`) is excluded
+from that comparison: an unchanged vLLM process can regenerate both fields.
+The selected card's other fields, including model ID, root, owner and served
+context capacity, remain bound. Each attempt retains the raw `/v1/models`
+response in `models.json`, and the batch report names the excluded fields.
+
+The fresh installation must contain exactly one `model.child` and one
+`host.printf` task. The completed child's recorded model, local endpoint and
+every transcript step's provider binding must match the requested deployment.
+The native task must have exactly one operation, attempt and original
+postcondition-verified receipt bound to its result. Extra failed or unstarted
+tasks/attempts still fail this strict journey; their complete records remain
+available for diagnosing refusal, retries and unknown effects.
+
+Recovery compares the original child operation/attempt rows and complete stored
+result/receipt rows from the first successful answer through the paused boundary
+and final shutdown snapshot. New tasks, operations, attempts or receipts cannot
+be incorporated into a later baseline. This recall-only second input must not
+create another model or `host.printf` child. Retaining the old result or returning
+the same WebSocket receipt alone cannot prove that execution was not repeated.
+The driver records its own SHA-256, phase deadline and elapsed wall time.
+`--timing` selects `SHENKO_LOG=info,shenko_timing=debug`; structured phase timings
+are diagnostic observations, not successful effect receipts or model-quality
+evidence. All existing child, output, pause, browser and clean-exit assertions
+remain required.
+
+With `--browser`, the actual composer chooses the mode according to the current
+socket's preceding `hello` capabilities, following the already merged one-send
+UI (`a0f008a7c262209f1b6ce6333aa5d00f8421c8a1`). The witness checks that `append`
+and durable receipts are available, and requires `steer` exactly when advertised.
+It preserves the actual submitted mode and checks the same socket's accepted
+receipt: durable acceptance, matching requested mode, and `next_boundary`
+placement at this journey's clean pause. It does not change the composer or
+force a mode, and does not claim an active-generation steering/replay test.
+
+`python3 -I scripts/real_single_node_journey_test.py` checks only the driver's
+reexecution detection and failed-attempt accounting with synthetic records.
+It does not execute a model or satisfy the journey itself.
 
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
 with workflow dispatch or by adding the PR label `run-real-model`. Adding that
@@ -537,10 +587,37 @@ Both shutdowns use the existing owned-process `SIGINT` path and its forced-kill
 fallback; neither is an intentional crash experiment. The first follows the
 confirmed durable pause. The final shutdown occurs after continued-output
 observation and may encounter the still-continuous main loop. The success checks
-now require both observed exits to be zero. A nonzero first exit stops the journey
-before automatic restart; a nonzero final exit keeps `passed=false` while final
-ledger/CAS evidence is retained. Unknown inference outcomes remain Unknown and
-are not converted to successful cleanup.
+require both observed exits to be zero and the owned process group to finish
+without residual live children or forced cleanup. A failed first shutdown stops
+the journey before automatic restart; a failed final shutdown keeps `passed=false`
+while final ledger/CAS evidence is retained. Unknown inference outcomes remain
+Unknown and are not converted to successful cleanup.
+
+`first_exit` and `last_exit` retain the actual parent exit codes. The separate
+`first_shutdown` / `last_shutdown` receipts record the owned PGID, residual live
+members, signals, forced cleanup, remaining members and errors. Startup failures
+retain the same information in `<phase>.startup-shutdown.json` and the attempt
+summary. Only the group created by this driver's `start_new_session` spawn can be
+signalled; Linux `/proc` observation distinguishes zombies from live processes.
+An exited parent with surviving children still needs cleanup and fails the clean
+shutdown check. An incomplete or unverified cleanup stops a repeated batch before
+another installation is launched. Log-close/cleanup errors remain failures while
+the other final evidence is collected; an unwritable summary is also printed in
+full to the caller's captured stdout.
+
+Cancellation, KeyboardInterrupt and SystemExit are retained as failed-attempt
+facts and propagated after runtime cleanup and final evidence retention.
+Browser cleanup allows 15 seconds for its final capture and 10 seconds each for
+context, browser and driver shutdown. A timeout or interruption remains an
+explicit failed/unknown cleanup observation; the remaining owners and owned
+runtime are still closed. A browser error cannot skip the runtime shutdown,
+final ledger, CAS copy or attempt summary.
+
+One driver regression exercises an actual parent exiting zero with a child that
+ignores SIGTERM. The child is removed by the bounded SIGKILL fallback, the parent
+exit remains zero, the cleanup is recorded as unclean, and an unrelated session
+remains alive. This process fixture and the two existing evidence-driver checks
+are bookkeeping/cleanup verification, not a successful model journey.
 
 A single explicit label event is still required for one exact-candidate run;
 pushes and unrelated labels do not repeat it. A protocol correction loop is a
