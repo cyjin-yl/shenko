@@ -29,18 +29,169 @@ pub enum InboxAdmission {
 /// No provider semantics enter Store; the decoder supplies this conclusion
 /// only after reading the immutable receipts at expected_revision.
 #[derive(Debug, Clone, Copy)]
-pub struct ExternalEvidenceFold {
+pub struct ExternalEvidenceFold<'a> {
     pub expected_revision: RecordRevision,
     pub terminal_content_conflict: bool,
-    /// A reused operation's evidence is valid only at the revision inspected
-    /// by the decoder. Test both heads in the same evidence transaction.
-    pub source_operation_revision: Option<(EntityId, RecordRevision)>,
+    /// Exact source projection inspected by the decoder before reusing evidence.
+    pub source_operation: Option<&'a OperationRecord>,
+    /// Decoder inputs, retained before reading immutable manifests or payloads.
+    pub source_reads: &'a [ExternalEvidenceSource],
+    /// Complete selected receipt inventories, including observed absence.
+    pub receipt_scopes: &'a [ExternalReceiptScope<'a>],
+}
+
+/// Exact durable inputs consumed by a decoder. Object references remain in
+/// their original receipts/manifests; this custody record never rewrites them.
+#[derive(Debug, Clone)]
+pub struct ExternalEvidenceSource {
+    pub operation: OperationRecord,
+    pub attempt: AttemptRecord,
+    pub receipts: Vec<EvidenceReceipt>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExternalSourceTable { Operation, Attempt, Receipt }
+
+struct ExternalSourceRow {
+    table: ExternalSourceTable,
+    rowid: i64,
+    key: String,
+    parent_operation_id: Option<String>,
+    record_revision: Option<i64>,
+    data: String,
+    updated_commit_seq: i64,
+    created_at: String,
+}
+
+struct ExternalEvidencePostimage<'a> {
+    operation_id: &'a str,
+    attempt_id: &'a str,
+    operation_data: &'a str,
+    attempt_data: &'a str,
+    record_revision: i64,
+    seq: i64,
+}
+
+impl ExternalSourceRow {
+    fn read(tx: &Transaction<'_>, table: ExternalSourceTable, key: &str) -> Result<Option<Self>>
+    {
+        let sql = match table {
+            ExternalSourceTable::Operation => "SELECT rowid AS physical_rowid,
+                operation_id AS source_key, NULL AS parent_operation_id,
+                record_revision, data, updated_commit_seq, created_at
+                FROM operations WHERE operation_id=?1",
+            ExternalSourceTable::Attempt => "SELECT rowid AS physical_rowid,
+                attempt_id AS source_key, operation_id AS parent_operation_id,
+                NULL AS record_revision, data, updated_commit_seq, created_at
+                FROM attempts WHERE attempt_id=?1",
+            ExternalSourceTable::Receipt => "SELECT rowid AS physical_rowid,
+                receipt_id AS source_key, operation_id AS parent_operation_id,
+                NULL AS record_revision, data, updated_commit_seq, created_at
+                FROM evidence_receipts WHERE receipt_id=?1",
+        };
+        tx.query_row(sql, [key], |row| Ok(Self {
+            table, rowid: row.get("physical_rowid")?, key: row.get("source_key")?,
+            parent_operation_id: row.get("parent_operation_id")?, record_revision: row.get("record_revision")?,
+            data: row.get("data")?, updated_commit_seq: row.get("updated_commit_seq")?,
+            created_at: row.get("created_at")?,
+        })).optional().map_err(Into::into)
+    }
+
+    fn unchanged(&self, tx: &Transaction<'_>, post: &ExternalEvidencePostimage<'_>) -> Result<bool> {
+        let own_operation = self.table == ExternalSourceTable::Operation && self.key == post.operation_id;
+        let own_attempt = self.table == ExternalSourceTable::Attempt && self.key == post.attempt_id;
+        let (data, revision, seq) = if own_operation {
+            (post.operation_data, Some(post.record_revision), post.seq)
+        } else if own_attempt {
+            (post.attempt_data, self.record_revision, post.seq)
+        } else {
+            (self.data.as_str(), self.record_revision, self.updated_commit_seq)
+        };
+        let sql = match self.table {
+            ExternalSourceTable::Operation => "SELECT EXISTS(SELECT 1 FROM operations
+                WHERE rowid=?1 AND operation_id=?2 AND ?3 IS NULL
+                AND record_revision IS ?4 AND data=?5 AND updated_commit_seq=?6 AND created_at=?7)",
+            ExternalSourceTable::Attempt => "SELECT EXISTS(SELECT 1 FROM attempts
+                WHERE rowid=?1 AND attempt_id=?2 AND operation_id IS ?3
+                AND ?4 IS NULL AND data=?5 AND updated_commit_seq=?6 AND created_at=?7)",
+            ExternalSourceTable::Receipt => "SELECT EXISTS(SELECT 1 FROM evidence_receipts
+                WHERE rowid=?1 AND receipt_id=?2 AND operation_id IS ?3
+                AND ?4 IS NULL AND data=?5 AND updated_commit_seq=?6 AND created_at=?7)",
+        };
+        tx.query_row(sql, params![self.rowid, self.key, self.parent_operation_id,
+            revision, data, seq, self.created_at], |row| row.get(0)).map_err(Into::into)
+    }
 }
 
 fn evidence_storage_failure(error: &anyhow::Error) -> bool {
     error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
         || error.downcast_ref::<shenko_types::error::ShenkoError>()
             .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_)))
+}
+
+/// An exact receipt inventory, including an empty inventory, consumed by a
+/// decoder. Scope is an operation plus its original evidence source name.
+#[derive(Debug, Clone, Copy)]
+pub struct ExternalReceiptScope<'a> {
+    pub operation_id: EntityId,
+    pub source_id: &'a str,
+}
+
+fn receipt_scope_matches(tx: &Transaction<'_>, scope: ExternalReceiptScope<'_>,
+    reads: &[ExternalEvidenceSource], inserted: Option<&EvidenceReceipt>,
+) -> Result<bool> {
+    let mut expected = std::collections::BTreeMap::new();
+    for receipt in reads.iter().flat_map(|read| &read.receipts).chain(inserted) {
+        if receipt.operation_id == Some(scope.operation_id) && receipt.source_id == scope.source_id {
+            let data = serde_json::to_value(receipt)?;
+            if let Some(previous) = expected.insert(receipt.receipt_id, data.clone()) {
+                ensure!(previous == data, "external receipt custody contradicts itself");
+            }
+        }
+    }
+    let mut query = tx.prepare("SELECT receipt_id,data FROM evidence_receipts
+        WHERE operation_id=?1 AND json_extract(data,'$.source_id')=?2 ORDER BY rowid")?;
+    let mut rows = query.query(params![scope.operation_id.to_string(), scope.source_id])?;
+    while let Some(row) = rows.next()? {
+        let id: EntityId = row.get::<_, String>(0)?.parse()?;
+        let data: serde_json::Value = serde_json::from_str(&row.get::<_, String>(1)?)?;
+        if expected.remove(&id).as_ref() != Some(&data) { return Ok(false); }
+    }
+    Ok(expected.is_empty())
+}
+
+fn capture_external_sources(tx: &Transaction<'_>, reads: &[ExternalEvidenceSource])
+    -> Result<Option<Vec<ExternalSourceRow>>>
+{
+    let mut rows = Vec::new();
+    for read in reads {
+        ensure!(read.attempt.operation_id == read.operation.operation_id,
+            "external source attempt identity mismatch");
+        let operation_key = read.operation.operation_id.to_string();
+        let Some(operation) = ExternalSourceRow::read(tx, ExternalSourceTable::Operation, &operation_key)?
+            else { return Ok(None); };
+        let Some(attempt) = ExternalSourceRow::read(tx, ExternalSourceTable::Attempt,
+            &read.attempt.attempt_id.to_string())? else { return Ok(None); };
+        let actual_operation: OperationRecord = serde_json::from_str(&operation.data)?;
+        let actual_attempt: AttemptRecord = serde_json::from_str(&attempt.data)?;
+        if operation.record_revision != Some(i64::try_from(read.operation.record_revision.0)?)
+            || attempt.parent_operation_id.as_deref() != Some(operation_key.as_str())
+            || !crate::native_facts::same(&actual_operation, &read.operation)?
+            || !crate::native_facts::same(&actual_attempt, &read.attempt)? { return Ok(None); }
+        rows.push(operation);
+        rows.push(attempt);
+        for receipt in &read.receipts {
+            ensure!(receipt.operation_id == Some(read.operation.operation_id)
+                && receipt.attempt_id == Some(read.attempt.attempt_id), "external source receipt identity mismatch");
+            let Some(row) = ExternalSourceRow::read(tx, ExternalSourceTable::Receipt,
+                &receipt.receipt_id.to_string())? else { return Ok(None); };
+            let actual: EvidenceReceipt = serde_json::from_str(&row.data)?;
+            if row.parent_operation_id.as_deref() != Some(operation_key.as_str())
+                || !crate::native_facts::same(&actual, receipt)? { return Ok(None); }
+            rows.push(row);
+        }
+    }
+    Ok(Some(rows))
 }
 
 pub(crate) fn validate_original_event(
@@ -686,6 +837,7 @@ impl Store {
     /// A content conflict preserves the incoming receipt and changes the
     /// operation to sticky Unknown in the SAME E1 transaction. This may accept
     /// late facts after cancellation; it grants no dispatch or T2 authority.
+    /// The fold also retains complete selected receipt inventories, including absence.
     pub fn record_external_evidence_if_current(
         &self,
         operation_id: EntityId,
@@ -693,12 +845,42 @@ impl Store {
         ev: EvidenceReceipt,
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
-        fold: ExternalEvidenceFold,
+        fold: ExternalEvidenceFold<'_>,
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_factual_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect, Some(fold)),
             evidence_storage_failure,
         )
+    }
+
+    /// Confirm a settled decoder result and all its source reads in one SQLite
+    /// snapshot. This path needs neither writer admission nor CAS publication.
+    pub fn validate_external_evidence_replay(
+        &self, operation: &OperationRecord, attempt: &AttemptRecord,
+        receipt: &EvidenceReceipt,
+        reads: &[ExternalEvidenceSource], scopes: &[ExternalReceiptScope<'_>],
+    ) -> Result<Option<OperationRecord>> {
+        ensure!(operation.state == OperationState::Resolved && !operation.outcome_conflict
+            && attempt.operation_id == operation.operation_id, "external replay is not settled");
+        let receipt_id = attempt.final_receipt_id.context("external replay has no settled receipt")?;
+        ensure!(receipt.receipt_id == receipt_id && receipt.operation_id == Some(operation.operation_id)
+            && receipt.attempt_id == Some(attempt.attempt_id), "external replay own receipt identity mismatch");
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
+        // This value was decoded/authenticated by the caller before entering
+        // the transaction. Capture compares it with the durable snapshot;
+        // loading the expected value here would validate a row against itself.
+        let own = ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(), receipts: vec![receipt.clone()] };
+        if capture_external_sources(&tx, std::slice::from_ref(&own))?.is_none()
+            || capture_external_sources(&tx, reads)?.is_none() { return Ok(None); }
+        for scope in scopes {
+            if !receipt_scope_matches(&tx, *scope, reads, None)? { return Ok(None); }
+        }
+        if receipt.received_commit.ledger_id == self.ledger.ledger_id() {
+            crate::native_evidence::verify_accepted_evidence(&tx, receipt, operation, attempt)?;
+        }
+        tx.commit()?;
+        Ok(Some(operation.clone()))
     }
 
     /// The provider's answer of one bounded intervention attempt becomes
@@ -785,8 +967,10 @@ impl Store {
         mut ev: EvidenceReceipt,
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
-        fold: Option<ExternalEvidenceFold>,
+        fold: Option<ExternalEvidenceFold<'_>>,
     ) -> Result<Option<OperationRecord>> {
+        let operation_key = operation_id.to_string();
+        let attempt_key = attempt_id.to_string();
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (mut op, mut att) =
@@ -795,15 +979,24 @@ impl Store {
         if fold.is_some_and(|fold| fold.expected_revision != op.record_revision) {
             return Ok(None);
         }
-        if let Some((source, revision)) = fold.and_then(|fold| fold.source_operation_revision) {
-            ensure!(source != operation_id, "external evidence cannot reuse its own operation");
-            let source_revision: Option<u64> = tx.query_row(
-                "SELECT record_revision FROM operations WHERE operation_id=?1",
-                [source.to_string()], |row| row.get(0),
-            ).optional()?;
-            if source_revision != Some(revision.0) {
-                return Ok(None);
+        let source = fold.and_then(|fold| fold.source_operation);
+        if let Some(source) = source {
+            ensure!(source.operation_id != operation_id, "external evidence cannot reuse its own operation");
+            let mut bound = false;
+            for read in fold.into_iter().flat_map(|fold| fold.source_reads) {
+                if read.operation.operation_id == source.operation_id
+                    && crate::native_facts::same(&read.operation, source)? {
+                    bound = true;
+                    break;
+                }
             }
+            ensure!(bound, "external source requires exact decoder custody");
+        }
+        let reads = fold.map_or(&[][..], |fold| fold.source_reads);
+        let scopes = fold.map_or(&[][..], |fold| fold.receipt_scopes);
+        let Some(mut source_rows) = capture_external_sources(&tx, reads)? else { return Ok(None); };
+        for scope in scopes {
+            if !receipt_scope_matches(&tx, *scope, reads, None)? { return Ok(None); }
         }
         match crate::receipt_admission::decide(&tx, &ev)? {
             crate::receipt_admission::Admission::New => {}
@@ -811,12 +1004,20 @@ impl Store {
             // the answer, not a second commit. It may only be confirmed — a
             // different settlement for one fact is a divergence, and the
             // durable projection is never rewritten to match it.
-            crate::receipt_admission::Admission::Replay { .. } => {
+            crate::receipt_admission::Admission::Replay { receipt_id } => {
                 if let Some(observed) = outcome {
                     ensure!(
                         op.outcome == Some(observed) && op.effect_status == effect,
                         "receipt replay carries a different settlement than the durable fact"
                     );
+                }
+                if source.is_some() {
+                    let raw: String = tx.query_row("SELECT data FROM evidence_receipts WHERE receipt_id=?1",
+                        [receipt_id.to_string()], |row| row.get(0))?;
+                    let receipt: EvidenceReceipt = serde_json::from_str(&raw)?;
+                    if receipt.received_commit.ledger_id == self.ledger.ledger_id() {
+                        crate::native_evidence::verify_accepted_evidence(&tx, &receipt, &op, &att)?;
+                    }
                 }
                 return Ok(Some(op));
             }
@@ -890,16 +1091,32 @@ impl Store {
         op.record_revision = RecordRevision(op.record_revision.0 + 1);
         op.evidence_through = Some(commit);
         att.last_observed_at = Some(chrono::Utc::now());
+        let operation_data = serde_json::to_string(&op)?;
+        let attempt_data = serde_json::to_string(&att)?;
+        let post = ExternalEvidencePostimage {
+            operation_id: &operation_key, attempt_id: &attempt_key,
+            operation_data: &operation_data, attempt_data: &attempt_data,
+            record_revision: i64::try_from(op.record_revision.0)?, seq: i64::try_from(seq.0)?,
+        };
         tx.execute("INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
-            params![ev.receipt_id.to_string(),operation_id.to_string(),serde_json::to_string(&ev)?,seq.0 as i64])?;
+            params![ev.receipt_id.to_string(),operation_key,serde_json::to_string(&ev)?,post.seq])?;
+        if !scopes.is_empty() {
+            let Some(inserted) = ExternalSourceRow::read(&tx, ExternalSourceTable::Receipt,
+                &ev.receipt_id.to_string())? else { return Ok(None); };
+            if inserted.rowid != tx.last_insert_rowid()
+                || inserted.parent_operation_id.as_deref() != Some(operation_key.as_str())
+                || inserted.data != serde_json::to_string(&ev)?
+                || inserted.updated_commit_seq != post.seq { return Ok(None); }
+            source_rows.push(inserted);
+        }
         tx.execute("UPDATE operations SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE operation_id=?1",
-            params![operation_id.to_string(),op.record_revision.0 as i64,serde_json::to_string(&op)?,seq.0 as i64])?;
+            params![operation_key,post.record_revision,operation_data,post.seq])?;
         tx.execute(
             "UPDATE attempts SET data=?2,updated_commit_seq=?3 WHERE attempt_id=?1",
             params![
-                attempt_id.to_string(),
-                serde_json::to_string(&att)?,
-                seq.0 as i64
+                attempt_key,
+                attempt_data,
+                post.seq
             ],
         )?;
         tx.execute(
@@ -911,12 +1128,28 @@ impl Store {
                 3
             ],
         )?;
+        // Only these two rows may change as part of this E1. Derive their
+        // expected postimage from the authored writes, never from a reread
+        // that could silently bless a trigger's replacement.
+        for row in &source_rows {
+            if !row.unchanged(&tx, &post)? { return Ok(None); }
+        }
+        for scope in scopes {
+            if !receipt_scope_matches(&tx, *scope, reads, Some(&ev))? { return Ok(None); }
+        }
         self.seal_native_evidence(&tx, &original, &ev, &op, &att,
             crate::native_evidence::NativeEvidenceFold {
                 expected_revision: fold.map(|fold| fold.expected_revision),
+                source_operation_revision: source.map(|op| (op.operation_id, op.record_revision)),
                 outcome, effect,
                 terminal_content_conflict: fold.is_some_and(|fold| fold.terminal_content_conflict),
             })?;
+        for row in &source_rows {
+            if !row.unchanged(&tx, &post)? { return Ok(None); }
+        }
+        for scope in scopes {
+            if !receipt_scope_matches(&tx, *scope, reads, Some(&ev))? { return Ok(None); }
+        }
         tx.commit()?;
         Ok(Some(op))
     }
