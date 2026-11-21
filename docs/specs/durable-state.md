@@ -295,6 +295,16 @@ recovered node replays the same units instead of re-streaming.
 
 ## Error and recovery notes
 
+- Fresh ordered-action preparation can observe ordinary progress between its
+  input read and the consistent predecessor snapshot. Only a newer revision
+  under the same subject, record identity and authority is classified as
+  `ControlPreparationChanged`; a head must also advance its committed step
+  and local commit position. The committed-work dispatcher ends that pass
+  and reads durable work again on its next normal tick. Missing or malformed
+  rows, changed authority, unchanged-revision mismatches and other conflicts
+  remain errors. The classification is emitted before this preparation orders
+  an admission: it does not inspect or rewrite an older chosen image, renew a
+  permit, replay an E1 effect, or turn an uncertain write into success.
 - Staged installation inspection is Linux-only: its confined snapshot path
   uses Linux `pipe2`, errno and fork behavior. Other targets return an
   unsupported error rather than substituting an unconfined copy.
