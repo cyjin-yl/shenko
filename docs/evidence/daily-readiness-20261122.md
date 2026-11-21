@@ -307,5 +307,51 @@ follower 的时间列被 `INSERT OR REPLACE` 默认值改写，其余规范列�
 
 `cdf71091` release 于 2026-11-21 20:39:11–20:46:55 UTC 实际构建成功。
 完整 Nightly [44947707192](https://github.com/cyjin-yl/shenko/actions/runs/44947707192)
-与三次固定候选的真实浏览器旅程已启动，结果仍待取得。
-在这些回执写入前，本记录不宣称首条完整真实任务已收口或重复运行已通过。
+的编译器 job 已通过，长 Rust job 仍在运行；常规
+[CI 44947215539](https://github.com/cyjin-yl/shenko/actions/runs/44947215539) 六项已全部成功。
+
+### `cdf71091` 的三次完整旅程尝试：0/3
+
+[原始 batch 回执](daily-readiness-20261122/final-cdf71091/batch-summary.json)
+记录 2026-11-21 20:47:52–20:53:22 UTC 的三次新安装尝试：三次均完成观察、均失败，
+未尝试数为零。driver 原进程退出 1，独立环境 sampler 退出 0；三个 owned 进程组都已实际回收，
+每个 Shenko 原进程仍以 1 退出，不能算干净关闭。模型服务前后进程身份与三份实际配置哈希一致。
+[逐次精简回执](daily-readiness-20261122/final-cdf71091/compact.json)和
+[原始字节索引](daily-readiness-20261122/final-cdf71091/index.json)保留了全部分母、错误、
+真实浏览器输入、账本、日志及截图；压缩日志/账本解码后的长度和 SHA256 均已复验。
+
+| 尝试 | 启动就绪秒 | 观察总秒 | 实际最早具体拒绝 | 原生效果状态 |
+| --- | ---: | ---: | --- | --- |
+| 001 | 12.269 | 137.559 | `native.arm` 的 `attempts` 完整见证不再相符 | printf 没有 operation/attempt/E1；model child 的原 attempt 保留 Unknown |
+| 002 | 13.675 | 100.924 | native settlement 的 `tasks` 完整见证不再相符 | printf 有真实成功 operation、ended attempt、postcondition-verified E1，但没有 T2/task result |
+| 003 | 13.866 | 89.839 | `native.arm` 的 `attempts` 完整见证不再相符 | printf 没有 operation/attempt/E1；model child 的原 attempt 保留 Unknown |
+
+三次首个真实模型结果都成功提交各一个 model child 和 host.printf 委派，并声明等待实际回执。
+首请求输出为 3046、2938、1268 tokens，均为 provider stop；正文没有把尚未执行的结果宣称为成功。
+它们没有完成两个 child、最终回答、暂停重启或后续消息旅程，首轮委派成功不能替代完整成功。
+
+[001 的原 chosen/冻结见证审计](daily-readiness-20261122/final-cdf71091-attempt001-native-arm-witness.json)
+表明实际 printf handler 使用的是 ordinary arm codec 1，而非先前定向回归的 paired arm codec 3。
+其 Node index 11 已 chosen，Store materialization 为零；冻结的 attempts/operations 前像都为空，
+停止后各有另一 model child 的一行。原账本明确记录 attempts predecessor 冲突；
+停止后的行不是失败瞬间的事务快照。002 的原日志则明确记录 tasks 冲突，不能拿 001 的机制代替它。
+这些已选择的失败不能通过重新发起潜在已有外部效果来修复；原 Unknown、成功 E1 和协调债务全部保留。
+
+[当前候选的完整计时](daily-readiness-20261122/final-cdf71091/timing.json)包含 872 个完整 scope，
+没有未闭合、无效或已报告丢弃事件。三次 `subject.prepare_s1` 分别为 5.012、5.833、6.250 秒；
+三次 native claim 分别为 4.696、6.062、4.465 秒，native arm 为 2.715、2.967、2.856 秒。
+002 的失败 native T2 为 6.522 秒，其中 prepare 3.798、admission 2.538、apply 0.180 秒；
+这些 scope 退出包含失败路径，不等于成功派发。31 个 predecessor 中 seal-pages 的中位 0.820 秒、
+最大 5.386 秒；已观测 Store mutex 最大 16.163 ms，IMMEDIATE begin 最大 47 μs。
+嵌套 scope 不能相加作端到端时间，也不能将不同时间候选的差异全部归因于目录合批。
+
+同期 67 个环境采样没有读取错误；可见系统的 IO some/full avg10 最大分别为 30.42/26.82，
+CPU some avg10 最大 1.92。它们是 sampler 可见 `/proc` 的系统压力，不是 Shenko、其 cgroup
+或 doescompute 模型服务的独占归因，不能据此定位某一次调用的原因。
+
+人工查看失败截图还发现浏览器容器缺少 CJK 字体，中文呈缺字框；DOM 与 wire 中的实际中文原文仍完整。
+原截图保持不变，未把它们算作中文视觉验收。随后为后续观察安装了固定版本
+`fonts-noto-cjk 1:20220127+repack1-1`，并保留[字体文件哈希](daily-readiness-20261122/font-environment.json)。
+该环境修复没有改变应用源码、模型、任务预算或原失败判据。
+
+新候选仍需取得完整成功浏览器回执和重复运行结果；本记录尚不宣称首条完整真实任务已收口。
