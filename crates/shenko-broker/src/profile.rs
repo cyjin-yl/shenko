@@ -14,6 +14,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use shenko_types::object::Digest;
+
 use crate::request::{ProviderBinding, TokenUsage};
 
 /// Native extension namespaces kept distinct from the OpenAI-compatible
@@ -176,6 +178,64 @@ pub struct UsageFieldMapping {
     pub cache_write_tokens_path: Option<String>,
 }
 
+/// The exact installed generation a process-backed provider binding executes.
+///
+/// A Code unit is selected, reimported and replaced independently of this
+/// broker, so two installations can describe the same profile id, transport and
+/// model while the executable bytes differ. This identity is part of the
+/// profile and therefore of every profile comparison: a sealed request can only
+/// be served by the exact generation (selection, descriptor, export and
+/// executable) it was sealed against. It carries digests and portable ids only,
+/// never a host path, a program override or a credential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessProviderIdentity {
+    pub export_id: String,
+    pub unit_id: String,
+    pub revision: String,
+    /// The Node process-load selection binding that captured these bytes.
+    pub selection: Digest,
+    /// The selected Code unit's own artifact (the `ProcessLoad` manifest).
+    pub manifest: Digest,
+    /// The exact retained `UnitDescriptor`, including its adapter config.
+    pub descriptor: Digest,
+    pub executable: Digest,
+    /// The provider contract digest: unit, descriptor, selection, closure,
+    /// declarations, export and owning descriptor document.
+    pub contract: Digest,
+    /// The stdio protocol major this generation was prepared for.
+    pub protocol_major: u32,
+}
+
+impl ProcessProviderIdentity {
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for (field, value) in [
+            ("export id", &self.export_id),
+            ("unit id", &self.unit_id),
+            ("revision", &self.revision),
+        ] {
+            anyhow::ensure!(
+                !value.trim().is_empty() && value.len() <= 256 && !value.chars().any(char::is_control),
+                "process provider generation {field} is invalid"
+            );
+        }
+        for (field, digest) in [
+            ("selection", &self.selection),
+            ("manifest", &self.manifest),
+            ("descriptor", &self.descriptor),
+            ("executable", &self.executable),
+            ("contract", &self.contract),
+        ] {
+            anyhow::ensure!(
+                digest.canonical_blake3_hex().is_some(),
+                "process provider generation {field} digest is not canonical blake3"
+            );
+        }
+        anyhow::ensure!(self.protocol_major >= 1, "process provider generation protocol major is invalid");
+        Ok(())
+    }
+}
+
 /// The complete non-secret wire contract of one provider binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderProfile {
@@ -218,6 +278,11 @@ pub struct ProviderProfile {
     pub default_max_tokens: u64,
     #[serde(default)]
     pub serializer_revision: u32,
+    /// Present only for a binding executed by an installed Code provider
+    /// process. It is compared with every other field of this profile, so two
+    /// installations that share transport metadata cannot serve one another.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_generation: Option<ProcessProviderIdentity>,
 }
 
 fn default_max_tokens() -> u64 {
@@ -226,8 +291,13 @@ fn default_max_tokens() -> u64 {
 
 impl ProviderProfile {
     /// The sealed binding this profile produces.
+    ///
+    /// This convenience method names no prepared implementation. An adapter
+    /// that executes an installed process unit retains its process identity and
+    /// builds its binding with that unit's exact
+    /// [`shenko_types::generation::SealedGenerationBinding`] instead.
     pub fn binding(&self) -> ProviderBinding {
-        ProviderBinding::Profile { profile: self.clone() }
+        ProviderBinding::Profile { profile: self.clone(), prepared: None }
     }
 
     /// A new profile for another model on the same transport. It never edits
@@ -267,6 +337,13 @@ impl ProviderProfile {
             && self.engine_incarnation == other.engine_incarnation
             && self.default_max_tokens == other.default_max_tokens
             && self.serializer_revision == other.serializer_revision
+            && self.process_generation == other.process_generation
+    }
+
+    /// The installed process generation this binding executes, when the
+    /// binding is process-backed.
+    pub fn process_generation(&self) -> Option<&ProcessProviderIdentity> {
+        self.process_generation.as_ref()
     }
 
     /// Structural validation performed before a profile may be sealed.
@@ -278,6 +355,10 @@ impl ProviderProfile {
             "provider profile model id is invalid"
         );
         anyhow::ensure!(!self.resource_domain_id.trim().is_empty(), "provider profile has no resource domain");
+        if self.process_generation.is_some() {
+            self.validate_process_binding()?;
+            return self.validate_seal_terms();
+        }
         let url = reqwest::Url::parse(&self.endpoint_origin)
             .map_err(|_| anyhow::anyhow!("invalid provider endpoint origin"))?;
         anyhow::ensure!(
@@ -289,6 +370,11 @@ impl ProviderProfile {
                 && url.fragment().is_none(),
             "provider endpoint origin must be HTTP(S) without credentials/query/fragment"
         );
+        self.validate_seal_terms()
+    }
+
+    /// The transport-independent terms every provider profile must satisfy.
+    fn validate_seal_terms(&self) -> anyhow::Result<()> {
         anyhow::ensure!(self.sampling.is_consistent(), "provider sampling capabilities contradict themselves");
         if self.auth.method != AuthMethod::None {
             anyhow::ensure!(
@@ -299,6 +385,34 @@ impl ProviderProfile {
                 "provider auth header name is invalid"
             );
         }
+        Ok(())
+    }
+
+    /// A process-backed binding has no HTTP origin: its endpoint identity is the
+    /// exact installed generation, and this profile hands the child no
+    /// credential. Only the real stdio computation profile validates here.
+    fn validate_process_binding(&self) -> anyhow::Result<()> {
+        let generation = self
+            .process_generation
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("process provider validation without a generation"))?;
+        generation.validate()?;
+        anyhow::ensure!(
+            self.transport == TransportKind::Stdio,
+            "a process-backed provider binding is a stdio transport"
+        );
+        anyhow::ensure!(
+            self.endpoint_origin.trim().is_empty(),
+            "a process-backed provider binding has no HTTP endpoint origin; its identity is its generation"
+        );
+        anyhow::ensure!(
+            self.sdk.is_none() && self.gateway_profile.is_none(),
+            "a process-backed provider binding selects no SDK or gateway wire"
+        );
+        anyhow::ensure!(
+            self.beta_features.is_empty(),
+            "a process-backed provider binding declares no HTTP beta features"
+        );
         Ok(())
     }
 
@@ -382,6 +496,7 @@ pub mod native_backends {
             engine_incarnation: None,
             default_max_tokens: super::default_max_tokens(),
             serializer_revision: 1,
+            process_generation: None,
         }
     }
 
