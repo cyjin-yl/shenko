@@ -849,7 +849,7 @@ fn one_unusable_subject_memory_intent_does_not_wedge_the_batch() -> Result<()> {
 
 #[test]
 fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
-    use shenko_types::{error::ShenkoError, ids::*};
+    use shenko_types::{error::{ControlPreparationRecord, ShenkoError}, ids::*};
     use std::sync::{Arc, Barrier};
     let (dir, store, agent) = initialized_subject();
     let (head, planned) = store.load_subject(agent).unwrap();
@@ -879,6 +879,7 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
     let barrier = Arc::new(Barrier::new(2));
     let barrier_a = barrier.clone();
     let head_a = head.clone();
+    let predecessor = head.clone();
     let a = std::thread::spawn(move || {
         barrier_a.wait();
         store.commit_step_and_advance_head(&step_a, &head_a, next_a)
@@ -917,6 +918,29 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
         .unwrap()
         .unwrap();
     assert_eq!(committed.commit_ref, Some(head.committed_at));
+
+    // Reuse this completed race: fresh preparation can observe the winner
+    // while the loser still holds its old head. It does not retry the failed
+    // S1, choose an admission, or acquire permission for an external effect.
+    let control_rows = || -> Result<Vec<i64>> {
+        ["commit_log", "control_prepared_transitions", "control_materializations",
+            "operations", "attempts", "evidence_receipts"].into_iter().map(|table| {
+                Ok(conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0))?)
+            }).collect()
+    };
+    let before_capture = control_rows()?;
+    let changed = reopened.prepare_control_predecessor(&predecessor);
+    assert!(matches!(&changed, Err(ShenkoError::ControlPreparationChanged {
+        subject_id, record: ControlPreparationRecord::SubjectHead, record_id,
+        expected_revision, actual_revision,
+    }) if *subject_id == agent && *record_id == agent
+        && *expected_revision == predecessor.record_revision.0
+        && *actual_revision == head.record_revision.0), "{changed:?}");
+    // The already tested wrong authority stays a real conflict even though
+    // it also precedes the winning S1. Revision drift cannot excuse it.
+    assert!(matches!(reopened.prepare_control_predecessor(&stale_head),
+        Err(ShenkoError::Conflict(_))));
+    assert_eq!(control_rows()?, before_capture);
     Ok(())
 }
 

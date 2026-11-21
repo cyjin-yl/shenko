@@ -12,7 +12,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use shenko_types::{
     authority::CommitAdmission,
-    error::ShenkoError,
+    error::{ControlPreparationRecord, ShenkoError},
     ids::EntityId,
     object::{Digest, ObjectRef},
     subject::{SubjectBranchHead, SubjectStep},
@@ -81,6 +81,25 @@ fn failure(error: anyhow::Error) -> ShenkoError {
     ShenkoError::conflict(format!("ordered action predecessor: {error:#}"))
 }
 
+// Preserve this one fresh-preparation outcome, never reinterpret an error
+// from immutable predecessor inspection or from a chosen action's apply.
+fn preparation_failure(error: anyhow::Error) -> ShenkoError {
+    match error.downcast::<ShenkoError>() {
+        Ok(error @ ShenkoError::ControlPreparationChanged { .. }) => error,
+        Ok(error) => failure(error.into()),
+        Err(error) => failure(error),
+    }
+}
+
+fn preparation_changed(
+    subject_id: EntityId, record: ControlPreparationRecord, record_id: EntityId,
+    expected_revision: u64, actual_revision: u64,
+) -> anyhow::Error {
+    ShenkoError::ControlPreparationChanged {
+        subject_id, record, record_id, expected_revision, actual_revision,
+    }.into()
+}
+
 impl Store {
     /// Capture one consistent read snapshot before consensus, and require the
     /// exact head the caller used to construct its action. Final row CAS still
@@ -95,7 +114,7 @@ impl Store {
     pub fn prepare_control_predecessor_for_admission(
         &self, head: &SubjectBranchHead, expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
     ) -> Result<ObjectRef, ShenkoError> {
-        self.prepare_control_predecessor_inner(head, expected_tasks, expected_steps).map_err(failure)
+        self.prepare_control_predecessor_inner(head, expected_tasks, expected_steps).map_err(preparation_failure)
     }
 
     fn prepare_control_predecessor_inner(
@@ -113,18 +132,62 @@ impl Store {
         let actual = manifest.rows.iter().find(|row| row.table == "subject_branch_heads"
             && row.key == head.agent_id.to_string()).context("snapshot has no requested subject head")?;
         let actual: SubjectBranchHead = serde_json::from_str(actual.value("data").context("head body missing")?)?;
+        if actual.record_revision > head.record_revision
+            && actual.agent_id == head.agent_id && actual.branch_id == head.branch_id
+            && actual.subject_root_task_id == head.subject_root_task_id
+            && actual.controller_epoch == head.controller_epoch
+            && actual.software_generation == head.software_generation
+            && actual.genesis_ref == head.genesis_ref && actual.branch_origin == head.branch_origin
+            && actual.mode == head.mode && actual.mode_reason_ref == head.mode_reason_ref
+            && actual.committed_at.ledger_id == head.committed_at.ledger_id
+            && actual.committed_at.seq > head.committed_at.seq
+            && actual.committed_step_no > head.committed_step_no
+        {
+            return Err(preparation_changed(head.agent_id, ControlPreparationRecord::SubjectHead,
+                head.agent_id, head.record_revision.0, actual.record_revision.0));
+        }
         ensure!(serde_json::to_value(&actual)? == serde_json::to_value(head)?, "subject predecessor changed before snapshot capture");
         for task in expected_tasks {
             let actual = manifest.rows.iter().find(|row| row.table == "tasks" && row.key == task.task_id.to_string())
                 .and_then(|row| row.value("data")).context("expected task is absent from the frozen snapshot")?;
-            ensure!(serde_json::from_str::<serde_json::Value>(actual)? == serde_json::to_value(task)?,
-                "task or ancestor changed before snapshot capture");
+            let actual: serde_json::Value = serde_json::from_str(actual)?;
+            if actual != serde_json::to_value(task)? {
+                let observed: TaskRecord = serde_json::from_value(actual)?;
+                if observed.record_revision > task.record_revision
+                    && observed.record_schema_version == task.record_schema_version
+                    && observed.task_id == task.task_id && observed.agent_id == head.agent_id
+                    && observed.agent_id == task.agent_id && observed.task_revision == task.task_revision
+                    && observed.conversation_id == task.conversation_id && observed.owner == task.owner
+                    && observed.background == task.background && observed.kind == task.kind
+                    && observed.definition_version == task.definition_version
+                    && observed.implementation_ref == task.implementation_ref && observed.input_ref == task.input_ref
+                    && observed.created_by_step_id == task.created_by_step_id && observed.created_commit == task.created_commit
+                {
+                    return Err(preparation_changed(head.agent_id, ControlPreparationRecord::Task,
+                        task.task_id, task.record_revision.0, observed.record_revision.0));
+                }
+                anyhow::bail!("task or ancestor changed before snapshot capture");
+            }
         }
         for step in expected_steps {
             let actual = manifest.rows.iter().find(|row| row.table == "subject_steps" && row.key == step.step_id.to_string())
                 .and_then(|row| row.value("data")).context("expected step is absent from the frozen snapshot")?;
-            ensure!(serde_json::from_str::<serde_json::Value>(actual)? == serde_json::to_value(step)?,
-                "registered step changed before snapshot capture");
+            let actual: serde_json::Value = serde_json::from_str(actual)?;
+            if actual != serde_json::to_value(step)? {
+                let observed: SubjectStep = serde_json::from_value(actual)?;
+                if observed.record_revision > step.record_revision
+                    && observed.step_id == step.step_id && observed.branch_id == head.branch_id
+                    && observed.branch_id == step.branch_id && observed.step_no == step.step_no
+                    && observed.expected_parent_commit == step.expected_parent_commit
+                    && observed.controller_epoch == step.controller_epoch && observed.controller_epoch == head.controller_epoch
+                    && observed.software_generation == step.software_generation && observed.software_generation == head.software_generation
+                    && observed.created_by_step_id == step.created_by_step_id
+                {
+                    return Err(preparation_changed(head.agent_id, ControlPreparationRecord::Step,
+                        step.step_id, step.record_revision.0, observed.record_revision.0));
+                }
+                anyhow::bail!("registered step changed before snapshot capture");
+            }
         }
 
         let _pages = crate::timing::Phase::new("control.seal_pages");

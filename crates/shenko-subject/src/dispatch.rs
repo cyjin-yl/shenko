@@ -31,8 +31,9 @@ pub async fn run_committed_dispatcher(
             // do not begin another control/publication settlement pass here.
             _=subject_stopping.cancelled()=>return Ok(()),
             _=tick.tick()=>{
-                // One dispatcher pass: every failure is a durable runtime
-                // fact the subject can read, then propagates.
+                // One dispatcher pass. A fresh preparation displaced by
+                // ordinary progress is re-read on a later tick; real failures
+                // remain durable runtime facts and propagate.
                 let pass: anyhow::Result<()> = async {
                     store.settle_subject_memory()?;
                     store.reconcile_subject_publications()?;
@@ -131,6 +132,19 @@ pub async fn run_committed_dispatcher(
                     Ok(())
                 }.await;
                 if let Err(error) = pass {
+                    // Capture saw a newer same-authority row BEFORE ordering
+                    // this action. End this pass and re-read durable work on
+                    // the normal tick; never retry a chosen image, an old
+                    // permit, an external effect, or an arbitrary Conflict.
+                    if error.downcast_ref::<shenko_types::error::ShenkoError>()
+                        .is_some_and(|error| error.is_control_preparation_changed_for(agent_id))
+                    {
+                        tracing::debug!(%agent_id, %error, "fresh control preparation changed; re-evaluate durable work on the next dispatcher pass");
+                        // A slow snapshot may have missed ticks. Do not
+                        // burst through them as immediate preparation retries.
+                        tick.reset();
+                        continue;
+                    }
                     // Graceful stop revokes new authority admissions while a
                     // dispatcher pass can still be finishing. That precise
                     // refusal leaves the work durable for reopen; another
