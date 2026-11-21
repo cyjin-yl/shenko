@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "source_revision": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+  "remote_evidence_directory": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8",
+  "receipt_storage_device": {
+    "name": "doesvm",
+    "device_id": "ec69e76d-71fb-4bc8-8671-c089fd87096f"
+  },
+  "execution_container": "shenko-build-r71",
+  "started_at_utc": "2026-11-21T21:55:51Z",
+  "host_execution": {
+    "started_at_utc": "2026-11-21T21:55:46Z",
+    "finished_at_utc": "2026-11-21T21:55:51Z",
+    "exit_code": 1
+  },
+  "toolchain": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "node": "v24.22.1"
+  },
+  "artifacts": [
+    {
+      "name": "preflight-failure.json",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8/preflight-failure.json",
+      "bytes": 772,
+      "sha256": "126b4871c7590fe2424f242549276b37ae90692a2471eb3a6c0fb035e6317acf",
+      "mtime_utc": "2026-11-21T21:56:23.016769+00:00",
+      "path": "preflight-failure.json"
+    },
+    {
+      "name": "runner.sh",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8/runner.sh",
+      "bytes": 5369,
+      "sha256": "da8213e202d9b3775540518b04864e6dd04e4b376bf1ae393c44101332ba5126",
+      "mtime_utc": "2026-11-21T21:55:51.583083+00:00",
+      "path": "runner.sh"
+    }
+  ],
+  "original_small_receipts": [
+    {
+      "name": "node.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8/node.txt",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "mtime_utc": "2026-11-21T21:55:51.637086+00:00",
+      "inline_utf8": "v24.22.1\n"
+    },
+    {
+      "name": "rustc.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8/rustc.txt",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "mtime_utc": "2026-11-21T21:55:51.630085+00:00",
+      "inline_utf8": "rustc 1.98.1 (48a229cea 2026-09-01)\n"
+    },
+    {
+      "name": "started.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8/started.txt",
+      "bytes": 21,
+      "sha256": "76f40b5a506011cb75cc09ea77e56780fdabfc380075ccdf40bad4640b8ac50b",
+      "mtime_utc": "2026-11-21T21:55:51.584083+00:00",
+      "inline_utf8": "2026-11-21T21:55:51Z\n"
+    },
+    {
+      "name": "native-selector-b4d115d8.host.started.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/native-selector-b4d115d8.host.started.txt",
+      "bytes": 21,
+      "sha256": "5735731e0f3f717543c4b3b98a063a11312e025693fc7ad7dc1785bf1856f1de",
+      "mtime_utc": "2026-11-21T21:55:46.733823+00:00",
+      "inline_utf8": "2026-11-21T21:55:46Z\n"
+    },
+    {
+      "name": "native-selector-b4d115d8.host.finished.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/native-selector-b4d115d8.host.finished.txt",
+      "bytes": 21,
+      "sha256": "76f40b5a506011cb75cc09ea77e56780fdabfc380075ccdf40bad4640b8ac50b",
+      "mtime_utc": "2026-11-21T21:55:51.744091+00:00",
+      "inline_utf8": "2026-11-21T21:55:51Z\n"
+    },
+    {
+      "name": "native-selector-b4d115d8.host.exit",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/native-selector-b4d115d8.host.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "mtime_utc": "2026-11-21T21:55:51.742091+00:00",
+      "inline_utf8": "1\n"
+    }
+  ],
+  "conditional_release": {
+    "status": "blocked",
+    "observed_at_utc": "2026-11-21T22:02:28.112088+00:00",
+    "release_binary_exists": false,
+    "release_directory_exists": false,
+    "reason": "Original reuse preflight aborted before cargo tests or release."
+  },
+  "verification": {
+    "original_text_artifact_bytes_and_sha256_verified": true,
+    "small_receipts_exact_utf8_bytes_verified": true,
+    "remote_finished_directories_only": true,
+    "remote_read_only": true,
+    "cargo_commands_started_by_collector": 0,
+    "model_calls_started": 0,
+    "new_tests_added": 0
+  },
+  "status": "preflight_failed_before_cargo",
+  "exit_code": 1,
+  "exit_code_source": "host_execution",
+  "finished_at_utc": null,
+  "scoped_exit_receipt_present": false,
+  "scoped_finished_receipt_present": false,
+  "selected_tests": 0,
+  "passed_tests": 0,
+  "failed_tests": 0,
+  "cargo_invocations": 0,
+  "reused_successes_admitted": 0,
+  "preflight_failure": {
+    "source_revision": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+    "observed_at_utc": "2026-11-21T21:56:23.017157+00:00",
+    "stage": "reuse preflight before cargo",
+    "error": "AssertionError: ('cli-printf', [('1', '0'), ('1', '0')])",
+    "cause": "The already-completed CLI process regression prints a nested child harness summary; the first preflight incorrectly required exactly one summary line. The replacement selects the final outer single-target harness and records all excluded nested summaries.",
+    "cargo_test_started": false,
+    "release_started": false,
+    "original_runner_sha256": "da8213e202d9b3775540518b04864e6dd04e4b376bf1ae393c44101332ba5126",
+    "replacement_evidence": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8-r2"
+  },
+  "replacement_evidence": "../scoped-b4d115d8-r2/summary.json",
+  "scope_and_limits": [
+    "The reuse observer failed before any cargo test command. This is not a product test failure and adds no executed test to any denominator.",
+    "The original preflight incorrectly required exactly one harness summary for CLI printf; its already completed log contains both helper and outer summaries. The original runner and later-written failure receipt remain unchanged.",
+    "No scoped exit.txt or finished.txt was produced by the failing preflight. The preserved host exit/time receipts establish the wrapper exit; no synthetic scoped exit receipt is created here.",
+    "This receipt does not establish a model journey, release binary or successful reuse gate. The replacement attempt is a separate directory with its own actual test results."
+  ]
+}
