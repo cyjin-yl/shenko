@@ -325,6 +325,56 @@ impl PerceptionObserver for CachedObservationSource {
     }
 }
 
+/// Archive a provider's actual local reading under the installed unit.
+/// Identical content reuses its original observation, including its time;
+/// reading a card does not invent a new fact or a newer observation time.
+pub struct ArchivedPerceptionSource {
+    node: Arc<Mutex<Node>>,
+    binding: PerceptionBinding,
+    perspective: PerceptionPerspective,
+    observer: Arc<dyn PerceptionObserver>,
+    last: Mutex<Option<(String, PerceptionFact)>>,
+}
+
+impl ArchivedPerceptionSource {
+    pub fn new(
+        node: Arc<Mutex<Node>>,
+        binding: PerceptionBinding,
+        perspective: PerceptionPerspective,
+        observer: Arc<dyn PerceptionObserver>,
+    ) -> Self {
+        Self { node, binding, perspective, observer, last: Mutex::new(None) }
+    }
+}
+
+impl PerceptionObserver for ArchivedPerceptionSource {
+    fn observe(&self) -> Result<PerceptionFact> {
+        let mut fact = admit(&self.binding, &self.perspective, self.observer.observe()?)?;
+        let signature = Digest::blake3(&serde_json::to_vec(&(
+            &fact.binding, &fact.source, &fact.target, &fact.valid_until,
+            &fact.summary, &fact.perspective, &fact.evidence_digest,
+        ))?).0;
+        let mut last = self.last.lock();
+        if let Some((known, archived)) = last.as_ref()
+            && known == &signature
+        {
+            return Ok(archived.clone());
+        }
+        let bytes = serde_json::to_vec(&fact)?;
+        let digest = Digest::blake3(&bytes);
+        self.node.lock().handle_unit_request(UnitRequest::RegisterObservation {
+            unit_id: self.binding.unit_id.clone(),
+            revision: self.binding.revision.clone(),
+            artifact_digest: Digest(self.binding.artifact_digest.clone()),
+            kind: "perception_observation".into(),
+            bytes,
+        })?;
+        fact.evidence_digest = Some(digest.0);
+        *last = Some((signature, fact.clone()));
+        Ok(fact)
+    }
+}
+
 struct Registration {
     id: EntityId,
     binding: PerceptionBinding,
@@ -614,15 +664,18 @@ impl PerceptionRegistry {
     /// Retire the shipped sources that no longer speak for an installed
     /// version.
     ///
-    /// Only the units named in `keep` are retired; every other registration
-    /// belongs to whoever bound it and is left alone. A retired registration's
-    /// cached observation goes with it: an observation taken for a version
-    /// that is no longer installed must never answer for the new one.
+    /// Only registrations under the built-in source id for shipped units are
+    /// eligible; those in `keep` stay live. Unnamed and independently named
+    /// sources belong to whoever bound them and are left alone. A retired
+    /// registration's cached observation goes with it: an observation taken
+    /// for a version that is no longer installed must never answer for the new
+    /// one.
     pub fn retire_builtin_except(&self, keep: &[PerceptionBinding]) -> usize {
         let mut registrations = self.registrations.lock();
         let before = registrations.len();
         registrations.retain(|registration| {
-            !is_builtin_unit(&registration.binding.unit_id)
+            registration.source_id != PerceptionSourceId::builtin()
+                || !is_builtin_unit(&registration.binding.unit_id)
                 || keep.contains(&registration.binding)
         });
         before - registrations.len()
@@ -1081,10 +1134,9 @@ pub fn reconcile_builtin_perception_sources(
 
 /// The same reconciliation over installation facts the caller already read.
 ///
-/// A projection reads the installation once and derives its cards, its
-/// revision and its observation bindings from that one reading, so a card can
-/// never describe units from a different installation than the sources that
-/// answer for them.
+/// Explicit preparation derives source bindings from this installation read.
+/// Catalogue projections independently validate their current exact cache key;
+/// they never reconcile registrations or acquire observations themselves.
 pub fn reconcile_perception_sources_from(
     facts: &[shenko_node::InstalledUnitFact],
     node: &Arc<Mutex<Node>>,
@@ -1092,7 +1144,7 @@ pub fn reconcile_perception_sources_from(
 ) -> Result<Vec<PerceptionBinding>> {
     let installed: Vec<&shenko_node::InstalledUnitFact> = facts
         .iter()
-        .filter(|fact| fact.kind == UnitKind::Perception && is_builtin_unit(&fact.unit_id))
+        .filter(|fact| fact.enabled && fact.kind == UnitKind::Perception && is_builtin_unit(&fact.unit_id))
         .collect();
     let wanted: Vec<PerceptionBinding> = installed
         .iter()
@@ -1241,14 +1293,64 @@ mod tests {
         let registry = PerceptionRegistry::new();
         let old = binding("0.1.0");
         let new = binding("0.2.0");
-        registry.bind(old.clone(), source(&old)).unwrap();
+        registry
+            .bind_source(old.clone(), PerceptionSourceId::builtin(), source(&old))
+            .unwrap();
         assert!(matches!(registry.observe(&old), PerceptionStatus::Observed { .. }));
         // The unit update is a new revision: the source that answered for the
         // previous one is retired instead of speaking for the new version.
-        assert_eq!(registry.retire_builtin_except(&[new.clone()]), 1);
+        assert_eq!(registry.retire_builtin_except(std::slice::from_ref(&new)), 1);
         assert_eq!(registry.bindings(), Vec::new());
         assert!(matches!(registry.cached(&old), PerceptionStatus::Unknown { .. }));
         assert!(matches!(registry.retire_builtin_except(&[new]), 0));
+    }
+
+    #[test]
+    fn retiring_builtin_sources_preserves_other_registration_owners() {
+        let registry = PerceptionRegistry::new();
+        let old = binding("0.1.0");
+        let new = binding("0.2.0");
+        let mut independent = binding("0.1.0");
+        independent.unit_id = "perception.consumer-owned".into();
+        let builtin = PerceptionSourceId::builtin();
+        let consumer = PerceptionSourceId::named("consumer").unwrap();
+        let retained = [
+            registry.bind(old.clone(), source(&old)).unwrap(),
+            registry
+                .bind_source(old.clone(), consumer.clone(), source(&old))
+                .unwrap(),
+            registry
+                .bind_source(new.clone(), builtin.clone(), source(&new))
+                .unwrap(),
+            registry
+                .bind_source(independent.clone(), builtin.clone(), source(&independent))
+                .unwrap(),
+        ];
+        let retired = registry
+            .bind_source(old.clone(), builtin.clone(), source(&old))
+            .unwrap();
+        for binding in [&old, &new, &independent] {
+            assert!(matches!(registry.observe(binding), PerceptionStatus::Observed { .. }));
+        }
+
+        assert_eq!(registry.retire_builtin_except(std::slice::from_ref(&new)), 1);
+        assert!(!registry.unbind(retired));
+        assert_eq!(registry.sources(&old), vec![PerceptionSourceId::primary(), consumer]);
+        assert_eq!(registry.sources(&new), vec![builtin.clone()]);
+        assert_eq!(registry.sources(&independent), vec![builtin]);
+        for binding in [&old, &new, &independent] {
+            assert!(matches!(registry.cached(binding), PerceptionStatus::Observed { .. }));
+        }
+        assert_eq!(registry.retire_builtin_except(std::slice::from_ref(&new)), 0);
+
+        // Every retained registration still belongs to its original caller.
+        for registration in retained {
+            assert!(registry.unbind(registration));
+        }
+        assert!(registry.bindings().is_empty());
+        for binding in [&old, &new, &independent] {
+            assert!(matches!(registry.cached(binding), PerceptionStatus::Unknown { .. }));
+        }
     }
 
     #[test]

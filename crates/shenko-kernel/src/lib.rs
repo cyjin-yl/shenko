@@ -7,6 +7,7 @@ pub mod hooks;
 pub mod lifecycle;
 pub mod native_artifact;
 pub mod plugin;
+pub mod preparation;
 pub mod runtime;
 pub mod services;
 pub mod supervisor;
