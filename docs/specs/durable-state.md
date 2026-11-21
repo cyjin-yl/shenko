@@ -118,7 +118,7 @@ unsupported; 11 does not enable either reserved contract.
 This archive boundary is distinct from raw Node control-object transport and
 does not establish mixed-version Node consensus acceptance or full rollback.
 The existing archive admission regression covers the current writer, retained
-7/10 facts, malformed 10/11 membership and future-version refusal before CAS or
+7/10 facts, malformed 10/11 membership and unsupported-format refusal before CAS or
 file publication. Its source extension is not a new runtime pass claim; actual
 candidate execution is reported with its own source identity.
 

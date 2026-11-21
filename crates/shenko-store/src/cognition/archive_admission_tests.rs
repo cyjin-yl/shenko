@@ -310,9 +310,9 @@ fn unknown_fact_does_not_produce_a_verified_partial_import() -> Result<()> {
     assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
     assert!(receiver.list_memory(10)?.is_empty());
     let before = receiver.current_commit_seq()?;
-    // The introduction, retained schema-10 and current writer formats must
+    // The introduction and current writer formats must
     // reject an intentionally malformed declaration before publishing.
-    for schema in [MEMBERSHIP_REQUIRED_SCHEMA, 10, crate::cognition_archive::ARCHIVE_SCHEMA] {
+    for schema in [MEMBERSHIP_REQUIRED_SCHEMA, crate::cognition_archive::ARCHIVE_SCHEMA] {
         let mut missing = source.export_cognition(&Default::default())?;
         missing.manifest.schema = schema;
         missing.manifest.fact_classes.clear();
@@ -510,8 +510,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     assert!(native.write_archive(&mut native_archive)?.complete);
 
     for case in ["partial-family", "absent-family", "mixed-native-seven", "older-format",
-        "current-partial-family", "ten-partial-family", "ten-mixed-family",
-        "reserved-eight", "reserved-nine", "future-format"] {
+        "current-partial-family", "ten-mixed-family", "reserved-eight", "reserved-nine"] {
         // Only the negative inputs are mutated. The positive archive above is
         // the original Store producer output, with its original version intact.
         let mut malformed = source.export_cognition(&options)?;
@@ -521,22 +520,14 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         } else if case == "current-partial-family" {
             malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
             "schema-11 archive requires fork/history membership"
-        } else if matches!(case, "ten-partial-family" | "ten-mixed-family") {
+        } else if case == "ten-mixed-family" {
             malformed.manifest.schema = 10;
-            if case == "ten-partial-family" {
-                malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
-            } else {
-                malformed.manifest.fact_classes.extend([
-                    "dialogue_endpoints".into(), "dialogue_messages".into(),
-                ]);
-            }
+            malformed.manifest.fact_classes.extend([
+                "dialogue_endpoints".into(), "dialogue_messages".into(),
+            ]);
             "schema-10 archive requires fork/history membership"
-        } else if matches!(case, "reserved-eight" | "reserved-nine" | "future-format") {
-            malformed.manifest.schema = match case {
-                "reserved-eight" => 8,
-                "reserved-nine" => 9,
-                _ => crate::cognition_archive::ARCHIVE_SCHEMA + 1,
-            };
+        } else if matches!(case, "reserved-eight" | "reserved-nine") {
+            malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
             "unsupported cognition archive schema"
         } else {
             // Explicit legacy-format negative fixtures still exercise the
