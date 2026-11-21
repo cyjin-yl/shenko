@@ -31,8 +31,8 @@ def extract(line):
     for field in ("pid", "scope_id", "started_unix_us", "dropped_before"):
         if type(event.get(field)) is not int or event[field] < 0:
             raise ValueError(f"invalid {field}")
-    if event.get("parent_id") is not None and (
-            type(event["parent_id"]) is not int or event["parent_id"] < 0):
+    if "parent_id" not in event or (event["parent_id"] is not None and (
+            type(event["parent_id"]) is not int or event["parent_id"] < 0)):
         raise ValueError("invalid parent_id")
     if not isinstance(event.get("phase"), str) or not isinstance(event.get("binding"), dict):
         raise ValueError("missing phase or binding")
@@ -80,10 +80,20 @@ def summarize(paths):
         logs.append({"path": str(path), "bytes": size, "sha256": digest.hexdigest()})
 
     children = defaultdict(list)
+    incomplete_trees = set()
     for key, scope in scopes.items():
         observation = scope.get("begin", scope.get("end"))
         if observation["parent_id"] is not None:
-            children[(key[0], key[1], observation["parent_id"])].append(scope)
+            parent = (key[0], key[1], observation["parent_id"])
+            children[parent].append(scope)
+            if parent not in scopes:
+                invalid.append({"source": key[0], "pid": key[1], "scope_id": key[2],
+                                "parent_id": parent[2], "reason": "parent scope not observed"})
+                # A clipped/filtered log can lose an intermediate parent pair
+                # without changing the producer's queue-loss counter. We know
+                # the child work exists but cannot locate its missing parent's
+                # ancestors, so do not attribute any self time in this tree.
+                incomplete_trees.add((key[0], key[1]))
 
     rows = []
     phase_samples = defaultdict(list)
@@ -98,7 +108,7 @@ def summarize(paths):
             row["inclusive_us"] = scope["end"]["elapsed_us"]
             row["observed_drops_during_scope"] = max(0, scope["end"]["dropped_before"] - scope["begin"]["dropped_before"])
             direct = children[key]
-            if not row["observed_drops_during_scope"] and all(
+            if (key[0], key[1]) not in incomplete_trees and not row["observed_drops_during_scope"] and all(
                     "begin" in child and "end" in child and not child.get("invalid") for child in direct):
                 nested = sum(child["end"]["elapsed_us"] for child in direct)
                 # Equal-level phases are synchronous and cannot overlap. A
@@ -131,7 +141,9 @@ def summarize(paths):
             "phases": phases, "scopes": rows,
             "interpretation": "Durations are monotonic wall time in microseconds, including instrumentation overhead. "
                 "Parent totals include child time; never sum the phase totals as end-to-end latency. "
-                "self_us subtracts direct children only. Scope completion is not product success or a physical send. "
+                "self_us subtracts direct children only and is unknown for a source/process with an unobserved parent. "
+                "Complete counts describe matched scope pairs, not a complete observation tree or product success. "
+                "Scope completion is not a physical send. "
                 "started_unix_us is for log correlation only; wall-clock changes do not affect elapsed_us."}
 
 

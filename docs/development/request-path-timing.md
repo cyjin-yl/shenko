@@ -68,7 +68,14 @@ distribution. **Parent elapsed time includes children**: adding totals across
 phases double-counts work. `self_us` subtracts only direct children, and is
 unknown if a child's end is missing or its observation is invalid. Self time is
 also unknown when the observed drop counter advances during that scope,
-including a completely missing child pair. Remaining
+including a completely missing child pair. A parent ID missing from the
+observed source/process produces an explicit `parent scope not observed`
+diagnostic. This can occur when a log is clipped or filtered outside the
+producer, even with a zero queue-loss counter. Because the missing parent's
+ancestors are then unknown, all `self_us` and corresponding `self_total_us`
+values for that source/process remain unknown; surviving grandchildren are
+never attributed to an observed ancestor's self time. Complete counts describe
+matched begin/end pairs, not a complete observation tree. Remaining
 self time includes uninstrumented work and diagnostic overhead; it is not
 automatically attributable to the CPU, disk or a lock.
 
@@ -76,7 +83,7 @@ An end record means the stack frame exited, including an early error or unwind.
 It proves neither a successful COMMIT nor a physical dispatch. A process killed
 mid-scope leaves its begin record incomplete. Malformed or mismatched records
 are retained as report diagnostics and make the summarizer exit nonzero; absent
-timing records or observed queue loss also exit nonzero. Missing ends are reported, never given zero
+timing records, unobserved parents or observed queue loss also exit nonzero. Missing ends are reported, never given zero
 duration or counted as completed samples. Use durable E1/request receipts and
 the original journey assertions to decide whether the task actually succeeded.
 
@@ -97,7 +104,8 @@ the overhead belongs in the recorded environment, not an assumed correction.
 This increment keeps three discriminating checks: one Rust test holds an actual
 SQLite transaction while a deliberately blocked subscriber fills the bounded
 queue, and two Python checks detect double-counted descendants and refuse to
-attribute missing child time after recorded queue loss. They run with:
+attribute missing child time after recorded queue loss or a missing parent in
+an externally clipped log. They run with:
 
 ```sh
 cargo test --locked -p shenko-store --lib timing::tests::slow_log_destination_drops_observations_without_blocking_sqlite -- --exact

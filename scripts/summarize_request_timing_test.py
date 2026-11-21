@@ -46,6 +46,16 @@ class TimingReportTests(unittest.TestCase):
         self.assertEqual(report["scopes"][0]["observed_drops_during_scope"], 2)
         self.assertEqual(report["observed_dropped_events"][0]["cumulative_count"], 2)
 
+        # External log clipping can remove a parent pair without a producer
+        # queue drop. Its surviving child still proves that work is missing.
+        clipped = self.report(event(1, "native.claim") + event(3, "sqlite.mutex_wait", 2)
+            + event(3, "sqlite.mutex_wait", 2, 20) + event(1, "native.claim", elapsed=100))
+        self.assertEqual(clipped["observed_dropped_events"], [])
+        self.assertEqual(clipped["invalid_events"], [{"source": 0, "pid": 42, "scope_id": 3,
+            "parent_id": 2, "reason": "parent scope not observed"}])
+        self.assertTrue(all(row["self_us"] is None for row in clipped["scopes"]))
+        self.assertTrue(all(phase["self_total_us"] is None for phase in clipped["phases"]))
+
 
 
 if __name__ == "__main__":
