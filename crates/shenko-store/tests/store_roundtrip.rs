@@ -3170,7 +3170,8 @@ impl NativeT2Fixture {
         // Bootstrap all requested tasks before authority is attached. Once
         // bound, a bare WriteBatch cannot admit a new independently owned task.
         let sibling = if with_sibling {
-            let sibling = recovery_task(&store, agent, 3, false);
+            let mut sibling = recovery_task(&store, agent, 3, false);
+            sibling.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
             batch.task_upserts.push(sibling.clone());
             Some(sibling)
         } else { None };
