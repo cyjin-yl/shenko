@@ -90,3 +90,7 @@ fn seat_generation_restart_dispose_and_reinstall_own_all_eight_handlers() -> Res
         }
     })
 }
+
+#[cfg(unix)]
+#[path = "runtime_sessions_owner_native_tests.rs"]
+mod owner_native;
