@@ -30,8 +30,9 @@ use crate::{
         NATIVE_RECOVERY, NATIVE_RESULT_ID, NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA,
-        NativeReadSelector, PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_ANCESTRY_READ_SCHEMA, NATIVE_OPERATION_READ_SCHEMA,
+        NATIVE_SUBJECT_READ_SCHEMA, NativeAncestry, NativeReadSelector, PreparedTransition,
+        RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::{commit_error, storage_error},
@@ -122,6 +123,16 @@ impl NativeT2Plan {
             NativeReadSelector::OriginalAttempt { attempt_id: self.attempt.attempt_id },
             NativeReadSelector::OriginalReceipt { receipt_id: self.evidence.receipt_id },
         ]
+    }
+
+    fn generic_read_selectors(&self, head: &SubjectBranchHead) -> Vec<NativeReadSelector> {
+        let ancestry = NativeAncestry::new(&self.task, head);
+        let mut selectors = self.read_selectors().to_vec();
+        selectors.extend([
+            NativeReadSelector::TaskAncestry { ancestry: ancestry.clone(), ordinary_children: true },
+            NativeReadSelector::AuthoringSteps { ancestry },
+        ]);
+        selectors
     }
 
     fn input_digest(&self, head: &SubjectBranchHead) -> Result<Digest, ShenkoError> {
@@ -277,6 +288,14 @@ fn json<T: serde::de::DeserializeOwned>(cell: &Cell) -> Result<T, ShenkoError> {
 }
 
 impl NativeT2Transition {
+    fn read_selectors(&self) -> Vec<NativeReadSelector> {
+        if self.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            self.plan.generic_read_selectors(&self.rows.original_head)
+        } else {
+            self.plan.read_selectors().to_vec()
+        }
+    }
+
     fn read_table(&self, name: &str) -> Result<&TableTransition, ShenkoError> {
         let matches = self
             .rows
@@ -290,8 +309,8 @@ impl NativeT2Transition {
                 Ok(table)
             }
             [table] if table.complete_read => Ok(table),
-            [table] if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA
-                && self.plan.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector)) => Ok(table),
+            [table] if matches!(self.rows.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+                && self.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector)) => Ok(table),
             _ => Err(invalid(format!("missing complete {name} read condition"))),
         }
     }
@@ -328,7 +347,7 @@ impl NativeT2Transition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
-        rows.validate_native_read_selectors(&plan.read_selectors())?;
+        rows.validate_native_read_selectors(&self.read_selectors())?;
         if self.evidence_fact.is_some()
             && (!matches!(plan.phase, NativeT2Phase::Complete { .. }) || self.result.is_none())
         {
@@ -337,8 +356,9 @@ impl NativeT2Transition {
             ));
         }
         let key = plan.phase.position(&plan.task);
-        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
-            || (rows.schema_version != 1 && self.evidence_fact.is_none())
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+            || (matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) && self.evidence_fact.is_none())
+            || (rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA && self.evidence_fact.is_some())
             || rows.action_id != admission.action_id
             || rows.action_id != EntityId::derived("commit-admission-action-v1", key.as_bytes())
             || rows.input_digest != plan.input_digest(head)?
@@ -357,6 +377,10 @@ impl NativeT2Transition {
                 .contains(&crate::authority::task_revision_position(&plan.task))
         {
             return Err(invalid("transition does not bind the admitted T2 position"));
+        }
+        if rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = crate::native_facts::validate_native_ancestry(rows, &plan.task, true)?;
+            crate::native_facts::validate_native_ancestry_fences(admission, &ancestry)?;
         }
         self.original("subject_branch_heads", "agent_id", head.agent_id, head)?;
         self.original("tasks", "task_id", plan.task.task_id, &plan.task)?;
@@ -662,7 +686,7 @@ impl Store {
                 };
                 self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
             } else {
-                self.capture_row_transition(&tx, input, None, evaluate)?
+                self.capture_native_ancestry_transition(&tx, input, &plan.generic_read_selectors(head), evaluate)?
             };
             if evidence_fact.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = NativeT2Transition { rows, plan: plan.clone(), result, evidence_fact: evidence_fact.clone() };
@@ -670,7 +694,7 @@ impl Store {
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("native T2 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if evidence_fact.is_some() { 4 } else { 1 })?.object;
+                if evidence_fact.is_some() { 4 } else { 5 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -773,7 +797,7 @@ impl Store {
         &self,
         reference: &ObjectRef,
     ) -> Result<NativeT2Transition, ShenkoError> {
-        if !matches!(reference.codec.major, 1..=4) {
+        if !matches!(reference.codec.major, 1..=5) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -782,8 +806,9 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: NativeT2Transition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if (reference.codec.major >= 2) != transition.evidence_fact.is_some()
+        if matches!(reference.codec.major, 2..=4) != transition.evidence_fact.is_some()
             || transition.rows.schema_version != match reference.codec.major {
+                5 => NATIVE_ANCESTRY_READ_SCHEMA,
                 4 => NATIVE_OPERATION_READ_SCHEMA,
                 3 => NATIVE_SUBJECT_READ_SCHEMA,
                 _ => 1,
@@ -853,6 +878,10 @@ impl Store {
         {
             return Err(invalid("T2 action differs from its admitted envelope"));
         }
+        if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = crate::native_facts::validate_native_ancestry(&transition.rows, &transition.plan.task, true)?;
+            crate::native_facts::validate_native_ancestry_envelope(&envelope, &ancestry)?;
+        }
         authority.with_mutation(&self.ledger,
             || {
                 let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
@@ -876,6 +905,10 @@ impl Store {
                 }
                 if admission_materialized(&tx, admission)? {
                     return Err(conflict("T2 already materialized"));
+                }
+                if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+                    crate::child::ensure_owner_active(&tx, &transition.plan.task, &transition.rows.original_head)
+                        .map_err(source_error)?;
                 }
                 self.verify_native_continuation(
                     &tx,

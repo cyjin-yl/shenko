@@ -158,7 +158,7 @@ before publishing a prepared transition or requesting choice. The physical
 write observer still sees every write; a write outside a selected predicate is
 refused. Full schemas and trigger definitions remain bound, and preimages,
 absence, writes and postimages are checked under one final IMMEDIATE transaction.
-Ordinary arm/T2 and generic dispatch keep their original format. Old arm/T2
+Ordinary arm keeps its original format. Retained old arm/T2
 codecs 1–2 still require row schema 1; codec 3 requires row schema 3; only codec 4
 accepts row schema 4. Claim codec 2 continues to use row schema 3; claim codec 3
 requires row schema 4. Rows 1–3 cannot
@@ -176,9 +176,10 @@ E1 progress after the target claim's choice and after its arm choice, trigger/vi
 dependency refusal, logical-key absence conflict, a same-ID uppercase UUID
 under another physical key, and a T2 selector naming another attempt. It retains
 the original malformed-E1, staged-E1 rollback, foreign parking, one-effect,
-lost-reply, reopen and replay assertions. The archive increment adds three
-focused schema-10 compatibility windows, for nine new windows across existing
-test functions. No new test function or test factory is introduced.
+lost-reply, reopen and replay assertions. One retained-schema-10 import/relay
+window, one ancestry-dispatch interleaving and the generic-T2 interleaving below
+bring this same candidate to nine new windows across existing test functions.
+No new test function or test factory is introduced.
 
 The learned T2 receiver lacks the unrelated source operation/attempt/E1 entirely
 and still must retain its exact original result; T2's original lost-reply,
@@ -187,6 +188,48 @@ review checks the explicit legacy codec/row pairing; it is not a Rust execution
 receipt. These candidate checks and the next actual model journey still require
 the integration owner's scoped execution; this source change does not turn the
 three CDF journey failures into passes or claim a measured latency improvement.
+
+### Generic T2 ancestry and ordinary children (2026-11-22 candidate)
+
+The source path for `model.child` completion also reaches canonical T2, without
+the direct native claim/E1 proof. Its old codec-1 transition retains full task,
+step, operation, attempt and evidence tables. This is a source-confirmed
+remaining concurrency risk; the CDF printf errors do not by themselves prove
+that a particular child completion failed at this same point.
+
+New generic complete/finish objects use T2 codec 5 and row schema 5, with no
+`evidence_fact`. The fixed task selector retains the target and its complete,
+bounded owner chain plus every ordinary direct child (`!background` and typed
+`TaskOwner::Task` pointing at the target), including terminal children and an
+empty range. The authoring-step selector retains the actual creator rows needed
+by that ancestry's branch checks. Original operation, attempt and E1 remain
+full physical rows selected by their original PKs. The shared ancestry reader
+checks physical/JSON identities, subject, owner structure, branch and active
+ancestors; the target/ancestor revision fences and admitted `expected_tasks`
+must match that same ordered chain. Ordinary children are read dependencies,
+not additional Node `expected_tasks` or conflict aliases.
+
+Source evaluation still calls the original `unfinished_children` SQL. The
+typed transition validator still derives unfinished ownership from decoded
+`TaskRecord` owner/background/terminal fields. The selector also uses those
+typed child identities, so a UUID spelling alias cannot remove a row that the
+old validator would have seen; a SQL/typed disagreement remains a refusal.
+No new plan field changes a retained codec's input digest. All apply modes
+recheck `ensure_owner_active` and `read_subject` in the same IMMEDIATE transaction
+as the selector preimages, exact result writes and postimages. The final T2
+cannot bypass an unfinished child or substitute another attempt/receipt.
+
+The existing completing/finish regression gains one chosen-to-application
+interleaving: the actual main S0 advances and a different operation receives
+another real Store E1, while the ordinary child's task remains unfinished.
+The original selected parent result must still be `Completing`, then wait for
+that child's actual T2 before the separate finish/reopen path can publish the
+parent result. Its original lost-reply, receipt identity and no-repeat checks
+remain. This is a controlled Store mechanism check pending execution, not a
+model-success or latency result. The child scan still parses task history;
+the change bounds retained dependencies rather than claiming constant-time
+ownership queries. Old T2 codec 1 keeps its original full-witness semantics;
+direct codecs 2/3/4 retain their existing proof and row-schema pairing.
 
 ### Remaining issue #316 boundaries
 
@@ -202,7 +245,8 @@ The native full witnesses remain history-dependent at these concrete paths:
 | --- | --- | --- |
 | `claim_transition::evaluate_claim` | Subject heads; old claim-1/2 objects also retain full `operations` | Claim 3 uses its original-operation PK absence. Full retained images still share the 128 MiB capture limit; sealed transitions remain limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
 | `arming_transition::evaluate_arm` | Ordinary paths retain full `operations` and `attempts`; all paths retain full `subject_intents` (publication absence) and subject heads | Direct arm 4 retains its two typed absence predicates instead of every unrelated row, but still scans/parses operations and attempts. Ordinary/non-direct ancestry also retains `tasks` and `subject_steps`. |
-| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Generic dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 4 narrows its task/creator and original operation/attempt/receipt reads while retaining current-successor validation. |
+| `dispatch_transition::evaluate_dispatch` | Full `tasks`/subject reads and named operation/attempt tables in the retained codec-1 format | The separate ancestry-selector dispatch increment defines the new format; retained codec 1 is not reinterpreted. |
+| `native_transition::evaluate_native_t2` | Subject heads; old generic T2 1 also retains full task/step/operation/attempt/evidence tables | New generic T2 5 retains the complete typed ordinary-child range and owner/creator chain, with PK operation/attempt/E1; finding the child range still scans/parses tasks. Direct E1-proven T2 4 has its separate childless proof. Both retain current-successor validation. |
 
 All canonical actions also call
 `control_predecessor::prepare_control_predecessor_inner`, which takes a full
