@@ -563,10 +563,29 @@ Both shutdowns use the existing owned-process `SIGINT` path and its forced-kill
 fallback; neither is an intentional crash experiment. The first follows the
 confirmed durable pause. The final shutdown occurs after continued-output
 observation and may encounter the still-continuous main loop. The success checks
-now require both observed exits to be zero. A nonzero first exit stops the journey
-before automatic restart; a nonzero final exit keeps `passed=false` while final
-ledger/CAS evidence is retained. Unknown inference outcomes remain Unknown and
-are not converted to successful cleanup.
+require both observed exits to be zero and the owned process group to finish
+without residual live children or forced cleanup. A failed first shutdown stops
+the journey before automatic restart; a failed final shutdown keeps `passed=false`
+while final ledger/CAS evidence is retained. Unknown inference outcomes remain
+Unknown and are not converted to successful cleanup.
+
+`first_exit` and `last_exit` retain the actual parent exit codes. The separate
+`first_shutdown` / `last_shutdown` receipts record the owned PGID, residual live
+members, signals, forced cleanup, remaining members and errors. Startup failures
+retain the same information in `<phase>.startup-shutdown.json` and the attempt
+summary. Only the group created by this driver's `start_new_session` spawn can be
+signalled; Linux `/proc` observation distinguishes zombies from live processes.
+An exited parent with surviving children still needs cleanup and fails the clean
+shutdown check. An incomplete or unverified cleanup stops a repeated batch before
+another installation is launched. Log-close/cleanup errors remain failures while
+the other final evidence is collected; an unwritable summary is also printed in
+full to the caller's captured stdout.
+
+One driver regression exercises an actual parent exiting zero with a child that
+ignores SIGTERM. The child is removed by the bounded SIGKILL fallback, the parent
+exit remains zero, the cleanup is recorded as unclean, and an unrelated session
+remains alive. This process fixture and the two existing evidence-driver checks
+are bookkeeping/cleanup verification, not a successful model journey.
 
 A single explicit label event is still required for one exact-candidate run;
 pushes and unrelated labels do not repeat it. A protocol correction loop is a

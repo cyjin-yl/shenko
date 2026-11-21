@@ -22,13 +22,11 @@ import shutil
 import signal
 import sqlite3
 import subprocess
+import sys
 import time
 import traceback
 import urllib.request
 import uuid
-
-import websockets
-
 
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
@@ -220,9 +218,9 @@ async def start(args, phase, data_dir, pause_request_id=None):
     command = [str(args.binary), "--data-dir", str(data_dir), "start", "--port", str(args.port)]
     if pause_request_id is not None:
         command.extend(["--pause-at-start", pause_request_id])
-    process = subprocess.Popen(command,
-                               env=environment, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    process = None
     try:
+        process = spawn_owned_runtime(command, env=environment, stdout=log, stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             if process.poll() is not None:
@@ -236,22 +234,131 @@ async def start(args, phase, data_dir, pause_request_id=None):
                 pass
             await asyncio.sleep(0.2)
         raise TimeoutError("Shenko did not expose a bound subject within 60 seconds")
-    except BaseException:
-        await stop(process, log)
+    except BaseException as error:
+        if process is not None:
+            stopped = await stop(process, log)
+            error.shenko_startup_shutdown = stopped
+            try:
+                save(args.evidence_dir / f"{phase}.startup-shutdown.json", stopped)
+            except Exception as retention_error:
+                error.add_note(f"startup shutdown receipt could not be saved: {retention_error}; {stopped}")
+        else:
+            try:
+                log.close()
+            except Exception as close_error:
+                error.add_note(f"startup runtime log close failed: {close_error}")
         raise
 
 
-async def stop(process, log):
-    if process.poll() is None:
-        process.send_signal(signal.SIGINT)
+def spawn_owned_runtime(command, **kwargs):
+    process = subprocess.Popen(command, start_new_session=True, **kwargs)
+    # Only this creation path gives stop() authority over a process group.
+    # Never derive an arbitrary caller's group from os.getpgid(process.pid).
+    process.shenko_owned_pgid = process.pid
+    return process
+
+
+def owned_group_state(pgid):
+    """Observe the owned group; dead Linux zombies cannot execute another effect."""
+    if sys.platform.startswith("linux"):
+        live, zombies = [], []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdecimal():
+                continue
+            try:
+                # comm is parenthesized and may contain spaces or ')'. Fields
+                # after its final ')' start with state, ppid, pgrp, session.
+                fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if int(fields[2]) != pgid:
+                continue
+            if int(fields[3]) != pgid:
+                raise RuntimeError("the recorded runtime group is no longer its original session")
+            (zombies if fields[0] in ("Z", "X", "x") else live).append(int(entry.name))
+        return {"live_pids": sorted(live), "zombie_pids": sorted(zombies), "alive": bool(live)}
+    # Other POSIX hosts cannot provide Linux's zombie distinction here. Keep
+    # that limit explicit rather than claim that unobserved members exited.
+    try:
+        os.killpg(pgid, 0)
+        alive = True
+    except ProcessLookupError:
+        alive = False
+    return {"live_pids": None, "zombie_pids": None, "alive": alive}
+
+
+async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_timeout=5):
+    receipt = {"parent_exit": None, "parent_timed_out": False, "clean": False, "interrupted": False,
+               "group_cleanup": {"pgid": getattr(process, "shenko_owned_pgid", None),
+                                 "required": False, "forced": False, "signals": [],
+                                 "complete": False}, "errors": []}
+    group = receipt["group_cleanup"]
+    pgid = group["pgid"]
+    owned = isinstance(pgid, int) and pgid > 0 and pgid == process.pid and pgid != os.getpgrp()
+
+    def signal_group(sig):
+        if not owned:
+            raise RuntimeError("refusing to signal a group not created by this journey")
         try:
-            await asyncio.wait_for(asyncio.to_thread(process.wait), 30)
-        except asyncio.TimeoutError:
-            # This is the owned test process group, never an unrelated runtime.
-            os.killpg(process.pid, signal.SIGKILL)
-            await asyncio.to_thread(process.wait)
-    log.close()
-    return process.returncode
+            os.killpg(pgid, sig)
+            group["signals"].append(sig.name)
+            group["forced"] |= sig == signal.SIGKILL
+        except ProcessLookupError:
+            pass  # The last member exited between observation and signalling.
+
+    async def wait_group(timeout):
+        deadline = time.monotonic() + timeout
+        while True:
+            process.poll()  # Reap our own leader; never wait on someone else's child.
+            state = owned_group_state(pgid)
+            if not state["alive"] or time.monotonic() >= deadline:
+                return state
+            await asyncio.sleep(0.05)
+
+    try:
+        if not owned:
+            raise RuntimeError("runtime has no owned start_new_session process group")
+        if process.poll() is None:
+            process.send_signal(signal.SIGINT)
+            deadline = time.monotonic() + parent_timeout
+            while process.poll() is None and time.monotonic() < deadline:
+                await asyncio.sleep(0.05)
+            receipt["parent_timed_out"] = process.poll() is None
+        group["after_parent"] = owned_group_state(pgid)
+        group["required"] = group["after_parent"]["alive"]
+        if group["required"]:
+            signal_group(signal.SIGTERM)
+            remaining = await wait_group(terminate_timeout)
+            if remaining["alive"]:
+                signal_group(signal.SIGKILL)
+                remaining = await wait_group(kill_timeout)
+        else:
+            remaining = group["after_parent"]
+        group["remaining"] = remaining
+        group["complete"] = not remaining["alive"]
+    except BaseException as error:
+        receipt["errors"].append(f"runtime cleanup: {type(error).__name__}: {error}")
+        receipt["interrupted"] = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+        # Cancellation/inspection failures must not strand the group or prevent
+        # the caller retaining its failure summary. This is still only our PGID.
+        if owned:
+            try:
+                signal_group(signal.SIGKILL)
+                group["remaining"] = await wait_group(kill_timeout)
+                group["complete"] = not group["remaining"]["alive"]
+            except BaseException as cleanup_error:
+                receipt["errors"].append(f"forced cleanup: {type(cleanup_error).__name__}: {cleanup_error}")
+                receipt["interrupted"] |= isinstance(cleanup_error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+    finally:
+        receipt["parent_exit"] = process.poll()
+        try:
+            log.close()
+        except Exception as error:
+            receipt["errors"].append(f"runtime log close: {type(error).__name__}: {error}")
+    receipt["clean"] = (receipt["parent_exit"] == 0 and not receipt["parent_timed_out"]
+                        and group["complete"] and not group["required"] and not group["forced"]
+                        and not receipt["errors"])
+    return receipt
 
 
 async def runtime_control(args, data_dir, operation, request_id):
@@ -383,6 +490,8 @@ def first_request_contains_input(data_dir, facts, prior_requests, accepted, subm
 
 
 async def run(args):
+    import websockets
+
     started = time.monotonic()
     args.evidence_dir.mkdir(parents=True, exist_ok=False)
     data_dir = args.evidence_dir / "installation"
@@ -461,11 +570,12 @@ async def run(args):
         summary["checks"]["clean_boundary_before_restart"] = True
         if browser:
             await browser.prepare_restart("未发送草稿 · " + marker)
-        summary["first_exit"] = await stop(process, log)
+        summary["first_shutdown"] = await stop(process, log)
+        summary["first_exit"] = summary["first_shutdown"]["parent_exit"]
         process = log = None
-        summary["checks"]["first_shutdown_clean"] = summary["first_exit"] == 0
+        summary["checks"]["first_shutdown_clean"] = summary["first_shutdown"]["clean"]
         if not summary["checks"]["first_shutdown_clean"]:
-            raise RuntimeError(f"paused runtime shutdown exited {summary['first_exit']}; see first.runtime.log")
+            raise RuntimeError(f"paused runtime did not shut down cleanly (parent exit {summary['first_exit']}); see first_shutdown and first.runtime.log")
         if browser:
             await browser.observe_stopped()
         process, log, resumed_subject = await start(args, "restart", data_dir, restart_boundary)
@@ -516,6 +626,8 @@ async def run(args):
         summary["passed"] = all(summary["checks"].values())
     except Exception as error:
         summary["errors"].append(f"{type(error).__name__}: {error}")
+        if hasattr(error, "shenko_startup_shutdown"):
+            summary["startup_shutdown"] = error.shenko_startup_shutdown
         (args.evidence_dir / "failure.txt").write_text(traceback.format_exc())
     finally:
         if browser is not None:
@@ -529,11 +641,17 @@ async def run(args):
                 summary["passed"] = False
                 summary["errors"].append(f"browser evidence/cleanup: {type(error).__name__}: {error}")
         if process is not None:
-            summary["last_exit"] = await stop(process, log)
-            summary["checks"]["final_shutdown_clean"] = summary["last_exit"] == 0
-            summary["passed"] = summary["passed"] and summary["checks"]["final_shutdown_clean"]
-            if not summary["checks"]["final_shutdown_clean"]:
-                summary["errors"].append(f"owned runtime shutdown exited {summary['last_exit']}; see runtime logs and final ledger")
+            try:
+                summary["last_shutdown"] = await stop(process, log)
+                summary["last_exit"] = summary["last_shutdown"]["parent_exit"]
+                summary["checks"]["final_shutdown_clean"] = summary["last_shutdown"]["clean"]
+                summary["passed"] = summary["passed"] and summary["checks"]["final_shutdown_clean"]
+                if not summary["checks"]["final_shutdown_clean"]:
+                    summary["errors"].append(f"owned runtime did not shut down cleanly (parent exit {summary['last_exit']}); see last_shutdown, runtime logs and final ledger")
+            except Exception as error:
+                summary["passed"] = False
+                summary["checks"]["final_shutdown_clean"] = False
+                summary["errors"].append(f"runtime cleanup failed: {type(error).__name__}: {error}")
         if (data_dir / "shenko.db").exists():
             try:
                 final_facts = snapshot(data_dir)
@@ -558,8 +676,17 @@ async def run(args):
                 summary["errors"].append(f"CAS evidence retention: {type(error).__name__}: {error}")
         summary["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         summary["elapsed_seconds"] = time.monotonic() - started
-        save(args.evidence_dir / "summary.json", summary)
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+        try:
+            save(args.evidence_dir / "summary.json", summary)
+        except Exception as error:
+            summary["passed"] = False
+            summary["errors"].append(f"summary retention: {type(error).__name__}: {error}")
+            # The caller's captured stdout still receives the complete failure
+            # below, even when the evidence filesystem itself cannot write.
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if any(summary.get(key, {}).get("interrupted")
+           for key in ("startup_shutdown", "first_shutdown", "last_shutdown")):
+        raise asyncio.CancelledError("runtime cleanup was interrupted; retained the attempt evidence")
     return 0 if summary["passed"] else 1
 
 
@@ -618,6 +745,9 @@ async def repeat(args):
                 row.update(summary_sha256=sha256(summary_path), exit_code=exit_code,
                            elapsed_seconds=summary["elapsed_seconds"], errors=summary["errors"],
                            completed=True)
+                if any(not summary[key]["group_cleanup"]["complete"]
+                       for key in ("startup_shutdown", "first_shutdown", "last_shutdown") if key in summary):
+                    raise RuntimeError("the previous runtime group is still live or its cleanup could not be verified")
                 if sha256(args.binary) != report["binary_sha256"] or model_card() != report["model_card"]:
                     raise RuntimeError("binary or served model identity changed within an attempt")
                 row["passed"] = exit_code == 0 and summary["passed"]
