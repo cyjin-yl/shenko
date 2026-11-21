@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Two driver checks. Synthetic records never count as model acceptance."""
+"""Driver evidence and owned-process cleanup; these are not model acceptance."""
 import argparse
 import asyncio
 import contextlib
 import copy
 import io
 import json
+import os
 from pathlib import Path
+import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -17,6 +20,49 @@ import real_single_node_journey as journey
 
 
 class JourneyEvidenceTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform.startswith("linux"), "observes Linux process groups and zombies")
+    def test_exited_parent_does_not_hide_live_owned_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "runtime.log"
+            log = log_path.open("w")
+            # The child announces its PID only after installing SIGTERM ignore.
+            # Its leader exits 0, so escalation must not rewrite the leader's
+            # real exit status. A separate session must remain untouched.
+            child_code = "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print(os.getpid(),flush=True); time.sleep(30)"
+            parent_code = ("import subprocess,sys; "
+                           f"child=subprocess.Popen([sys.executable,'-c',{child_code!r}],stdout=subprocess.PIPE,text=True); "
+                           "print(child.stdout.readline().strip(),flush=True)")
+            process = journey.spawn_owned_runtime([sys.executable, "-c", parent_code],
+                                                   stdout=log, stderr=subprocess.STDOUT)
+            unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                         start_new_session=True)
+            try:
+                self.assertEqual(process.wait(timeout=5), 0)
+                child_pid = int(log_path.read_text().strip())
+                receipt = asyncio.run(journey.stop(process, log, terminate_timeout=0.1, kill_timeout=2))
+                self.assertEqual(receipt["parent_exit"], 0)
+                self.assertFalse(receipt["clean"])
+                self.assertEqual(receipt["errors"], [])
+                cleanup = receipt["group_cleanup"]
+                self.assertEqual(cleanup["after_parent"]["live_pids"], [child_pid])
+                self.assertTrue(cleanup["required"])
+                self.assertTrue(cleanup["forced"])
+                self.assertEqual(cleanup["signals"], ["SIGTERM", "SIGKILL"])
+                self.assertTrue(cleanup["complete"])
+                self.assertEqual(cleanup["remaining"]["live_pids"], [])
+                self.assertTrue(log.closed)
+                self.assertIsNone(unrelated.poll())
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+                log.close()
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
+
     def test_retained_success_does_not_hide_reexecution(self):
         original = {
             "tasks": [{"task_id": "child", "data": {"kind": "host.printf"}}],
