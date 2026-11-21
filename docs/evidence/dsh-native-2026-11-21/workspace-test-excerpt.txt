@@ -1,0 +1,8 @@
+2026-11-20T21:55:14.5321684Z      Running tests/dsh_native.rs (.ci/target/rust/debug/deps/dsh_native-76825d5d926161ac)
+2026-11-20T21:55:14.5352580Z 
+2026-11-20T21:55:14.5352826Z running 1 test
+2026-11-20T21:55:19.2447561Z test dsh_tools_keep_native_receipts_across_restart_and_disable ... ok
+2026-11-20T21:55:19.2447941Z 
+2026-11-20T21:55:19.2448318Z test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+2026-11-20T21:55:19.2448674Z 
+2026-11-20T21:55:19.2465084Z      Running tests/learning_efficacy.rs (.ci/target/rust/debug/deps/learning_efficacy-237030cc365cc212)
