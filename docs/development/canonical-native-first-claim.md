@@ -10,7 +10,9 @@ it does not add arm's decoded-JSON identity or logical-key predicates.
 The new reader preserves the same birth proof, exact Running result, authority
 and one-live-permit rules. New archives declare
 [schema 11](../specs/durable-state.md), which retains the
-schema-10 creator witness and also declares claim 3 and the later direct arm/T2 readers.
+schema-10 creator witness and also declares claim 3, the later direct arm/T2
+readers, and the generic dispatch/T2 ancestry readers. The archive declaration
+does not rewrite any retained transition's original codec or read semantics.
 
 ## Exact scope
 

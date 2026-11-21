@@ -109,8 +109,15 @@ the same family and additionally declares direct claim codec 3 and direct
 paired arm/childless original T2 codec 4 with row-schema-4 operation, attempt
 and receipt selectors. Claim 3 binds only its original physical operation PK
 absence; retained claim 2 keeps its complete operation witness.
-The capability declaration does not move generic dispatch or ordinary native
-transitions onto those selectors. All new exports use 11,
+Generic dispatch codec 2 and ordinary T2 codec 5 use row schema 5: their named
+original operation/attempt and, for T2, receipt rows are retained with the task's
+complete bounded ancestor chain and its authoring steps. Ordinary T2 additionally
+retains the ordinary-child range, including an empty range; this is separate from
+the childless direct-E1 proof. These formats preserve the original subject,
+ownership, admission and execution-permit boundaries. They do not eliminate the
+remaining preparation, snapshot or scan costs described in the
+[capture design](../development/canonical-capture-budget.md).
+All new exports use 11,
 including snapshots without those objects. A schema-10 reader therefore refuses
 the manifest before CAS payload callbacks, SQL facts or files are published;
 this writer offers no version-label downgrade. Old archives 2–7 and 10 and their
@@ -120,9 +127,11 @@ unsupported; 11 does not enable either reserved contract.
 This archive boundary is distinct from raw Node control-object transport and
 does not establish mixed-version Node consensus acceptance or full rollback.
 The existing archive admission regression covers the current writer, retained
-7/10 facts, malformed 10/11 membership and unsupported-format refusal before CAS or
-file publication. Its source extension is not a new runtime pass claim; actual
-candidate execution is reported with its own source identity.
+7/10 facts, malformed current membership and unsupported-format refusal before
+CAS or file publication. The only new archive window imports representable
+schema-10 facts and relays them through the schema-11 writer; schemas 10 and 11
+share the same membership gate. Its source extension is not a new runtime pass
+claim; actual candidate execution is reported with its own source identity.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The

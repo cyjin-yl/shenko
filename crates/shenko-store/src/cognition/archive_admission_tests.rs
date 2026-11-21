@@ -192,7 +192,7 @@ fn later_typed_alias_expands_its_real_child_on_both_sides() -> Result<()> {
 
 #[test]
 fn reordered_labels_cannot_publish_a_paused_head_or_files() {
-    for schema in [2, 10, crate::cognition_archive::ARCHIVE_SCHEMA] {
+    for schema in [2, crate::cognition_archive::ARCHIVE_SCHEMA] {
         reject_reordered_head(schema);
     }
 }
@@ -281,7 +281,7 @@ fn reject_reordered_head(schema: u32) {
     let error = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
         memory_root: Some(receiver_memory.clone()), ..Default::default()
     }).unwrap_err();
-    assert!(error.to_string().contains(if schema >= 5 {
+    assert!(error.to_string().contains(if schema == crate::cognition_archive::ARCHIVE_SCHEMA {
         "invalid cognition column layout"
     } else {
         "imported subject head column/value mismatch"
@@ -310,7 +310,7 @@ fn unknown_fact_does_not_produce_a_verified_partial_import() -> Result<()> {
     assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
     assert!(receiver.list_memory(10)?.is_empty());
     let before = receiver.current_commit_seq()?;
-    // The introduction and current writer formats must
+    // Both the introduction format and the current writer format must
     // reject an intentionally malformed declaration before publishing.
     for schema in [MEMBERSHIP_REQUIRED_SCHEMA, crate::cognition_archive::ARCHIVE_SCHEMA] {
         let mut missing = source.export_cognition(&Default::default())?;
@@ -510,7 +510,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     assert!(native.write_archive(&mut native_archive)?.complete);
 
     for case in ["partial-family", "absent-family", "mixed-native-seven", "older-format",
-        "current-partial-family", "ten-mixed-family", "reserved-eight", "reserved-nine"] {
+        "current-partial-family", "reserved-eight", "reserved-nine"] {
         // Only the negative inputs are mutated. The positive archive above is
         // the original Store producer output, with its original version intact.
         let mut malformed = source.export_cognition(&options)?;
@@ -520,12 +520,6 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         } else if case == "current-partial-family" {
             malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
             "schema-11 archive requires fork/history membership"
-        } else if case == "ten-mixed-family" {
-            malformed.manifest.schema = 10;
-            malformed.manifest.fact_classes.extend([
-                "dialogue_endpoints".into(), "dialogue_messages".into(),
-            ]);
-            "schema-10 archive requires fork/history membership"
         } else if matches!(case, "reserved-eight" | "reserved-nine") {
             malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
             "unsupported cognition archive schema"
@@ -634,11 +628,13 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         assert_eq!(legacy_receiver.cas.read_object(&object.digest)?.as_slice(), bytes);
         assert_eq!(legacy_receiver.session_events_range(session, 0, i64::MAX)?[0].data, data);
         assert_eq!(fs::read(legacy_memory.join("remote.txt"))?, b"original remote file");
-        let relayed = legacy_receiver.export_cognition(&CognitionSnapshotOptions {
-            memory_root: Some(legacy_memory), include_git_history: false, ..Default::default()
-        })?;
-        assert_eq!(relayed.manifest.schema, 11);
-        assert!(relayed.manifest.blocking_gaps().is_empty());
+        if schema == 10 {
+            let relayed = legacy_receiver.export_cognition(&CognitionSnapshotOptions {
+                memory_root: Some(legacy_memory), include_git_history: false, ..Default::default()
+            })?;
+            assert_eq!(relayed.manifest.schema, 11);
+            assert!(relayed.manifest.blocking_gaps().is_empty());
+        }
     }
     Ok(())
 }
