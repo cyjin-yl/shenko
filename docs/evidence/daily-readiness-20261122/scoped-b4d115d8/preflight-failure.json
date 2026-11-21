@@ -1,0 +1,11 @@
+{
+  "source_revision": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+  "observed_at_utc": "2026-11-21T21:56:23.017157+00:00",
+  "stage": "reuse preflight before cargo",
+  "error": "AssertionError: ('cli-printf', [('1', '0'), ('1', '0')])",
+  "cause": "The already-completed CLI process regression prints a nested child harness summary; the first preflight incorrectly required exactly one summary line. The replacement selects the final outer single-target harness and records all excluded nested summaries.",
+  "cargo_test_started": false,
+  "release_started": false,
+  "original_runner_sha256": "da8213e202d9b3775540518b04864e6dd04e4b376bf1ae393c44101332ba5126",
+  "replacement_evidence": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8-r2"
+}
