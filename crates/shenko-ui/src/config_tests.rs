@@ -980,3 +980,122 @@ async fn config_manage_unsettled_apply_keeps_unknown_evidence_and_refusals() -> 
         original_change.attempt);
     Ok(())
 }
+
+#[test]
+fn concurrent_same_origin_claims_one_real_consumer_and_preserves_replay() -> anyhow::Result<()> {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    const BASE_LOOKUP: &str = "SELECT data FROM config_entries WHERE namespace=?1 AND logical_key=?2";
+
+    let (root, left_store) = store_fixture("concurrent-origin");
+    let right_store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let left_service = Arc::new(ConfigService::new(Arc::clone(&left_store)));
+    let right_service = Arc::new(ConfigService::new(Arc::clone(&right_store)));
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let mut original = request(PAGE_LIMIT_KEY, "simultaneous-origin", json!(23), Some(0));
+    original.namespace = UI_NAMESPACE.into();
+    // Both services must finish their empty origin and base lookups before
+    // either can claim. BEGIN is too late: the installation permit serializes
+    // writers before that statement. Pause on real statement completion,
+    // before CAS publication, and keep the actual built-in UI consumers.
+    let spawn_caller = |seat, service: Arc<ConfigService>| {
+        let ready = ready_tx.clone();
+        let intent = original.clone();
+        let (release_tx, release_rx) = mpsc::channel();
+        let caller = std::thread::spawn(move || {
+            let mut announced = false;
+            let (result, statements) = shenko_store::test_support::with_sqlite_statement_completion(
+                service.store(),
+                move |statement| {
+                    if !announced && statement.sql == BASE_LOOKUP && statement.rows == 0 {
+                        announced = true;
+                        if ready.send(seat).is_ok() {
+                            // The parent always releases both gates before
+                            // joining, including on either readiness timeout.
+                            let _ = release_rx.recv();
+                        }
+                    }
+                },
+                || service.apply(intent),
+            );
+            (result, service.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), statements)
+        });
+        (release_tx, caller)
+    };
+    let (release_left, left) = spawn_caller(0, Arc::clone(&left_service));
+    let (release_right, right) = spawn_caller(1, Arc::clone(&right_service));
+    drop(ready_tx);
+    let readiness_started = Instant::now();
+    let first_ready = ready_rx.recv_timeout(Duration::from_secs(3));
+    eprintln!("config same-origin first base-snapshot wait: {first_ready:?}, elapsed={:?}", readiness_started.elapsed());
+    let second_wait_started = Instant::now();
+    let second_ready = ready_rx.recv_timeout(Duration::from_secs(3));
+    eprintln!("config same-origin second base-snapshot wait: {second_ready:?}, elapsed={:?}", second_wait_started.elapsed());
+    // Release both connections and join every caller before returning any
+    // readiness failure. No SQLite lock is held across these waits.
+    let released_left = release_left.send(());
+    let released_right = release_right.send(());
+    let left = left.join();
+    let right = right.join();
+    released_left.context("release left completed base lookup")?;
+    released_right.context("release right completed base lookup")?;
+    assert_ne!(
+        first_ready.context("first completed empty base lookup did not arrive")?,
+        second_ready.context("second completed empty base lookup did not arrive")?,
+        "both services must finish their empty base lookup before either can claim",
+    );
+    let (left, left_current, left_statements) = left.map_err(|_| anyhow::anyhow!("left config caller panicked"))?;
+    let (right, right_current, right_statements) = right.map_err(|_| anyhow::anyhow!("right config caller panicked"))?;
+    for statements in [&left_statements, &right_statements] {
+        let base_index = statements.iter().position(|statement| statement.sql == BASE_LOOKUP && statement.rows == 0)
+            .context("the caller must complete its empty base lookup")?;
+        assert!(statements[..base_index].iter().any(|statement| {
+            statement.sql == "SELECT data FROM config_changes WHERE origin_identity=?1 AND logical_key=?2"
+                && statement.rows == 0
+        }), "the caller must first complete its missing-origin lookup");
+    }
+    let (left, right) = (left?, right?);
+    assert_ne!(left.replayed, right.replayed);
+    assert_eq!(left.change.change_id, right.change.change_id);
+    assert_eq!(left.change.desired_patch_ref, right.change.desired_patch_ref);
+    assert_eq!([left_current, right_current].iter().filter(|value| **value == Some(json!(23))).count(), 1,
+        "only the winning service may change its real UI consumer");
+    let (winner, loser, losing_service) = if left.replayed {
+        (&right_service, &left, &left_service)
+    } else {
+        (&left_service, &right, &right_service)
+    };
+    if let Some(owner) = &loser.change.attempt {
+        assert_eq!(owner.pid, std::process::id());
+        assert_eq!(owner.incarnation, winner.store().capabilities.incarnation.to_string());
+        assert!(loser.change.receipt.is_none());
+        assert_eq!(loser.effect_status(), EffectStatus::Unknown);
+    }
+    let durable = left_store.config_change(left.change.change_id)?.context("the original change disappeared")?;
+    assert_eq!(durable.state, "applied");
+    assert_eq!(durable.desired_revision, 1);
+    assert_eq!(durable.record_revision, 1, "only one apply settlement may be committed");
+    let original_receipt = durable.receipt.as_ref().context("the winner must settle its change")?.receipt_id;
+    for result in [&left, &right] {
+        if let Some(receipt) = &result.change.receipt {
+            assert_eq!(receipt.receipt_id, original_receipt);
+        }
+    }
+    let mut newer = original.clone();
+    newer.origin_identity = "later-origin".into();
+    newer.desired = json!(41);
+    newer.expected_base_revision = Some(1);
+    winner.apply(newer)?;
+    let replay = losing_service.apply(original.clone())?;
+    assert!(replay.replayed);
+    assert_eq!(replay.change.receipt.context("replay lost original receipt")?.receipt_id, original_receipt);
+    assert_eq!(losing_service.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(DEFAULT_PAGE_LIMIT)));
+    assert_eq!(winner.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(41)));
+
+    let reopened = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+    let restarted = ConfigService::new(reopened);
+    assert!(restarted.apply(original)?.replayed);
+    assert_eq!(restarted.current_value(UI_NAMESPACE, PAGE_LIMIT_KEY), Some(json!(41)));
+    Ok(())
+}

@@ -171,6 +171,14 @@ pub struct ConfigReceipt {
     pub recorded_at: CommitRef,
 }
 
+/// The transaction that first committed an origin owns its one apply attempt.
+/// An existing change is evidence to read or reconcile, never another claim.
+#[derive(Debug)]
+pub enum ConfigChangeAdmission {
+    Claimed(ConfigChange),
+    Existing(ConfigChange),
+}
+
 /// The process incarnation that owns one apply attempt — (CFG02).
 ///
 /// The attempt owner is committed in the SAME transaction as the change, so
@@ -638,10 +646,10 @@ impl Store {
     /// The `(origin_identity, logical_key)` pair is unique: the same pair with
     /// the same change identity is a replay and returns the original change;
     /// the same pair with a different payload is a conflict.
-    pub fn commit_config_change(&self, draft: &ConfigChangeDraft) -> Result<ConfigChange> {
+    pub fn commit_config_change(&self, draft: &ConfigChangeDraft) -> Result<ConfigChangeAdmission> {
         if let Some(existing) = self.config_change_by_origin(&draft.origin_identity, &draft.logical_key)? {
             if existing.change_id == draft.change_id {
-                return Ok(existing);
+                return Ok(ConfigChangeAdmission::Existing(existing));
             }
             anyhow::bail!(
                 "CONFIG_LOGICAL_KEY_REUSED: '{}' under origin '{}' already belongs to change {}",
@@ -665,7 +673,7 @@ impl Store {
                     let existing: ConfigChange = serde_json::from_str(&raw)?;
                     tx.commit()?;
                     if existing.change_id == draft.change_id {
-                        return Ok(existing);
+                        return Ok(ConfigChangeAdmission::Existing(existing));
                     }
                     anyhow::bail!(
                         "CONFIG_LOGICAL_KEY_REUSED: '{}' under origin '{}' already belongs to change {}",
@@ -732,7 +740,7 @@ impl Store {
                 )?;
                 self.ledger.record_commit(&tx, seq, 2)?;
                 tx.commit()?;
-                Ok(change)
+                Ok(ConfigChangeAdmission::Claimed(change))
             },
             |error: &anyhow::Error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>(),
         )
