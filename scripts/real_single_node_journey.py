@@ -295,9 +295,9 @@ def spawn_owned_runtime(command, **kwargs):
 
 
 def owned_group_state(pgid):
-    """Observe the owned group; dead Linux zombies cannot execute another effect."""
+    """Observe whole processes, including live threads of a zombie leader."""
     if sys.platform.startswith("linux"):
-        live, zombies = [], []
+        live, zombies, live_threads = [], [], []
         for entry in Path("/proc").iterdir():
             if not entry.name.isdecimal():
                 continue
@@ -311,8 +311,30 @@ def owned_group_state(pgid):
                 continue
             if int(fields[3]) != pgid:
                 raise RuntimeError("the recorded runtime group is no longer its original session")
-            (zombies if fields[0] in ("Z", "X", "x") else live).append(int(entry.name))
-        return {"live_pids": sorted(live), "zombie_pids": sorted(zombies), "alive": bool(live)}
+            if fields[0] not in ("Z", "X", "x"):
+                live.append(int(entry.name))
+                continue
+            # A thread-group leader may exit before its workers. /proc/PID/stat
+            # then says Z while the process can still execute effects and is
+            # not waitable. Only an entirely dead thread group is a zombie.
+            members = []
+            try:
+                for thread in (entry / "task").iterdir():
+                    try:
+                        state = (thread / "stat").read_text().rsplit(")", 1)[1].split()[0]
+                    except (FileNotFoundError, ProcessLookupError):
+                        continue
+                    if state not in ("Z", "X", "x"):
+                        members.append(int(thread.name))
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if members:
+                live.append(int(entry.name))
+                live_threads.extend(members)
+            else:
+                zombies.append(int(entry.name))
+        return {"live_pids": sorted(live), "zombie_pids": sorted(zombies),
+                "live_thread_ids": sorted(live_threads), "alive": bool(live)}
     # Other POSIX hosts cannot provide Linux's zombie distinction here. Keep
     # that limit explicit rather than claim that unobserved members exited.
     try:
@@ -356,7 +378,10 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
         while True:
             process.poll()  # Reap our own leader; never wait on someone else's child.
             state = owned_group_state(pgid)
-            if not state["alive"] or time.monotonic() >= deadline:
+            # /proc can observe the exit between poll() and this snapshot.
+            # Keep the bounded wait until our own parent's status is reaped;
+            # group liveness alone cannot supply its exit code.
+            if (not state["alive"] and process.poll() is not None) or time.monotonic() >= deadline:
                 return state
             await asyncio.sleep(0.05)
 
@@ -370,17 +395,17 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
                 await asyncio.sleep(0.05)
             receipt["parent_timed_out"] = process.poll() is None
         group["after_parent"] = owned_group_state(pgid)
-        group["required"] = group["after_parent"]["alive"]
+        group["required"] = group["after_parent"]["alive"] or process.poll() is None
         if group["required"]:
             signal_group(signal.SIGTERM)
             remaining = await wait_group(terminate_timeout)
-            if remaining["alive"]:
+            if remaining["alive"] or process.poll() is None:
                 signal_group(signal.SIGKILL)
                 remaining = await wait_group(kill_timeout)
         else:
             remaining = group["after_parent"]
         group["remaining"] = remaining
-        group["complete"] = not remaining["alive"]
+        group["complete"] = not remaining["alive"] and process.poll() is not None
     except BaseException as error:
         record_error("runtime cleanup", error)
         # Cancellation/inspection failures must not strand the group or prevent
@@ -389,11 +414,15 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
             try:
                 signal_group(signal.SIGKILL)
                 group["remaining"] = await wait_group(kill_timeout)
-                group["complete"] = not group["remaining"]["alive"]
+                group["complete"] = not group["remaining"]["alive"] and process.poll() is not None
             except BaseException as cleanup_error:
                 record_error("forced cleanup", cleanup_error)
     finally:
         receipt["parent_exit"] = process.poll()
+        group["parent_reaped"] = receipt["parent_exit"] is not None
+        group["complete"] &= group["parent_reaped"]
+        if owned and not group["parent_reaped"]:
+            receipt["errors"].append("owned parent exit status remains unavailable after bounded cleanup")
         try:
             log.close()
         except BaseException as error:
