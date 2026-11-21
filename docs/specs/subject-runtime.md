@@ -77,6 +77,13 @@ may elapse while a blocking worker is still alive, but final exit and error
 unwinding join that worker before releasing installation ownership. The
 original inference, native, heartbeat and supervisor joins still settle
 their own facts; the host never races their cleanup against a signal future.
+When a reserved Node snapshot already has no current local authority stamp,
+an active runtime requests recovery without first reading its Store binding.
+A present stamp still requires the exact binding and writer incarnation.
+This removes an unnecessary connection-mutex dependency from known Node loss;
+it does not make synchronous Store work preemptible or establish a wall-clock
+deadline for the broker to observe cancellation. Historical materialization,
+original Unknown receipts and ordinary-stop classification remain separate.
 The existing `start_boundary` process regression exercises failure followed
 by SIGINT while the original E1 writer is held, preserving the prior ordinary
 stop/reopen/Unknown path. Source-bound execution receipts, rather than the
