@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "source_revision": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "scope": "One actual native-chain rerun after a test expectation-only correction; twelve previous passes retained separately.",
+  "overall_outcome": "single_target_passed",
+  "actual_run": {
+    "planned_cargo_invocations": 1,
+    "completed_cargo_invocations": 1,
+    "compile_failed_invocations": 0,
+    "planned_test_executions": 1,
+    "executed_test_cases": 1,
+    "passed_tests": 1,
+    "failed_tests": 0,
+    "ignored_tests": 0,
+    "filtered_out_not_executed": 48,
+    "outer_result_rows": 1,
+    "nested_result_rows": 0,
+    "command": [
+      "cargo",
+      "test",
+      "--offline",
+      "--locked",
+      "--all-features",
+      "-j4",
+      "-p",
+      "shenko-store",
+      "--test",
+      "store_roundtrip",
+      "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+      "--",
+      "--exact",
+      "--nocapture"
+    ],
+    "cargo_exit": 0,
+    "outer_summary": [
+      "ok",
+      "1",
+      "0",
+      "0",
+      "0",
+      "48",
+      "184.73s"
+    ],
+    "run_declarations": [
+      1
+    ],
+    "libtest_elapsed_seconds": 184.73,
+    "cargo_monotonic_elapsed_seconds": 188.3822934049822,
+    "original_log_bytes": 21759,
+    "original_log_sha256": "a1e5836314f66ffd305072de986830285edcd460b32e19142cd1a20297030e71"
+  },
+  "host": {
+    "started_at_utc": "2026-11-21T23:14:13Z",
+    "finished_at_utc": "2026-11-21T23:17:23Z",
+    "timestamp_precision_seconds": 1,
+    "exit_code": 0,
+    "runner_sha256": "ca01720b450ca3ad3db34d4d12f22d4e4707b5ea705973d764e2db2e6cf7389b",
+    "collector_cancelled_or_retried": false
+  },
+  "scope_runner": {
+    "started_at_utc": "2026-11-21T23:14:14Z",
+    "finished_at_utc": "2026-11-21T23:17:23Z",
+    "exit_code": 0,
+    "runner_sha256": "fb1805822ffb0bc734e8206ca4b3eb1258379ab2cff1dca2f886ea129dd096b8",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v24.22.1"
+  },
+  "reuse": {
+    "audit": "reuse-audit.json",
+    "from_source_revision": "972e16ef34213f568eda3b236fc33be50e40d7fb",
+    "previous_evidence_commit": "2050b28405bd98dc7c8da1e5ae248c0a9362d05c",
+    "previous_passes_reused": 12,
+    "new_actual_passes": 1,
+    "combined_selected_coverage": 13,
+    "all_thirteen_new_executions": false,
+    "earlier_failed_test_reclassified": false
+  },
+  "release": {
+    "part_of_this_runner": false,
+    "admitted_by_this_runner": false,
+    "completed_by_this_runner": false,
+    "observation": {
+      "observed_at_utc": "2026-11-21T23:19:51.969361+00:00",
+      "scope_original_file_count": 10,
+      "host_original_files": [
+        "native-chain-4a5b88aa.host.exit",
+        "native-chain-4a5b88aa.host.finished.txt",
+        "native-chain-4a5b88aa.host.started.txt"
+      ],
+      "host_runner_source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-verify-native-chain-fixture.sh",
+      "scope_exit": 0,
+      "scope_finished_at_utc": "2026-11-21T23:17:23Z",
+      "host_exit": 0,
+      "host_finished_at_utc": "2026-11-21T23:17:23Z",
+      "release_directory_exists": false,
+      "release_binary_exists": false,
+      "retention_performed_no_build_or_model": true
+    }
+  },
+  "real_model_acceptance": {
+    "invocations_started_by_this_scope": 0,
+    "outcomes_measured": false,
+    "daily_readiness_proved": false
+  },
+  "preservation": {
+    "original_scoped_files": 10,
+    "original_host_receipts": 3,
+    "original_host_runner": 1,
+    "all_original_files": 14,
+    "logs_gzip_mtime_zero": 1,
+    "raw_identity_verified_after_transfer": true,
+    "transfer_archive_bytes": 9325,
+    "transfer_archive_sha256": "d274cec97357e5a570c0efa360833431de72166ad72eccd9117aec8221b52739",
+    "remote_checkout_changed_by_collector": false,
+    "new_build_or_model_invocation_by_collector": false,
+    "large_databases_and_cas_copied": false
+  },
+  "limits": [
+    "Only one selected test actually ran on this candidate; the other twelve successes come from the exact previous candidate.",
+    "The original twelve-pass/one-failure result remains unchanged.",
+    "This runner contains no release phase and no real-model journey."
+  ]
+}

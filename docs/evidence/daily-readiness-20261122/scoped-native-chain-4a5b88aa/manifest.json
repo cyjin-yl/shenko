@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "source_revision": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "scope": "All stored files except this manifest; retention-index distinguishes original remote receipts from local source/count audits.",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 5157,
+      "sha256": "ca79295606bccb4b9e2ec8b8643501b861cf8e0bb9886373a14611f7b7ddc3fe",
+      "encoding": "identity"
+    },
+    {
+      "path": "cargo.txt",
+      "bytes": 36,
+      "sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "encoding": "identity"
+    },
+    {
+      "path": "exit.txt",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "finished.txt",
+      "bytes": 21,
+      "sha256": "88e8c62724411cb6692d0c55eb50a306e473a0f912414c9204897344b279bfe5",
+      "encoding": "identity"
+    },
+    {
+      "path": "fixture-change.patch",
+      "bytes": 1227,
+      "sha256": "0ae82df9b1b3351107e3f6bd3298cb05c9586886b590de2b4445eb79f4525de1",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/native-chain-4a5b88aa.host.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/native-chain-4a5b88aa.host.finished.txt",
+      "bytes": 21,
+      "sha256": "88e8c62724411cb6692d0c55eb50a306e473a0f912414c9204897344b279bfe5",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/native-chain-4a5b88aa.host.started.txt",
+      "bytes": 21,
+      "sha256": "de17ac9926381b377ad90b1fdb86011cfe6df37b4f28b827f49629e27adda050",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/runner.sh",
+      "bytes": 2276,
+      "sha256": "ca01720b450ca3ad3db34d4d12f22d4e4707b5ea705973d764e2db2e6cf7389b",
+      "encoding": "identity"
+    },
+    {
+      "path": "native-chain.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "native-chain.log.gz",
+      "bytes": 4368,
+      "sha256": "64dc8923bd429f3841de20803727cdab9563c68f62bcdba39b7402e5569fbf67",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 21759,
+      "raw_sha256": "a1e5836314f66ffd305072de986830285edcd460b32e19142cd1a20297030e71"
+    },
+    {
+      "path": "node.txt",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "identity"
+    },
+    {
+      "path": "receipt.json",
+      "bytes": 4208,
+      "sha256": "81528d84407a2f7cb0643cda63474be0e8c3e504092985c5b2ef79704d602fce",
+      "encoding": "identity"
+    },
+    {
+      "path": "retention-index.json",
+      "bytes": 6922,
+      "sha256": "fe65b6fbe347dfaa9063f8e6e92b691262ec0a1014c2169bd2b4ae0147c44a07",
+      "encoding": "identity"
+    },
+    {
+      "path": "reuse-audit.json",
+      "bytes": 7037,
+      "sha256": "5556356a426dddb243a326158bb075d40c0b6c4f1fa6b684d17830d870691814",
+      "encoding": "identity"
+    },
+    {
+      "path": "runner.sh",
+      "bytes": 3734,
+      "sha256": "fb1805822ffb0bc734e8206ca4b3eb1258379ab2cff1dca2f886ea129dd096b8",
+      "encoding": "identity"
+    },
+    {
+      "path": "rustc.txt",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "identity"
+    },
+    {
+      "path": "started.txt",
+      "bytes": 21,
+      "sha256": "fd8deb0c8d79bb8c028700d53c0025c5d5f5fdaac79234a06ff4a5fccbc60cee",
+      "encoding": "identity"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 1207,
+      "sha256": "c16a6cefafb058dad7a02ac127bfdb56fd73a80b61ec35c7eabc480ae2b35a64",
+      "encoding": "identity"
+    }
+  ]
+}
