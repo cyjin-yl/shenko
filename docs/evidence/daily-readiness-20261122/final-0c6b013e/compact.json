@@ -1,0 +1,760 @@
+{
+  "schema_version": 1,
+  "kind": "failed_real_single_node_browser_batch_evidence",
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "derived_at_utc": "2026-11-21T22:29:38.612605+00:00",
+  "result": {
+    "requested_runs": 3,
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "passed_runs": 0,
+    "failed_runs": 3,
+    "unattempted_runs": 0,
+    "passed": false,
+    "success_rate": 0.0,
+    "errors": []
+  },
+  "observation_scope": "Three completed attempts against one fixed release candidate, driver and configured real model. This is the observed sample fraction, not a population reliability estimate or daily-readiness pass.",
+  "times": {
+    "wrapper_started_at": "2026-11-21T22:10:14Z",
+    "batch_started_at": "2026-11-21T22:10:15Z",
+    "batch_finished_at": "2026-11-21T22:16:47Z",
+    "wrapper_finished_at": "2026-11-21T22:16:50Z"
+  },
+  "exit_codes": {
+    "driver": 1,
+    "wrapper": 1,
+    "model-post": 0,
+    "sampler": 0
+  },
+  "binary": {
+    "manifest": {
+      "path": "release-manifest.json",
+      "bytes": 511,
+      "sha256": "cb31155f4e7c516089b3eed5f3aacdb7c71d065fa996a7690cbb17a4c7efb837"
+    },
+    "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+    "profile": "release",
+    "bytes": 90162848,
+    "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1"
+  },
+  "driver": {
+    "manifest": {
+      "path": "driver-manifest.json",
+      "bytes": 1669,
+      "sha256": "ff7d0c7bba6e000f938dbb383791a5a30d382da8cb3d0a34a6a30669e3003693"
+    },
+    "preparation": {
+      "path": "driver-preparation.json",
+      "bytes": 2127,
+      "sha256": "e6352af50ea4cebf11600b1270ed93111c74b4b62abea4d203f8018432c42964"
+    },
+    "files": [
+      {
+        "name": "real_single_node_journey.py",
+        "bytes": 54139,
+        "sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d"
+      },
+      {
+        "name": "real_browser_witness.py",
+        "bytes": 22907,
+        "sha256": "429d831acf7d597f91bc829856536dcc7afa9959702ed77ffd6fb0af05c7cbc5"
+      },
+      {
+        "name": "summarize_request_timing.py",
+        "bytes": 8491,
+        "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7"
+      },
+      {
+        "name": "sample-environment.py",
+        "bytes": 8703,
+        "sha256": "6b07d0bae686fa6ac7850e0a6ddefe2330baca0e2469baeb04301e5d73b665fd"
+      }
+    ]
+  },
+  "configuration": {
+    "model_id": "swift-qwen3.8-27b-nvfp4",
+    "model_url": "http://10.10.10.11:8000",
+    "input_surface": "live_browser_composer",
+    "startup_timeout_seconds": 300,
+    "phase_timeout_seconds": 900,
+    "configured_local_request_timeout_ms": 600000,
+    "timing_enabled": true
+  },
+  "model_identity": {
+    "pre": {
+      "path": "model-pre.json",
+      "bytes": 1527,
+      "sha256": "80047dadcb687cbde09e6f73845da163e0df4d38decda39e5f149f9079924ecd"
+    },
+    "post": {
+      "path": "model-post.json",
+      "bytes": 1527,
+      "sha256": "f810302f586499b1955048c61c73c1535f766f8b23e735628dd87fafa44ca9d3"
+    },
+    "checked_identity_fields": [
+      "model_server_pid",
+      "start_ticks",
+      "boot_id",
+      "cmdline_sha256",
+      "active_files"
+    ],
+    "equal_before_after": true,
+    "model_server_pid": 164245,
+    "start_ticks": "12753921",
+    "boot_id": "dc52a324-ea43-4e54-aa48-8cf24bc51097",
+    "cmdline_sha256": "397b4c8cf506f8fe605af40c880535257aaf81f45b11c6c0acbf053f38e1b72f",
+    "active_file_hashes": [
+      {
+        "flag": "--chat-template",
+        "bytes": 9273,
+        "sha256": "ee7b5403ac8d47ba15911a80931d518faa756254e7875214ce29c5fd0d9eae43"
+      },
+      {
+        "flag": "--hf-config-path",
+        "bytes": 91735,
+        "sha256": "1de5c7a7be5427a60cdb7375ce9a58a45ab2a1507d2a7b524a9749a3e0677264"
+      },
+      {
+        "flag": "--generation-config",
+        "bytes": 213,
+        "sha256": "cc62ca9bb8c38b8397bba4bedc6fd5f2d22e65596c285eb123d1b4e452de2333"
+      }
+    ],
+    "limits": "Matching recorded process/config identities is not a stronger-model claim or an audit of every model weight byte."
+  },
+  "original_preservation": {
+    "archive_name": "final-0c6b013e-public.tar.gz",
+    "archive_bytes": 986632,
+    "archive_sha256": "689d1744e1c9561b0f7ef608452c2f118a49a4245265f64b998379d753962ca1",
+    "transfer_chunks": 81,
+    "index": {
+      "path": "index.json",
+      "bytes": 39550,
+      "sha256": "ac591eb5d62e67bfe8dce89afb6e19de47462c19dd09b42808cb8dd6582a159c"
+    },
+    "indexed_files": 89,
+    "total_original_files": 90,
+    "encodings": {
+      "original": 66,
+      "gzip-mtime0": 23
+    },
+    "all_indexed_stored_and_uncompressed_bytes_and_sha256_verified": true,
+    "all_gzip_header_mtimes_zero": true,
+    "original_files_unmodified": true,
+    "limits": "selected original synthetic journey receipts; installation control files, databases and complete CAS stay on the authorized device; semantic selected CAS proof is a separate derived export"
+  },
+  "timing": {
+    "report": {
+      "path": "timing.json",
+      "bytes": 545583,
+      "sha256": "5079da5d7a9bcf751f3963ca9e9ba7f7380e032b1b62d8ec4eaad0d2ebfe619f"
+    },
+    "summarizer_path": "scripts/summarize_request_timing.py",
+    "summarizer_bytes": 8491,
+    "summarizer_sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7",
+    "summarizer_source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+    "unchanged_summarizer_cli_exit": 0,
+    "input_mapping": [
+      {
+        "source": 0,
+        "summarizer_input_name": "attempt-001.first.runtime.log",
+        "retained_log": {
+          "path": "attempt-001/first.runtime.log.gz",
+          "bytes": 17595,
+          "sha256": "4466922134c132444bc7d3c61a88270c22d8ce442fc28ef66ebc24b569febba3"
+        },
+        "uncompressed_bytes": 340467,
+        "uncompressed_sha256": "e505724273684b8d07b21eb0e10c8abaa1893fad1f780a688354844395bcc451"
+      },
+      {
+        "source": 1,
+        "summarizer_input_name": "attempt-002.first.runtime.log",
+        "retained_log": {
+          "path": "attempt-002/first.runtime.log.gz",
+          "bytes": 15805,
+          "sha256": "fe92ab4a9a357270335ee08a96d25fdffc25953af257c730a2a0ade60452ee90"
+        },
+        "uncompressed_bytes": 307270,
+        "uncompressed_sha256": "7302ddddd48a2f7a83c30d3bbcf4bc92bc310bc3528deff23719108c11968513"
+      },
+      {
+        "source": 2,
+        "summarizer_input_name": "attempt-003.first.runtime.log",
+        "retained_log": {
+          "path": "attempt-003/first.runtime.log.gz",
+          "bytes": 18106,
+          "sha256": "34057dd373a898fb81c7ec7890d77d6ddffb4048c7a19756d2c6f6c7765579e7"
+        },
+        "uncompressed_bytes": 346613,
+        "uncompressed_sha256": "a27fec76d0d71d08a0cd7ddd2bd2cf483be148fc9c3dac5bf1f5d7994d45a786"
+      }
+    ],
+    "scope_count": 1180,
+    "complete_count": 1180,
+    "incomplete_count": 0,
+    "invalid_events": [],
+    "observed_dropped_events": [],
+    "interpretation": "Durations are monotonic wall time in microseconds, including instrumentation overhead. Parent totals include child time; never sum the phase totals as end-to-end latency. self_us subtracts direct children only and is unknown for a source/process with an unobserved parent. Complete counts describe matched scope pairs, not a complete observation tree or product success. Scope completion is not a physical send. started_unix_us is for log correlation only; wall-clock changes do not affect elapsed_us.",
+    "limits": "Only instrumented synchronous Store scopes are represented. No physical inference dispatch latency or end-to-end causal attribution follows from these phase totals."
+  },
+  "manual_browser_observation": {
+    "artifact": {
+      "path": "attempt-001/browser/first-submitted.png",
+      "bytes": 61966,
+      "sha256": "1e997c4628ee5bf26f1f41cb1c7a2668f994859c2af8c78bf61495c46ae1dc3d"
+    },
+    "reviewers": [
+      "integration owner",
+      "independent evidence collector"
+    ],
+    "method": "Manual visual inspection of this retained screenshot",
+    "observation": "The Chinese message and visible controls are legible; no missing-glyph boxes are visible in this frame.",
+    "full_ui_acceptance": false,
+    "screen_reader_tested": false,
+    "limits": "One captured page state only; this does not establish successful task results, pause/restart continuity, all UI states or device-wide accessibility."
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "directory": "attempt-001",
+      "summary": {
+        "path": "attempt-001/summary.json",
+        "bytes": 4141,
+        "sha256": "771db5f5de37a35508984b2ba763253508237744d6439bbfa77bbe510b5defd4"
+      },
+      "startup": {
+        "path": "attempt-001/first.startup.json",
+        "bytes": 252,
+        "sha256": "44a207c3f3c9b104b5b47eb5bfd18289c945cc52b71986a6edc4bf1e5a4a7429"
+      },
+      "started_at": "2026-11-21T22:10:15Z",
+      "finished_at": "2026-11-21T22:12:07Z",
+      "elapsed_seconds": 112.22826400899794,
+      "startup_elapsed_seconds": 14.286550638993504,
+      "startup_ready": true,
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "checks": {
+        "startup_paused_before_inference": true,
+        "input_accepted_before_inference": true,
+        "browser_first_input_from_composer": true,
+        "browser_first_durable_receipt": true,
+        "browser_first_input_mode_matches_capability": true,
+        "browser_no_page_errors": true,
+        "browser_cleanup_complete": true,
+        "final_shutdown_clean": false,
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": false,
+        "child_model_matches_requested_binding": false,
+        "native_host_process_exact_result": false,
+        "native_effect_observed_once": false,
+        "both_children_have_attempt_and_e1": false,
+        "committed_output_after_child_results": false
+      },
+      "parent_exit": 1,
+      "shutdown_clean": false,
+      "parent_timed_out": false,
+      "signal_call_count": 0,
+      "group_cleanup_complete": true,
+      "remaining_live_pids": [],
+      "remaining_live_thread_ids": [],
+      "browser": {
+        "submitted_mode": "steer",
+        "expected_mode": "steer",
+        "accepted_placement": {
+          "requested": "steer",
+          "actual": "next_boundary"
+        },
+        "stream_parts_observed": 60,
+        "screen_reader_tested": false
+      },
+      "timing": {
+        "scope_count": 402,
+        "complete_count": 402,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": []
+      },
+      "selected_phases": [
+        {
+          "phase": "authority.order",
+          "count": 13,
+          "inclusive_total_us": 14955287,
+          "p50_us": 1040463,
+          "p95_us": 2086621,
+          "max_us": 2086621,
+          "self_sample_count": 13,
+          "self_total_us": 14955287
+        },
+        {
+          "phase": "control.predecessor",
+          "count": 14,
+          "inclusive_total_us": 28617205,
+          "p50_us": 1548971,
+          "p95_us": 4939240,
+          "max_us": 4939240,
+          "self_sample_count": 14,
+          "self_total_us": 6032
+        },
+        {
+          "phase": "control.seal_pages",
+          "count": 13,
+          "inclusive_total_us": 23537946,
+          "p50_us": 1873474,
+          "p95_us": 4318573,
+          "max_us": 4318573,
+          "self_sample_count": 13,
+          "self_total_us": 23537946
+        },
+        {
+          "phase": "native.arm",
+          "count": 1,
+          "inclusive_total_us": 3641223,
+          "p50_us": 3641223,
+          "p95_us": 3641223,
+          "max_us": 3641223,
+          "self_sample_count": 1,
+          "self_total_us": 141499
+        },
+        {
+          "phase": "native.claim",
+          "count": 1,
+          "inclusive_total_us": 2935506,
+          "p50_us": 2935506,
+          "p95_us": 2935506,
+          "max_us": 2935506,
+          "self_sample_count": 1,
+          "self_total_us": 183930
+        },
+        {
+          "phase": "native.dispatch_commit",
+          "count": 1,
+          "inclusive_total_us": 6738573,
+          "p50_us": 6738573,
+          "p95_us": 6738573,
+          "max_us": 6738573,
+          "self_sample_count": 1,
+          "self_total_us": 281
+        },
+        {
+          "phase": "native.t2",
+          "count": 1,
+          "inclusive_total_us": 84810,
+          "p50_us": 84810,
+          "p95_us": 84810,
+          "max_us": 84810,
+          "self_sample_count": 1,
+          "self_total_us": 34553
+        },
+        {
+          "phase": "sqlite.begin_immediate",
+          "count": 24,
+          "inclusive_total_us": 211,
+          "p50_us": 5,
+          "p95_us": 31,
+          "max_us": 37,
+          "self_sample_count": 24,
+          "self_total_us": 211
+        },
+        {
+          "phase": "sqlite.mutex_wait",
+          "count": 44,
+          "inclusive_total_us": 50673,
+          "p50_us": 2,
+          "p95_us": 115,
+          "max_us": 50100,
+          "self_sample_count": 44,
+          "self_total_us": 50673
+        },
+        {
+          "phase": "subject.apply_s1",
+          "count": 2,
+          "inclusive_total_us": 127026,
+          "p50_us": 60598,
+          "p95_us": 66428,
+          "max_us": 66428,
+          "self_sample_count": 2,
+          "self_total_us": 27734
+        },
+        {
+          "phase": "subject.prepare_s1",
+          "count": 2,
+          "inclusive_total_us": 8479891,
+          "p50_us": 3290381,
+          "p95_us": 5189510,
+          "max_us": 5189510,
+          "self_sample_count": 2,
+          "self_total_us": 240441
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "directory": "attempt-002",
+      "summary": {
+        "path": "attempt-002/summary.json",
+        "bytes": 4142,
+        "sha256": "59c04d4483c816400d9eb76ec02d8f774ceb4b10fc980b81a654bb896be301ba"
+      },
+      "startup": {
+        "path": "attempt-002/first.startup.json",
+        "bytes": 251,
+        "sha256": "50afe56e2b351e999f25c9699adc43439dde3411a3e01b648ddc964a60facf53"
+      },
+      "started_at": "2026-11-21T22:12:08Z",
+      "finished_at": "2026-11-21T22:13:52Z",
+      "elapsed_seconds": 104.31050808000145,
+      "startup_elapsed_seconds": 13.26987441701931,
+      "startup_ready": true,
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "checks": {
+        "startup_paused_before_inference": true,
+        "input_accepted_before_inference": true,
+        "browser_first_input_from_composer": true,
+        "browser_first_durable_receipt": true,
+        "browser_first_input_mode_matches_capability": true,
+        "browser_no_page_errors": true,
+        "browser_cleanup_complete": true,
+        "final_shutdown_clean": false,
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": false,
+        "child_model_matches_requested_binding": false,
+        "native_host_process_exact_result": false,
+        "native_effect_observed_once": false,
+        "both_children_have_attempt_and_e1": false,
+        "committed_output_after_child_results": false
+      },
+      "parent_exit": 1,
+      "shutdown_clean": false,
+      "parent_timed_out": false,
+      "signal_call_count": 0,
+      "group_cleanup_complete": true,
+      "remaining_live_pids": [],
+      "remaining_live_thread_ids": [],
+      "browser": {
+        "submitted_mode": "steer",
+        "expected_mode": "steer",
+        "accepted_placement": {
+          "requested": "steer",
+          "actual": "next_boundary"
+        },
+        "stream_parts_observed": 119,
+        "screen_reader_tested": false
+      },
+      "timing": {
+        "scope_count": 359,
+        "complete_count": 359,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": []
+      },
+      "selected_phases": [
+        {
+          "phase": "authority.order",
+          "count": 12,
+          "inclusive_total_us": 12316666,
+          "p50_us": 1104736,
+          "p95_us": 1624022,
+          "max_us": 1624022,
+          "self_sample_count": 12,
+          "self_total_us": 12316666
+        },
+        {
+          "phase": "control.predecessor",
+          "count": 12,
+          "inclusive_total_us": 20714278,
+          "p50_us": 975698,
+          "p95_us": 8793994,
+          "max_us": 8793994,
+          "self_sample_count": 12,
+          "self_total_us": 1155
+        },
+        {
+          "phase": "control.seal_pages",
+          "count": 12,
+          "inclusive_total_us": 17171088,
+          "p50_us": 728580,
+          "p95_us": 8592247,
+          "max_us": 8592247,
+          "self_sample_count": 12,
+          "self_total_us": 17171088
+        },
+        {
+          "phase": "native.arm",
+          "count": 1,
+          "inclusive_total_us": 2913257,
+          "p50_us": 2913257,
+          "p95_us": 2913257,
+          "max_us": 2913257,
+          "self_sample_count": 1,
+          "self_total_us": 153475
+        },
+        {
+          "phase": "native.claim",
+          "count": 1,
+          "inclusive_total_us": 2846179,
+          "p50_us": 2846179,
+          "p95_us": 2846179,
+          "max_us": 2846179,
+          "self_sample_count": 1,
+          "self_total_us": 252657
+        },
+        {
+          "phase": "native.dispatch_commit",
+          "count": 1,
+          "inclusive_total_us": 2986012,
+          "p50_us": 2986012,
+          "p95_us": 2986012,
+          "max_us": 2986012,
+          "self_sample_count": 1,
+          "self_total_us": 283
+        },
+        {
+          "phase": "native.t2",
+          "count": 2,
+          "inclusive_total_us": 1235,
+          "p50_us": 289,
+          "p95_us": 946,
+          "max_us": 946,
+          "self_sample_count": 2,
+          "self_total_us": 934
+        },
+        {
+          "phase": "sqlite.begin_immediate",
+          "count": 20,
+          "inclusive_total_us": 244,
+          "p50_us": 6,
+          "p95_us": 11,
+          "max_us": 128,
+          "self_sample_count": 20,
+          "self_total_us": 244
+        },
+        {
+          "phase": "sqlite.mutex_wait",
+          "count": 41,
+          "inclusive_total_us": 1239,
+          "p50_us": 1,
+          "p95_us": 331,
+          "max_us": 384,
+          "self_sample_count": 41,
+          "self_total_us": 1239
+        },
+        {
+          "phase": "subject.apply_s1",
+          "count": 1,
+          "inclusive_total_us": 48207,
+          "p50_us": 48207,
+          "p95_us": 48207,
+          "max_us": 48207,
+          "self_sample_count": 1,
+          "self_total_us": 1362
+        },
+        {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 8978849,
+          "p50_us": 8978849,
+          "p95_us": 8978849,
+          "max_us": 8978849,
+          "self_sample_count": 1,
+          "self_total_us": 113818
+        }
+      ]
+    },
+    {
+      "attempt": 3,
+      "directory": "attempt-003",
+      "summary": {
+        "path": "attempt-003/summary.json",
+        "bytes": 4141,
+        "sha256": "60c0fb8e6fe8ddba8a4a5f284198dcd02427fa353afbcd82df27fa2110487e06"
+      },
+      "startup": {
+        "path": "attempt-003/first.startup.json",
+        "bytes": 251,
+        "sha256": "51417efe362ea57c1e987d7b2b7406988644fa52bf1b54115a821d1a4908d396"
+      },
+      "started_at": "2026-11-21T22:13:53Z",
+      "finished_at": "2026-11-21T22:16:47Z",
+      "elapsed_seconds": 174.1769650830247,
+      "startup_elapsed_seconds": 13.67114891501842,
+      "startup_ready": true,
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "checks": {
+        "startup_paused_before_inference": true,
+        "input_accepted_before_inference": true,
+        "browser_first_input_from_composer": true,
+        "browser_first_durable_receipt": true,
+        "browser_first_input_mode_matches_capability": true,
+        "browser_no_page_errors": true,
+        "browser_cleanup_complete": true,
+        "final_shutdown_clean": false,
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": false,
+        "child_model_matches_requested_binding": false,
+        "native_host_process_exact_result": false,
+        "native_effect_observed_once": false,
+        "both_children_have_attempt_and_e1": false,
+        "committed_output_after_child_results": false
+      },
+      "parent_exit": 1,
+      "shutdown_clean": false,
+      "parent_timed_out": false,
+      "signal_call_count": 0,
+      "group_cleanup_complete": true,
+      "remaining_live_pids": [],
+      "remaining_live_thread_ids": [],
+      "browser": {
+        "submitted_mode": "steer",
+        "expected_mode": "steer",
+        "accepted_placement": {
+          "requested": "steer",
+          "actual": "next_boundary"
+        },
+        "stream_parts_observed": 255,
+        "screen_reader_tested": false
+      },
+      "timing": {
+        "scope_count": 419,
+        "complete_count": 419,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": []
+      },
+      "selected_phases": [
+        {
+          "phase": "authority.order",
+          "count": 14,
+          "inclusive_total_us": 19842270,
+          "p50_us": 1402986,
+          "p95_us": 2379436,
+          "max_us": 2379436,
+          "self_sample_count": 14,
+          "self_total_us": 19842270
+        },
+        {
+          "phase": "control.predecessor",
+          "count": 14,
+          "inclusive_total_us": 37747114,
+          "p50_us": 1678359,
+          "p95_us": 8738600,
+          "max_us": 8738600,
+          "self_sample_count": 14,
+          "self_total_us": 1435
+        },
+        {
+          "phase": "control.seal_pages",
+          "count": 14,
+          "inclusive_total_us": 32213870,
+          "p50_us": 1302421,
+          "p95_us": 8102436,
+          "max_us": 8102436,
+          "self_sample_count": 14,
+          "self_total_us": 32213870
+        },
+        {
+          "phase": "native.arm",
+          "count": 1,
+          "inclusive_total_us": 5804664,
+          "p50_us": 5804664,
+          "p95_us": 5804664,
+          "max_us": 5804664,
+          "self_sample_count": 1,
+          "self_total_us": 228185
+        },
+        {
+          "phase": "native.claim",
+          "count": 1,
+          "inclusive_total_us": 7400617,
+          "p50_us": 7400617,
+          "p95_us": 7400617,
+          "max_us": 7400617,
+          "self_sample_count": 1,
+          "self_total_us": 565599
+        },
+        {
+          "phase": "native.dispatch_commit",
+          "count": 1,
+          "inclusive_total_us": 7638812,
+          "p50_us": 7638812,
+          "p95_us": 7638812,
+          "max_us": 7638812,
+          "self_sample_count": 1,
+          "self_total_us": 239
+        },
+        {
+          "phase": "native.t2",
+          "count": 2,
+          "inclusive_total_us": 3155,
+          "p50_us": 276,
+          "p95_us": 2879,
+          "max_us": 2879,
+          "self_sample_count": 2,
+          "self_total_us": 1583
+        },
+        {
+          "phase": "sqlite.begin_immediate",
+          "count": 22,
+          "inclusive_total_us": 148,
+          "p50_us": 5,
+          "p95_us": 11,
+          "max_us": 16,
+          "self_sample_count": 22,
+          "self_total_us": 148
+        },
+        {
+          "phase": "sqlite.mutex_wait",
+          "count": 48,
+          "inclusive_total_us": 8495,
+          "p50_us": 2,
+          "p95_us": 1081,
+          "max_us": 2684,
+          "self_sample_count": 48,
+          "self_total_us": 8495
+        },
+        {
+          "phase": "subject.apply_s1",
+          "count": 1,
+          "inclusive_total_us": 50453,
+          "p50_us": 50453,
+          "p95_us": 50453,
+          "max_us": 50453,
+          "self_sample_count": 1,
+          "self_total_us": 1123
+        },
+        {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 8981534,
+          "p50_us": 8981534,
+          "p95_us": 8981534,
+          "max_us": 8981534,
+          "self_sample_count": 1,
+          "self_total_us": 151807
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "All three journey failures remain failures; stage-pair completion is not product success.",
+    "All owned process groups were reaped, but parent exit 1 and clean=false remain abnormal exits.",
+    "No successful first-result/pause/restart/next-message journey is established by this batch.",
+    "The public export retains selected original receipts. Installation databases and complete CAS stay on the authorized device; separate closed-installation audits own mechanism and semantic attribution.",
+    "These files contain no additional model execution, retry or source modification."
+  ]
+}

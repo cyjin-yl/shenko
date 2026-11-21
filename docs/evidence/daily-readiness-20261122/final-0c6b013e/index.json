@@ -1,0 +1,808 @@
+{
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "observed_at_utc": "2026-11-21T22:18:44.308333+00:00",
+  "scope": "selected original synthetic journey receipts; installation control files, databases and complete CAS stay on the authorized device; semantic selected CAS proof is a separate derived export",
+  "files": [
+    {
+      "path": "batch-summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/batch-summary.json",
+      "source_bytes": 2373,
+      "source_sha256": "7f4a282c05a943a86499739664516f7d41a26b521867cc58190d2e6ab4c03d7c",
+      "bytes": 2373,
+      "sha256": "7f4a282c05a943a86499739664516f7d41a26b521867cc58190d2e6ab4c03d7c",
+      "encoding": "original"
+    },
+    {
+      "path": "model-pre.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.model-pre.json",
+      "source_bytes": 1527,
+      "source_sha256": "80047dadcb687cbde09e6f73845da163e0df4d38decda39e5f149f9079924ecd",
+      "bytes": 1527,
+      "sha256": "80047dadcb687cbde09e6f73845da163e0df4d38decda39e5f149f9079924ecd",
+      "encoding": "original"
+    },
+    {
+      "path": "model-post.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.model-post.json",
+      "source_bytes": 1527,
+      "source_sha256": "f810302f586499b1955048c61c73c1535f766f8b23e735628dd87fafa44ca9d3",
+      "bytes": 1527,
+      "sha256": "f810302f586499b1955048c61c73c1535f766f8b23e735628dd87fafa44ca9d3",
+      "encoding": "original"
+    },
+    {
+      "path": "driver.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.driver.exit",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original"
+    },
+    {
+      "path": "sampler.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.sampler.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "wrapper.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.wrapper.exit",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original"
+    },
+    {
+      "path": "model-post.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.model-post.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "68a6f85cb35f3b9294921822e5f512192bd79570b2f261a27f48a26fcfbb1c40",
+      "bytes": 21,
+      "sha256": "68a6f85cb35f3b9294921822e5f512192bd79570b2f261a27f48a26fcfbb1c40",
+      "encoding": "original"
+    },
+    {
+      "path": "finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "a1048c0be52f9beb265bc1437affd0bd65c973f7317de3fc00e47538aaedcac8",
+      "bytes": 21,
+      "sha256": "a1048c0be52f9beb265bc1437affd0bd65c973f7317de3fc00e47538aaedcac8",
+      "encoding": "original"
+    },
+    {
+      "path": "environment.ndjson.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.environment.ndjson",
+      "source_bytes": 75426,
+      "source_sha256": "11843343893a8c42d7c1cab87d7731ea21d27c6573ad3e5d5f64e36d782962c9",
+      "bytes": 11086,
+      "sha256": "d1f2b96cbf7f6ab5cc19e013ce958d32962b5cf212875401ce71aed55586e2c2",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "driver-manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e/manifest.json",
+      "source_bytes": 1669,
+      "source_sha256": "ff7d0c7bba6e000f938dbb383791a5a30d382da8cb3d0a34a6a30669e3003693",
+      "bytes": 1669,
+      "sha256": "ff7d0c7bba6e000f938dbb383791a5a30d382da8cb3d0a34a6a30669e3003693",
+      "encoding": "original"
+    },
+    {
+      "path": "driver-preparation.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e-preparation.json",
+      "source_bytes": 2127,
+      "source_sha256": "e6352af50ea4cebf11600b1270ed93111c74b4b62abea4d203f8018432c42964",
+      "bytes": 2127,
+      "sha256": "e6352af50ea4cebf11600b1270ed93111c74b4b62abea4d203f8018432c42964",
+      "encoding": "original"
+    },
+    {
+      "path": "release-manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-0c6b013e/manifest.json",
+      "source_bytes": 511,
+      "source_sha256": "cb31155f4e7c516089b3eed5f3aacdb7c71d065fa996a7690cbb17a4c7efb837",
+      "bytes": 511,
+      "sha256": "cb31155f4e7c516089b3eed5f3aacdb7c71d065fa996a7690cbb17a4c7efb837",
+      "encoding": "original"
+    },
+    {
+      "path": "driver.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e.driver.log",
+      "source_bytes": 14797,
+      "source_sha256": "1d40c7c24156bcb0f7e1d74c8937f9f0e53a1564a02faf7c9cf05a3d42bfb6af",
+      "bytes": 2560,
+      "sha256": "72186cf23c8e7b9af2068f4c24107116e2f43c3334cd0a04efc73686e8b13767",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/manifest.json",
+      "source_bytes": 1176,
+      "source_sha256": "feb5bf67878d15c4e5e20fae9947711efce188c30a03eb574655b57ebe6da1ff",
+      "bytes": 1176,
+      "sha256": "feb5bf67878d15c4e5e20fae9947711efce188c30a03eb574655b57ebe6da1ff",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/models.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/models.json",
+      "source_bytes": 3153,
+      "source_sha256": "9ae6cc3491b3a799f5bf5cc467cd0d6b5ba85a3dbec3c334312aa07a61c48ef6",
+      "bytes": 3153,
+      "sha256": "9ae6cc3491b3a799f5bf5cc467cd0d6b5ba85a3dbec3c334312aa07a61c48ef6",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/summary.json",
+      "source_bytes": 4141,
+      "source_sha256": "771db5f5de37a35508984b2ba763253508237744d6439bbfa77bbe510b5defd4",
+      "bytes": 4141,
+      "sha256": "771db5f5de37a35508984b2ba763253508237744d6439bbfa77bbe510b5defd4",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/first.input.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.input.json",
+      "source_bytes": 642,
+      "source_sha256": "efb00a5d90ef90141f0bda1cf6a6d67d9f85fa31c928ac723788e2baf56e2a1d",
+      "bytes": 642,
+      "sha256": "efb00a5d90ef90141f0bda1cf6a6d67d9f85fa31c928ac723788e2baf56e2a1d",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/first.startup.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.startup.json",
+      "source_bytes": 252,
+      "source_sha256": "44a207c3f3c9b104b5b47eb5bfd18289c945cc52b71986a6edc4bf1e5a4a7429",
+      "bytes": 252,
+      "sha256": "44a207c3f3c9b104b5b47eb5bfd18289c945cc52b71986a6edc4bf1e5a4a7429",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/failure.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/failure.txt",
+      "source_bytes": 1063,
+      "source_sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "bytes": 1063,
+      "sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/final.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/final.ledger.json",
+      "source_bytes": 461036,
+      "source_sha256": "ee1ff530da6575d6d0714f3e909ba1d05bbf03a1464e8fd9b135ac3dd3bd5d6b",
+      "bytes": 34585,
+      "sha256": "fba7ce8c8c0263f613b5d9aa2a0ca5e2cff15bafda2ecdfcfb5d2b8c852f0ee4",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/first.accepted.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.accepted.ledger.json",
+      "source_bytes": 13697,
+      "source_sha256": "950dcea0e531365d6d67957896c71fec367748817430b57e4597c2e90964241c",
+      "bytes": 2745,
+      "sha256": "60c6a1cf2582d8ca5a3dbc605ce3c9a324a8d6db0fdc764f1094a4e4e92c4fda",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/first.paused.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.paused.ledger.json",
+      "source_bytes": 11264,
+      "source_sha256": "648ae742eef1e1b5d142667720870a7541244dc30e7429e0cf41a37355a4141e",
+      "bytes": 2089,
+      "sha256": "f3d5802bea0b2493886ce8380810573fec5c7dae0d646d9e94b8e2cfb9d85950",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/first.runtime.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.runtime.log",
+      "source_bytes": 340467,
+      "source_sha256": "e505724273684b8d07b21eb0e10c8abaa1893fad1f780a688354844395bcc451",
+      "bytes": 17595,
+      "sha256": "4466922134c132444bc7d3c61a88270c22d8ce442fc28ef66ebc24b569febba3",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/first.websocket.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/first.websocket.jsonl",
+      "source_bytes": 35276,
+      "source_sha256": "253636e0b4b7c95a6a9aae3929950e14e8e2dfc6ed15dbf7a7fdef0fd28f80d4",
+      "bytes": 2839,
+      "sha256": "b4b59b237d1cca9c97267b8285feaa408c5490d07798ae3a92b1eedd349f0413",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/runtime-controls.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/runtime-controls.jsonl",
+      "source_bytes": 3344,
+      "source_sha256": "6c0f58f59c5bbc6fe70c3f501a559c06623c6b4bdedf7c798d6f6f4333a6a2a2",
+      "bytes": 653,
+      "sha256": "aa02dac2c7201589f01900d0f2f1e566a74e9d9d5ca78505407274783d02256b",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/browser/environment.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/environment.json",
+      "source_bytes": 488,
+      "source_sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "bytes": 488,
+      "sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/events.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/events.jsonl",
+      "source_bytes": 77456,
+      "source_sha256": "4a74219b608c13a9ccb02aac9565973448219b66656ac3e2b2c5e6bb96e940ac",
+      "bytes": 6465,
+      "sha256": "3b3efe27b1c8cd42a6f6117034375603b0e0454894d10efe42fa4958a98ca5a4",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-001/browser/final.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/final.aria.yml",
+      "source_bytes": 2428,
+      "source_sha256": "211ce3a12e23bf12c147e1605ca5bab5d768d1ce9152499c584f6758785e1485",
+      "bytes": 2428,
+      "sha256": "211ce3a12e23bf12c147e1605ca5bab5d768d1ce9152499c584f6758785e1485",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/final.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/final.dom.json",
+      "source_bytes": 1719,
+      "source_sha256": "da74c50072956d6cfd58ab26328902bcd2b807a368fe3c71edd1b0bdeb379270",
+      "bytes": 1719,
+      "sha256": "da74c50072956d6cfd58ab26328902bcd2b807a368fe3c71edd1b0bdeb379270",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/final.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/final.png",
+      "source_bytes": 70416,
+      "source_sha256": "03f981de3afc2a07f1521189b8dd177689b534faf05b15d563bb425a43c5f1c5",
+      "bytes": 70416,
+      "sha256": "03f981de3afc2a07f1521189b8dd177689b534faf05b15d563bb425a43c5f1c5",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/first-submitted.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/first-submitted.aria.yml",
+      "source_bytes": 2223,
+      "source_sha256": "e4dcd14f52ed785b39a31d3535fa2cdbc6117db6aa88942b00f9a9a47e903c21",
+      "bytes": 2223,
+      "sha256": "e4dcd14f52ed785b39a31d3535fa2cdbc6117db6aa88942b00f9a9a47e903c21",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/first-submitted.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/first-submitted.dom.json",
+      "source_bytes": 1705,
+      "source_sha256": "ef3e585ae884e486fb345a4f3aca57bc562f1129fce22adbcbda93ac9adf7cfe",
+      "bytes": 1705,
+      "sha256": "ef3e585ae884e486fb345a4f3aca57bc562f1129fce22adbcbda93ac9adf7cfe",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/first-submitted.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/first-submitted.png",
+      "source_bytes": 61966,
+      "source_sha256": "1e997c4628ee5bf26f1f41cb1c7a2668f994859c2af8c78bf61495c46ae1dc3d",
+      "bytes": 61966,
+      "sha256": "1e997c4628ee5bf26f1f41cb1c7a2668f994859c2af8c78bf61495c46ae1dc3d",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/opened.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/opened.aria.yml",
+      "source_bytes": 1067,
+      "source_sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "bytes": 1067,
+      "sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/opened.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/opened.dom.json",
+      "source_bytes": 526,
+      "source_sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "bytes": 526,
+      "sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/opened.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/opened.png",
+      "source_bytes": 25872,
+      "source_sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "bytes": 25872,
+      "sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/served-build-manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/served-build-manifest.json",
+      "source_bytes": 8990,
+      "source_sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "bytes": 8990,
+      "sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-001/browser/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/browser/summary.json",
+      "source_bytes": 2111,
+      "source_sha256": "77f870cd6e1bb63423934e9885507b20593f608985ebf5332531ea469b7f688d",
+      "bytes": 2111,
+      "sha256": "77f870cd6e1bb63423934e9885507b20593f608985ebf5332531ea469b7f688d",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/manifest.json",
+      "source_bytes": 1176,
+      "source_sha256": "d417239484453ed5aa86143c3dc87ac19c51ec0d6528537acaa127a44c82a516",
+      "bytes": 1176,
+      "sha256": "d417239484453ed5aa86143c3dc87ac19c51ec0d6528537acaa127a44c82a516",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/models.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/models.json",
+      "source_bytes": 3153,
+      "source_sha256": "bee77c160bea660d15285bffdf52dc5de6a18c04324ec173319c32a35748d906",
+      "bytes": 3153,
+      "sha256": "bee77c160bea660d15285bffdf52dc5de6a18c04324ec173319c32a35748d906",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/summary.json",
+      "source_bytes": 4142,
+      "source_sha256": "59c04d4483c816400d9eb76ec02d8f774ceb4b10fc980b81a654bb896be301ba",
+      "bytes": 4142,
+      "sha256": "59c04d4483c816400d9eb76ec02d8f774ceb4b10fc980b81a654bb896be301ba",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/first.input.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.input.json",
+      "source_bytes": 642,
+      "source_sha256": "cf5a475bc263d63ff3feda98ea74122e555487a7c80221c153fbe87afc53f9b2",
+      "bytes": 642,
+      "sha256": "cf5a475bc263d63ff3feda98ea74122e555487a7c80221c153fbe87afc53f9b2",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/first.startup.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.startup.json",
+      "source_bytes": 251,
+      "source_sha256": "50afe56e2b351e999f25c9699adc43439dde3411a3e01b648ddc964a60facf53",
+      "bytes": 251,
+      "sha256": "50afe56e2b351e999f25c9699adc43439dde3411a3e01b648ddc964a60facf53",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/failure.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/failure.txt",
+      "source_bytes": 1063,
+      "source_sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "bytes": 1063,
+      "sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/final.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/final.ledger.json",
+      "source_bytes": 494259,
+      "source_sha256": "db24cc332558fae3cea38fe7ac7d9a20064de66763fe341119bbb02f99286875",
+      "bytes": 36661,
+      "sha256": "c29e54b23e5b9ccd61f9dfd4fb71cbe6fa269f3461eb2092bec2d8d2fdb089e1",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/first.accepted.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.accepted.ledger.json",
+      "source_bytes": 13697,
+      "source_sha256": "73b331aa98d7eb5cb15dfbb3a4e2f6f1d5dbcf5682d76b8a17ef405898683493",
+      "bytes": 2744,
+      "sha256": "9933adc75930d785b73606d0dd66f015b547ad3b7a9e4e566dc8c98010f9664f",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/first.paused.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.paused.ledger.json",
+      "source_bytes": 11264,
+      "source_sha256": "3c2ac5f255a932f6f17cbde8145044e14444836fc6eb820b1062f5b2c483b30a",
+      "bytes": 2094,
+      "sha256": "a3e50c8f9b06b109a03de2b11295ded688ea2607569675e79919d18d1261fa84",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/first.runtime.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.runtime.log",
+      "source_bytes": 307270,
+      "source_sha256": "7302ddddd48a2f7a83c30d3bbcf4bc92bc310bc3528deff23719108c11968513",
+      "bytes": 15805,
+      "sha256": "fe92ab4a9a357270335ee08a96d25fdffc25953af257c730a2a0ade60452ee90",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/first.websocket.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/first.websocket.jsonl",
+      "source_bytes": 67584,
+      "source_sha256": "a1890d956b7cfa221bc3405f753a76c29333eec6a02c9051841f3b2d82824062",
+      "bytes": 4601,
+      "sha256": "43eca3745c09048b5e3ed0ee1ae7799ea5e1ee2f876624ee8bcb6b752034824f",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/runtime-controls.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/runtime-controls.jsonl",
+      "source_bytes": 3344,
+      "source_sha256": "9023cdac2d6b159278eac005086cef1a231f0ce0ac46f2653013f22dfd435057",
+      "bytes": 655,
+      "sha256": "f58973eeafd8fb457d22a2a37eadb85a673e1decc04ee3ed7bdd21aa7aa06425",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/browser/environment.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/environment.json",
+      "source_bytes": 488,
+      "source_sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "bytes": 488,
+      "sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/events.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/events.jsonl",
+      "source_bytes": 114295,
+      "source_sha256": "e0b03e7992c9ff78d852748444f7ad6784c79e4cc35846623c691901d137376c",
+      "bytes": 9035,
+      "sha256": "90770d820a246038d0ac184b72655daac3bab5ece26fccc818c4a7bcee648aaa",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-002/browser/final.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/final.aria.yml",
+      "source_bytes": 5148,
+      "source_sha256": "a445e9ca8bc142dcb7a983795bff8849c77c1c54ba4bce00e93240b18a45f327",
+      "bytes": 5148,
+      "sha256": "a445e9ca8bc142dcb7a983795bff8849c77c1c54ba4bce00e93240b18a45f327",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/final.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/final.dom.json",
+      "source_bytes": 2971,
+      "source_sha256": "d38c7062db1f1932bd560fe335048deda35de90aad5ebb811c16fdab4446ed25",
+      "bytes": 2971,
+      "sha256": "d38c7062db1f1932bd560fe335048deda35de90aad5ebb811c16fdab4446ed25",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/final.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/final.png",
+      "source_bytes": 156031,
+      "source_sha256": "e314b0ab4f6e4fe3f49d36049f445ec5df5dc8eb1b224b97a43c8229a30fac14",
+      "bytes": 156031,
+      "sha256": "e314b0ab4f6e4fe3f49d36049f445ec5df5dc8eb1b224b97a43c8229a30fac14",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/first-submitted.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/first-submitted.aria.yml",
+      "source_bytes": 2223,
+      "source_sha256": "850873bb48ec24dee4e03de657f93cdca928de036661986fe2ed43ea5d013ec5",
+      "bytes": 2223,
+      "sha256": "850873bb48ec24dee4e03de657f93cdca928de036661986fe2ed43ea5d013ec5",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/first-submitted.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/first-submitted.dom.json",
+      "source_bytes": 1705,
+      "source_sha256": "eb604afd135b18ed612aa30bfef5dfd7569dac5ddf5ede5c13383c032bb725e7",
+      "bytes": 1705,
+      "sha256": "eb604afd135b18ed612aa30bfef5dfd7569dac5ddf5ede5c13383c032bb725e7",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/first-submitted.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/first-submitted.png",
+      "source_bytes": 61707,
+      "source_sha256": "41b662285ea95a051ad64b17a4a0c948acfc5a98056b416c1a2e4cc08c6b9804",
+      "bytes": 61707,
+      "sha256": "41b662285ea95a051ad64b17a4a0c948acfc5a98056b416c1a2e4cc08c6b9804",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/opened.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/opened.aria.yml",
+      "source_bytes": 1067,
+      "source_sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "bytes": 1067,
+      "sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/opened.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/opened.dom.json",
+      "source_bytes": 526,
+      "source_sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "bytes": 526,
+      "sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/opened.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/opened.png",
+      "source_bytes": 25872,
+      "source_sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "bytes": 25872,
+      "sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/served-build-manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/served-build-manifest.json",
+      "source_bytes": 8990,
+      "source_sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "bytes": 8990,
+      "sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-002/browser/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/browser/summary.json",
+      "source_bytes": 2112,
+      "source_sha256": "61bbe5129cd57ea021e2522ed635537110b84cbaae58bf9dd162d5eb864d6ea3",
+      "bytes": 2112,
+      "sha256": "61bbe5129cd57ea021e2522ed635537110b84cbaae58bf9dd162d5eb864d6ea3",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/manifest.json",
+      "source_bytes": 1176,
+      "source_sha256": "a39efeed1e6704578d7f947077111d1e81dd9f3715a2bff41fca04290a38ce49",
+      "bytes": 1176,
+      "sha256": "a39efeed1e6704578d7f947077111d1e81dd9f3715a2bff41fca04290a38ce49",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/models.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/models.json",
+      "source_bytes": 3153,
+      "source_sha256": "a57383abd52a320cdd6ed7da8e6195e5b0b98b0ebaf703aa42e65bee9be0137b",
+      "bytes": 3153,
+      "sha256": "a57383abd52a320cdd6ed7da8e6195e5b0b98b0ebaf703aa42e65bee9be0137b",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/summary.json",
+      "source_bytes": 4141,
+      "source_sha256": "60c0fb8e6fe8ddba8a4a5f284198dcd02427fa353afbcd82df27fa2110487e06",
+      "bytes": 4141,
+      "sha256": "60c0fb8e6fe8ddba8a4a5f284198dcd02427fa353afbcd82df27fa2110487e06",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/first.input.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.input.json",
+      "source_bytes": 642,
+      "source_sha256": "21b61b564e934f07d1d39b40e0c393b64f9c2ad9f94890b9d7c3f0697510edb1",
+      "bytes": 642,
+      "sha256": "21b61b564e934f07d1d39b40e0c393b64f9c2ad9f94890b9d7c3f0697510edb1",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/first.startup.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.startup.json",
+      "source_bytes": 251,
+      "source_sha256": "51417efe362ea57c1e987d7b2b7406988644fa52bf1b54115a821d1a4908d396",
+      "bytes": 251,
+      "sha256": "51417efe362ea57c1e987d7b2b7406988644fa52bf1b54115a821d1a4908d396",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/failure.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/failure.txt",
+      "source_bytes": 1063,
+      "source_sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "bytes": 1063,
+      "sha256": "a7bc9dcb6978986c52ac7282668f61ee65aa893a48d1fe76623bd56a4660daa5",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/final.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/final.ledger.json",
+      "source_bytes": 776370,
+      "source_sha256": "3a65f0318a1b31c10a7160247b4bcceca10d286b85454cf4e7b01d43b1b6afe9",
+      "bytes": 51308,
+      "sha256": "929014b916afaa4bb915bb7457a9a1d439090901606f77849bef63472f1cb33f",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/first.accepted.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.accepted.ledger.json",
+      "source_bytes": 13697,
+      "source_sha256": "10fd0763def2c3e82c70894a99e70945acf14862fdc719a5bccf7f043fb361fd",
+      "bytes": 2746,
+      "sha256": "7200cb2ef74dfbc6725dfcfde16bec096b236c9c605f751f8c7b9ecbc363f7c1",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/first.paused.ledger.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.paused.ledger.json",
+      "source_bytes": 11264,
+      "source_sha256": "142ed52e630774d7b2f01e66c94252ea7472b0e22c47ad773db6fffb96226a9c",
+      "bytes": 2096,
+      "sha256": "486a40e14ca5fda4bebe78287a937df8cf15bc95208469da3f6a3beee1bfb916",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/first.runtime.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.runtime.log",
+      "source_bytes": 346613,
+      "source_sha256": "a27fec76d0d71d08a0cd7ddd2bd2cf483be148fc9c3dac5bf1f5d7994d45a786",
+      "bytes": 18106,
+      "sha256": "34057dd373a898fb81c7ec7890d77d6ddffb4048c7a19756d2c6f6c7765579e7",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/first.websocket.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/first.websocket.jsonl",
+      "source_bytes": 142201,
+      "source_sha256": "6b9431bd7c7ab0fc87c1bfd608a54ea1fc82868f444849774fd02eedb8732569",
+      "bytes": 8334,
+      "sha256": "9cfb11fd879db0d89aa007b36e92a6a47e55cc95449048137351c2d4cffb6e2e",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/runtime-controls.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/runtime-controls.jsonl",
+      "source_bytes": 3344,
+      "source_sha256": "3dba97d49f761325206f35781ecdc33275bcda9c0a1a7828223a029fb80ef2d3",
+      "bytes": 653,
+      "sha256": "adb96e3b16629e7ee4bf4c20b01774a13f8084b743986d821eff54598b9b34e5",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/browser/environment.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/environment.json",
+      "source_bytes": 488,
+      "source_sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "bytes": 488,
+      "sha256": "e4dfce3082cbb4c571005abce0a96fe489aa5846227e31aa8478428661015481",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/events.jsonl.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/events.jsonl",
+      "source_bytes": 235917,
+      "source_sha256": "75920d185a72e5302ad3197612538b2e8cfdc299e00ec1a7a4945aeff55de4f2",
+      "bytes": 16079,
+      "sha256": "6bc5f5229a7eacf830e58c29fc19e9193c3eb6f35dc93a5db501ea75ac4239a6",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "attempt-003/browser/final.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/final.aria.yml",
+      "source_bytes": 8192,
+      "source_sha256": "a9ffcfccff14fb6337d68a861c95c2b0528db778dbe31be34301f4166950568b",
+      "bytes": 8192,
+      "sha256": "a9ffcfccff14fb6337d68a861c95c2b0528db778dbe31be34301f4166950568b",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/final.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/final.dom.json",
+      "source_bytes": 3947,
+      "source_sha256": "ba438808fd884c10ef2acbe6b8de70c3c93ef79097d81ed6f225b70db5319406",
+      "bytes": 3947,
+      "sha256": "ba438808fd884c10ef2acbe6b8de70c3c93ef79097d81ed6f225b70db5319406",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/final.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/final.png",
+      "source_bytes": 239991,
+      "source_sha256": "37c9e9cb4a82bbfec3ce1d8b68b82f0490a2dc4a7eede9ef6594165ccf0497b3",
+      "bytes": 239991,
+      "sha256": "37c9e9cb4a82bbfec3ce1d8b68b82f0490a2dc4a7eede9ef6594165ccf0497b3",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/first-submitted.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/first-submitted.aria.yml",
+      "source_bytes": 2223,
+      "source_sha256": "5bbec3dbd73c070ecc01a5f9b94ddb440117175ab3f944db100920ffc4e0f8c4",
+      "bytes": 2223,
+      "sha256": "5bbec3dbd73c070ecc01a5f9b94ddb440117175ab3f944db100920ffc4e0f8c4",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/first-submitted.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/first-submitted.dom.json",
+      "source_bytes": 1705,
+      "source_sha256": "b2cc7408c92ff041422e03ce451ff75ddef74fcb64897d5b6adac4e6bb083fd4",
+      "bytes": 1705,
+      "sha256": "b2cc7408c92ff041422e03ce451ff75ddef74fcb64897d5b6adac4e6bb083fd4",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/first-submitted.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/first-submitted.png",
+      "source_bytes": 61950,
+      "source_sha256": "4552632abdbcc4d0c302bd50f2a80e4be62eca47873723b81f9d136faa0cf1c8",
+      "bytes": 61950,
+      "sha256": "4552632abdbcc4d0c302bd50f2a80e4be62eca47873723b81f9d136faa0cf1c8",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/opened.aria.yml",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/opened.aria.yml",
+      "source_bytes": 1067,
+      "source_sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "bytes": 1067,
+      "sha256": "7bc294bfced838074f2624d4a6d6e3c6e3a33f3be7247286731f654bc8cca43e",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/opened.dom.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/opened.dom.json",
+      "source_bytes": 526,
+      "source_sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "bytes": 526,
+      "sha256": "7ab3ef07380df9a44c1adf742b88d442b0cdab965667701151b4adf0ef092fec",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/opened.png",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/opened.png",
+      "source_bytes": 25872,
+      "source_sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "bytes": 25872,
+      "sha256": "4d69cb8a5c84b7915524cf5d51df7321e2deba1ff86258aa62ddb7c646b1cb4f",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/served-build-manifest.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/served-build-manifest.json",
+      "source_bytes": 8990,
+      "source_sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "bytes": 8990,
+      "sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+      "encoding": "original"
+    },
+    {
+      "path": "attempt-003/browser/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/browser/summary.json",
+      "source_bytes": 2112,
+      "source_sha256": "ade164bc57bfbcd03a04dfb67ffebfd512723cbe64f474a9cc1104cdc8471310",
+      "bytes": 2112,
+      "sha256": "ade164bc57bfbcd03a04dfb67ffebfd512723cbe64f474a9cc1104cdc8471310",
+      "encoding": "original"
+    }
+  ]
+}

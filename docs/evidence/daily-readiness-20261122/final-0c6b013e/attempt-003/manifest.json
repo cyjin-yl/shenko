@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-11-21T22:13:53Z",
+  "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-0c6b013e",
+  "binary_sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "model": "swift-qwen3.8-27b-nvfp4",
+  "model_url": "http://10.10.10.11:8000",
+  "driver_sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d",
+  "websockets_version": "16.0",
+  "marker": "S1-54b9a0b98430",
+  "resume_marker": "CONTINUE-4ffa2acbd94b",
+  "configured_local_request_timeout_ms": "600000",
+  "startup_timeout_seconds": 300,
+  "phase_timeout_seconds": 900,
+  "observer_websocket": {
+    "proxy": null,
+    "max_size": 16777216,
+    "ping_interval": 20,
+    "ping_timeout": 900
+  },
+  "request_path_timing": true,
+  "input_surface": "live_browser_composer",
+  "startup_boundary": "ea677d2e-c464-48a0-8477-8f622211e504",
+  "restart_boundary": "95cb24e3-2ba4-4bc4-8433-29a82b316e4e",
+  "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim"
+}

@@ -1,0 +1,38 @@
+- link "跳到输入区":
+  - /url: "#composer-editor"
+- banner:
+  - button "未命名主体，打开主体详情": 未命名主体 尚无已提交步骤
+  - navigation "视图":
+    - group "视图":
+      - button "对话" [pressed]
+      - button "Inspect"
+      - button "文件"
+  - navigation "镜头":
+    - group "在时间线旁打开":
+      - button "任务 （Ctrl/⌘ 1）"
+      - button "记忆 （Ctrl/⌘ 2）"
+      - button "Playground （Ctrl/⌘ 3）"
+      - button "配置 （Ctrl/⌘ 4）"
+  - text: 已连接
+  - button "长代码行软换行"
+  - button "切换到深色"
+  - button "主体详情"
+- main:
+  - navigation "会话":
+    - group "会话":
+      - button "主体 22:14 请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-54b9a0b98430。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。" [pressed]:
+        - text: 主体
+        - time: 22:14
+        - text: 请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-54b9a0b98430。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。
+  - region "主体":
+    - text: 主体 直接对话
+    - paragraph: 今天 · 11月21日周六 22:14
+    - text: 请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-54b9a0b98430。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。 已送达
+    - button "编辑"
+    - button "撤回"
+    - button "添加图片或文件"
+    - textbox "向同一主体追加输入":
+      - /placeholder: 信息
+    - button "追加" [disabled]
+  - status
+- text: 传输已连接
