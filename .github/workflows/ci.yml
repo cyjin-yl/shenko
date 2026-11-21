@@ -163,6 +163,11 @@ jobs:
         run: .ci/python/bin/python scripts/check_docs.py
       - name: Run C19 recorder integrity and real-process concurrency cases
         run: .ci/python/bin/python -I scripts/observe_longrun_test.py
+      - name: Check real-journey evidence and request-timing accounting
+        # Driver mechanics only: these checks never contact a model service.
+        run: |
+          .ci/python/bin/python -I scripts/real_single_node_journey_test.py
+          .ci/python/bin/python -I scripts/summarize_request_timing_test.py
 
   docs-migration:
     name: docs-migration
