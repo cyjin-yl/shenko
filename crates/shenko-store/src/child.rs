@@ -575,11 +575,10 @@ impl Store {
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(0);
                 };
-                let mut inbox: Vec<DialogueDelivery> = task
-                    .memos
-                    .get(DIALOGUE_INBOX)
-                    .and_then(|value| serde_json::from_value(value.clone()).ok())
-                    .unwrap_or_default();
+                let mut inbox: Vec<DialogueDelivery> = match task.memos.remove(DIALOGUE_INBOX) {
+                    Some(value) => serde_json::from_value(value)?,
+                    None => Vec::new(),
+                };
                 let before = inbox.len();
                 inbox.retain(|delivery| !intent_ids.contains(&delivery.intent_id));
                 if inbox.len() == before {
