@@ -1,0 +1,63 @@
+
+> @shenko/ui@0.1.0 test /var/idw-target/daily-web-pin-795b1b49-r4/source/shenko/crates/shenko-ui/web
+> node --test tests/*.test.mjs
+
+✔ live Files preserves unavailable and partial answers and refuses incomplete or failed responses (25.351761ms)
+✔ the demo source navigates by native component identity and labels remain display only (0.481556ms)
+✔ catalog IDs survive projection with typed parameters, deterministic locale fallback and raw diagnostics (4.205219ms)
+✔ the live static module closure excludes fixtures while the demo import retains its complete chunk (38.151869ms)
+✔ a storage refusal keeps a work pinned for this page and still allows unpinning (7.589603ms)
+✔ an unavailable work listing preserves lenses while a confirmed empty listing removes them (5.4968ms)
+✔ live receipts query Store facts while preserving draft and reading state (55.59361ms)
+✔ page reopen reconciles a lost ACK using the persisted original payload and ID (8.279241ms)
+✔ a degraded document renders beside the committed step that carried it (5.86584ms)
+✔ an admitted action is persisted before send and never admitted twice (9.663337ms)
+✔ a rejected action can be decided again with a new durable key (4.305174ms)
+✔ reading place, code wrap and selection survive a page reopen (3.721273ms)
+✔ a streamed prefix is not labelled committed and is replaced by the committed text (3.188504ms)
+✔ a block that cannot become a surface keeps its reason beside the step (2.958121ms)
+✔ opening an HTML work reads its raw content and reveals its revision-bound details (16.307689ms)
+✔ replayed replies keep local ledger order ahead of newer unselected owner inputs (7.763593ms)
+✔ queried historical inputs stay outside the browser outbox until an explicit retry (5.045075ms)
+✔ reopened owner history pairs each reply, loads earlier pages and keeps copy actions independent (6.654892ms)
+✔ a committed reply cannot use an earlier history snapshot to claim independent thought (4.829564ms)
+✔ unavailable and invalid history pages preserve both admitted and pending inputs (3.837799ms)
+✔ history pages sharing one import commit retain every ID in SQLite binary order (3.530552ms)
+✔ queued edit leaves the prior state intact when the socket is unavailable (2.582681ms)
+✔ queued edit retains one cancel through transport failure refusal and queued selection (4.193679ms)
+✔ queued edit restores exact attachments only after its durable cancel and ignores replay (2.989684ms)
+✔ queued edit reopens by original identity and preserves an occupied composer until recovery (4.41466ms)
+✔ queued edit replacement transport failure retains one ID and exact attachment retry (3.47501ms)
+✔ queued edit freezes a saved replacement across failed finish save retry and reopen (6.195568ms)
+✔ queued edit replacement absence rejected and conflict never restore a second draft (2.844405ms)
+✔ queued edit accepted source stays withdrawn after replacement disposition and late receipts (3.183683ms)
+✔ queued edit clearing releases its durable owner for another saved edit and reopen (7.208753ms)
+✔ queued edit attachment snapshot refusal preserves visible refs and later complete text saves (4.662784ms)
+✔ every declared Shenko prototype was compiled from the authored source bytes (6.764059ms)
+✔ generated code is native React DOM source, not a Proto-UI runtime or adapter import (3.12182ms)
+✔ compiler provenance binds the generation to the parsed source graph and artifacts (1.443759ms)
+✔ the recorded compiler identity is the audited source package, bundled for the build only (0.659786ms)
+✔ grouped IM owner rows each retain their saved edit recovery action (251.848445ms)
+✔ a rich document renders components, not a JSON dump (2.320007ms)
+✔ a code node keeps its content and loses nothing else (0.572211ms)
+✔ a markdown node reuses the shell renderer (0.555141ms)
+✔ an unknown kind is named and readable, never dumped (0.606083ms)
+✔ a node's action submits the document's own action identity (0.741941ms)
+✔ future plugin tasks use structural roles while missing provenance stays unclassified (2.727638ms)
+✔ canonical child display is rendered verbatim and controls use their structured fields (1.029706ms)
+✔ delegation threads use only the current task brief and never render sealed context as a goal (0.296996ms)
+✔ missing or unknown historical display schemas expose unavailability without showing raw text (0.418533ms)
+✔ delegation threads are named by their frozen labels and a finished team is not active (0.811014ms)
+✔ team load revisions follow every member state without changing thread identity (0.871308ms)
+✔ a saved place resolves by entry identity, then by its predecessor (1.978187ms)
+✔ display state persists wrap, sections and place without inventing facts (0.809974ms)
+✔ a selection replays only while the same characters still start the entry (4.870555ms)
+✔ selection storage is separate from the reading place and rejects junk (0.537889ms)
+ℹ tests 51
+ℹ suites 0
+ℹ pass 51
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 617.427538

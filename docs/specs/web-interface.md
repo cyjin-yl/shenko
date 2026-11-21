@@ -254,7 +254,12 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 记录本次从 `7521cd5` 升级到 `f29738eb6a80`。
+`web/upstream-pin.json` 当前从 `f29738eb6a80` 固定到
+`795b1b4958333cf904547e484acb4de9d4b3ee80`，采用
+[上游 #1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 的 compiler 测试挂载时序修复。
+该提交是原 pin 的直接子提交，只改测试和诊断记录；原来的四项拒绝、50/70
+位置断言及全部 28 项测试保持。此次不同时引入新上游 main 的其他运行逻辑，
+原 Nightly 失败与受控复现见[运行证据](../evidence/nightly-environment-20261122.md)。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
 使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
 family：button、textarea、scroll-area、collapsible、drawer（主体详情）、

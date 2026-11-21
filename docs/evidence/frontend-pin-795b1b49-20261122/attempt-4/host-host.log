@@ -1,0 +1,17 @@
+waiting_for_cargo_lock 2026-11-21T19:31:22Z pid=1467895
+cargo_lock_acquired 2026-11-21T19:32:45Z
+Cloning into '/var/idw-target/daily-web-pin-795b1b49-r4/source/shenko'...
+done.
+HEAD is now at 9a7be2f88 fix(subject): clarify inline JSON controls and retain first-request observations
+Cloning into '/var/idw-target/daily-web-pin-795b1b49-r4/source/proto-ui'...
+done.
+HEAD is now at 795b1b4 test(compiler): settle mount frames before reveal rejection checks
+toolchain_ready 2026-11-21T19:32:51Z
+public_closure_built 2026-11-21T19:34:09Z
+producer_verified: 42 packages; complete static and compiler/prototype digests; unchanged inputs
+generation_verified 2026-11-21T19:34:24Z
+independent_rebuild_verified 2026-11-21T19:36:09Z
+a045c55dba49bd4efa2eea0d5d7ed0d720c4beee64e6b77ffe2cf9e9a1e6d77e  /var/idw-target/daily-web-pin-795b1b49-r4/delivery.tar.gz
+delivery_ready 2026-11-21T19:36:10Z
+a045c55dba49bd4efa2eea0d5d7ed0d720c4beee64e6b77ffe2cf9e9a1e6d77e  /tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r4/delivery.tar.gz
+host_delivery_ready 2026-11-21T19:36:10Z
