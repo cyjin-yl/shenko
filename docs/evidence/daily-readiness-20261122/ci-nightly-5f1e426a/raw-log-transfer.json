@@ -1,0 +1,18 @@
+[
+  {
+    "name": "ci-rust.log.gz",
+    "raw_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-5f1e426a/rust.log",
+    "raw_bytes": 552973,
+    "raw_sha256": "7f89c55c853b07789ff16c27ccab9454460d79d33f9752402cfb0d9b6d218990",
+    "gzip_bytes": 115110,
+    "gzip_sha256": "fce38acf7ee2fef9d4a98232f7f03f0894c51e1bdd94c881856eb5664a871957"
+  },
+  {
+    "name": "nightly-rust.log.gz",
+    "raw_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-5f1e426a/rust.log",
+    "raw_bytes": 706437,
+    "raw_sha256": "f9107eee9ee789f099b264c7891f99222ad2e3196419ac84ace9b1d1460c0fd5",
+    "gzip_bytes": 111636,
+    "gzip_sha256": "350499899b25f303607dcafa1b576d0ff0231758a4ba7868010ce5feccd4f773"
+  }
+]
