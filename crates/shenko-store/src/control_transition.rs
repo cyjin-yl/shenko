@@ -15,11 +15,13 @@ use std::{
 
 use parking_lot::Mutex;
 use rusqlite::{
-    Connection, OptionalExtension, Transaction, TransactionBehavior,
+    Connection, OptionalExtension, Transaction,
     hooks::{AuthAction, AuthContext, Authorization},
     params, params_from_iter,
     types::{Value, ValueRef},
 };
+#[cfg(test)]
+use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
 use serde::ser::SerializeSeq;
 use shenko_types::{
@@ -182,6 +184,11 @@ impl RowTransition {
         tx: &Transaction<'_>,
         sequence: LedgerSeq,
     ) -> Result<(), ShenkoError> {
+        let _phase = crate::timing::Phase::bound("materialize.rows", crate::timing::Binding {
+            subject_id: Some(self.original_head.agent_id), action_id: Some(self.action_id),
+            ..Default::default()
+        });
+        let _preconditions = crate::timing::Phase::new("materialize.preconditions");
         self.validate_capture_shape()?;
         let actual_layouts = layouts(tx)?;
         let mut seen = BTreeSet::new();
@@ -208,11 +215,15 @@ impl RowTransition {
                 return Err(conflict(format!("read range differs for {}", table.before.table.name)));
             }
         }
+        drop(_preconditions);
+        let _writes = crate::timing::Phase::new("materialize.writes");
         tx.execute_batch("PRAGMA defer_foreign_keys=ON")
             .map_err(storage_error)?;
         for table in &self.tables {
             apply_table(tx, table, sequence)?;
         }
+        drop(_writes);
+        let _postconditions = crate::timing::Phase::new("materialize.postconditions");
         for table in &self.tables {
             let mut expected = table.before.clone();
             for change in &table.changes {
@@ -1008,6 +1019,11 @@ impl Store {
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
+        let _phase = crate::timing::Phase::bound("capture.rows", crate::timing::Binding {
+            subject_id: Some(input.head.agent_id), action_id: Some(input.action_id),
+            ..Default::default()
+        });
+        let _schema = crate::timing::Phase::new("capture.schema");
         // Authorizer installation cannot observe an already active cursor.
         if tx.is_busy() { return Err(conflict("capture began with an active SQLite statement")); }
         require_main_factual_schema(tx)?;
@@ -1016,6 +1032,7 @@ impl Store {
         let projections = projection_tables(tx)?;
         let main_objects = tables.keys().chain(projections.iter()).cloned().collect();
         let schema = schema_fingerprint(tx)?;
+        drop(_schema);
         let result_commit = CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(tx)?);
         let created_at = chrono::Utc::now();
         tx.execute_batch("SAVEPOINT canonical_row_evaluation").map_err(storage_error)?;
@@ -1027,11 +1044,11 @@ impl Store {
             main_objects,
             verified_projection_triggers,
         );
-        let evaluated = evaluate(result_commit, created_at);
+        let evaluated = crate::timing::measure("capture.evaluate", || evaluate(result_commit, created_at));
         drop(observation);
         let mut physical = physical.finish();
         let accesses = std::mem::take(&mut *accesses.lock());
-        let captured = (|| -> Result<_, ShenkoError> {
+        let captured = crate::timing::measure("capture.postimages", || -> Result<_, ShenkoError> {
             if let Some(refusal) = accesses.refusal { return Err(conflict(refusal)); }
             let (updated, result) = evaluated?;
             if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
@@ -1069,7 +1086,7 @@ impl Store {
                 after.insert(name.clone(), postimage);
             }
             Ok((updated, result, after, range_after, accesses, remaining))
-        })();
+        });
         // Even a refused/failed evaluation is rolled back before returning.
         tx.execute_batch("ROLLBACK TO canonical_row_evaluation; RELEASE canonical_row_evaluation")
             .map_err(storage_error)?;
@@ -1080,6 +1097,7 @@ impl Store {
         if layouts(tx)? != tables || schema_fingerprint(tx)? != schema {
             return Err(invalid("rollback did not restore the captured schema"));
         }
+        let _preimages = crate::timing::Phase::new("capture.preimages");
         let mut transitions = Vec::new();
         for (name, after) in after {
             let complete_read = accesses.reads.contains(&name)
@@ -1104,8 +1122,9 @@ impl Store {
                 .ok_or_else(|| invalid("direct capture omitted its target task"))?;
             crate::native_facts::validate_task_read(table, task)?;
         }
+        drop(_preimages);
         let object_roots = self.transition_object_roots(&transitions);
-        let (_, missing) = self.collect_closure(&object_roots).map_err(storage_error)?;
+        let (_, missing) = crate::timing::measure("capture.closure", || self.collect_closure(&object_roots)).map_err(storage_error)?;
         if !missing.is_empty() {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() });
         }
@@ -1131,6 +1150,9 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("subject.prepare_s1", crate::timing::Binding {
+            subject_id: Some(head.agent_id), action_id: Some(action_id), ..Default::default()
+        });
         let input_digest = input_digest(step, head, next)?;
         // Retry reads the already frozen plan; no new time, UUID, sequence or
         // snapshot identity is substituted after a chosen-but-unapplied crash.
@@ -1147,8 +1169,8 @@ impl Store {
             position.expected_steps.clone(),
         );
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             if let Some(prepared) = prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
             let (transition, ()) = self.capture_row_transition_with_ranges(&tx, RowTransitionInput {
@@ -1180,7 +1202,7 @@ impl Store {
             // not an S1 success. The later physical materialization is another
             // local receipt; foreign ledgers never mint a replacement result.
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(commit_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
             Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -1308,6 +1330,7 @@ impl Store {
         &self,
         transition: &RowTransition,
     ) -> Result<(), ShenkoError> {
+        let _phase = crate::timing::Phase::new("materialize.closure");
         let roots = self.transition_object_roots(&transition.tables);
         let (_, missing) = self.collect_closure(&roots).map_err(storage_error)?;
         if !missing.is_empty() {
@@ -1371,6 +1394,10 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("materialization has no reserved admission"))?;
+        let _phase = crate::timing::Phase::bound("subject.apply_s1", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            ..Default::default()
+        });
         let transition = self.read_step_transition(reference)?;
         if !matches!(transition.schema_version, 1 | 2)
             || transition.action_id != admission.action_id
@@ -1391,9 +1418,8 @@ impl Store {
         transition.validate_result(step, head, next)?;
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 if learned {
                     authority.check_materialization(&tx)?;
@@ -1414,7 +1440,7 @@ impl Store {
                     transition.created_at,
                 )?;
                 self.record_subject_commit(&tx, local_commit, transition.updated.len() as i64)?;
-                tx.commit().map_err(commit_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
                 authority.materialized();
                 Ok(self.subject_receipt(local_commit, transition.updated.clone()))
             },

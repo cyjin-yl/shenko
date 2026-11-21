@@ -117,7 +117,7 @@ impl Store {
     /// exist and must hash to its digest, otherwise the snapshot is
     /// incomplete and cannot be claimed recoverable.
     pub fn export_cognition(&self, options: &CognitionSnapshotOptions) -> Result<CognitionExport> {
-        let publication = Arc::new(self.ledger.acquire_cas_publication()?);
+        let publication = Arc::new(crate::timing::measure("snapshot.cas_publication_wait", || self.ledger.acquire_cas_publication())?);
         self.export_cognition_owned(options, publication, None)
     }
 
@@ -214,9 +214,9 @@ impl Store {
         permit: Option<&shenko_types::installation::InstallationPermit>,
     ) -> Result<Collected> {
         let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order, options.local_boundary_preserved, permit)?;
+            crate::timing::measure("snapshot.rows", || self.snapshot_rows(allocate_order, options.local_boundary_preserved, permit))?;
         let (roots, external) = self.cognition_object_roots(&rows);
-        let (objects, missing) = self.collect_closure(&roots)?;
+        let (objects, missing) = crate::timing::measure("snapshot.closure", || self.collect_closure(&roots))?;
 
         let mut files: Vec<(CognitionFileDescriptor, PathBuf)> = Vec::new();
         let retired_roots = {
@@ -228,6 +228,7 @@ impl Store {
             rows.into_iter().map(PathBuf::from).collect::<BTreeSet<_>>()
         };
         let mut file_origins = Vec::new();
+        let _validation = crate::timing::Phase::new("snapshot.validate_facts");
         let mut gaps = memory_intent_binding_gaps(&rows);
         gaps.extend(crate::media::media_recovery_gaps(&rows));
         // The REQUIRED-fact closure: a member row whose anchor is missing
@@ -238,6 +239,7 @@ impl Store {
         if let Err(error) = self.validate_obligation_rows(&rows) {
             gaps.push(CognitionGap { kind: "obligation_required_fact".into(), detail: error.to_string(), blocking: true });
         }
+        drop(_validation);
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -324,18 +326,20 @@ impl Store {
         Option<u64>,
     )> {
         let owned = if allocate_order && borrowed.is_none() {
-            self.ledger.acquire_installation(false)?
+            crate::timing::measure("snapshot.installation_wait", || self.ledger.acquire_installation(false))?
         } else { None };
         if allocate_order && let Some((domain, _, _)) = &self.ledger.installation {
             borrowed.or(owned.as_ref()).context("snapshot order requires an installation permit")?.validate(domain)?;
         }
-        let mut conn = self.ledger.conn.lock();
+        let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
         let behavior = if allocate_order {
             TransactionBehavior::Immediate
         } else {
             TransactionBehavior::Deferred
         };
+        let _begin = crate::timing::Phase::new(if allocate_order { "sqlite.begin_immediate" } else { "sqlite.begin_deferred" });
         let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
+        drop(_begin);
         // The subject boundary request is local controller state, not part of
         // this archive schema. A paused head without its request would strand
         // a peer receiver and must never be acknowledged as a complete
@@ -387,7 +391,7 @@ impl Store {
                 row.get(0)
             })
             .map_err(db)?;
-        tx.commit().map_err(db)?;
+        crate::timing::measure("sqlite.commit", || tx.commit()).map_err(db)?;
         Ok((
             rows,
             derivatives,
