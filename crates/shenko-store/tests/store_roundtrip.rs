@@ -7,10 +7,13 @@ use shenko_types::store::WriteBatch;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[path = "support/subject_genesis.rs"]
+mod subject_genesis;
 #[path = "support/canonical_native.rs"]
 mod canonical_native;
 use canonical_native::{CanonicalGuard, NativeT2Authority, NativeT2AuthorityState,
-    initialize_subject_in_with_route, recorded_result_with_docket, committed_candidate_with, draft_dispatch_operation};
+    recorded_result_with_docket, committed_candidate_with, draft_dispatch_operation};
+use subject_genesis::initialize_subject_in_with_route;
 
 
 fn tmp_dir() -> PathBuf {

@@ -3,20 +3,24 @@
 //! a new quorum/process-election acceptance claim.
 #![cfg(unix)]
 
+#[path = "../../../crates/shenko-store/tests/support/subject_genesis.rs"]
+mod subject_genesis;
 #[path = "../../../crates/shenko-store/tests/support/canonical_native.rs"]
 mod canonical_native;
 #[path = "support/process_runtime.rs"]
 mod process_runtime;
+#[path = "support/ssh_fixture.rs"]
+mod ssh_fixture;
 
 use anyhow::{Context, Result, ensure};
 use canonical_native::{
     NativeT2Authority, NativeT2AuthorityState, committed_candidate_with, draft_dispatch_operation,
-    initialize_subject_in_with_route, recorded_result_with_docket,
+    recorded_result_with_docket,
 };
-use process_runtime::{
-    OwnedProcess, append_json, copy_diagnostics, file_sha256, write_sshd_config,
-};
+use process_runtime::{OwnedProcess, append_json};
+use ssh_fixture::{copy_diagnostics, file_sha256, write_sshd_config};
 use serde_json::{Value, json};
+use subject_genesis::initialize_subject_in_with_route;
 use shenko_node::{Request, SyncPeer};
 use shenko_store::{
     ControlRecoveryOutcome, NativeEvidenceDeliveryOutcome, RetentionLimits, Store,

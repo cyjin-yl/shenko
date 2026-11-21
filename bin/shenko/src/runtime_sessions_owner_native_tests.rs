@@ -12,8 +12,8 @@ use shenko_types::{ids::EntityId, operation::{OperationOutcome, OperationState}}
 use std::{fs, net::SocketAddr, os::unix::fs::PermissionsExt, path::{Path, PathBuf}, sync::Arc, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-#[path = "../../../crates/shenko-store/tests/support/canonical_native.rs"]
-mod canonical_native;
+#[path = "../../../crates/shenko-store/tests/support/subject_genesis.rs"]
+mod subject_genesis;
 #[path = "../tests/support/process_runtime.rs"]
 mod process_runtime;
 
@@ -100,7 +100,7 @@ async fn journey(root: &Path, first: &str, second: &str, command: &str) -> Resul
     no_input(root)?;
 
     let store = Arc::new(Store::open(root.join("store.db"), root.join("cas"))?);
-    let agent = canonical_native::initialize_subject_in_with_route(&store, b"{}", None)?;
+    let agent = subject_genesis::initialize_subject_in_with_route(&store, b"{}", None)?;
     store.start_subject_dispatcher()?;
     let (head, _) = store.load_subject(agent)?;
     let owning_task = head.subject_root_task_id;
