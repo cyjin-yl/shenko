@@ -331,6 +331,45 @@ fn report_summary(arms: Vec<Value>, cleanup_ok: bool) -> Value {
         "arms":arms})
 }
 
+// A retained authentication flag describes the original live observation.
+// Admission also needs this arm's committed consumption and prepared sources;
+// copied receipts and cached evidence summaries cannot supply either binding.
+fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &str) -> Result<bool> {
+    let binding = &arm["binding"];
+    let installation = &arm["installation_binding"];
+    let preparation = &arm["preparation"];
+    let committed = &arm["committed_capture"];
+    let Some(source_facts) = arm["source_facts"].as_array() else { return Ok(false) };
+    let Some(consumed) = committed["consumed_results"].as_array() else { return Ok(false) };
+    if !binding["attempt_id"].as_str().is_some_and(has_text)
+        || installation["attempt_id"] != binding["attempt_id"]
+        || preparation["attempt_id"] != binding["attempt_id"]
+        || !installation["installation"].as_str().is_some_and(has_text)
+        || committed["installation"] != installation["installation"]
+        || source_facts.is_empty()
+        || preparation["source_facts_digest"] != json!(Digest::blake3(&serde_json::to_vec(source_facts)?)) {
+        return Ok(false);
+    }
+    for record in retrievals {
+        if record["schema_version"] != 1 || record["task_kind"] != expected_kind
+            || record["authenticated"] != true
+            || !consumed.iter().any(|result| result == &record["result"]) {
+            continue;
+        }
+        let Ok(definition) = NativeTaskDefinition::deserialize(&record["definition"]) else { continue };
+        let Ok(result) = TaskResult::deserialize(&record["result"]) else { continue };
+        if definition.kind != expected_kind || result.schema_version != 1 {
+            continue;
+        }
+        if reader_evidence(&definition, &result.outcome, result.result.as_ref(), source_facts)
+            .is_ok_and(|evidence| !evidence.is_empty()
+                && record["retrieved_evidence"].as_array() == Some(&evidence)) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 // Only reads retained JSON. Missing phases remain unknown, and a judge record
 // without a terminal arm/cleanup record cannot promote an interrupted sample.
 fn reconstruct_report(root: &Path) -> Result<Value> {
@@ -367,6 +406,22 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
                     .collect::<std::io::Result<Vec<_>>>()?;
                 paths.sort();
                 for path in paths {
+                    ensure!(std::fs::symlink_metadata(&path)?.is_file(),
+                        "unexpected retained native evidence entry");
+                    // write_bytes can be interrupted before or after linking
+                    // the final name. Only its canonical UUIDv4 temp is ignored.
+                    let temporary = path.file_name().and_then(|name| name.to_str())
+                        .and_then(|name| name.strip_prefix(".evidence-"))
+                        .is_some_and(|name| {
+                            let Ok(id) = name.parse::<EntityId>() else { return false };
+                            let mut canonical = [0; 36];
+                            id.as_uuid().get_version() == Some(uuid::Version::Random)
+                                && id.as_uuid().get_variant() == uuid::Variant::RFC4122
+                                && id.as_uuid().hyphenated().encode_lower(&mut canonical) == name
+                        });
+                    if temporary {
+                        continue;
+                    }
                     ensure!(path.extension().is_some_and(|extension| extension == "json"),
                         "unexpected retained native evidence file");
                     retrievals.push(read_optional_json(&path)?.context("native evidence disappeared")?);
@@ -391,9 +446,8 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
         }
         let expected_kind = if candidate { obelisk::TASK_KIND } else { "history.query" };
         arm["recorded_reader_admission"] = arm["used_expected_reader"].clone();
-        arm["used_expected_reader"] = json!(retrievals.iter().any(|record|
-            record["task_kind"] == expected_kind && record["authenticated"] == true
-                && record["retrieved_evidence"].as_array().is_some_and(|evidence| !evidence.is_empty())));
+        let admitted = retained_reader_admitted(&arm, &retrievals, expected_kind)?;
+        arm["used_expected_reader"] = json!(admitted);
         arm["retained_native_results"] = json!(retrievals);
         arms.push(arm);
     }
@@ -1128,6 +1182,13 @@ mod tests {
 
     #[test]
     fn interrupted_arm_reconstructs_original_identity_without_replay_or_replacement() -> Result<()> {
+        use shenko_types::{
+            commit::CommitRef,
+            evidence::{DecodeStatus, EvidenceReceipt},
+            ids::{LedgerSeq, RecordRevision, TaskRevision},
+            object::SchemaRef,
+        };
+
         let root = EvidenceRoot(Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../build").join(format!("obelisk-offline-report-{}", EntityId::new())));
         std::fs::create_dir_all(root.0.join("baseline/native-results"))?;
@@ -1142,10 +1203,75 @@ mod tests {
             "provider":{"profile_id":"retained-profile","model":"retained-model"},
             "budget":{"arm_deadline_ms":180000,"context_tokens":16384}});
         write_json(&arm_root.join("arm-binding.json"), &arm_binding)?;
+        let installation = arm_root.join("original-installation");
+        write_json(&arm_root.join("installation.json"), &json!({
+            "attempt_id":attempt_id,"installation":installation}))?;
+        let event_id = EntityId::new();
+        let session_id = EntityId::new();
+        let source_facts = vec![json!({"event_id":event_id,"session_id":session_id,"seq":3})];
+        write_json(&arm_root.join("source-facts.json"), &source_facts)?;
+        write_json(&arm_root.join("prepared.json"), &json!({"attempt_id":attempt_id,
+            "source_facts_digest":Digest::blake3(&serde_json::to_vec(&source_facts)?)}))?;
+        let definition = NativeTaskDefinition {
+            kind:"history.query".into(), definition_version:1, input:json!({"op":"search"}),
+        };
+        let returned = json!({"schema_version":1,"status":"ok","op":"search","events":[{
+            "event_id":event_id,"session_id":session_id,"seq":3,
+            "event_ref":format!("session:{session_id}/event:{event_id}/seq:3"),
+            "data_preview":"arbitrary retained source text",
+        }]});
+        let result_bytes = serde_json::to_vec(&returned)?;
+        let result = TaskResult {
+            schema_version:1, result_id:EntityId::new(), task_id:EntityId::new(),
+            task_revision:TaskRevision(1), task_record_revision:RecordRevision(1),
+            invocation_id:EntityId::new(), operation_id:EntityId::new(), receipt_id:EntityId::new(),
+            outcome:TaskOutcome::Succeeded, result:Some(returned),
+            evidence_ref:ObjectRef {
+                digest:Digest::blake3(&result_bytes), bytes:result_bytes.len() as u64,
+                media_type:"application/json".into(), store_namespace:"obelisk-acceptance".into(),
+                locator:"retained-native-result".into(), codec:SchemaRef {
+                    name:"retained-native-result".into(), major:1,
+                    digest:Digest::blake3(b"retained-native-result/v1"),
+                },
+            },
+            commit_ref:CommitRef::new(EntityId::new(), LedgerSeq(1)),
+        };
+        let native_attempt_id = EntityId::new();
+        let receipt = EvidenceReceipt {
+            record_schema_version:1, receipt_id:result.receipt_id,
+            operation_id:Some(result.operation_id), attempt_id:Some(native_attempt_id),
+            source_id:definition.kind.clone(), source_instance_id:EntityId::new().to_string(),
+            source_event_key:None, producer_epoch:Some(0), producer_schema_version:Some("1".into()),
+            raw_ref:result.evidence_ref.clone(), decoder_ref:None, decode_status:DecodeStatus::Decoded,
+            observation_level:None, normalized_ref:Some(result.evidence_ref.clone()),
+            observed_at:None, received_commit:result.commit_ref,
+        };
+        let record = json!({"schema_version":1,"authenticated":true,
+            "task_kind":definition.kind,"definition":definition,"result":result,
+            "attempt_id":native_attempt_id,"receipt":receipt,"evidence_rejection":null,
+            "retrieved_evidence":reader_evidence(&definition, &result.outcome,
+                result.result.as_ref(), &source_facts)?});
+        let mut foreign = record.clone();
+        for key in ["result_id", "task_id", "invocation_id", "operation_id", "receipt_id"] {
+            foreign["result"][key] = json!(EntityId::new());
+        }
+        foreign["result"]["commit_ref"]["ledger_id"] = json!(EntityId::new());
+        foreign["attempt_id"] = json!(EntityId::new());
+        foreign["receipt"]["receipt_id"] = foreign["result"]["receipt_id"].clone();
+        foreign["receipt"]["operation_id"] = foreign["result"]["operation_id"].clone();
+        foreign["receipt"]["attempt_id"] = foreign["attempt_id"].clone();
+        foreign["receipt"]["received_commit"] = foreign["result"]["commit_ref"].clone();
+        foreign["receipt"]["source_instance_id"] = json!(EntityId::new());
+        // A copied authenticated receipt can have valid text and source IDs.
+        // It is still absent from this installation's committed consumption.
+        let native_root = arm_root.join("native-results");
+        write_json(&native_root.join("foreign.json"), &foreign)?;
+        write_bytes(&native_root.join(format!(".evidence-{}", EntityId::new())), b"{unfinished")?;
         let failure = json!({"condition":"baseline","attempt_id":attempt_id,"status":"failed",
             "effective":null,"used_expected_reader":false,"error":"original subject timeout"});
         write_json(&arm_root.join("failure.json"), &failure)?;
-        write_json(&arm_root.join("committed.json"), &json!({"step_id":EntityId::new(),"output":"retained continuation"}))?;
+        write_json(&arm_root.join("committed.json"), &json!({"installation":installation,
+            "step_id":EntityId::new(),"consumed_results":[result],"output":"retained continuation"}))?;
         write_json(&arm_root.join("judgement.json"), &json!({"attempt_id":attempt_id,"effective":true}))?;
         write_json(&root.0.join("cleanup.json"), &json!({"cleanup_ok":true}))?;
         let original = std::fs::read(arm_root.join("failure.json"))?;
@@ -1157,10 +1283,45 @@ mod tests {
         assert_eq!(first["arms"][0]["binding"], arm_binding);
         assert_eq!(first["arms"][0]["effective"], Value::Null);
         assert_eq!(first["arms"][0]["judgement"]["effective"], true);
+        assert_eq!(first["arms"][0]["used_expected_reader"], false);
+        assert_eq!(first["arms"][0]["retained_native_results"], json!([foreign]));
         assert_eq!(first["reconstruction"]["requests_issued"], false);
+
+        let original_result = native_root.join(format!("{}.json", result.result_id));
+        write_json(&original_result, &record)?;
+        // The final link may already exist when a crash leaves its temp name.
+        std::fs::hard_link(&original_result, native_root.join(format!(".evidence-{}", EntityId::new())))?;
+        let admitted = reconstruct_report(&root.0)?;
+        assert_eq!(admitted["arms"][0]["used_expected_reader"], true);
+        assert_eq!(admitted["arms"][0]["retained_native_results"].as_array().map(Vec::len), Some(2));
+        assert_eq!(admitted["arms"][0]["status"], "failed");
+        assert_eq!(admitted["complete"], false);
+        let records = admitted["arms"][0]["retained_native_results"].as_array().unwrap();
+        let mut unbound = admitted["arms"][0].clone();
+        unbound["committed_capture"]["installation"] = json!("a different installation");
+        assert!(!retained_reader_admitted(&unbound, records, "history.query")?);
+        unbound = admitted["arms"][0].clone();
+        unbound["source_facts"][0]["session_id"] = json!(EntityId::new());
+        assert!(!retained_reader_admitted(&unbound, records, "history.query")?);
+        unbound["preparation"]["source_facts_digest"] =
+            json!(Digest::blake3(&serde_json::to_vec(&unbound["source_facts"])?));
+        assert!(!retained_reader_admitted(&unbound, records, "history.query")?,
+            "a nonempty copied summary must still pass the original reader's source checks");
         assert!(write_json(&arm_root.join("failure.json"), &json!({"replacement":true})).is_err());
         assert_eq!(std::fs::read(arm_root.join("failure.json"))?, original);
         assert!(!root.0.join("report.json").exists());
+
+        // Similar names are not atomic temps, including an uncommitted JSON
+        // file. Malformed retained evidence must keep failing reconstruction.
+        for name in [".evidence-not-an-id".into(), format!(".evidence-{}.json", EntityId::new()),
+            format!(".evidence-{}", EntityId::nil())] {
+            let path = native_root.join(name);
+            write_bytes(&path, b"{unfinished")?;
+            assert!(reconstruct_report(&root.0).is_err());
+            std::fs::remove_file(path)?;
+        }
+        std::fs::create_dir(native_root.join(format!(".evidence-{}", EntityId::new())))?;
+        assert!(reconstruct_report(&root.0).is_err(), "temp-shaped directories are unexpected entries");
         Ok(())
     }
 }
