@@ -890,8 +890,8 @@ async fn quota_selection_prepares_alternate_model_and_reopens_original_seal() {
     let mut execution = Box::pin(execute_step(1, &[], &mut subject, &cancel));
     let wire = tokio::time::timeout(Duration::from_secs(15), async {
         tokio::select! {
-            result = &mut execution => panic!("subject ended before the alternate wire: {result:?}"),
-            wire = wire_rx => wire.expect("the real provider observed the request"),
+            _result = &mut execution => panic!("subject ended before the alternate wire: {_result:?}"),
+            _wire = wire_rx => _wire.expect("the real provider observed the request"),
         }
     }).await.expect("selection and context preparation must reach the alternate provider");
     cancel.cancel();

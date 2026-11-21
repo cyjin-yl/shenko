@@ -1562,7 +1562,7 @@ async fn execute_step(
             } else {
                 let probe = tokio::select! {
                     _ = cancel.cancelled() => return Ok(None),
-                    probe = selected.probe_binding() => probe.map_err(|error|
+                    _probe = selected.probe_binding() => _probe.map_err(|error|
                         ShenkoError::conflict(format!("selected model metadata failed: {error:#}")))?,
                 };
                 if probe.binding != *selected.binding()
