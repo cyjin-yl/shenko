@@ -359,4 +359,52 @@ CPU some avg10 最大 1.92。它们是 sampler 可见 `/proc` 的系统压力，
 `fonts-noto-cjk 1:20220127+repack1-1`，并保留[字体文件哈希](daily-readiness-20261122/font-environment.json)。
 该环境修复没有改变应用源码、模型、任务预算或原失败判据。
 
-新候选仍需取得完整成功浏览器回执和重复运行结果；本记录尚不宣称首条完整真实任务已收口。
+### 从实际拒绝收敛 native 依赖
+
+后续产品改动把实际 `host.printf` 接到 paired native arm，并分别收窄首次 claim、
+arm、直接 T2、model child 派发及普通 T2 的规范读取见证。新的 typed selector 由原任务、
+原 operation/attempt/E1 和有界 owner ancestry 推导；不接受发送者自选 SQL 或任意主键集合。
+源捕获、最终 IMMEDIATE 前像与后像验证使用相同规则，保留 schema/trigger 绑定、
+主体结构检查、祖先取消的 Node revision fence 和原始结果身份。
+[派发依赖与版本说明](../development/canonical-native-dispatch-witness.md)记录了
+新 dispatch codec 2 / row schema 5 与原 codec 1 的独立恢复语义。
+
+这没有给已 chosen 的失败另发执行权：只有原 live preparation 的 fresh grant 可以获得 `Won`，
+prepared、learned 和重复材料化仍只能得到 `AlreadyCommitted`，Unknown 和外来分支的协调债务不变。
+archive capability 11 声明了这组新读取能力，旧格式按其原规则读取；raw Node 传输兼容边界仍单独存在。
+完整 predecessor、认知快照、闭包与 schema 检查仍有成本；arm 的逻辑身份匹配以及普通 T2 的
+子任务范围仍需扫描、解析相关整表，不能把减少保守冲突写成已经消除了历史增长成本。
+
+该组工作在既有测试中加入九个故障/并发观察窗口，没有增加测试函数。另一个启动边界修复
+保留 plugin 安装期间已经到达的 HostStop：消费者启动前检查该停止意图，broker 沿原队列
+完成停止并收集未派发回执。它不把真实 authority loss 或原请求 Unknown 转成成功。
+
+### 原始失败与最小 fixture 复测
+
+`5f1e426a` 的[完整定向回归](daily-readiness-20261122/scoped-5f1e426a/summary.json)
+于 2026-11-21 21:42:06–21:51:35 UTC 执行 17 项：15 通过、2 失败，release 被门禁阻止。
+其中 129 MiB native 完整链、两项普通 T2、CLI printf、broker 停止、真实进程暂停/恢复及
+八项 archive admission 已实际通过。CLI 子进程的内层 harness 单独保留，不重复计数。
+
+两项失败分别是首次 claim 的负控仍预期旧报错，以及新增独立任务在 authority 激活后使用
+裸 WriteBatch 装配。前者改为明确验证 claim 3 / rows 4 的 selector 缺失拒绝；后者把独立任务
+移到 authority attach 前的初始批次，所有 claim 仍走激活后的实际产品路径。
+
+`b4d115d8` 的[两项实际复测](daily-readiness-20261122/scoped-b4d115d8-r2/summary.json)
+中，首次 claim 通过（54.30 秒）；派发在 6.41 秒拒绝，因为独立任务缺少 `native_input`，
+实际 claim 返回空。失败库中的该任务仍为 Pending，尚无 operation、attempt 或 E1；
+这是一份失败后只读状态，不能冒称拒绝事务瞬间快照。随后两行 fixture 修复补齐与既有
+parent/child 相同的输入，产品准入规则和派发/恢复断言均未放宽。
+
+此前还保留了一次[仅观察器 preflight 的失败](daily-readiness-20261122/scoped-b4d115d8/summary.json)：
+复用检查把 CLI 子进程和外层两行摘要误认为多个目标，因而在 cargo 前退出，实际执行测试数为零。
+修正后的 runner 明确取单目标的最终外层摘要，并记录被排除的内层结果。
+这些失败均保留原始字节、哈希和退出码，不被后续通过覆盖。
+
+`0c6b013e` 的[唯一一项实际复测](daily-readiness-20261122/scoped-0c6b013e/summary.json)
+于 22:01:08–22:01:35 UTC 完成，dispatch 通过（23.56 秒）。此前 15 项 `5f` 成功与一项
+`b4` first-claim 成功单独列为复用证据；产品路径字节与 `5f` 相同，first-claim 函数正文与
+`b4` 相同。因此该组 17 项定向覆盖已补齐，但不能写成 `0c` 当次重新执行了全部 17 项。
+门禁据此开始 release 构建，构建完成与实际模型旅程仍需各自独立回执。
+
+固定产品候选仍需取得完整成功浏览器回执和重复运行结果；本记录尚不宣称首条完整真实任务已收口。
