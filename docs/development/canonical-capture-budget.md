@@ -82,6 +82,13 @@ does not avoid reading, parsing and validating that snapshot. The corresponding
 inspector reads all those rows again to verify ancestry/child absence. This is
 an additional CPU, I/O and transient-memory cost outside the row capture budget.
 
+The [control predecessor publisher](control-predecessor-publication.md) batches
+only one graph's child-directory barriers before its ordinary durable root
+seal. New files still synchronize individually and every dedup still validates
+the full length/hash. This does not remove snapshot/closure work, narrow the
+read witnesses or activate GC; measured performance on the changed candidate
+remains a separate requirement.
+
 Removing these remaining dependencies safely requires versioned native typed
 key/predicate witnesses, their independent absence/ancestor/child validators,
 and matching receiver-side materialization checks. Simply marking them partial
