@@ -3387,8 +3387,9 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert!(!chosen()?.replayed);
     assert!(matches!(source.external_task(retry_id)?.state, TaskState::Running { .. }));
 
-    // Even a retained grant cannot omit the typed absence dependency. The
-    // malformed plan is fatal, with no Running write or materialization marker.
+    // Even a retained grant cannot omit the typed absence dependency. Claim 3
+    // rejects the missing row-4 selector before checking the dependency image,
+    // with no Running write or materialization marker.
     let before_lost = source.external_task(lost_id)?;
     state.lock().lose_reply = true;
     let refused = source.claim_native_task(lost_id, implementation.clone(), false);
@@ -3398,8 +3399,14 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&lost.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     let mut transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
-    transition["rows"]["tables"].as_array_mut().context("lost claim tables")?
-        .retain(|table| table["before"]["table"]["name"] != "operations");
+    assert_eq!(reference.codec.major, 3);
+    assert_eq!(transition["rows"]["schema_version"], 4);
+    let tables = transition["rows"]["tables"].as_array_mut().context("lost claim tables")?;
+    let operations = tables.iter().find(|table| table["before"]["table"]["name"] == "operations")
+        .context("original operation absence dependency")?;
+    assert_eq!(operations["read_selector"]["kind"], "original_operation");
+    tables.retain(|table| table["before"]["table"]["name"] != "operations");
+    assert!(tables.iter().all(|table| table["before"]["table"]["name"] != "operations"));
     let fault_ref = source.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json",
         "commit-authority", "store-native-claim-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(fault_ref)?;
@@ -3408,7 +3415,7 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
         "commit-authority", "commit-admission", 1)?.object;
     state.lock().grants.insert(fault.admission.conflict_key.clone(), fault.clone());
     let malformed = source.recover_control_admission(&fault, &source.admission_objects(&fault.admission.payload_ref)?, true);
-    assert!(matches!(&malformed, Err(error) if error.to_string().contains("missing operations dependency")), "{malformed:#?}");
+    assert!(matches!(&malformed, Err(error) if error.to_string().contains("native read selectors differ from the original action plan")), "{malformed:#?}");
     assert_eq!(serde_json::to_value(source.external_task(lost_id)?)?, serde_json::to_value(before_lost)?);
     assert!(!source.control_admission_applied_here(&fault.admission)?);
     state.lock().grants.insert(lost.admission.conflict_key.clone(), lost.clone());
