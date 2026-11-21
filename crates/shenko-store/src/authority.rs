@@ -129,18 +129,18 @@ impl AuthorityRuntime {
         let Some(provider) = self.provider.read().clone() else {
             return Ok(AuthorityReservation::unbound(ledger.acquire_installation(true)?, publication));
         };
-        let grant = provider.prepare(&admission)?;
+        let grant = crate::timing::measure("authority.order", || provider.prepare(&admission))?;
         if grant.as_ref().is_some_and(|grant| grant.admission != admission) {
             return Err(authority_fenced("authority returned a grant for another immutable action"));
         }
-        let permit = ledger.acquire_installation(grant.as_ref().is_none_or(|grant| !grant.replayed))
+        let permit = crate::timing::measure("authority.installation_wait", || ledger.acquire_installation(grant.as_ref().is_none_or(|grant| !grant.replayed)))
             .inspect_err(|_| {
                 if let Some(grant) = &grant { provider.action_unmaterialized(grant); }
             })?;
-        let acquired = match permit {
+        let acquired = crate::timing::measure("authority.acquire", || match permit {
             Some(permit) => provider.acquire_installed(grant.as_ref(), permit),
             None => provider.acquire(grant.as_ref()),
-        };
+        });
         let guard = acquired.inspect_err(|_| {
             if let Some(grant) = &grant { provider.action_unmaterialized(grant); }
         })?;
@@ -445,6 +445,11 @@ impl Store {
     pub(crate) fn reserve_sealed_admission(
         &self, admission: CommitAdmission, expected_tasks: Vec<TaskRecord>, expected_steps: Vec<SubjectStep>,
     ) -> Result<AuthorityReservation, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("canonical.admission", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         // Earlier external sealing must already hold its own publication
         // owner through this transfer; this lease cannot protect a prior seal.
         let publication = self.ledger.acquire_cas_publication()?;
@@ -460,7 +465,8 @@ impl Store {
     pub(crate) fn task_admission_position(
         &self, task_id: EntityId, key: String,
     ) -> Result<(SubjectBranchHead, AdmissionPosition), ShenkoError> {
-        let mut conn = self.ledger.conn.lock();
+        let _phase = crate::timing::Phase::new("canonical.position");
+        let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
         let tx = conn.transaction().map_err(storage_error)?;
         let task = crate::child::read_task(&tx, task_id).map_err(storage_error)?
             .ok_or_else(|| ShenkoError::not_found("admission task"))?;

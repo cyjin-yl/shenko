@@ -6,6 +6,7 @@ pub mod store;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod authority;
+mod timing;
 mod control_recovery;
 mod control_transition;
 mod dispatch_transition;

@@ -100,12 +100,15 @@ impl Store {
     fn prepare_control_predecessor_inner(
         &self, head: &SubjectBranchHead, expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep],
     ) -> Result<ObjectRef> {
-        let export = self.export_cognition(&CognitionSnapshotOptions {
+        let _phase = crate::timing::Phase::bound("control.predecessor", crate::timing::Binding {
+            subject_id: Some(head.agent_id), ..Default::default()
+        });
+        let export = crate::timing::measure("control.snapshot", || self.export_cognition(&CognitionSnapshotOptions {
             include_git_history: false,
             ..Default::default()
-        })?;
+        }))?;
         let mut manifest = export.manifest;
-        self.validate_control_manifest(&manifest)?;
+        crate::timing::measure("control.validate", || self.validate_control_manifest(&manifest))?;
         let actual = manifest.rows.iter().find(|row| row.table == "subject_branch_heads"
             && row.key == head.agent_id.to_string()).context("snapshot has no requested subject head")?;
         let actual: SubjectBranchHead = serde_json::from_str(actual.value("data").context("head body missing")?)?;
@@ -123,6 +126,7 @@ impl Store {
                 "registered step changed before snapshot capture");
         }
 
+        let _pages = crate::timing::Phase::new("control.seal_pages");
         let row_count = manifest.rows.len();
         let object_count = manifest.objects.len();
         let derivative_count = manifest.derivatives.len();
@@ -189,6 +193,11 @@ impl Store {
         &self, reference: &ObjectRef, admission: &CommitAdmission,
         expected_tasks: &[TaskRecord], expected_steps: &[SubjectStep], childless: Option<EntityId>,
     ) -> Result<ControlPredecessorEvidence> {
+        let _phase = crate::timing::Phase::bound("control.inspect", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let root: Predecessor = self.read_control_value(reference, ROOT_CODEC)?;
         ensure!(root.schema_version == 1 && admission.schema_version == 1
             && root.head.agent_id == admission.subject_id && root.head.branch_id == admission.branch_id
@@ -211,7 +220,7 @@ impl Store {
                 "root tree key differs from its typed reference");
             Ok(entry.value)
         }).collect::<Result<Vec<_>>>()?;
-        let (objects, missing) = self.collect_closure(&roots)?;
+        let (objects, missing) = crate::timing::measure("control.inspect_closure", || self.collect_closure(&roots))?;
         ensure!(missing.is_empty() && objects.len() == root.object_count, "snapshot object closure is incomplete");
         manifest.objects = objects;
         manifest.derivatives = self.read_control_tree("derivatives", &root.derivatives, root.derivative_count)?.into_iter().map(|entry| {
@@ -220,7 +229,7 @@ impl Store {
             ensure!(Digest::blake3(&frame.bytes).0 == frame.blake3, "derivative bytes differ from their digest");
             Ok(frame)
         }).collect::<Result<Vec<_>>>()?;
-        self.validate_control_manifest(&manifest)?;
+        crate::timing::measure("control.validate", || self.validate_control_manifest(&manifest))?;
         let actual: SubjectBranchHead = serde_json::from_str(manifest.rows.iter()
             .find(|row| row.table == "subject_branch_heads" && row.key == root.head.agent_id.to_string())
             .and_then(|row| row.value("data")).context("snapshot subject head is absent")?)?;

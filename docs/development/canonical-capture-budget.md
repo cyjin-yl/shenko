@@ -60,6 +60,12 @@ task while capturing and applying the small native-v1 delta.
 
 ### Remaining issue #316 boundaries
 
+The opt-in [request-path timing](request-path-timing.md) records canonical
+preparation, snapshot, validation, lock acquisition, capture, dispatch admission
+and materialization as nested measured scopes. These are observations on the
+candidate being run, not a retrospective explanation of an earlier delay or
+an assertion that the remaining history-dependent work below is fixed.
+
 The native full witnesses remain history-dependent at these concrete paths:
 
 | Path | Still retained complete read dependencies | Consequence |
