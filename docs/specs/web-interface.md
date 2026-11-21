@@ -30,12 +30,18 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 |---|---|
 | `hello` (v2) | `server_version` + `capabilities`（append/steer/withdraw/actions/documents/attachments/durable_input_receipts/committed_replay/streaming）+ `surface`（基线能力事实，revision 0） |
 | `capabilities` (v2) | `client_hello` 的应答：`surface` 重算（revision 递增，含 `valid_until`） |
-| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。携带流式前缀的 part 会额外发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
+| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。流式前缀与正式正文不一致时，发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
 | `stream_part` (v2) | 流式 public-text chunk（仅当真实生产者接入；`streaming:false` 时永不发送）。`step` 可为 0（尚无已提交步；客户端不得虚构）；其余 identity 与 `timeline_part` 同构 |
 | `document` (v1) | 已校验并按本连接能力降级的 SemanticDocument（见 [§3](../research/product-positioning.md#spec-3)） |
 | `document_error` (v1) | 文档块无法成为界面；原文仍可见，富层丢弃，原因可读 |
 | `identity` | 主体身份 revision 变化通知（既有） |
 | `receipt` (v2) / `submission_view` (v2) | 见 [§2](architecture.md#spec-2) |
+
+修正身份必须精确为 `text/0@${commit_ref}`，并绑定同一 `message_id=step_id`。
+它替换该消息的旧 `text/0` 流式视图（或同一提交引用的 base），清除对应旧流的
+待补分片；先收到修正或先收到旧流，以及重连重放，都保留实际 corrected part_id
+和完整提交正文。不同消息、part 或其他提交引用的事实不被替换。原流式账本不改写，
+也不把其 stream/request/attempt 身份推断到修正 part；对话与静默轮次仍按 §5.2 归类。
 
 ### 1.2 客户端 → 服务器
 

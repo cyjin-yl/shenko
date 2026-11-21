@@ -458,6 +458,80 @@ test('a streamed prefix is not labelled committed and is replaced by the committ
     timelineNode(controller).children.map((child) => child.node_id),
     [streamedIdentity, 'document.doc-5'],
   );
+
+  // A divergent stream uses the server's explicit corrected identity. Check
+  // both arrival orders in the same replacement trajectory, including replay
+  // and a pending gap; never relabel the divergent stream as the S1 fact.
+  const correctedObservations = [];
+  const expectedCorrections = [];
+  for (const [order, step] of [['stream-first', 6], ['corrected-first', 7]]) {
+    const messageId = `step-${step}`;
+    const stream = {
+      schema_version: 2, type: 'stream_part', role: 'subject',
+      content: '旧正文', message_id: messageId, part_id: 'text/0',
+      part_revision: `stream-rev-${step}`, chunk_seq: 0, terminal: false,
+      committed_only: true, step: step - 1, commit_ref: `ledger/stream-${step}`,
+      stream_id: `stream-${step}`, request_id: `req-${step}`, attempt_id: `att-${step}`,
+    };
+    const corrected = {
+      ...committedPart(messageId, step, '完整纠正正文'),
+      part_id: `text/0@ledger/${step}`,
+    };
+    const otherMessage = { ...stream, message_id: `other-${step}`, content: '另一个消息' };
+    const otherPart = { ...stream, part_id: 'text/1', content: '另一个part' };
+    socket.receive({ ...otherMessage, chunk_seq: 1, content: '的尾部' });
+    socket.receive({ ...otherPart, chunk_seq: 1, content: '的尾部' });
+    if (order === 'stream-first') {
+      socket.receive(stream);
+      socket.receive({ ...stream, chunk_seq: 2, content: '不连续旧尾部' });
+    }
+    socket.receive(corrected);
+    const summary = () => timelineNode(controller).children
+      .filter((child) => child.kind === 'subject_part' &&
+        child.props.part.message_id === messageId && child.props.part.part_id !== 'text/1')
+      .map(({ props: { part } }) => ({
+        part_id: part.part_id, content: part.content, committed: part.committed,
+        terminal: part.terminal, gap: part.gap, stream_id: part.stream_id,
+      }));
+    const afterCommit = summary();
+    socket.receive(corrected);
+    socket.receive({ ...stream, chunk_seq: 2, content: '不连续旧尾部' });
+    socket.receive(stream);
+    socket.receive({ ...stream, chunk_seq: 1, content: '迟到旧正文', terminal: true });
+    socket.receive(committedPart(messageId, step, '同一S1的旧base重放'));
+    socket.receive(corrected);
+    socket.receive(otherMessage);
+    socket.receive(otherPart);
+    const otherContents = timelineNode(controller).children
+      .filter((child) => child.kind === 'subject_part' &&
+        (child.props.part.message_id === otherMessage.message_id ||
+          (child.props.part.message_id === messageId && child.props.part.part_id === 'text/1')))
+      .map((child) => child.props.part.content);
+    const afterReplay = summary();
+    // A distinct committed reference is not superseded by this correction.
+    // Its original immutable identity must remain visible for inspection.
+    const otherCommit = {
+      ...committedPart(messageId, step, '其他提交事实'),
+      commit_ref: `other-ledger/${step}`,
+    };
+    socket.receive(otherCommit);
+    socket.receive(corrected);
+    const otherCommittedFacts = timelineNode(controller).children
+      .filter((child) => child.kind === 'subject_part' &&
+        child.props.part.message_id === messageId && child.props.part.part_id === 'text/0')
+      .map((child) => ({ content: child.props.part.content, commit_ref: child.props.part.commit_ref }));
+    correctedObservations.push({ order, afterCommit, afterReplay, otherContents, otherCommittedFacts });
+    const committed = [{
+      part_id: corrected.part_id, content: corrected.content, committed: true,
+      terminal: true, gap: false, stream_id: undefined,
+    }];
+    expectedCorrections.push({
+      order, afterCommit: committed, afterReplay: committed,
+      otherContents: ['另一个消息的尾部', '另一个part的尾部'],
+      otherCommittedFacts: [{ content: otherCommit.content, commit_ref: otherCommit.commit_ref }],
+    });
+  }
+  assert.deepEqual(correctedObservations, expectedCorrections);
 });
 
 test('a block that cannot become a surface keeps its reason beside the step', async (t) => {
