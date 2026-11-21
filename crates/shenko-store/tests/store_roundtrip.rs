@@ -3616,7 +3616,18 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         }));
         Ok(())
     };
-    let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
+    // The same history/effect/recovery trajectory now retains a required T1
+    // implementation larger than the unchanged E1 increment budget. It must
+    // remain validated and transported as the original T1, never as new E1.
+    let implementation_bytes = shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES + 1;
+    let mut implementation_stream = std::io::Read::take(std::io::repeat(0x5a), implementation_bytes);
+    let implementation_object = source.cas.seal_reader(&mut implementation_stream,
+        "application/octet-stream", "native-implementation", "native-executable", 1)?.object;
+    assert_eq!(implementation_object.bytes, implementation_bytes);
+    let implementation_binding = source.cas.seal_object(
+        &serde_json::to_vec(&serde_json::json!({"implementation":implementation_object}))?,
+        "application/json", "native-chain", "implementation-binding", 1)?.object;
+    let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: implementation_object.digest.clone(), registry_revision: 1 };
     // A separate real Store operation can receive E1 while the target's
     // chosen claim/T1 is waiting to materialize. Its unknown observation grants
     // no success and no local effect, and remains outside the target witness.
@@ -3668,6 +3679,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // One actual local effect follows only the fresh paired T1 permit. The
     // receiver installs the original armed intent, and never obtains None.
     let (ctx, mut operation, mut attempt) = draft_dispatch_operation(&source, &claim.invocation, "native-chain", claim.operation_id)?;
+    operation.resource_bindings_ref = implementation_binding.clone();
     let injected = rusqlite::Connection::open(dir.join("head.db"))?;
     injected.execute_batch("CREATE VIEW indirect_native_attempts AS SELECT data FROM attempts;
         CREATE TRIGGER arm_attempt_dependency AFTER UPDATE ON tasks BEGIN
@@ -3785,6 +3797,34 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let original_attempt = source.external_attempt(attempt.attempt_id)?;
     assert_eq!(original_receipt.received_commit.ledger_id, source.ledger.ledger_id());
     assert_eq!(completed.evidence_through, Some(original_receipt.received_commit));
+    assert!(source.native_evidence_seal_debts(operation.operation_id)?.is_empty());
+    let marker: serde_json::Value = serde_json::from_str(&injected.query_row(
+        "SELECT data FROM native_evidence_materializations WHERE receipt_id=?1",
+        [receipt_id.to_string()], |row| row.get::<_, String>(0))?)?;
+    let evidence_ref: ObjectRef = serde_json::from_value(marker["evidence_ref"].clone())?;
+    let anchored = shenko_types::native_evidence::AnchoredNativeEvidence::decode(&evidence_ref,
+        &source.cas.read_object(&evidence_ref.digest)?).map_err(anyhow::Error::msg)?;
+    assert_eq!(evidence_ref.codec.major, shenko_types::native_evidence::NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR);
+    assert_eq!(anchored.fact_ref.codec.major, 2);
+    assert_eq!(anchored.predecessor_roots, vec![arm.admission.payload_ref.clone()]);
+    let item = shenko_types::native_evidence::NativeEvidenceItem {
+        position: shenko_types::native_evidence::NativeEvidencePosition {
+            sequence: original_receipt.received_commit.seq.0, receipt_id,
+        },
+        operation_id: operation.operation_id, attempt_id: attempt.attempt_id,
+        source_commit: original_receipt.received_commit,
+        availability: shenko_types::native_evidence::NativeEvidenceAvailability::Sealed { evidence_ref },
+    };
+    let increment = source.native_evidence_objects(&item)?;
+    assert!(increment.iter().all(|object| object.reference.digest != implementation_object.digest));
+    assert!(increment.iter().map(|object| object.reference.bytes).sum::<u64>()
+        <= shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES);
+    source.validate_native_evidence_predecessor(&arm.admission.payload_ref)?;
+    eprintln!("issue316-native-capacity {}", serde_json::json!({
+        "phase":"native.e1.anchored_increment", "implementation":implementation_object,
+        "envelope":anchored, "increment_objects":increment.len(),
+        "increment_bytes":increment.iter().map(|object| object.reference.bytes).sum::<u64>(),
+    }));
     let armed_task = receiver.external_task(task_id)?;
 
     // The provider's actual fact is already committed when the T2 chosen
@@ -3917,6 +3957,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     reopened.activate_runtime_authority(&reopened.load_subject(agent)?.0)?;
     let delayed = reopened.claim_native_task(delayed_id, implementation, false)?.context("delayed source claim")?;
     let (delayed_ctx, mut delayed_op, mut delayed_attempt) = draft_dispatch_operation(&reopened, &delayed.invocation, "delayed-native-chain", delayed.operation_id)?;
+    delayed_op.resource_bindings_ref = implementation_binding;
     assert!(reopened.arm_native_operation_for_dispatch(&delayed_ctx, &mut delayed_op, &mut delayed_attempt)?.is_none());
     std::fs::write(dir.join("delayed-effect.log"), b"one delayed observation")?;
     let late_raw = reopened.cas.seal_object(&std::fs::read(dir.join("delayed-effect.log"))?, "text/plain", "native-chain", "text", 1)?.object;
@@ -3929,11 +3970,19 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let envelope: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&delayed_arm.admission.payload_ref.digest)?)?;
     let delayed_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     assert_eq!(delayed_ref.codec.major, 4);
-    let original_path = reopened.cas.verified_object_path(&delayed_ref)?;
-    let saved_path = dir.join("temporarily-unavailable-arm");
+    let original_path = reopened.cas.verified_object_path(&implementation_object)?;
+    let saved_path = dir.join("temporarily-unavailable-implementation");
     std::fs::rename(&original_path, &saved_path)?;
+    assert!(reopened.validate_native_evidence_predecessor(&delayed_arm.admission.payload_ref).is_err());
+    // Matching size is not integrity. Keep the same failed-proof window but
+    // leave wrong bytes under the original name for the actual E1 seal read.
+    let corrupt = std::fs::File::create(&original_path)?;
+    corrupt.set_len(implementation_object.bytes)?;
+    corrupt.sync_all()?;
+    drop(corrupt);
     let late = reopened.record_external_evidence(delayed_op.operation_id, delayed_attempt.attempt_id, late_receipt.clone(),
         Some(OperationOutcome::Succeeded), EffectStatus::Complete);
+    std::fs::remove_file(&original_path)?;
     std::fs::rename(saved_path, original_path)?;
     let late = late?;
     let retained = reopened.external_evidence(late_id)?;
@@ -3944,6 +3993,8 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     assert_eq!(debts.len(), 1);
     assert_eq!(debts[0].receipt_id, late_id);
     assert_eq!(debts[0].received_commit, retained.received_commit);
+    assert!(debts[0].reason.contains("anchored E1 predecessor closure is missing or corrupt"), "{debts:#?}");
+    reopened.validate_native_evidence_predecessor(&delayed_arm.admission.payload_ref)?;
     let refused = reopened.complete_native_task(&delayed, &late);
     assert!(matches!(&refused, Err(error) if error.to_string().contains("retained seal debt")), "{refused:#?}");
     assert!(reopened.native_task_result(delayed_id)?.is_none());

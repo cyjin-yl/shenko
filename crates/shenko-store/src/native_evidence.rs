@@ -12,6 +12,7 @@ use shenko_types::{
     error::ShenkoError,
     evidence::EvidenceReceipt,
     ids::{EntityId, RecordRevision},
+    native_evidence::{AnchoredNativeEvidence, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR},
     object::ObjectRef,
     operation::{
         AttemptDispatchStage, AttemptRecord, EffectStatus, OperationOutcome, OperationRecord,
@@ -316,7 +317,7 @@ impl Store {
         if let Some(reference) = &fact.predecessor_ref {
             // The structural successor reader already authenticated this exact
             // first-Unknown fact and its real local receipt.
-            let first: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
+            let (first, _) = self.read_native_evidence_object(reference)?;
             if let Some(source) = first.source {
                 pending.push((source, first.operation, false));
             }
@@ -511,20 +512,21 @@ impl Store {
                 "original E1 proof exceeds the bounded admission size",
             ));
         }
-        let reference = self
+        let fact_ref = self
             .cas
             .seal_object(&bytes, "application/json", "commit-authority", CODEC, fact.schema_version)?
             .object;
-        let (_, missing) = self
-            .collect_closure_bounded(
-                std::slice::from_ref(&reference),
-                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_OBJECTS,
-                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES,
-            )
-            .map_err(invalid)?;
-        if !missing.is_empty() {
-            return Err(invalid("original E1 closure is incomplete"));
-        }
+        let envelope = AnchoredNativeEvidence {
+            schema_version: NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR,
+            fact_ref,
+            predecessor_roots: crate::native_evidence_closure::predecessor_roots(fact),
+        };
+        let bytes = serde_json::to_vec(&envelope)?;
+        let reference = self.cas.seal_object(&bytes, "application/json", "commit-authority",
+            CODEC, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR)?.object;
+        AnchoredNativeEvidence::decode(&reference, &bytes).map_err(invalid)?;
+        self.verify_anchored_native_predecessors(tx, fact)?;
+        self.native_evidence_closure(&reference, Some(&envelope))?;
         record_materialization(tx, &reference, fact, fact.receipt.received_commit)?;
         if let Some(source) = &fact.source {
             self.verify_native_evidence_source(tx, source, &fact.operation)?;
@@ -563,32 +565,27 @@ impl Store {
         reference: &ObjectRef,
         current_source: Option<bool>,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        if !matches!(reference.codec.major, 1 | 2 | 4) {
+        let (fact, envelope) = self.read_native_evidence_object(reference)?;
+        if !matches!(fact.schema_version, 1 | 2 | 4) {
             return Err(invalid("unsupported typed object for original E1"));
         }
-        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
-        if fact.schema_version != reference.codec.major
-            || (reference.codec.major != 1) != fact.fold.is_some()
+        if (fact.schema_version != 1) != fact.fold.is_some()
             || fact.predecessor_ref.is_some()
         {
             return Err(invalid("E1 codec and frozen fold disagree"));
         }
-        let (_, missing) = if reference.codec.major != 1 {
-            self.collect_closure_bounded(
-                std::slice::from_ref(reference),
-                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_OBJECTS,
-                shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES,
-            )
-            .map_err(invalid)?
-        } else {
-            self.collect_closure(std::slice::from_ref(reference))
-                .map_err(storage_error)?
-        };
-        if !missing.is_empty() {
-            return Err(invalid("original E1 closure is incomplete"));
+        if reference.codec.major == 1 {
+            let (_, missing) = self.collect_closure(std::slice::from_ref(reference)).map_err(storage_error)?;
+            if !missing.is_empty() { return Err(invalid("original E1 closure is incomplete")); }
+        } else if envelope.is_none() {
+            self.native_evidence_closure(reference, None)?;
         }
         let original = self.verify_native_arm_fact(conn, &fact.arm)?;
         fact.validate(&original)?;
+        if envelope.is_some() {
+            self.verify_anchored_native_predecessors(conn, &fact)?;
+            self.native_evidence_closure(reference, envelope.as_ref())?;
+        }
         if let (Some(source), Some(current)) = (&fact.source, current_source) {
             self.verify_native_evidence_source_at(conn, source, &fact.operation, current)?;
         }

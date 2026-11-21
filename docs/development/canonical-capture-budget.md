@@ -165,10 +165,11 @@ requires row schema 4. Rows 1–3 cannot
 carry a selector. This introduces no retry, serialization of unrelated tasks,
 replacement chosen action or receiver execution permission.
 
-All new cognition snapshots declare archive schema 11, including snapshots
-without a direct action. Schema 10 remains readable with its original strict
-fact-family/layout rules; schemas 8 and 9 remain unsupported. Older readers that
-only admit schema 10 or earlier refuse schema 11 before payload CAS publication.
+The direct-selector increment introduced archive schema 11. The current
+candidate declares schema 12 for its additional anchored E1 capability,
+including snapshots without native actions. Schemas 10 and 11 remain readable
+with their original strict fact-family/layout rules; schemas 8 and 9 remain
+unsupported. Older readers refuse schema 12 before payload CAS publication.
 The archive gate does not version raw Node object transport.
 
 The existing direct-chain regression adds six necessary windows: real unrelated
@@ -230,6 +231,37 @@ model-success or latency result. The child scan still parses task history;
 the change bounds retained dependencies rather than claiming constant-time
 ownership queries. Old T2 codec 1 keeps its original full-witness semantics;
 direct codecs 2/3/4 retain their existing proof and row-schema pairing.
+
+### E1 increment over an applied predecessor (2026-11-22 candidate)
+
+The actual `0c6b013e` batch completed all three browser attempts with zero
+passes. Each retained one `CAS closure byte budget exceeded` seal debt after
+a successful original printf observation, with no task result. Its required
+native implementation was 90,162,848 bytes, larger than the unchanged
+67,108,864-byte E1 closure budget. This is a source-bound capacity refusal;
+the separate predecessor-drift runtime error and unfinished model child are
+retained as separate observations.
+
+[Native E1 codec 6](native-e1-incremental-closure.md) explicitly names the
+original T1 payload and any exact source/first-Unknown E1 as predecessor roots.
+Both actual local applications and the complete typed predecessor graph are
+verified before they can be excluded from increment accounting. The new
+transport limit counts at most 4,096 new unique typed references and 64 MiB of
+new unique object bytes. A same-digest opaque alias does not satisfy a new
+typed reference. Original codec 1–5 budgets, Unknown, retained seal debt and
+the original fact/fold meanings are unchanged. The new writer always selects
+codec 6; there is no error-string fallback or ordinary-T2 bypass.
+
+Archives, GC roots and existing control delivery still retain the complete
+graph. Verification and initial local Store-to-Node cache population still
+have costs proportional to retained predecessors; this does not establish a
+latency improvement or a general history-independent request path. The
+existing 129 MiB native chain now includes a required 64 MiB-plus-one-byte
+implementation in the same T1/E1/T2/reopen trajectory. Its existing proof-loss
+window checks missing and same-length corrupt bulk, then retains the original
+debt after restoration. Two existing E1 delivery trajectories retain their
+source/Unknown, replay and no-effect assertions under the explicit new format.
+These authored checks still require execution on the integrated candidate.
 
 ### Remaining issue #316 boundaries
 

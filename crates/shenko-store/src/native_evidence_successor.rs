@@ -3,14 +3,14 @@
 //! Codec 3 has an explicit first-E1 predecessor and requires its real local
 //! materialization. It carries no case decision, task transition or send permit.
 //! Codec 5 retains this successor contract with an exact source dependency.
-//! Chosen T2 accepts only first-E1 codecs 1/2/4, never either successor codec.
+//! Codec 6 wraps either original shape without changing that distinction.
+//! Chosen T2 accepts only first E1, never either successor shape.
 use rusqlite::{Connection, Transaction, params};
 use shenko_types::{
     commit::CommitRef,
     error::ShenkoError,
     evidence::EvidenceReceipt,
     ids::RecordRevision,
-    native_evidence::{NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS},
     object::ObjectRef,
     operation::{AttemptDispatchStage, AttemptRecord, EffectStatus, OperationRecord, OperationState},
 };
@@ -19,7 +19,7 @@ use crate::{
     Store,
     arming_transition::NativeArmFacts,
     native_evidence::{
-        CODEC, NativeEvidenceFact, NativeEvidenceFold, read_materialization, read_records,
+        NativeEvidenceFact, NativeEvidenceFold, read_materialization, read_records,
         record_materialization, verify_materialization, write_projection,
     },
     native_facts::{conflict, invalid, same},
@@ -145,7 +145,8 @@ impl Store {
         conn: &Connection,
         reference: &ObjectRef,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        if !matches!(reference.codec.major, 2 | 4) {
+        let (fact, _) = self.read_native_evidence_object(reference)?;
+        if !matches!(fact.schema_version, 2 | 4) {
             return Err(invalid("successor E1 must name a codec-2/4 first Unknown"));
         }
         let (first, original) = self.read_native_evidence_fact_at(conn, reference, Some(false))?;
@@ -242,23 +243,13 @@ impl Store {
         reference: &ObjectRef,
         current_source: Option<bool>,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        if !matches!(reference.codec.major, 3 | 5) {
+        let (fact, envelope) = self.read_native_evidence_object(reference)?;
+        if !matches!(fact.schema_version, 3 | 5) {
             return self.read_native_evidence_fact_at(conn, reference, current_source);
-        }
-        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
-        if fact.schema_version != reference.codec.major {
-            return Err(invalid("successor E1 codec and schema disagree"));
         }
         let predecessor_ref = fact.predecessor_ref.as_ref()
             .ok_or_else(|| invalid("successor E1 omitted its causal predecessor"))?;
-        let (_, missing) = self.collect_closure_bounded(
-            std::slice::from_ref(reference),
-            NATIVE_EVIDENCE_CLOSURE_OBJECTS,
-            NATIVE_EVIDENCE_CLOSURE_BYTES,
-        ).map_err(invalid)?;
-        if !missing.is_empty() {
-            return Err(invalid("successor E1 closure is incomplete"));
-        }
+        if envelope.is_none() { self.native_evidence_closure(reference, None)?; }
         let (first, original) = self.read_native_evidence_fact_at(conn, predecessor_ref,
             current_source.map(|_| false))?;
         fact.validate_successor(predecessor_ref, &first)?;
@@ -268,6 +259,10 @@ impl Store {
         // Malformed typed bytes are rejected before a missing local first-E1
         // receipt is classified as retryable predecessor debt.
         verify_first_receipt(conn, predecessor_ref, &first)?;
+        if envelope.is_some() {
+            self.verify_anchored_native_predecessors(conn, &fact)?;
+            self.native_evidence_closure(reference, envelope.as_ref())?;
+        }
         Ok((fact, original))
     }
 
