@@ -33,7 +33,7 @@ baseline 是容器内独立真实 Git checkout，HEAD 精确为父提交 4a；�
 是从 ef 原样复制的既有 `live-controller.test.mjs`。原生产 reducer 字节不变，
 候选与 baseline 使用同一测试文件。它通过真实 esbuild 编译和 live controller
 运行，没有替换 reducer 或直接构造预期结果。
-[原输入绑定及命令](baseline/receipt.json) · [唯一测试差异](baseline/fixture.patch)
+[原输入绑定及命令](baseline/receipt.json) · [唯一测试差异](baseline/fixture.patch.gz)
 
 扩展原 `a streamed prefix is not labelled committed and is replaced by the
 committed text` 轨迹，新增两种 corrected 到达顺序，同时检查迟到旧分片、缺口、
@@ -93,7 +93,7 @@ Node `v24.22.1`、pnpm `10.32.1`，上游仍固定
 核对整包摘要、每个静态 payload 以及本地 ef 的全部 web 输入，才复制产物。
 完整原输入清单继续保留在容器该目录的 `generation/inputs-before.json`、
 `generation/inputs-after.json` 与 `rebuild/inputs.json`；本目录保留其来源摘要、
-实际脚本、工具原回执和原始日志，日志仅作 mtime=0 gzip 编码。
+实际脚本、工具原回执和原始日志，日志及原 fixture patch 仅作 mtime=0 gzip 编码。
 [结束后的只读复核](postrun-verification.json) 另记录三份完整清单的长度/摘要，
 并确认 baseline reducer/fixture 仍与开始时相同，producer 只改变两个静态文件。
 [文件保留索引](retention-index.json) · [本目录摘要清单](manifest.json)

@@ -4,15 +4,18 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 6785,
-      "sha256": "ddd07dc5d496998b232e594399f85d42ff4788d32cdcbcaf4b62c14e9750d6e5",
+      "bytes": 6809,
+      "sha256": "793fdd9e903ace95b9ddde214f48c43156223f2db88512f507bfd830b7e6a2a6",
       "encoding": "identity"
     },
     {
-      "path": "baseline/fixture.patch",
-      "bytes": 4654,
-      "sha256": "f7203e6881096dbccc73f357807462a4d0df1effac26fe843cfeaaca860d1c78",
-      "encoding": "identity"
+      "path": "baseline/fixture.patch.gz",
+      "bytes": 1527,
+      "sha256": "b7d7a5a8a00669ce154460d0947b0a425cc7cd3372934d56c00cc00021927837",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 4654,
+      "raw_sha256": "f7203e6881096dbccc73f357807462a4d0df1effac26fe843cfeaaca860d1c78"
     },
     {
       "path": "baseline/install.log.gz",
@@ -322,8 +325,8 @@
     },
     {
       "path": "retention-index.json",
-      "bytes": 14421,
-      "sha256": "571d11fde2b37d7d5d1c68ad90bdaf764b47cbcd097cdbe079bbf043d2c0bee6",
+      "bytes": 14420,
+      "sha256": "8c53a69eb8c4cd4ff785d08c52435bd8464ae8ccc41699b381c88f6f9a4f9728",
       "encoding": "identity"
     },
     {
