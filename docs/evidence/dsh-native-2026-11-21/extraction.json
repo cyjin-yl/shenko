@@ -1,0 +1,11 @@
+{
+  "source_run": 44821797841,
+  "source_artifact": 14674006742,
+  "archive_bytes": 999815759,
+  "archive_digest_from_api": "sha256:2f6bef9b7ae5e2aa1bddd6240e1e6f279f888b0c62fa670f34257b63b218d356",
+  "entry": "dsh/native-journey.json",
+  "bytes": 85101,
+  "sha256": "a071bd5fea56693ce7b4cb8cb0b9f0995b8a423e0a73dda7115aa44fbba4c07f",
+  "range_bytes_read": 1129601,
+  "scope": "exact ZIP entry copied from existing completed CI; no DSH execution"
+}
