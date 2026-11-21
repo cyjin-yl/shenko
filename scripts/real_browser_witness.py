@@ -171,18 +171,46 @@ class BrowserWitness:
         sent = await self.wait_for(lambda row: row.get("direction") == "sent"
                                   and row.get("message", {}).get("type") == "submit", after=origin)
         submission = sent["message"]
+        hello = next((row for row in reversed(self.controls)
+            if row.get("direction") == "received" and row.get("socket_id") == sent["socket_id"]
+            and row["index"] < sent["index"] and row.get("message", {}).get("type") == "hello"), None)
+        capabilities = hello["message"].get("capabilities", {}) if hello else {}
+        # The unified Send handler prefers steer only when this socket's hello
+        # advertises it. Later capabilities frames negotiate surfaces; they do
+        # not replace these input-mode capabilities.
+        expected_mode = "steer" if capabilities.get("steer") is True else "append"
+        self.observations[f"{phase}_input_mode"] = {
+            "socket_id": sent["socket_id"], "hello_index": hello["index"] if hello else None,
+            "capabilities": capabilities, "expected_mode": expected_mode,
+            "submitted_mode": submission.get("mode"),
+        }
+        self.checks[f"browser_{phase}_input_mode_matches_capability"] = bool(
+            hello and hello["message"].get("schema_version") == 2
+            and capabilities.get("append") is True and capabilities.get("durable_input_receipts") is True
+            and submission.get("mode") == expected_mode)
         if (submission.get("content") != content or submission.get("subject_id") != subject
-                or submission.get("schema_version") != 2 or submission.get("mode") != "append"
-                or not submission.get("submission_id") or not submission.get("message_id")):
+                or submission.get("schema_version") != 2
+                or not self.checks[f"browser_{phase}_input_mode_matches_capability"]
+                or not all(isinstance(submission.get(key), str) and submission[key]
+                           for key in ("submission_id", "message_id"))):
             raise AssertionError("browser submitted a different input or subject")
         self.checks[f"browser_{phase}_input_from_composer"] = True
         self.submission_keys.add("submission." + submission["submission_id"])
         receipt = await self.wait_for(lambda row: row.get("direction") == "received"
+            and row.get("socket_id") == sent["socket_id"]
             and row.get("message", {}).get("type") == "receipt"
             and row["message"].get("submission_id") == submission["submission_id"]
             and row["message"].get("stage") == "accepted", after=sent["index"])
+        accepted = receipt["message"]
+        placement = accepted.get("placement", {})
+        self.observations[f"{phase}_input_mode"]["accepted_receipt"] = accepted
         self.checks[f"browser_{phase}_durable_receipt"] = bool(
-            receipt["message"].get("accepted_commit") and receipt["message"].get("event_id"))
+            accepted.get("schema_version") == 2 and accepted.get("durability") == "durable"
+            and accepted.get("accepted_commit") and accepted.get("event_id")
+            and accepted.get("mode") == submission["mode"] and accepted.get("replayed") is False
+            and placement.get("requested") == submission["mode"] and placement.get("actual") == "next_boundary")
+        if not self.checks[f"browser_{phase}_durable_receipt"]:
+            raise AssertionError("browser input receipt differs from its actual mode or durable placement")
         await self.capture(f"{phase}-submitted")
         return submission
 
@@ -313,13 +341,28 @@ class BrowserWitness:
         state = await self.capture("journey-finished")
         self.checks["browser_existing_messages_retained_once_at_finish"] = self.stable_messages_match(state)
 
-    async def close(self):
+    async def close(self, *, capture_timeout=15, cleanup_timeout=10):
         errors = []
+        interruptions = []
+        pending_interrupt = None
+        cleanup = {"capture_timeout_seconds": capture_timeout, "owner_timeout_seconds": cleanup_timeout}
+
+        def failed(stage, error):
+            nonlocal pending_interrupt
+            errors.append(f"{stage}: {type(error).__name__}: {error}")
+            if not isinstance(error, Exception):
+                if pending_interrupt is None:
+                    pending_interrupt = error
+                interruptions.append({"stage": stage, "type": type(error).__name__, "message": str(error)})
+
         if self.page is not None and not self.page.is_closed():
             try:
-                await self.capture("final")
-            except Exception as error:
-                errors.append(f"final browser capture: {error}")
+                async with asyncio.timeout(capture_timeout):
+                    await self.capture("final")
+                cleanup["final_capture"] = "complete"
+            except BaseException as error:
+                cleanup["final_capture"] = "failed"
+                failed("final browser capture", error)
         self.checks["browser_no_page_errors"] = not self.page_errors
         stream_parts = self.counts[("received", "stream_part")]
         self.observations["streaming"] = {"observed": stream_parts > 0, "received_stream_parts": stream_parts,
@@ -329,12 +372,30 @@ class BrowserWitness:
                                        ("driver", self.driver, "stop")]:
             if owner is not None:
                 try:
-                    await getattr(owner, operation)()
-                except Exception as error:
-                    errors.append(f"{name} cleanup: {error}")
+                    async with asyncio.timeout(cleanup_timeout):
+                        await getattr(owner, operation)()
+                    cleanup[name] = "complete"
+                except BaseException as error:
+                    cleanup[name] = "failed"
+                    failed(f"{name} cleanup", error)
+            else:
+                cleanup[name] = "not_created"
+        try:
+            self.log.close()
+        except BaseException as error:
+            failed("browser event log close", error)
+        # A timed-out/cancelled close is unknown, even if a later owner's close
+        # returns. Never report that the browser was cleaned up normally.
+        self.checks["browser_cleanup_complete"] = not errors
         report = {"checks": self.checks, "observations": self.observations, "errors": errors,
-                  "page_errors": self.page_errors,
+                  "page_errors": self.page_errors, "cleanup": cleanup, "interruptions": interruptions,
                   "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"}
-        save(self.directory / "summary.json", report)
-        self.log.close()
+        try:
+            save(self.directory / "summary.json", report)
+        except BaseException as error:
+            failed("browser summary retention", error)
+            self.checks["browser_cleanup_complete"] = False
+        if pending_interrupt is not None:
+            pending_interrupt.shenko_browser_cleanup = report
+            raise pending_interrupt
         return report
