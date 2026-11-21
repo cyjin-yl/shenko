@@ -1,0 +1,764 @@
+{
+  "schema_version": 1,
+  "run_id": "protocol-before-r3",
+  "case": "case-01",
+  "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+  "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+  "observed_at": "2026-11-21T18:58:31Z",
+  "target_scope": {
+    "source": 0,
+    "pid": 1116057,
+    "scope_id": 82,
+    "phase": "control.seal_pages",
+    "parent_id": 71,
+    "started_unix_us": 1795286948370926,
+    "binding": {
+      "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+      "action_id": "8fb29847-4bed-3dc0-4cf2-e48e5597af06"
+    },
+    "status": "complete",
+    "inclusive_us": 47346063,
+    "observed_drops_during_scope": 0,
+    "self_us": 47346063
+  },
+  "target_predecessor_digest": "blake3:d381dbc3a856f77c97c048d094e3f090969e4d4b34e4ee7a4719f83e1621d06c",
+  "binding_evidence": [
+    {
+      "digest": "blake3:56ae62f6e41fd50effc9246b25304d4b9b408ce3f1748c70a96129ffad5e965b",
+      "bytes": 6920,
+      "sha256": "1649bc67f5cad4e1fd81bea94ed65bc0beaba8d6c369c49b329a91ad24449ac7",
+      "keys": [
+        "action",
+        "expected_steps",
+        "expected_tasks",
+        "head",
+        "kind",
+        "predecessor_ref",
+        "schema_version",
+        "snapshot_tasks",
+        "source_ledger_id"
+      ],
+      "identity_fields": {
+        "schema_version": 1,
+        "kind": "store.control_admission",
+        "predecessor_ref": {
+          "bytes": 5577,
+          "codec": {
+            "digest": "blake3:c750598e18e0cd2ee1301e057304c18f6d4c8a4f1b62a1e8529f15db1216027c",
+            "major": 1,
+            "name": "store-control-predecessor"
+          },
+          "digest": "blake3:d381dbc3a856f77c97c048d094e3f090969e4d4b34e4ee7a4719f83e1621d06c",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/d3/81/d381dbc3a856f77c97c048d094e3f090969e4d4b34e4ee7a4719f83e1621d06c",
+          "media_type": "application/json",
+          "store_namespace": "commit-authority"
+        },
+        "source_ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f"
+      }
+    },
+    {
+      "digest": "blake3:01632d59fc5702cb302fa8db4624eed16930ceaeb3394344085bf7da31d5b8dc",
+      "bytes": 44332,
+      "sha256": "8ad3c97f67c5110ee1fb3ebd4110dcfd71cea644024d60186f35e340504230ce",
+      "keys": [
+        "schema_version",
+        "action_id",
+        "input_digest",
+        "source_ledger_id",
+        "original_head",
+        "result_commit",
+        "created_at",
+        "updated",
+        "object_roots",
+        "tables"
+      ],
+      "identity_fields": {
+        "schema_version": 2,
+        "action_id": "8fb29847-4bed-3dc0-4cf2-e48e5597af06",
+        "source_ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f"
+      }
+    }
+  ],
+  "stopped_runtime_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.runtime.log",
+    "bytes": 110186,
+    "sha256": "a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102"
+  },
+  "cas_graph": {
+    "schema_version": 1,
+    "observed_at": "2026-11-21T18:58:31Z",
+    "case": "case-01",
+    "cas_inventory": {
+      "bytes": 30041,
+      "sha256": "deb58ef97f0a683bf2ca77606f9f6dad62e8b54fb996ced8486abcff253a28a0",
+      "files": 209
+    },
+    "predecessors": [
+      {
+        "ref": {
+          "digest": "blake3:53bbde4cc3f6b24ce53e5867840ab513dceba48fe0575b6b62525f8343536d77",
+          "bytes": 4544,
+          "codec": {
+            "name": "store-control-predecessor"
+          }
+        },
+        "manifest_created_at": "2026-11-21T18:47:43.081730651Z",
+        "high_water": 17,
+        "source_snapshot_seq": 1,
+        "head": {
+          "agent_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+          "branch_id": "3e7f3862-08b0-47fa-a40a-0b3c8d5448a4",
+          "record_revision": 3,
+          "committed_at": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 2
+          }
+        },
+        "declared_counts": {
+          "row_count": 16,
+          "object_count": 10,
+          "root_count": 7,
+          "derivative_count": 0
+        },
+        "trees": {
+          "rows": {
+            "pages": 1,
+            "page_bytes": 9232,
+            "entries": 16,
+            "leaf_pages": 1
+          },
+          "roots": {
+            "pages": 1,
+            "page_bytes": 2705,
+            "entries": 7,
+            "leaf_pages": 1
+          },
+          "derivatives": {
+            "pages": 1,
+            "page_bytes": 68,
+            "entries": 0,
+            "leaf_pages": 1
+          }
+        },
+        "sealed_objects": {
+          "calls": 20,
+          "unique_count": 20,
+          "bytes_sum": 33523,
+          "by_codec": {
+            "store-control-predecessor": {
+              "count": 1,
+              "bytes": 4544,
+              "max_bytes": 4544
+            },
+            "store-control-page": {
+              "count": 3,
+              "bytes": 12005,
+              "max_bytes": 9232
+            },
+            "store-control-row": {
+              "count": 16,
+              "bytes": 16974,
+              "max_bytes": 2682
+            }
+          },
+          "digest_reuse_from_previous_root": {
+            "reused": 0,
+            "reused_bytes": 0,
+            "not_in_previous": 20,
+            "not_in_previous_bytes": 33523
+          },
+          "digest_set_sha256": "b6024bc7f6e05d72828dd01684071347d2edbb585168ac65c12201d5ce23e387"
+        },
+        "rows_by_table": {
+          "activation_launch_receipts": 1,
+          "activation_selectors": 1,
+          "context_window_scopes": 1,
+          "context_windows": 2,
+          "identity_profiles": 1,
+          "inbox_events": 2,
+          "raw_sessions": 1,
+          "session_events": 1,
+          "subject_branch_heads": 1,
+          "subject_genesis": 1,
+          "subject_raw_inputs": 1,
+          "subject_steps": 1,
+          "tasks": 1,
+          "web_input_submissions": 1
+        },
+        "rows_bytes_by_table": {
+          "activation_launch_receipts": 662,
+          "activation_selectors": 1512,
+          "context_window_scopes": 259,
+          "context_windows": 1739,
+          "identity_profiles": 463,
+          "inbox_events": 2247,
+          "raw_sessions": 415,
+          "session_events": 1589,
+          "subject_branch_heads": 1014,
+          "subject_genesis": 2682,
+          "subject_raw_inputs": 380,
+          "subject_steps": 1379,
+          "tasks": 1601,
+          "web_input_submissions": 1032
+        },
+        "direct_roots": {
+          "count": 7,
+          "declared_bytes_sum": 66197,
+          "largest": [
+            {
+              "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+              "bytes": 60873,
+              "codec": "subject_step_input"
+            },
+            {
+              "digest": "blake3:5047caa7217d340a7006c4a93cfa4c2eea7c21b4a692937beeba42c9149cd457",
+              "bytes": 1976,
+              "codec": "json"
+            },
+            {
+              "digest": "blake3:cd50f32029567b13848a5103f721bf242b5a4a9768c26d581e7e59c23a7d44a4",
+              "bytes": 1193,
+              "codec": "json"
+            },
+            {
+              "digest": "blake3:4988ef3547eec5a23292ae8c37f56f191854283ee3c60ebb30536a3c423a53ef",
+              "bytes": 1102,
+              "codec": "json"
+            },
+            {
+              "digest": "blake3:547408c2dd2c9760aec47dbc8f1e287e52212f10da7462b32ac8c813d3dca3b2",
+              "bytes": 833,
+              "codec": "json"
+            }
+          ]
+        },
+        "root_stat": {
+          "mtime_ns": 1795286870416737300
+        }
+      },
+      {
+        "ref": {
+          "digest": "blake3:b1b19f0a6b8065e82de78cae93d8c6cef97f723f4a44b93a8682baa529fb510b",
+          "bytes": 5190,
+          "codec": {
+            "name": "store-control-predecessor"
+          }
+        },
+        "manifest_created_at": "2026-11-21T18:47:54.005097305Z",
+        "high_water": 18,
+        "source_snapshot_seq": 2,
+        "head": {
+          "agent_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+          "branch_id": "3e7f3862-08b0-47fa-a40a-0b3c8d5448a4",
+          "record_revision": 3,
+          "committed_at": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 2
+          }
+        },
+        "declared_counts": {
+          "row_count": 18,
+          "object_count": 31,
+          "root_count": 8,
+          "derivative_count": 0
+        },
+        "trees": {
+          "rows": {
+            "pages": 1,
+            "page_bytes": 10372,
+            "entries": 18,
+            "leaf_pages": 1
+          },
+          "roots": {
+            "pages": 1,
+            "page_bytes": 3104,
+            "entries": 8,
+            "leaf_pages": 1
+          },
+          "derivatives": {
+            "pages": 1,
+            "page_bytes": 68,
+            "entries": 0,
+            "leaf_pages": 1
+          }
+        },
+        "sealed_objects": {
+          "calls": 22,
+          "unique_count": 22,
+          "bytes_sum": 42853,
+          "by_codec": {
+            "store-control-predecessor": {
+              "count": 1,
+              "bytes": 5190,
+              "max_bytes": 5190
+            },
+            "store-control-page": {
+              "count": 3,
+              "bytes": 13544,
+              "max_bytes": 10372
+            },
+            "store-control-row": {
+              "count": 18,
+              "bytes": 24119,
+              "max_bytes": 4862
+            }
+          },
+          "digest_reuse_from_previous_root": {
+            "reused": 16,
+            "reused_bytes": 15663,
+            "not_in_previous": 6,
+            "not_in_previous_bytes": 27190
+          },
+          "digest_set_sha256": "af37db923c2de54a5ba25b3a57d2206432d7ab3de57fc0baf1614ceb7cd264a1"
+        },
+        "rows_by_table": {
+          "activation_launch_receipts": 1,
+          "activation_selectors": 1,
+          "context_window_scopes": 1,
+          "context_windows": 2,
+          "identity_profiles": 1,
+          "inbox_events": 3,
+          "raw_sessions": 1,
+          "session_events": 1,
+          "subject_branch_heads": 1,
+          "subject_genesis": 1,
+          "subject_raw_inputs": 1,
+          "subject_request_attempts": 1,
+          "subject_steps": 1,
+          "tasks": 1,
+          "web_input_submissions": 1
+        },
+        "rows_bytes_by_table": {
+          "activation_launch_receipts": 662,
+          "activation_selectors": 1512,
+          "context_window_scopes": 259,
+          "context_windows": 1739,
+          "identity_profiles": 463,
+          "inbox_events": 7109,
+          "raw_sessions": 415,
+          "session_events": 1589,
+          "subject_branch_heads": 1014,
+          "subject_genesis": 2682,
+          "subject_raw_inputs": 380,
+          "subject_request_attempts": 2237,
+          "subject_steps": 1425,
+          "tasks": 1601,
+          "web_input_submissions": 1032
+        },
+        "direct_roots": {
+          "count": 8,
+          "declared_bytes_sum": 71237,
+          "largest": [
+            {
+              "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+              "bytes": 60873,
+              "codec": "subject_step_input"
+            },
+            {
+              "digest": "blake3:0da559cbc871008e44fc36fce30f85f7c652829238c9510c5c7e921ef3aec7e7",
+              "bytes": 5040,
+              "codec": "commit-admission"
+            },
+            {
+              "digest": "blake3:5047caa7217d340a7006c4a93cfa4c2eea7c21b4a692937beeba42c9149cd457",
+              "bytes": 1976,
+              "codec": "json"
+            },
+            {
+              "digest": "blake3:cd50f32029567b13848a5103f721bf242b5a4a9768c26d581e7e59c23a7d44a4",
+              "bytes": 1193,
+              "codec": "json"
+            },
+            {
+              "digest": "blake3:4988ef3547eec5a23292ae8c37f56f191854283ee3c60ebb30536a3c423a53ef",
+              "bytes": 1102,
+              "codec": "json"
+            }
+          ]
+        },
+        "root_stat": {
+          "mtime_ns": 1795286876795080200
+        }
+      },
+      {
+        "ref": {
+          "digest": "blake3:d381dbc3a856f77c97c048d094e3f090969e4d4b34e4ee7a4719f83e1621d06c",
+          "bytes": 5577,
+          "codec": {
+            "name": "store-control-predecessor"
+          }
+        },
+        "manifest_created_at": "2026-11-21T18:49:08.328599332Z",
+        "high_water": 91,
+        "source_snapshot_seq": 3,
+        "head": {
+          "agent_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+          "branch_id": "3e7f3862-08b0-47fa-a40a-0b3c8d5448a4",
+          "record_revision": 3,
+          "committed_at": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 2
+          }
+        },
+        "declared_counts": {
+          "row_count": 86,
+          "object_count": 41,
+          "root_count": 12,
+          "derivative_count": 0
+        },
+        "trees": {
+          "rows": {
+            "pages": 17,
+            "page_bytes": 63192,
+            "entries": 86,
+            "leaf_pages": 16
+          },
+          "roots": {
+            "pages": 1,
+            "page_bytes": 4689,
+            "entries": 12,
+            "leaf_pages": 1
+          },
+          "derivatives": {
+            "pages": 1,
+            "page_bytes": 68,
+            "entries": 0,
+            "leaf_pages": 1
+          }
+        },
+        "sealed_objects": {
+          "calls": 106,
+          "unique_count": 106,
+          "bytes_sum": 139861,
+          "by_codec": {
+            "store-control-predecessor": {
+              "count": 1,
+              "bytes": 5577,
+              "max_bytes": 5577
+            },
+            "store-control-page": {
+              "count": 19,
+              "bytes": 67949,
+              "max_bytes": 8274
+            },
+            "store-control-row": {
+              "count": 86,
+              "bytes": 66335,
+              "max_bytes": 4862
+            }
+          },
+          "digest_reuse_from_previous_root": {
+            "reused": 17,
+            "reused_bytes": 20525,
+            "not_in_previous": 89,
+            "not_in_previous_bytes": 119336
+          },
+          "digest_set_sha256": "af543b9e9ecc41d6fc6b5887f7eacc71142bead4a000a5aee75beb963ffc30ba"
+        },
+        "rows_by_table": {
+          "activation_launch_receipts": 1,
+          "activation_selectors": 1,
+          "content_stream_units": 22,
+          "content_streams": 1,
+          "context_window_scopes": 1,
+          "context_windows": 2,
+          "identity_profiles": 1,
+          "inbox_events": 4,
+          "raw_sessions": 1,
+          "session_events": 2,
+          "subject_branch_heads": 1,
+          "subject_genesis": 1,
+          "subject_output_parts": 43,
+          "subject_raw_inputs": 1,
+          "subject_request_attempts": 1,
+          "subject_steps": 1,
+          "tasks": 1,
+          "web_input_submissions": 1
+        },
+        "rows_bytes_by_table": {
+          "activation_launch_receipts": 662,
+          "activation_selectors": 1512,
+          "content_stream_units": 6796,
+          "content_streams": 664,
+          "context_window_scopes": 259,
+          "context_windows": 1739,
+          "identity_profiles": 463,
+          "inbox_events": 11863,
+          "raw_sessions": 415,
+          "session_events": 4123,
+          "subject_branch_heads": 1014,
+          "subject_genesis": 2682,
+          "subject_output_parts": 25512,
+          "subject_raw_inputs": 380,
+          "subject_request_attempts": 3180,
+          "subject_steps": 2438,
+          "tasks": 1601,
+          "web_input_submissions": 1032
+        },
+        "direct_roots": {
+          "count": 12,
+          "declared_bytes_sum": 864848,
+          "largest": [
+            {
+              "digest": "blake3:2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+              "bytes": 395169,
+              "codec": "subject-request-result"
+            },
+            {
+              "digest": "blake3:f574dff96131fa90c8277da6b94c378acf691466680177b682c0601ea13640eb",
+              "bytes": 394086,
+              "codec": "SubjectModelOutcome"
+            },
+            {
+              "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+              "bytes": 60873,
+              "codec": "subject_step_input"
+            },
+            {
+              "digest": "blake3:0da559cbc871008e44fc36fce30f85f7c652829238c9510c5c7e921ef3aec7e7",
+              "bytes": 5040,
+              "codec": "commit-admission"
+            },
+            {
+              "digest": "blake3:5b848d902b2bd47aef8d2d793149575da7ce50a9669dfb41fd58905418dc0a68",
+              "bytes": 3409,
+              "codec": "commit-admission"
+            }
+          ]
+        },
+        "root_stat": {
+          "mtime_ns": 1795286995392456700
+        }
+      },
+      {
+        "ref": {
+          "digest": "blake3:58a039ad3319bdb3813ffadc028d80314322c3fb3d36b42b89e80806f27b7215",
+          "bytes": 6385,
+          "codec": {
+            "name": "store-control-predecessor"
+          }
+        },
+        "manifest_created_at": "2026-11-21T18:49:59.544178Z",
+        "high_water": 95,
+        "source_snapshot_seq": 4,
+        "head": {
+          "agent_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+          "branch_id": "3e7f3862-08b0-47fa-a40a-0b3c8d5448a4",
+          "record_revision": 4,
+          "committed_at": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 94
+          }
+        },
+        "declared_counts": {
+          "row_count": 102,
+          "object_count": 133,
+          "root_count": 16,
+          "derivative_count": 0
+        },
+        "trees": {
+          "rows": {
+            "pages": 17,
+            "page_bytes": 72403,
+            "entries": 102,
+            "leaf_pages": 16
+          },
+          "roots": {
+            "pages": 1,
+            "page_bytes": 6267,
+            "entries": 16,
+            "leaf_pages": 1
+          },
+          "derivatives": {
+            "pages": 1,
+            "page_bytes": 68,
+            "entries": 0,
+            "leaf_pages": 1
+          }
+        },
+        "sealed_objects": {
+          "calls": 122,
+          "unique_count": 122,
+          "bytes_sum": 172401,
+          "by_codec": {
+            "store-control-predecessor": {
+              "count": 1,
+              "bytes": 6385,
+              "max_bytes": 6385
+            },
+            "store-control-page": {
+              "count": 19,
+              "bytes": 78738,
+              "max_bytes": 8274
+            },
+            "store-control-row": {
+              "count": 102,
+              "bytes": 87278,
+              "max_bytes": 4862
+            }
+          },
+          "digest_reuse_from_previous_root": {
+            "reused": 89,
+            "reused_bytes": 77433,
+            "not_in_previous": 33,
+            "not_in_previous_bytes": 94968
+          },
+          "digest_set_sha256": "bf4ccf337b5a39e4fca5ec6b6e7366bd7e0fc4334ae0b909ce6ad1381b44c391"
+        },
+        "rows_by_table": {
+          "activation_launch_receipts": 1,
+          "activation_selectors": 1,
+          "content_stream_units": 23,
+          "content_streams": 2,
+          "context_window_scopes": 1,
+          "context_windows": 2,
+          "identity_profiles": 1,
+          "inbox_events": 5,
+          "raw_sessions": 1,
+          "semantic_wait_receipts": 1,
+          "semantic_waits": 1,
+          "session_events": 4,
+          "subject_branch_heads": 1,
+          "subject_event_dispositions": 1,
+          "subject_genesis": 1,
+          "subject_identity_receipts": 1,
+          "subject_intent_steps": 1,
+          "subject_intents": 3,
+          "subject_output_parts": 43,
+          "subject_raw_inputs": 1,
+          "subject_request_attempts": 1,
+          "subject_steps": 2,
+          "tasks": 3,
+          "web_input_submissions": 1
+        },
+        "rows_bytes_by_table": {
+          "activation_launch_receipts": 662,
+          "activation_selectors": 1512,
+          "content_stream_units": 8096,
+          "content_streams": 1756,
+          "context_window_scopes": 259,
+          "context_windows": 1739,
+          "identity_profiles": 463,
+          "inbox_events": 14176,
+          "raw_sessions": 415,
+          "semantic_wait_receipts": 1531,
+          "semantic_waits": 1353,
+          "session_events": 5596,
+          "subject_branch_heads": 1085,
+          "subject_event_dispositions": 506,
+          "subject_genesis": 2682,
+          "subject_identity_receipts": 366,
+          "subject_intent_steps": 168,
+          "subject_intents": 5746,
+          "subject_output_parts": 25512,
+          "subject_raw_inputs": 380,
+          "subject_request_attempts": 3180,
+          "subject_steps": 3894,
+          "tasks": 5169,
+          "web_input_submissions": 1032
+        },
+        "direct_roots": {
+          "count": 16,
+          "declared_bytes_sum": 928258,
+          "largest": [
+            {
+              "digest": "blake3:2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+              "bytes": 395169,
+              "codec": "subject-request-result"
+            },
+            {
+              "digest": "blake3:f574dff96131fa90c8277da6b94c378acf691466680177b682c0601ea13640eb",
+              "bytes": 394086,
+              "codec": "SubjectModelOutcome"
+            },
+            {
+              "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+              "bytes": 60873,
+              "codec": "subject_step_input"
+            },
+            {
+              "digest": "blake3:01632d59fc5702cb302fa8db4624eed16930ceaeb3394344085bf7da31d5b8dc",
+              "bytes": 44332,
+              "codec": "store-s1-transition"
+            },
+            {
+              "digest": "blake3:56ae62f6e41fd50effc9246b25304d4b9b408ce3f1748c70a96129ffad5e965b",
+              "bytes": 6920,
+              "codec": "commit-admission"
+            }
+          ]
+        },
+        "root_stat": {
+          "mtime_ns": 1795287014791499800
+        }
+      }
+    ],
+    "read_budget_actual": {
+      "prefix_files": 205,
+      "prefix_bytes": 25833,
+      "full_objects": 41,
+      "full_bytes": 179246
+    },
+    "interpretation": [
+      "Retained stopped-case CAS only; root/page SHA256 verified against driver inventory. Leaf row bodies and large binary not read.",
+      "Sealing call count follows current source control_predecessor row+derivative+tree+root path, not observed fsync counts. Reused means present in immediately prior snapshot graph; first graph may already exist elsewhere.",
+      "Direct root object bytes are referenced, not re-sealed by control.seal_pages. Per-object sync timing and ZFS dirty-page attribution remain unmeasured."
+    ]
+  },
+  "interpretation": [
+    "The selected root manifest was captured at 18:49:08.328599332Z, the 47.346063-second seal scope began at 18:49:08.370926Z and ended at 18:49:55.716989Z, and the retained root mtime was 18:49:55.392456700Z. Its predecessor reference is also present in the later retained store.control_admission envelope. This is a durable S1 predecessor, not an unrelated historical payload.",
+    "The phase follows 86 row seals, no derivative-value seals, 19 tree-page seals and one predecessor-root seal: 106 calls and 139861 bytes in unique serialized objects. 22 content_stream_units plus 43 subject_output_parts account for 65 of the row seals. Digest reuse is compared with the immediately prior graph, not inferred from filesystem mtime or claimed as observed hit/miss counters.",
+    "The model-result and outcome objects listed in direct_roots are references only in control.seal_pages. collect_closure and validation occur before the measured seal scope. This phase does not reseal the referenced model result or release executable.",
+    "The per-call three-directory traversal (leaf shard, first shard, CAS base) follows source on Unix and means 318 intended directory-sync invocations for the 106 successful seal calls. These are source-derived counts, not traced syscall counts. New-object file sync counts cannot be asserted from graph differences alone.",
+    "Root staging creation and removal modify CAS-root metadata. Root synchronization happens before the owned staging unlink; a following seal can encounter that dirty directory state. The observations do not measure ZFS dirty pages, file-vs-directory sync latency, hashing CPU, or causal percentages.",
+    "The preserved first-request verdict is success/stop and committed S1 without R0. Shutdown authority-fenced exit1 is recorded separately and the original summary protocol_passed=false is retained."
+  ],
+  "source_review": {
+    "compared_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+    "relevant_files_unchanged_since_compared_revision": [
+      "crates/shenko-store/src/cas.rs",
+      "crates/shenko-store/src/control_predecessor.rs",
+      "crates/shenko-store/src/roots.rs"
+    ],
+    "files": {
+      "crates/shenko-store/src/cas.rs": {
+        "sha256": "77fb1005a201166a42e16364194491325ea9909b009d3e9339b9a4236df1c1a4",
+        "findings": [
+          "46-76: seal_object validates existing files and synchronizes directories even on dedup; a new object is staged in CAS base, file-synced, linked, directory-synced and then its owned staging name removed.",
+          "254-273: publication links without overwrite; existing-target race verifies bytes; directory traversal synchronizes leaf to admitted CAS root."
+        ]
+      },
+      "crates/shenko-store/src/control_predecessor.rs": {
+        "sha256": "6a581ea60207c9d70618a5b803885b4643353e5d6e9a919c86b71daf1af5f705",
+        "findings": [
+          "129-160: the measured scope computes direct roots, seals every serialized row/derivative, recursively builds the three trees and seals the predecessor root.",
+          "263-265 and 282-298: every value/page calls ContentStore::seal_object; PAGE_CAPACITY=32; root references are not expanded into resealed payloads."
+        ]
+      },
+      "crates/shenko-store/src/roots.rs": {
+        "sha256": "caf78a0076ebe8b97ca10340ed3ee4ac1058db4d4212d7fbb7fd566c03a23c53",
+        "findings": [
+          "255-277: CasWriteLease is a shared writer/reclaimer exclusion with physical-CAS identity, not a multi-object flush barrier."
+        ]
+      }
+    }
+  },
+  "minimal_optimization_boundary": {
+    "status": "proposal only; no source changes, build, tests or new model work",
+    "reusable_existing_parts": [
+      "ContentStore immutable digest validation, per-new-file sync, no-overwrite hard-link publication and race verification.",
+      "CasWriteLease/StorePublication custody spanning sealing through root-reference publication."
+    ],
+    "absent_capability": "No reusable multi-object directory-durability batch barrier was found in ContentStore. StorePublication retains exclusion/identity; checkpoint write_atomic and append_durable perform individual publication barriers.",
+    "proposed_scope": "Only one prepare_control_predecessor_inner graph: keep identical serialized bytes, digest identities, snapshot validation and SQL/admission ordering.",
+    "obligations": [
+      "Keep file-content durability and existing-object integrity validation. Collect each touched shard and ancestor in a bounded batch and synchronize required directory levels from leaves to CAS root after this batch's owned staging cleanup.",
+      "Return no public durable/SealedObjectRef promise from the batch until its barrier succeeds. Internal provisional ObjectRefs may be used to hash parent pages but must not escape for SQL/root publication before finish.",
+      "Keep shared CAS custody until the durable external root reference is published; preserve no-overwrite race validation and fail before admission on any write/sync error. Extra orphan objects on failure remain acceptable existing behavior.",
+      "Do not implement by globally skipping sync on dedup, marking object_exists as durable, or treating CasWriteLease as a flush. Cross-process writers and future reclamation still require the explicit contract.",
+      "Do not silently move staging into a new directory: existing staging discovery/reclamation guards recognize names at the CAS root and would need a separate contract review.",
+      "Coalescing touched directories does not reduce all 318 calls to one: distinct leaf/first-shard directories still require their own barriers, and new files still need content synchronization."
+    ],
+    "expected_result": "Plausibly fewer repeated root/ancestor barriers and less staging-root churn per returned predecessor; latency improvement and attribution require a frozen follow-up measurement."
+  }
+}

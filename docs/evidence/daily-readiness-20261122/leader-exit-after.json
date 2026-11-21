@@ -1,0 +1,46 @@
+{
+  "scope": "same real owned threaded-process cleanup experiment after the driver fix; no model",
+  "after_fix_receipt": {
+    "parent_exit": 0,
+    "parent_timed_out": true,
+    "clean": false,
+    "interrupted": false,
+    "group_cleanup": {
+      "pgid": 6,
+      "required": true,
+      "forced": false,
+      "signals": [
+        "SIGTERM"
+      ],
+      "complete": true,
+      "after_parent": {
+        "live_pids": [
+          6
+        ],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": true
+      },
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "parent_reaped": true
+    },
+    "errors": []
+  },
+  "zombie_leader_with_live_worker_observed": {
+    "live_pids": [
+      6
+    ],
+    "zombie_pids": [],
+    "live_thread_ids": [
+      7
+    ],
+    "alive": true
+  },
+  "live_worker_samples": 29,
+  "timeout_remains_failed": true
+}

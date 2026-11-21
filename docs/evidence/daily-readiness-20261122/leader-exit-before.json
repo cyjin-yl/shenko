@@ -1,0 +1,38 @@
+{
+  "scope": "real owned threaded-process cleanup experiment only",
+  "before_fix_receipt": {
+    "parent_exit": null,
+    "parent_timed_out": true,
+    "clean": false,
+    "interrupted": false,
+    "group_cleanup": {
+      "pgid": 6,
+      "required": true,
+      "forced": false,
+      "signals": [
+        "SIGTERM"
+      ],
+      "complete": true,
+      "after_parent": {
+        "live_pids": [
+          6
+        ],
+        "zombie_pids": [],
+        "alive": true
+      },
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [
+          6
+        ],
+        "alive": false
+      }
+    },
+    "errors": []
+  },
+  "thread_states_when_stop_returned": {
+    "6": "Z",
+    "7": "S"
+  },
+  "eventual_parent_exit": 0
+}

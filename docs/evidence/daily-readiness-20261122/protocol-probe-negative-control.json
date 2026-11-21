@@ -1,0 +1,190 @@
+{
+  "source_run": "/tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1",
+  "read_only_original": true,
+  "probe_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+  "probe_sha256": "30ec0e5b62a3c1eb759b622e862e15d14410532946a8644151228a3e1c5d90c6",
+  "source_manifest_sha256": "9c8cc673c7f40644e02258c11c5040fd054c874380d6ad45d2746f7b97bac3fa",
+  "source_final_ledger_sha256": "8657f91b51b6f63649b210ed3c3f089102e077133c7e3aca14db886099afd6de",
+  "observed_attempt_count": 4,
+  "later_committed_steps": [
+    "c31a7376-6583-498e-8cc8-c3b2ee598458"
+  ],
+  "assessment": {
+    "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+    "request_id": "7f64f425-9e0a-4180-9c8e-27d4440756ef",
+    "step_id": "f6b59b01-09e3-404d-9dd5-5d35a54ec75b",
+    "step_state": "retired",
+    "commit_ref": null,
+    "sources": [
+      {
+        "file": "first.input-plan.json",
+        "reference": {
+          "digest": "blake3:7973a75123efb32b7f855f1c449bf7a0714fe7f2919aa70c6e0412390a88419d",
+          "bytes": 60851,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/79/73/7973a75123efb32b7f855f1c449bf7a0714fe7f2919aa70c6e0412390a88419d",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "sha256": "4875dd2841b4b9c4800bbf6039839c4a42f621aed54ddcc632b8e7ed2e8acb28"
+      },
+      {
+        "file": "first.request-result.json",
+        "reference": {
+          "digest": "blake3:430000314a04e2ae5eec5dde9e004be714a68558f17f7ed05e92efdc6c7ee095",
+          "bytes": 434460,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/43/00/430000314a04e2ae5eec5dde9e004be714a68558f17f7ed05e92efdc6c7ee095",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "sha256": "16674c93c35fb468d549221fce726e287f0a456339c7aa7af821aab84d1a80af"
+      },
+      {
+        "file": "first.output.txt",
+        "reference": {
+          "digest": "blake3:1155dbfbbccf2008e63955572c4c65f3345bb69becfc2d650d497a2a9a71f889",
+          "bytes": 1544,
+          "media_type": "text/plain",
+          "store_namespace": "model_results",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/11/55/1155dbfbbccf2008e63955572c4c65f3345bb69becfc2d650d497a2a9a71f889",
+          "codec": {
+            "name": "text",
+            "major": 1,
+            "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+          }
+        },
+        "sha256": "d7c580e23ebdf44b1990166b337f6266fb89ccbf3a173366b4ad7bf0b6ad6415"
+      },
+      {
+        "file": "first.model-outcome.json",
+        "reference": {
+          "digest": "blake3:478a46fe233361e453c455ce075082c281df007ad4e8cee17f6f5bdd47b158d4",
+          "bytes": 432770,
+          "media_type": "application/json",
+          "store_namespace": "model_outcomes",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/47/8a/478a46fe233361e453c455ce075082c281df007ad4e8cee17f6f5bdd47b158d4",
+          "codec": {
+            "name": "SubjectModelOutcome",
+            "major": 2,
+            "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+          }
+        },
+        "sha256": "b310648fd7e24d7947139941e312d4966acbec2b47969d878e45efb3c4999764"
+      },
+      {
+        "file": "first.rejection.json",
+        "reference": {
+          "digest": "blake3:803258e38271a171029eca7e1e81d570739ea1f22cd154a87934dde4129f9ac5",
+          "bytes": 1912,
+          "media_type": "application/json",
+          "store_namespace": "control_rejections",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/80/32/803258e38271a171029eca7e1e81d570739ea1f22cd154a87934dde4129f9ac5",
+          "codec": {
+            "name": "ControlOutputRejection",
+            "major": 3,
+            "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+          }
+        },
+        "sha256": "c0edc6f9d7af24395c08e29fef6257fe508110a2ecc09e3b452a989fa8ab7bf0"
+      }
+    ],
+    "system_prompt_sha256": "e7f06f9159ca450e9aa75b187aa9a103def1a281931ab277b8399b47a4308d9c",
+    "sealed_max_tokens": 4096,
+    "effective": {
+      "provider_binding": {
+        "kind": "local",
+        "base_url": "http://10.10.10.11:8000",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "allow_invalid_certs": false,
+        "serializer_revision": 4,
+        "default_max_tokens": 8192,
+        "request_timeout_ms": 600000
+      },
+      "profile_id": "local.openai.chat_completions",
+      "profile_revision": 4,
+      "api_version": null,
+      "max_tokens": 4096,
+      "native_options": {}
+    },
+    "comparison_valid": true,
+    "termination": {
+      "kind": "provider_terminal",
+      "stop_reason": "stop",
+      "max_tokens": 4096,
+      "output_tokens": 3215,
+      "length": false
+    },
+    "rejection": {
+      "schema_version": 3,
+      "supersedes_step_id": "f6b59b01-09e3-404d-9dd5-5d35a54ec75b",
+      "replacement_step_id": "2ed5fe6c-4d21-4a80-8cf1-02f753fbc472",
+      "request_id": "7f64f425-9e0a-4180-9c8e-27d4440756ef",
+      "input_plan_ref": {
+        "digest": "blake3:7973a75123efb32b7f855f1c449bf7a0714fe7f2919aa70c6e0412390a88419d",
+        "bytes": 60851,
+        "media_type": "application/json",
+        "store_namespace": "input_plans",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/79/73/7973a75123efb32b7f855f1c449bf7a0714fe7f2919aa70c6e0412390a88419d",
+        "codec": {
+          "name": "subject_step_input",
+          "major": 15,
+          "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+        }
+      },
+      "model_result_ref": {
+        "digest": "blake3:1155dbfbbccf2008e63955572c4c65f3345bb69becfc2d650d497a2a9a71f889",
+        "bytes": 1544,
+        "media_type": "text/plain",
+        "store_namespace": "model_results",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/11/55/1155dbfbbccf2008e63955572c4c65f3345bb69becfc2d650d497a2a9a71f889",
+        "codec": {
+          "name": "text",
+          "major": 1,
+          "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+        }
+      },
+      "model_outcome_ref": {
+        "digest": "blake3:478a46fe233361e453c455ce075082c281df007ad4e8cee17f6f5bdd47b158d4",
+        "bytes": 432770,
+        "media_type": "application/json",
+        "store_namespace": "model_outcomes",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/candidate-journey-r1/installation/cas/47/8a/478a46fe233361e453c455ce075082c281df007ad4e8cee17f6f5bdd47b158d4",
+        "codec": {
+          "name": "SubjectModelOutcome",
+          "major": 2,
+          "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+        }
+      },
+      "error": {
+        "code": "CONTROL_PROTOCOL_INVALID",
+        "scope": "request",
+        "retry": "new_revision",
+        "details": {
+          "line": 3,
+          "protocol": 3,
+          "reason": "empty action"
+        }
+      },
+      "correction": {
+        "prior_pinned_corrections": 0,
+        "replacement": {
+          "mode": "pinned_correction"
+        }
+      }
+    },
+    "checks": {
+      "input_in_first_seal": true,
+      "first_result_committed_without_r0": false,
+      "s1_requested_children_admitted": false
+    }
+  }
+}

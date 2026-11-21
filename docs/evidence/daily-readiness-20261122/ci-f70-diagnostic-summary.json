@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-11-21T19:27:39Z",
+  "repository": "cyjin-yl/shenko",
+  "pull_request": 384,
+  "trigger_head": "f70e2061657b78b68b08a5f5cfb67c25e4f6a71d",
+  "checkout_merge": "0ae363c8ad9bbe9748c8d6c9acee9b67a618b002",
+  "comparison_baseline": "f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42",
+  "run_id": 44940405563,
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/44940405563",
+  "jobs": [
+    {
+      "job_id": 136956123609,
+      "name": "docs",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "job_id": 136956123800,
+      "name": "kernel-boundary",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "job_id": 136956123831,
+      "name": "docs-migration",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "job_id": 136956123848,
+      "name": "rust",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    {
+      "job_id": 136956123865,
+      "name": "web",
+      "status": "completed",
+      "conclusion": "success"
+    },
+    {
+      "job_id": 136956123898,
+      "name": "clippy-ratchet",
+      "status": "completed",
+      "conclusion": "failure"
+    }
+  ],
+  "rust": {
+    "job_id": 136956123848,
+    "first_failed_step": "Check every workspace target with the lockfile",
+    "error_code": "E0599",
+    "source": "bin/shenko/src/runtime_authority_tests.rs:334",
+    "detail": "admit_native_task returns anyhow::Error; assertion invoked a ShenkoError method before downcasting",
+    "raw_log_file": "ci-f70-rust-job136956123848.log",
+    "raw_log_bytes": 167463,
+    "raw_log_sha256": "04b113d72754d28d0f14fb503106bed2be16ce2954c02238e0ac24ba7c9d6f78"
+  },
+  "clippy": {
+    "job_id": 136956123898,
+    "artifact_id": 14721631633,
+    "artifact_file": "ci-f70-clippy-evidence.zip",
+    "artifact_bytes": 1959770,
+    "artifact_sha256": "f4a2bf0bda2b1d9e41c7ef33e7941c1f9d30ceb87b08c51796448cd977185ccf",
+    "production_base_and_candidate_builds_completed": true,
+    "production_growth": [
+      {
+        "package": "shenko-store",
+        "lint": "clippy::expect_used",
+        "count": 1
+      }
+    ],
+    "all_targets_base_completed": true,
+    "all_targets_candidate_completed": false,
+    "all_targets_error": "same E0599 in runtime_authority_tests.rs:334",
+    "ratchet_json_written": false
+  },
+  "fix": {
+    "commit": "86b05db07b7437e9bdd256c98bbe248da5732f31",
+    "parent": "f70e2061657b78b68b08a5f5cfb67c25e4f6a71d",
+    "files": 2,
+    "insertions": 5,
+    "deletions": 2,
+    "new_test_functions": 0,
+    "validation": [
+      "git diff --check passed",
+      "independent exact-commit read-only review by /root/timing: no blocking P1/P2"
+    ],
+    "compiler_or_runtime_retest": false,
+    "caveat": "Original run remains failed; corrected head needs fresh CI and real regression receipts. No remote cargo or model invocation performed by this reviewer."
+  }
+}

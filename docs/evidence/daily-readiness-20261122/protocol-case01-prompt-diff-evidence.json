@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T19:32:11Z",
+  "sources": [
+    {
+      "batch": "protocol-before-r3",
+      "input_plan_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.input-plan.json",
+      "input_plan_bytes": 60873,
+      "input_plan_sha256": "0126ebe3446fe4e6976addae98ee86dcc3c375f7d232a8f41bb1a75b9534ea75",
+      "system_prompt_bytes": 54811,
+      "system_prompt_sha256": "cde8621172ed37c009dd66ea7353d56a645e3ac8b1273c703869fa33d4fc7dc1"
+    },
+    {
+      "batch": "protocol-after-r1",
+      "input_plan_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/first.input-plan.json",
+      "input_plan_bytes": 61018,
+      "input_plan_sha256": "1432d12c52394baf39882b0375a3bcc46b5037a1e03733eabeb0c6cc7b05420a",
+      "system_prompt_bytes": 54956,
+      "system_prompt_sha256": "d5ce33bfe8a7ff1e7f8215cc6ea8e9a90f7b14a34be47204bd1a149c7ac87c9d"
+    }
+  ],
+  "diff_format": {
+    "algorithm": "Python difflib.unified_diff",
+    "context_lines": 3,
+    "splitlines_keepends": true,
+    "encoding": "UTF-8",
+    "fromfile": "protocol-before-r3/case-01/system_prompt",
+    "tofile": "protocol-after-r1/case-01/system_prompt"
+  },
+  "raw_diff_bytes": 7227,
+  "raw_diff_sha256": "c59a931463527ff1294fd4fa87125bb219672c418c07beda75729a2b1fd0cfba",
+  "change_groups": [
+    {
+      "operation": "insert",
+      "before_lines": [
+        8,
+        7
+      ],
+      "after_lines": [
+        8,
+        8
+      ],
+      "rows": [
+        {
+          "side": "after",
+          "line": 8,
+          "bytes": 103,
+          "sha256": "cacd5f4b13ae42fd854c48d4827560df84495822a0570668e2ce6fee7297b988"
+        }
+      ],
+      "classification": "inline_json_same_line_rule"
+    },
+    {
+      "operation": "replace",
+      "before_lines": [
+        11,
+        11
+      ],
+      "after_lines": [
+        12,
+        12
+      ],
+      "rows": [
+        {
+          "side": "before",
+          "line": 11,
+          "bytes": 272,
+          "sha256": "c632d20d00309359084a89a7c477b849b96cf1e7fe4e2bba869133dd42ceb639"
+        },
+        {
+          "side": "after",
+          "line": 12,
+          "bytes": 292,
+          "sha256": "10c96a707af429d6a60451a3066fe6545d3738c9aae0bbaa96de652f5469d7f4"
+        }
+      ],
+      "classification": "model_delegate_inline_json_wording"
+    },
+    {
+      "operation": "replace",
+      "before_lines": [
+        15,
+        15
+      ],
+      "after_lines": [
+        16,
+        16
+      ],
+      "rows": [
+        {
+          "side": "before",
+          "line": 15,
+          "bytes": 126,
+          "sha256": "a13470d2588538867d8416c5f9b015c6bdc36ee3a6d97f9d80f6f926aa40e849"
+        },
+        {
+          "side": "after",
+          "line": 16,
+          "bytes": 149,
+          "sha256": "e4711ce8fdd9118b98c179205e4e25e2d42e663918653d68a4ddb2d6f7c0f5a2"
+        }
+      ],
+      "classification": "native_delegate_inline_json_wording"
+    },
+    {
+      "operation": "replace",
+      "before_lines": [
+        169,
+        169
+      ],
+      "after_lines": [
+        170,
+        170
+      ],
+      "rows": [
+        {
+          "side": "before",
+          "line": 169,
+          "bytes": 964,
+          "sha256": "c85ea0b096d64e9ed8295f5ea7aea0c055cba7fd0a10c4128996bde84fb7cc4b"
+        },
+        {
+          "side": "after",
+          "line": 170,
+          "bytes": 964,
+          "sha256": "434155f225391fed0d38ec74b90581a73780b33358fe222db918129e8ffeed9a"
+        }
+      ],
+      "classification": "perception_observation_timestamp"
+    },
+    {
+      "operation": "replace",
+      "before_lines": [
+        175,
+        175
+      ],
+      "after_lines": [
+        176,
+        176
+      ],
+      "rows": [
+        {
+          "side": "before",
+          "line": 175,
+          "bytes": 98,
+          "sha256": "770bf8a3b9f3c58da3a1c9d899d0ce378489f1eb6115f45e3b27e0da706179bd"
+        },
+        {
+          "side": "after",
+          "line": 176,
+          "bytes": 97,
+          "sha256": "85cdad93770e1146c6ea40273395190674a945cb574acc9c5c1e2fad223094a3"
+        }
+      ],
+      "classification": "catalog_revision"
+    }
+  ],
+  "dynamic_line_checks": {
+    "perception_equal_after_timestamp_replacement": true,
+    "catalog_equal_after_revision_replacement": true
+  },
+  "boundary": "Computed from the full unmodified sealed system_prompt strings for case-01 only. The diff has five change groups: three inline-JSON instruction changes, one perception observation timestamp and one catalog revision. Only hashes and line metadata are published here; original prompts remain in the retained input-plan objects. Other cases were not assumed byte-identical."
+}
