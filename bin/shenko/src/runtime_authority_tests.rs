@@ -277,6 +277,10 @@ fn reserved_store_commit_and_ancestor_cancellation_fence_live_owners() -> Result
     assert!(store.get_task(id)?.is_some());
     assert!(store.claim_native_task(id, implementation, false).is_err());
     assert!(old.recovery_required().is_some());
+    old.request_shutdown();
+    assert!(!old.shutdown_requested.load(Ordering::Acquire),
+        "a later user stop cannot relabel an already-cancelled authority failure");
+    assert!(!old.admission_cancelled().is_runtime_admission_closed_for(store.capabilities().incarnation));
 
     // A new incarnation binds a coherent head/step/selector epoch. The old
     // incarnation cannot take the writer back when the source is current again.
@@ -314,6 +318,40 @@ fn reserved_store_commit_and_ancestor_cancellation_fence_live_owners() -> Result
     let retained = reopened.subject_request_attempt(original_request.request_id)?.context("original request missing")?;
     assert_eq!(retained.attempt_id, original_request.attempt_id);
     assert_eq!(retained.state, SubjectRequestState::Terminal);
+
+    // A new actual runtime may close its own admission without claiming it
+    // lost the Node authority. No new grant, task, head or original receipt
+    // may be manufactured by that ordinary stop.
+    let closing_store = fixture.open()?;
+    let closing = runtime(&fixture.0, &closing_store)?;
+    let before = serde_json::to_value(closing_store.load_subject(agent)?)?;
+    let original = serde_json::to_value(closing_store.subject_request_attempt(original_request.request_id)?)?;
+    let grants_before = crate::node_sync::open_node(&fixture.0, &closing_store)?.committed_admissions(0)?.len();
+    let (unadmitted, event) = pending(&closing_store, agent, None)?;
+    closing.request_shutdown();
+    let refusal = closing_store.admit_native_task(&unadmitted, &event).err()
+        .context("shutdown admitted a new task")?;
+    assert!(refusal.is_runtime_admission_closed_for(closing_store.capabilities().incarnation));
+    let refusal = closing.acquire(None).err().context("shutdown retained fresh admission")?;
+    assert!(refusal.is_runtime_admission_closed_for(closing_store.capabilities().incarnation));
+    assert!(closing_store.ledger.writer_is_open(), "ordinary admission closure is not storage damage");
+    assert!(closing_store.get_task(unadmitted.task_id)?.is_none());
+    assert_eq!(serde_json::to_value(closing_store.load_subject(agent)?)?, before);
+    assert_eq!(serde_json::to_value(closing_store.subject_request_attempt(original_request.request_id)?)?, original);
+    assert_eq!(crate::node_sync::open_node(&fixture.0, &closing_store)?.committed_admissions(0)?.len(), grants_before);
+    assert!(closing.finish_result(Ok(())).is_ok());
+    let storage = closing.finish_result(Err(ShenkoError::storage("retained shutdown storage failure").into()))
+        .err().context("shutdown hid a storage failure")?;
+    assert!(matches!(storage.downcast_ref::<ShenkoError>(), Some(ShenkoError::Storage(_))));
+
+    // A real subsequent Node change still wins over the ordinary-stop flag.
+    crate::node_sync::open_node(&fixture.0, &closing_store)?.campaign()?;
+    let revoked = closing.acquire(None)?;
+    assert!(revoked.stamp().is_none());
+    drop(revoked);
+    assert!(closing.recovery_required().is_some());
+    assert!(!closing.admission_cancelled().is_runtime_admission_closed_for(closing_store.capabilities().incarnation));
+    assert!(closing.finish_result(Ok(())).is_err());
     Ok(())
 }
 

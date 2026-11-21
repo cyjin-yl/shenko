@@ -1186,6 +1186,20 @@ async fn run_subject_loop_owned(
         tokio::task::yield_now().await;
     };
 
+    // A Store boundary can refuse an in-progress pass after this writer's
+    // owner explicitly closed admission. Preserve the durable step as-is;
+    // cancellation alone, another writer's closure, an Unknown result or a
+    // failed recovery read cannot turn an actual error into a graceful stop.
+    let result = if cancel.is_cancelled() && retry_state_error.is_none()
+        && result.as_ref().err().is_some_and(|error|
+            error.is_runtime_admission_closed_for(state.store.capabilities().incarnation))
+    {
+        info!("subject loop: local runtime admission closed during shutdown");
+        Ok(())
+    } else {
+        result
+    };
+
     // Every error that stops the loop is a durable runtime fact the subject
     // can later read through errors.read. The journal write is
     // fail-soft: it never masks or replaces the original error.

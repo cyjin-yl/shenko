@@ -272,6 +272,7 @@ pub(crate) async fn start(
         cancel: &cancel,
         consumer_cancel,
         model_health: &model_health,
+        authority: &authority_runtime,
     })
     .await;
     let runtime_inference::InferenceServices {
@@ -419,6 +420,7 @@ pub(crate) async fn start(
         _result = tokio::signal::ctrl_c() => {
             match _result {
                 Ok(()) => {
+                    authority_runtime.request_shutdown();
                     info!("shutdown signal; settling subject at a recoverable boundary");
                     Ok(())
                 }

@@ -108,6 +108,12 @@ pub enum ShenkoError {
     #[error("resnapshot required: {reason}")]
     ResnapshotRequired { reason: String },
 
+    /// This writer's owner explicitly requested ordinary runtime shutdown.
+    /// Admission was refused; no commit, send or remote termination is implied.
+    /// Authority loss and failure-driven cancellation use their original errors.
+    #[error("runtime admission closed by shutdown of writer {writer_incarnation}")]
+    RuntimeAdmissionClosed { writer_incarnation: EntityId },
+
     #[error("conflict: {0}")]
     Conflict(String),
 
@@ -128,6 +134,11 @@ pub enum ShenkoError {
 }
 
 impl ShenkoError {
+    pub fn is_runtime_admission_closed_for(&self, incarnation: EntityId) -> bool {
+        matches!(self, Self::RuntimeAdmissionClosed { writer_incarnation }
+            if *writer_incarnation == incarnation)
+    }
+
     pub fn storage(msg: impl Into<String>) -> Self {
         Self::Storage(msg.into())
     }

@@ -4477,6 +4477,70 @@ async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
     assert_eq!(data["journal_dropped_total"], 0);
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
+
+    // Exercise the actual Store/loop boundary when cancellation arrives
+    // inside an admitted pass. A source refusal grants no authority; only
+    // the same writer's typed ordinary closure may finish without an error
+    // journal. External fencing remains an error even with the token set.
+    struct BoundaryRefusal {
+        attached: std::sync::atomic::AtomicBool,
+        stop: tokio_util::sync::CancellationToken,
+        writer: EntityId,
+        ordinary: bool,
+    }
+    struct NoGrant;
+    impl shenko_types::authority::CommitAuthorityGuard for NoGrant {
+        fn stamp(&self) -> Option<&shenko_types::authority::CommitAuthorityStamp> { None }
+    }
+    impl shenko_types::authority::CommitAuthorityProvider for BoundaryRefusal {
+        fn source_id(&self) -> &str { "fixture:stop-boundary" }
+        fn prepare(&self, _: &shenko_types::authority::CommitAdmission)
+            -> Result<Option<shenko_types::authority::CommitAuthorityGrant>, ShenkoError>
+        {
+            self.acquire(None).map(|_| None)
+        }
+        fn acquire(&self, _: Option<&shenko_types::authority::CommitAuthorityGrant>)
+            -> Result<Box<dyn shenko_types::authority::CommitAuthorityGuard>, ShenkoError>
+        {
+            if !self.attached.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                return Ok(Box::new(NoGrant));
+            }
+            self.stop.cancel();
+            Err(if self.ordinary {
+                ShenkoError::RuntimeAdmissionClosed { writer_incarnation: self.writer }
+            } else {
+                shenko_types::authority::authority_fenced("external source changed during stop")
+            })
+        }
+    }
+    for ordinary in [true, false] {
+        let (dir, store, agent) = fixture();
+        let subject = state(store.clone(), agent).unwrap();
+        let before = serde_json::to_value(store.load_subject(agent).unwrap()).unwrap();
+        let stop = tokio_util::sync::CancellationToken::new();
+        store.attach_commit_authority(Arc::new(BoundaryRefusal {
+            attached: std::sync::atomic::AtomicBool::new(false), stop: stop.clone(),
+            writer: store.capabilities().incarnation, ordinary,
+        })).unwrap();
+        let result = super::run_subject_loop(subject, stop.clone()).await;
+        assert!(stop.is_cancelled(), "the refusal must happen inside the running loop");
+        assert_eq!(result.is_ok(), ordinary, "{result:?}");
+        assert!(store.ledger.writer_is_open());
+        assert_eq!(serde_json::to_value(store.load_subject(agent).unwrap()).unwrap(), before);
+        let (head, step) = store.load_subject(agent).unwrap();
+        assert!(store.subject_request_attempts_for_step(agent, step.step_id).unwrap().is_empty());
+        let facts = store.list_session_events(EntityId(head.branch_id.0), &shenko_store::SessionEventFilter {
+            from_seq: 0, to_seq: i64::MAX, limit: 20,
+            event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()], roles: vec![],
+        }).unwrap();
+        let errors: Vec<serde_json::Value> = facts.iter()
+            .filter_map(|event| serde_json::from_str(&event.data).ok())
+            .filter(|data: &serde_json::Value| data["kind"] == "subject_loop").collect();
+        assert_eq!(errors.len(), usize::from(!ordinary));
+        if !ordinary { assert_eq!(errors[0]["extra"]["error"]["code"], "runtime_authority_fenced"); }
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 /// The loop's real reporting path must retain cleanup failures as structured
