@@ -856,13 +856,17 @@ async fn native_printf_result_survives_real_process_reopen() {
 
     let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
     let cancel = tokio_util::sync::CancellationToken::new();
-    let running_host = crate::runtime_host::HostStop::default();
-    let consumers = crate::runtime_consumers::RuntimeConsumers::spawn(
-        &store, &native, agent, Some(inbox.sender()), &dir, &cancel, &running_host,
-    ).unwrap();
+    let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
+        store.clone(),
+        native.clone(),
+        agent,
+        Some(inbox.sender()),
+        cancel.clone(),
+        cancel.clone(),
+    ));
     let events = inbox.recv_batch(2, 2_000).await;
     cancel.cancel();
-    consumers.stop().await.unwrap();
+    dispatcher.await.unwrap().unwrap();
     assert_eq!(events.len(), 2);
     let settled = store.native_task_result(settling_task).unwrap().unwrap();
     assert!(matches!(&settled.outcome, TaskOutcome::Succeeded));
