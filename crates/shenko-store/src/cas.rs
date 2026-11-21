@@ -33,7 +33,9 @@ impl PendingObjectGraph<'_> {
         let path = cas.object_path(&digest)?;
         let directories = &mut self.directories;
         cas.write_object_bytes(data, &digest, &path, |path| {
-            for directory in path.parent().expect("CAS object has a parent").ancestors() {
+            let parent = path.parent().ok_or_else(||
+                io::Error::new(io::ErrorKind::InvalidInput, "CAS object has no parent"))?;
+            for directory in parent.ancestors() {
                 directories.insert((Reverse(directory.components().count()), directory.to_path_buf()));
                 if directory == cas.base { break; }
             }

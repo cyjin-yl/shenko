@@ -331,7 +331,8 @@ fn reserved_store_commit_and_ancestor_cancellation_fence_live_owners() -> Result
     closing.request_shutdown();
     let refusal = closing_store.admit_native_task(&unadmitted, &event).err()
         .context("shutdown admitted a new task")?;
-    assert!(refusal.is_runtime_admission_closed_for(closing_store.capabilities().incarnation));
+    assert!(refusal.downcast_ref::<ShenkoError>().is_some_and(|error|
+        error.is_runtime_admission_closed_for(closing_store.capabilities().incarnation)));
     let refusal = closing.acquire(None).err().context("shutdown retained fresh admission")?;
     assert!(refusal.is_runtime_admission_closed_for(closing_store.capabilities().incarnation));
     assert!(closing_store.ledger.writer_is_open(), "ordinary admission closure is not storage damage");
