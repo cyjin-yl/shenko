@@ -54,8 +54,10 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// schema 9. Neither is implemented by this writer.
 /// Schema 10 retains the fork/history family and permits the direct native
 /// creator-key/successor-predicate readers, retaining their original meaning.
-/// Schema 11 additionally declares direct paired arm and childless original T2
-/// codec 4 with row-schema-4 operation, attempt and receipt selectors.
+/// Schema 11 additionally declares direct claim codec 3 and paired arm/childless
+/// original T2 codec 4 with row-schema-4 operation, attempt and receipt selectors.
+/// Generic dispatch codec 2 and ordinary T2 codec 5 use row-schema-5 ancestry and
+/// authoring-step selectors; ordinary T2 also retains its ordinary-child range.
 /// All new exports use 11, including
 /// snapshots without a native transition: an older schema-10 reader must reject
 /// at the manifest boundary rather than copy facts it cannot later interpret.
