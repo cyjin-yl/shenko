@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "source_revision": "01bc98bb2d9a73589d05baff93f2026ea7e4143f",
+  "scope": "Completed scoped Cargo invocations blocked during compilation; no executed tests or model acceptance.",
+  "overall_outcome": "compile_failed",
+  "all_passed": false,
+  "counts": {
+    "planned_cargo_invocations": 6,
+    "completed_cargo_invocations": 6,
+    "compile_failed_invocations": 6,
+    "planned_test_executions": 13,
+    "executed_test_cases": 0,
+    "unexecuted_planned_tests": 13,
+    "observed_test_result_rows": 0
+  },
+  "checks": [
+    {
+      "label": "native-chain",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 20.528436774009606,
+      "log": "native-chain.log.gz",
+      "original_log_bytes": 7501,
+      "original_log_sha256": "54a85612b7d9b51184dd1a8d264af1b606c9bab18d6b97d24c933aa9d190cf6f"
+    },
+    {
+      "label": "preparation-progress",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 10.41817607099074,
+      "log": "preparation-progress.log.gz",
+      "original_log_bytes": 6880,
+      "original_log_sha256": "efaf6917d7be4567c8e6e0f5354e540d4684bab96f703297267f258db878bf43"
+    },
+    {
+      "label": "e1-ssh",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 19.931522946979385,
+      "log": "e1-ssh.log.gz",
+      "original_log_bytes": 12958,
+      "original_log_sha256": "e659a6e118425844069f8e26e15356fe613052b1e91633c33a94222cdf1689e8"
+    },
+    {
+      "label": "e1-source",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 10.742180586996255,
+      "log": "e1-source.log.gz",
+      "original_log_bytes": 11696,
+      "original_log_sha256": "06d10334ea81bc31cdff6fbc8cac17f1449fd9bcf6bb5dda57b1049633360431"
+    },
+    {
+      "label": "child-e1-reopen",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 20.639890005026245,
+      "log": "child-e1-reopen.log.gz",
+      "original_log_bytes": 9833,
+      "original_log_sha256": "48af77a75da2a606daead8e5a4dc2943b31c7317fd56063b658de20dd1adb578"
+    },
+    {
+      "label": "archive-admission",
+      "planned_tests": 8,
+      "cargo_exit": 101,
+      "outer_summary": null,
+      "test_run_declarations": [],
+      "all_test_result_rows": [],
+      "tests_executed": 0,
+      "elapsed_seconds": 10.398626315989532,
+      "log": "archive-admission.log.gz",
+      "original_log_bytes": 6880,
+      "original_log_sha256": "efaf6917d7be4567c8e6e0f5354e540d4684bab96f703297267f258db878bf43"
+    }
+  ],
+  "host": {
+    "started_at_utc": "2026-11-21T22:59:52Z",
+    "finished_at_utc": "2026-11-21T23:01:26Z",
+    "timestamp_precision_seconds": 1,
+    "exit_code": 1,
+    "collector_cancelled_or_retried": false
+  },
+  "scope_runner": {
+    "started_at_utc": "2026-11-21T22:59:54Z",
+    "finished_at_utc": "2026-11-21T23:01:26Z",
+    "exit_code": 1,
+    "per_cargo_monotonic_seconds_sum": 92.65883269999176,
+    "runner": "runner.sh",
+    "runner_sha256": "7f65ae2da2c0021851f5648afa80bce9048ef53d8c2c38203ef7ce39ddf9489c",
+    "source_identity_gate": "The original runner checks exact Git HEAD and a clean checkout before Cargo.",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v24.22.1"
+  },
+  "failure": {
+    "phase": "Rust compilation of shenko-store library",
+    "source_file": "crates/shenko-store/src/native_evidence_closure.rs",
+    "line": 30,
+    "column": 5,
+    "expression": "roots.sort_by_key(NativeEvidenceObjectIdentity::from);",
+    "diagnostics": [
+      "implementation of FnMut is not general enough",
+      "implementation of FnOnce is not general enough"
+    ],
+    "same_diagnostic_location_present_in_all_six_logs": true,
+    "later_fix_verified_by_this_receipt": false
+  },
+  "conditional_release": {
+    "admitted": false,
+    "completed": false,
+    "blocking_reason": "Original runner scope exits 1 under set -e before release section.",
+    "observation": {
+      "observed_at_utc": "2026-11-21T23:03:15.178078+00:00",
+      "scope_original_file_count": 20,
+      "host_original_files": [
+        "anchored-native-01bc98bb.host.exit",
+        "anchored-native-01bc98bb.host.finished.txt",
+        "anchored-native-01bc98bb.host.started.txt"
+      ],
+      "release_directory_exists": false,
+      "release_binary_exists": false,
+      "native_artifact_files": 0,
+      "native_e1_path_exists": false,
+      "retention_performed_no_build_or_model": true
+    }
+  },
+  "model_execution": {
+    "invocations_started_by_this_scope": 0,
+    "tests_reached": false,
+    "model_outcomes_measured": false
+  },
+  "preservation": {
+    "original_scoped_files": 20,
+    "original_host_files": 3,
+    "all_original_files": 23,
+    "logs_gzip_mtime_zero": 6,
+    "raw_identity_verified_after_transfer": true,
+    "transfer_archive_bytes": 19295,
+    "transfer_archive_sha256": "a9e7d74fb24655fe653d0ff3ea231265770d2044a9eb64ad228828b836e65f59",
+    "source_files_overwritten": false,
+    "remote_checkout_changed_by_collector": false,
+    "new_build_or_model_invocation_by_collector": false
+  },
+  "limits": [
+    "A failed Cargo invocation is not an executed failing test; all thirteen selected test executions remain unexecuted.",
+    "The compile failure gives no passing or failing behavioral result for native E1, task recovery, or archive admission.",
+    "Later source corrections and executions require separately bound receipts."
+  ]
+}
