@@ -45,7 +45,7 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// be a silent loss of the subject's attitudes, so the schema is bumped
 /// instead of smuggling them in as optional rows. A schema-5 receiver rejects
 /// this archive at the version gate, and a current reader still admits
-/// schemas 2..=7 and 10..=11 after complete format, closure and membership admission.
+/// schemas 2..=7 and 10..=12 after complete format, closure and membership admission.
 /// Two original producers independently used schema 7: dialogue endpoints and
 /// messages, or forks and immutable parent-head history. Each declares exactly
 /// its complete native family, even when empty. This build owns the fork/history
@@ -58,16 +58,20 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// original T2 codec 4 with row-schema-4 operation, attempt and receipt selectors.
 /// Generic dispatch codec 2 and ordinary T2 codec 5 use row-schema-5 ancestry and
 /// authoring-step selectors; ordinary T2 also retains its ordinary-child range.
-/// All new exports use 11, including
-/// snapshots without a native transition: an older schema-10 reader must reject
-/// at the manifest boundary rather than copy facts it cannot later interpret.
-pub const ARCHIVE_SCHEMA: u32 = 11;
+/// Schema 12 additionally declares the anchored native E1 codec 6 envelope.
+/// Its original inner fact and predecessor roots remain complete archive/GC
+/// graph edges; only the separate E1 transport uses an incremental budget.
+/// All new exports use 12, including snapshots without a native transition:
+/// an older schema-11 reader must reject at the manifest boundary rather than
+/// copy facts it cannot later interpret. Retained schemas 10 and 11 keep their
+/// original format and membership rules; the writer offers no label downgrade.
+pub const ARCHIVE_SCHEMA: u32 = 12;
 
 /// Validate the original producer format before reading or publishing payloads.
 /// The two native schema-7 families remain distinct; combining them requires
 /// their own writer format and both domains' complete recovery owners.
 pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<()> {
-    ensure!(matches!(manifest.schema, 2..=7 | 10 | ARCHIVE_SCHEMA),
+    ensure!(matches!(manifest.schema, 2..=7 | 10 | 11 | ARCHIVE_SCHEMA),
         "unsupported cognition archive schema {}", manifest.schema);
     if manifest.schema >= 6 {
         ensure!(!manifest.fact_classes.is_empty(),
@@ -90,7 +94,7 @@ pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<(
         ensure!((dialogue == 0b11 && lineage == 0)
                 || (dialogue == 0 && lineage == 0b11),
             "schema-7 archive must identify exactly one native producer: dialogue or fork/history");
-    } else if matches!(manifest.schema, 10 | ARCHIVE_SCHEMA) {
+    } else if matches!(manifest.schema, 10 | 11 | ARCHIVE_SCHEMA) {
         ensure!(dialogue == 0 && lineage == 0b11,
             "schema-{} archive requires fork/history membership without dialogue facts", manifest.schema);
     } else {

@@ -499,7 +499,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         memory_root: Some(memory), include_git_history: false, ..Default::default()
     };
     let native = source.export_cognition(&options)?;
-    assert_eq!(native.manifest.schema, 11, "the current fork/history producer declares its native readers");
+    assert_eq!(native.manifest.schema, 12, "the current fork/history producer declares its native readers");
     for class in ["subject_branch_forks", "subject_head_history"] {
         assert!(native.manifest.fact_classes.iter().any(|declared| declared == class));
     }
@@ -519,7 +519,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             "historical archive cannot claim later dialogue or fork/history membership"
         } else if case == "current-partial-family" {
             malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
-            "schema-11 archive requires fork/history membership"
+            "schema-12 archive requires fork/history membership"
         } else if matches!(case, "reserved-eight" | "reserved-nine") {
             malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
             "unsupported cognition archive schema"
@@ -606,13 +606,14 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     let relay = reopened.export_cognition(&CognitionSnapshotOptions {
         memory_root: Some(receiver_memory), include_git_history: false, ..Default::default()
     })?;
-    assert_eq!(relay.manifest.schema, 11);
+    assert_eq!(relay.manifest.schema, 12);
     assert!(relay.manifest.blocking_gaps().is_empty());
     assert!(relay.manifest.objects.iter().any(|declared| declared.digest == object.digest));
-    // This fixture contains only facts representable by the native7 and 10
-    // fork/history formats. Current readers retain those explicit older formats;
-    // it is not a current-writer downgrade or a compatibility export path.
-    for schema in [7, 10] {
+    // This fixture contains only facts representable by the native7 and 11
+    // fork/history formats. Reuse the previous-writer compatibility window for
+    // 11 -> 12; schema 10 keeps its original reader rules. These explicit older
+    // inputs are not a current-writer downgrade or a compatibility export path.
+    for schema in [7, 11] {
         let mut legacy = source.export_cognition(&options)?;
         legacy.manifest.schema = schema;
         legacy.manifest.fingerprint = fingerprint_of_manifest(&legacy.manifest);
@@ -628,11 +629,11 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         assert_eq!(legacy_receiver.cas.read_object(&object.digest)?.as_slice(), bytes);
         assert_eq!(legacy_receiver.session_events_range(session, 0, i64::MAX)?[0].data, data);
         assert_eq!(fs::read(legacy_memory.join("remote.txt"))?, b"original remote file");
-        if schema == 10 {
+        if schema == 11 {
             let relayed = legacy_receiver.export_cognition(&CognitionSnapshotOptions {
                 memory_root: Some(legacy_memory), include_git_history: false, ..Default::default()
             })?;
-            assert_eq!(relayed.manifest.schema, 11);
+            assert_eq!(relayed.manifest.schema, 12);
             assert!(relayed.manifest.blocking_gaps().is_empty());
         }
     }

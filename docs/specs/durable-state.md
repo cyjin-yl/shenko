@@ -85,7 +85,7 @@ remain historical evidence in the copy.
 
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 
-`ARCHIVE_SCHEMA` is 11. Readers recognize exactly versions 2–7, 10 and 11 and apply the
+`ARCHIVE_SCHEMA` is 12. Readers recognize exactly versions 2–7, 10, 11 and 12 and apply the
 original version's format and fact ownership before reporting recovery. Two
 historical writers independently used 7: one declares both `dialogue_endpoints`
 and `dialogue_messages`, the other both `subject_branch_forks` and
@@ -117,21 +117,30 @@ the childless direct-E1 proof. These formats preserve the original subject,
 ownership, admission and execution-permit boundaries. They do not eliminate the
 remaining preparation, snapshot or scan costs described in the
 [capture design](../development/canonical-capture-budget.md).
-All new exports use 11,
-including snapshots without those objects. A schema-10 reader therefore refuses
+Schema 12 additionally declares `store-native-evidence-fact/6`: an anchored
+envelope around the complete original fact of codec 2–5 and its exact typed
+predecessor roots. The inner fact and all predecessor closures remain full
+archive and GC graph edges. Only the independent E1 transfer charges its new
+observation graph against an incremental budget; this does not omit predecessor
+bytes from a recovery archive or create local application authority.
+All new exports use 12,
+including snapshots without those objects. A schema-11 reader therefore refuses
 the manifest before CAS payload callbacks, SQL facts or files are published;
-this writer offers no version-label downgrade. Old archives 2–7 and 10 and their
-native transition codecs retain their original interpretation, including 10's
-strict column-layout and fork/history membership checks. Versions 8 and 9 remain
-unsupported; 11 does not enable either reserved contract.
+this writer offers no version-label downgrade. Old archives 2–7, 10 and 11 and
+their native transition codecs retain their original interpretation, including
+10 and 11's strict column-layout and fork/history membership checks. Versions 8
+and 9 remain unsupported; 12 does not enable either reserved contract.
 This archive boundary is distinct from raw Node control-object transport and
 does not establish mixed-version Node consensus acceptance or full rollback.
 The existing archive admission regression covers the current writer, retained
-7/10 facts, malformed current membership and unsupported-format refusal before
-CAS or file publication. The only new archive window imports representable
-schema-10 facts and relays them through the schema-11 writer; schemas 10 and 11
-share the same membership gate. Its source extension is not a new runtime pass
-claim; actual candidate execution is reported with its own source identity.
+7/11 facts, malformed current membership and unsupported-format refusal before
+CAS or file publication. The previous-writer compatibility window now imports
+representable schema-11 facts and relays them through the schema-12 writer;
+it replaces the earlier 10-to-11 window without adding a test or scenario.
+Schema 10 remains explicitly supported with its original rules, and its earlier
+execution receipts remain historical evidence. Schemas 10, 11 and 12 share the
+same family-membership gate. This source update is not a new runtime pass claim;
+actual candidate execution is reported with its own source identity.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The
