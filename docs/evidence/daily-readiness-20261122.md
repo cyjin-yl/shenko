@@ -17,6 +17,7 @@
 | debug 集成候选 | `cb1d0632` | `ad13f0e737fb5e17b282fdb65b58c023ace54bc7df5da31fb10ce8c9d1b8768c` | 332838480 |
 | 同行 JSON 澄清前的 release | `72fc70d3` | `7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7` | 89865568 |
 | 同行 JSON 澄清后的 release | `9a7be2f8` | `c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15` | 89869664 |
+| native 见证、CAS 目录合批与进程级停止修复后的 release | `cdf71091` | `e1bec856a805687d18250907a39ff999bcf76cfc224f569dba961847ef59459b` | 89994976 |
 
 Rust 构建运行在实际 `shenko-build-r71` 开发容器，Rust/Cargo 1.98.1，
 使用持久源码、锁文件及共享构建锁。release 使用仓库声明的优化、thin LTO、单 codegen unit
@@ -272,5 +273,39 @@ follower 的时间列被 `INSERT OR REPLACE` 默认值改写，其余规范列�
 它包含三个独立拒绝接收者的持久债务检查，以及干净接收者的成功恢复、幂等性和不重发许可断言。
 这次只更改测试夹具；产品 native 见证仍为 `ba49f98d`。原 11/12 与后续 1/1 分开保留。
 
-固定最终 release 候选的完整浏览器回执和新候选计时仍待取得。
+### 进程级停止回归的第一轮
+
+`0d25d77f` 的 [四项实际回归](daily-readiness-20261122/scoped-0d25d77f/summary.json)
+为 3 passed / 1 failed。owner 在退役 worker 完成前保持独占、model-free 启动/重开及选主错误保留、
+原 authority fencing 三项通过。实际 `start_boundary` 的新增故障关闭段在发送 SIGINT 之前，
+等待 HTTP 结束通道超时；整条测试仍为失败，release 被门禁阻止。
+
+[保留的事件顺序](daily-readiness-20261122/scoped-0d25d77f/recovery-stop-order.json)
+只有初始 held POST，没有旧失败时刻的屏障内部快照。最终日志的取消行不能倒填为屏障内观测。
+源码中取消后的错误/E1 日志也会同步访问被测试 IMMEDIATE 事务占住的 Store，
+因此 fixture 不能把 HTTP 连接先结束当作这个屏障的前提。
+测试修正 `a533b331` 在相同三秒窗口内观察绑定原 request 的取消日志，
+确认没有更早的 host stop 后才发送 SIGINT；仍持有 writer 检查 host latch 与安装 owner，
+释放 writer 后必须看到真实本地 transport ending，再核原 Unknown、非零原错与无新启动/POST。
+此处既不证明远端模型已停止，也不把测试定义当作重跑通过。
+
+### 进程级停止回归的实际重跑
+
+`cdf71091` 的[同一真实进程测试](daily-readiness-20261122/scoped-cdf71091/summary.json)
+实际通过：1 passed / 0 failed / 0 ignored，测试执行 79.42 秒。
+[原始事件顺序](daily-readiness-20261122/scoped-cdf71091/recovery-stop-order.json)
+以 held POST 为零点：94 ms 注入 campaign 并继续进程，114 ms 观察到原请求取消后发送 SIGINT，
+125 ms 观察到 host stop latch，然后才释放 Store writer；286 ms 观察到本地连接结束。
+1361 ms 的[最终核验](daily-readiness-20261122/scoped-cdf71091/recovery-stop-receipt.json)
+保留原始错误退出、原请求和 attempt 的 Unknown，确认没有重建实例或新增 POST。
+这是本地取消、停止意图与 owner 生命周期的回归；不证明远端模型已经停止。
+此前三项通过和本次一项重跑分开记录，原失败回执不变。
+
+`0d25d77f` 的[实际 Clippy 失败](daily-readiness-20261122/ci-0d25d77f-clippy.json)
+来自 `tokio::select!` 的 signal 绑定被判为 unused variable。
+`c3f7b04c` 只修正该绑定命名，仍检查 signal 的错误并触发停止，没有增加 lint 豁免。
+
+`cdf71091` release 于 2026-11-21 20:39:11–20:46:55 UTC 实际构建成功。
+完整 Nightly [44947707192](https://github.com/cyjin-yl/shenko/actions/runs/44947707192)
+与三次固定候选的真实浏览器旅程已启动，结果仍待取得。
 在这些回执写入前，本记录不宣称首条完整真实任务已收口或重复运行已通过。

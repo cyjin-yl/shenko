@@ -386,3 +386,32 @@ This is complete frontend generation/rebuild evidence for the stated inputs.
 It does not certify a later Rust/runtime candidate, real-model task completion,
 clean stop or the complete compiler suite on the new pin. The subsequent
 CI and Nightly must retain their own checkout and artifact identities.
+
+
+## Integrated checkpoint dc3f519c
+
+[CI 44943382317](https://github.com/cyjin-yl/shenko/actions/runs/44943382317)
+completed all six regular jobs successfully on PR head `dc3f519c048f3cff7ce851ace9323b2e673f377a`.
+The actual synthetic merge was `399d81e8b579442ae3e2e0f703e0628adaa6a7e6`,
+with base `f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42`. This checkpoint predates
+the native rows3/archive10 and process-wide stop changes; it is not their gate.
+
+The [outer-harness audit](daily-readiness-20261122/ci-dc3f519c-rust-outer-audit.json)
+binds the exact Rust job log and the source of nested process output. It finds
+**1240 passed, 0 failed, 11 ignored** in 157 outer libtest summaries. Summing all
+176 summaries would incorrectly add 19 child-process completions already covered
+by their owning tests. The 33 doctest targets each contained zero cases. A separate
+`harness=false` cognition self-learning executable explicitly skipped because
+the real-model opt-in was absent; that skip is neither a passed case nor one of
+the 11 libtest ignores. No real-model or complete Nightly claim follows from this CI.
+
+
+## Host-stop checkpoint 0d25d77f
+
+The new [Clippy job 136973435653](https://github.com/cyjin-yl/shenko/actions/runs/44946037112/job/136973435653)
+failed its actual ratchet: `unused_variables` increased by one in production
+and two in all-targets for the signal `select!` binding. The [diagnostic identity](daily-readiness-20261122/ci-0d25d77f-clippy.json)
+retains the 19,258,866-byte original job-log hash and GitHub's uploaded artifact
+identity. `c3f7b04c` follows the existing `_signal_result` binding convention
+while still checking its `Result`, context and stop request; it adds no lint
+allowance and changes no gate. The next candidate must obtain its own green CI.

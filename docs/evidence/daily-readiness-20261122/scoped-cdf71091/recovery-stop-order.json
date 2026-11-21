@@ -1,0 +1,34 @@
+[
+  {
+    "elapsed_ms": 0,
+    "event": "original_inference_post_held"
+  },
+  {
+    "elapsed_ms": 94,
+    "event": "authority_changed_and_process_continued"
+  },
+  {
+    "elapsed_ms": 114,
+    "event": "original_request_cancellation_observed_before_sigint"
+  },
+  {
+    "elapsed_ms": 114,
+    "event": "sigint_sent_during_owned_cleanup"
+  },
+  {
+    "elapsed_ms": 125,
+    "event": "host_stop_latched_before_writer_release"
+  },
+  {
+    "elapsed_ms": 125,
+    "event": "original_e1_writer_released"
+  },
+  {
+    "elapsed_ms": 286,
+    "event": "original_transport_end_confirmed"
+  },
+  {
+    "elapsed_ms": 1361,
+    "event": "original_error_and_unknown_preserved_without_reconstruction"
+  }
+]
