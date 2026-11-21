@@ -12,6 +12,7 @@ retains the same evidence and exits nonzero; this is not a default CI test.
 """
 import argparse
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -149,6 +150,46 @@ def evaluate_first(facts, marker):
     return checks
 
 
+def evaluate_recovery(before, after):
+    """Compare actual child effects, not just retained result IDs or prose.
+
+    This bounded scenario requests one model child and one native child. After
+    restart it requests recall only. Another child of either kind, or another
+    operation/attempt for an original child, is therefore a repeated execution
+    attempt even if the original successful result remains in the ledger.
+    """
+    kinds = {"model.child", "host.printf"}
+    original_tasks = {row["task_id"] for row in before.get("tasks", [])
+                      if row["data"].get("kind") in kinds}
+    later_tasks = {row["task_id"] for row in after.get("tasks", [])
+                   if row["data"].get("kind") in kinds}
+
+    def effects(facts):
+        operations = {row["operation_id"] for row in facts.get("operations", [])
+                      if row["data"].get("task_id") in original_tasks}
+        attempts = {row["attempt_id"] for row in facts.get("attempts", [])
+                    if row["operation_id"] in operations}
+        return operations, attempts
+
+    original_results = {row["result_id"]: row for row in before.get("task_results", [])
+                        if row["task_id"] in original_tasks}
+    later_results = {row["result_id"]: row for row in after.get("task_results", [])
+                     if row["task_id"] in original_tasks}
+    original_operations, original_attempts = effects(before)
+    later_operations, later_attempts = effects(after)
+    original_receipts = {row["receipt_id"]: row for row in before.get("evidence_receipts", [])
+                         if row.get("operation_id") in original_operations}
+    later_receipts = {row["receipt_id"]: row for row in after.get("evidence_receipts", [])}
+    return {
+        "no_child_redelegation_after_restart": bool(original_tasks) and original_tasks == later_tasks,
+        "original_child_operations_and_attempts_unchanged": bool(original_operations and original_attempts)
+            and original_operations == later_operations and original_attempts == later_attempts,
+        "original_child_result_bytes_retained": bool(original_results) and original_results == later_results,
+        "original_child_receipt_bytes_retained": bool(original_receipts)
+            and all(later_receipts.get(key) == value for key, value in original_receipts.items()),
+    }
+
+
 async def collect(ws, process, data_dir, log_path, timeout, predicate):
     deadline = time.monotonic() + timeout
     messages = []
@@ -173,7 +214,8 @@ async def collect(ws, process, data_dir, log_path, timeout, predicate):
 async def start(args, phase, data_dir, pause_request_id=None):
     environment = os.environ.copy()
     environment.update(SHENKO_USE_LOCAL_MODEL="1", SHENKO_LOCAL_MODEL_URL=args.model_url,
-                       SHENKO_LOCAL_MODEL=args.model, SHENKO_LOG="info")
+                       SHENKO_LOCAL_MODEL=args.model,
+                       SHENKO_LOG="info,shenko_timing=debug" if args.timing else "info")
     log = (args.evidence_dir / f"{phase}.runtime.log").open("w")
     command = [str(args.binary), "--data-dir", str(data_dir), "start", "--port", str(args.port)]
     if pause_request_id is not None:
@@ -341,6 +383,7 @@ def first_request_contains_input(data_dir, facts, prior_requests, accepted, subm
 
 
 async def run(args):
+    started = time.monotonic()
     args.evidence_dir.mkdir(parents=True, exist_ok=False)
     data_dir = args.evidence_dir / "installation"
     marker = "S1-" + uuid.uuid4().hex[:12]
@@ -351,8 +394,11 @@ async def run(args):
         "schema_version": 1, "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "binary": str(args.binary), "binary_sha256": sha256(args.binary),
         "source_revision": args.source_revision, "model": args.model, "model_url": args.model_url,
+        "driver_sha256": sha256(Path(__file__)),
         "websockets_version": websockets.__version__, "marker": marker, "resume_marker": resume_marker,
         "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
+        "phase_timeout_seconds": args.timeout,
+        "request_path_timing": args.timing,
         "input_surface": "live_browser_composer" if args.browser else "public_websocket",
         "startup_boundary": startup_boundary, "restart_boundary": restart_boundary,
         "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim",
@@ -452,6 +498,7 @@ async def run(args):
         summary["checks"]["continued_request_contains_exact_input"] = first_request_contains_input(
             data_dir, after, prior_requests, resumed_accepted, resumed_input)
         summary["checks"]["original_results_retained"] = before_ids <= {row["task_id"] for row in after.get("task_results", [])}
+        summary["checks"].update(evaluate_recovery(paused, after))
         replay = next((row for row in messages if row.get("type") == "receipt" and row.get("submission_id") == submission["submission_id"]), None)
         summary["checks"]["replayed_input_same_event"] = bool(accepted and replay and replay.get("replayed") is True
             and replay.get("event_id") == accepted.get("event_id") and replay.get("accepted_commit") == accepted.get("accepted_commit"))
@@ -499,9 +546,71 @@ async def run(args):
             except Exception as error:
                 summary["passed"] = False
                 summary["errors"].append(f"CAS evidence retention: {type(error).__name__}: {error}")
+        summary["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        summary["elapsed_seconds"] = time.monotonic() - started
         save(args.evidence_dir / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0 if summary["passed"] else 1
+
+
+async def repeat(args):
+    """Repeat the complete unchanged journey with fresh, retained installations.
+
+    Failures stay in the denominator. A changed binary or served model card
+    stops the batch instead of combining different candidates' success rates.
+    Server metadata is an observed binding, not a weight-file attestation.
+    """
+    args.evidence_dir.mkdir(parents=True, exist_ok=False)
+    report = {"schema_version": 1, "source_revision": args.source_revision,
+              "requested_runs": args.repeat, "runs": [], "passed": False,
+              "errors": [], "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+
+    def checkpoint():
+        runs = report["runs"]
+        report.update(completed_runs=len(runs), passed_runs=sum(row["passed"] for row in runs),
+                      failed_runs=sum(not row["passed"] for row in runs),
+                      unattempted_runs=args.repeat - len(runs))
+        report["success_rate"] = report["passed_runs"] / len(runs) if runs else None
+        report["passed"] = len(runs) == args.repeat and all(row["passed"] for row in runs) and not report["errors"]
+        save(args.evidence_dir / "batch-summary.json", report)
+
+    def model_card():
+        cards = [card for card in get_json(args.model_url.rstrip("/") + "/v1/models").get("data", [])
+                 if card.get("id") == args.model]
+        if len(cards) != 1:
+            raise ValueError("the selected model must have one unambiguous served model card")
+        # Permission IDs may be freshly generated by /models. They do not
+        # identify weights, runtime or serving capacity.
+        return {key: value for key, value in cards[0].items() if key != "permission"}
+
+    checkpoint()
+    try:
+        report["binary_sha256"] = sha256(args.binary)
+        report["model_card"] = model_card()
+        report["model_url"] = args.model_url
+        checkpoint()
+        for index in range(1, args.repeat + 1):
+            if sha256(args.binary) != report["binary_sha256"] or model_card() != report["model_card"]:
+                raise RuntimeError("binary or served model identity changed during the frozen batch")
+            attempt = copy.copy(args)
+            attempt.evidence_dir = args.evidence_dir / f"attempt-{index:03d}"
+            exit_code = await run(attempt)
+            summary_path = attempt.evidence_dir / "summary.json"
+            summary = json.loads(summary_path.read_text())
+            report["runs"].append({"attempt": index, "directory": attempt.evidence_dir.name,
+                                   "summary_sha256": sha256(summary_path), "exit_code": exit_code,
+                                   "passed": exit_code == 0 and summary["passed"],
+                                   "elapsed_seconds": summary["elapsed_seconds"],
+                                   "errors": summary["errors"]})
+            checkpoint()
+    except Exception as error:
+        report["errors"].append(f"{type(error).__name__}: {error}")
+        (args.evidence_dir / "batch-failure.txt").write_text(traceback.format_exc())
+    finally:
+        report["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        checkpoint()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["passed"] else 1
 
 
 def main():
@@ -516,10 +625,16 @@ def main():
     parser.add_argument("--browser", action="store_true",
                         help="Use the actual UI composer and observe one Chromium page across the same CLI restart")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--repeat", type=int, default=1,
+                        help="Run complete journeys sequentially; retain every attempt and its success-rate denominator")
+    parser.add_argument("--timing", action="store_true",
+                        help="Enable only the structured shenko_timing debug target alongside normal info logs")
     args = parser.parse_args()
+    if args.repeat < 1 or args.timeout < 1:
+        parser.error("--repeat and --timeout must be positive")
     args.binary = args.binary.resolve()
     args.evidence_dir = args.evidence_dir.resolve()
-    raise SystemExit(asyncio.run(run(args)))
+    raise SystemExit(asyncio.run(repeat(args) if args.repeat > 1 else run(args)))
 
 
 if __name__ == "__main__":

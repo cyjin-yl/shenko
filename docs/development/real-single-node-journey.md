@@ -68,6 +68,32 @@ each explicit resume. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
 
+### Repeated candidate and recovery evidence
+
+Pass `--repeat 3 --browser --timing` to run three complete journeys sequentially
+against the same binary and served model card. Each attempt uses a fresh
+installation and retains both the first-task and restart phases under
+`attempt-NNN`. `batch-summary.json` is checkpointed after every attempt and
+reports passed, failed and unattempted runs. A failed attempt remains in the
+success-rate denominator; binary or model-card drift stops the batch and
+leaves the remaining runs explicitly unattempted. Model-card equality is an
+observed serving identity, not proof that weight bytes did not change; record
+the checkpoint/template/runtime identity separately for a deployment claim.
+
+Recovery now also compares the real original child operation/attempt sets and
+the complete stored result/receipt rows. This recall-only second input must not
+create another model or `host.printf` child. Retaining the old result or returning
+the same WebSocket receipt alone cannot prove that execution was not repeated.
+The driver records its own SHA-256, phase deadline and elapsed wall time.
+`--timing` selects `SHENKO_LOG=info,shenko_timing=debug`; structured phase timings
+are diagnostic observations, not successful effect receipts or model-quality
+evidence. All existing child, output, pause, browser and clean-exit assertions
+remain required.
+
+`python3 -I scripts/real_single_node_journey_test.py` checks only the driver's
+reexecution detection and failed-attempt accounting with synthetic records.
+It does not execute a model or satisfy the journey itself.
+
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
 with workflow dispatch or by adding the PR label `run-real-model`. Adding that
 specific label requests one experiment; later pushes and unrelated labels do
