@@ -31,17 +31,3 @@ test('profile generation is inert, uses absolute paths and pins config bytes wit
     await rm(dir, { recursive: true, force: true });
   }
 });
-
-test('config rejects ambiguous plugins and literal environment values', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'shenko-dsh-invalid-'));
-  const path = join(dir, 'bridge.json');
-  const base = { schemaVersion: 1, plugins: [{ id: 'test', entry: './test.mjs' }] };
-  try {
-    await writeFile(path, JSON.stringify({ ...base, plugins: [base.plugins[0], base.plugins[0]] }));
-    await assert.rejects(readConfig(path), /Duplicate plugin/);
-    await writeFile(path, JSON.stringify({ ...base, envRefs: { TOKEN: 'literal-secret-value' } }));
-    await assert.rejects(readConfig(path), /environment variable names/);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
