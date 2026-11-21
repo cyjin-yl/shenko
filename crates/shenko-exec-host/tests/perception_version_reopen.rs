@@ -24,7 +24,7 @@ use anyhow::{Context as _, Result, bail, ensure};
 use chrono::{SecondsFormat, Utc};
 use parking_lot::Mutex;
 use shenko_awareness_core::{
-    CognitionCatalog, INSTALLATION_UNITS, INSTALLATION_UNITS_SOURCE, INSTALLATION_UNITS_TARGET,
+    ArchivedPerceptionSource, CognitionCatalog, INSTALLATION_UNITS, INSTALLATION_UNITS_SOURCE, INSTALLATION_UNITS_TARGET,
     PerceptionBinding, PerceptionFact, PerceptionObserver, PerceptionRegistry, PerceptionStatus,
     PerceptionPerspective, bind_builtin_perception_sources, cognition_package_root,
     parse_cognition_entry, reconcile_builtin_perception_sources, seed_packages,
@@ -326,6 +326,9 @@ fn a_custom_perception_unit_is_unknown_until_a_source_observes() -> Result<()> {
         .catalog
         .perception()
         .bind(binding.clone(), Arc::new(FileFactSource::new(binding.clone(), fixture.clone(), None)))?;
+    ensure!(matches!(sandbox.card_perception(CUSTOM_UNIT)?, Some(PerceptionStatus::Unknown { .. })),
+        "an unsampled source stays unknown");
+    sandbox.catalog.perception().observe(&binding);
     let observed = sandbox.card_perception(CUSTOM_UNIT)?.context("perception card")?;
     let PerceptionStatus::Observed { fact } = &observed else {
         bail!("a bound source that read the file must observe: {}", observed.line(Utc::now()));
@@ -461,9 +464,13 @@ fn an_updated_installation_units_version_retires_the_old_source() -> Result<()> 
         "the installed revision moved to the authored version: {new:?}"
     );
 
-    // Projecting the installation re-derives the sources from the installed
-    // facts: the registration that spoke for 0.1.0 is retired, its cached
-    // observation goes with it, and the new revision is bound and observed.
+    // Disclosure validates the replacement before preparation notices it:
+    // the old revision's retained observation cannot answer for this version.
+    ensure!(matches!(sandbox.card_perception(INSTALLATION_UNITS)?, Some(PerceptionStatus::Unknown { .. })),
+        "a newly installed revision starts unknown before preparation");
+    let prepared = reconcile_builtin_perception_sources(&sandbox.node, sandbox.catalog.perception())?;
+    ensure!(prepared.contains(&new), "preparation binds the exact replacement");
+    sandbox.catalog.perception().observe(&new);
     let card = sandbox.card_perception(INSTALLATION_UNITS)?.context("perception card")?;
     ensure!(
         sandbox.catalog.perception().is_bound(&new),
@@ -724,4 +731,153 @@ fn a_fresh_process_is_unbound_until_it_rebinds() -> Result<()> {
 
 fn line_contains(text: &str, needle: &str) -> bool {
     text.lines().any(|line| line.contains(needle))
+}
+
+/// Real Store installation, independent Node SQL writer, and a separately
+/// held production Node mutex. Disclosure must finish while both are held.
+/// The released preparation then archives real changed file bytes and those
+/// bytes become visible without a disclosure-side probe.
+#[test]
+fn prepared_disclosure_reads_while_independent_writer_and_node_mutex_are_held() -> Result<()> {
+    use shenko_exec_host::cognition_trial::PreparedSandbox;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    struct CountedSource {
+        reads: Arc<AtomicUsize>,
+        source: FileFactSource,
+        sampled: mpsc::SyncSender<()>,
+    }
+    impl PerceptionObserver for CountedSource {
+        fn observe(&self) -> Result<PerceptionFact> {
+            let prior = self.reads.fetch_add(1, Ordering::SeqCst);
+            let fact = self.source.observe()?;
+            if prior == 1 {
+                self.sampled.send(())?;
+            }
+            Ok(fact)
+        }
+    }
+
+    let root = PathBuf::from(std::env::var_os("SHENKO_COMPAT_EVIDENCE_ROOT")
+        .context("native contention consumer requires persistent evidence root")?);
+    let sandbox = PreparedSandbox::fresh("perception-prepared-disclosure", &root)?;
+    let node_dir = sandbox.installation().join("node");
+    let node = Arc::new(Mutex::new(Node::open(&node_dir)?));
+    let catalog = Arc::new(CognitionCatalog::new(Arc::clone(&node)));
+    let package = parse_cognition_entry(&custom_perception_entry("0.1.0"), Path::new("PERCEPTION.md"))?;
+    catalog.install(&package, &sandbox.installation().join("packages"))?;
+    let binding = PerceptionBinding::of(&node.lock().installed_unit_fact(CUSTOM_UNIT)?.context("installed unit")?);
+    let fixture = sandbox.installation().join("prepared-source.txt");
+    std::fs::write(&fixture, b"before writer")?;
+    let reads = Arc::new(AtomicUsize::new(0));
+    let (sampled_tx, sampled_rx) = mpsc::sync_channel(1);
+    let registration = catalog.perception().bind(binding.clone(),
+        Arc::new(ArchivedPerceptionSource::new(
+            Arc::clone(&node), binding.clone(), PerceptionPerspective::Own,
+            Arc::new(CountedSource {
+                reads: Arc::clone(&reads),
+                source: FileFactSource::new(binding.clone(), fixture.clone(), None),
+                sampled: sampled_tx,
+            }),
+        )))?;
+    let PerceptionStatus::Observed { fact: before } = catalog.perception().observe(&binding) else {
+        bail!("initial preparation did not archive");
+    };
+    let before_digest = before.evidence_digest.clone().context("original archive digest")?;
+    let before_bytes = node.lock().unit_object_bytes(&Digest(before_digest.clone()))?;
+    let before_rows = catalog.observations(CUSTOM_UNIT)?;
+    std::fs::write(&fixture, b"changed while independent writer is held")?;
+
+    let database = node_dir.join("node.sqlite3");
+    let writer = rusqlite::Connection::open(&database)?;
+    writer.execute_batch("BEGIN IMMEDIATE")?;
+    let database_before = std::fs::read(&database)?;
+    let counts = |connection: &rusqlite::Connection| -> Result<(i64, i64)> {
+        Ok((connection.query_row("SELECT count(*) FROM unit_version_history", [], |r| r.get(0))?,
+            connection.query_row("SELECT count(*) FROM unit_attempts", [], |r| r.get(0))?))
+    };
+    let rows_before = counts(&writer)?;
+    let store_database = sandbox.installation().join("shenko.db");
+    let store_before = std::fs::read(&store_database)?;
+    let worker_catalog = Arc::clone(&catalog);
+    let worker_binding = binding.clone();
+    let worker = std::thread::spawn(move || -> Result<PerceptionStatus> {
+        Ok(worker_catalog.perception().observe(&worker_binding))
+    });
+    // Capture failures rather than leaving an owned thread blocked on a
+    // failed assertion. Rollback precedes every join below.
+    let disclosure = (|| -> Result<String> {
+        sampled_rx.recv_timeout(Duration::from_secs(2))?;
+        // The callback has read the changed bytes. Its only subsequent Node
+        // acquisition is ArchivedPerceptionSource's real RegisterObservation
+        // call, which cannot pass this independently held SQL reservation.
+        let waiting = Instant::now();
+        loop {
+            if node.try_lock().is_none() { break; }
+            ensure!(waiting.elapsed() < Duration::from_secs(1), "archive never acquired Node mutex");
+            std::thread::yield_now();
+        }
+        let started = Instant::now();
+        let text = catalog.disclosure_at(17)?;
+        let cards = catalog.cards()?;
+        let page = catalog.discovery(0, 100)?;
+        ensure!(started.elapsed() < Duration::from_secs(1), "cached reads waited for the held writer");
+        let card = cards.iter().find(|card| card.unit_id == CUSTOM_UNIT).context("current card")?;
+        ensure!(card.perception == Some(PerceptionStatus::Observed { fact: before.clone() }),
+            "disclosure preserves exact archived binding, source, target, validity, attribution and time");
+        ensure!(page.cards.iter().any(|card| card.unit_id == CUSTOM_UNIT), "canonical listing retained");
+        ensure!(text.len() <= shenko_awareness_core::MAX_INDEX_BYTES && text.contains(CUSTOM_UNIT),
+            "real bounded rotated disclosure includes the authored card");
+        ensure!(reads.load(Ordering::SeqCst) == 2
+            && catalog.perception().sources(&binding) == vec![shenko_awareness_core::PerceptionSourceId::primary()],
+            "disclosure constructed or probed a source");
+        ensure!(counts(&writer)? == rows_before && std::fs::read(&database)? == database_before,
+            "disclosure archived or reconciled durable Node state");
+        ensure!(std::fs::read(&store_database)? == store_before,
+            "disclosure changed the real Store");
+        Ok(text)
+    })();
+    let rollback = writer.execute_batch("ROLLBACK");
+    let joined = worker.join().map_err(|_| anyhow::anyhow!("preparation panicked"));
+    rollback?;
+    let after = joined??;
+    let text = disclosure?;
+    let PerceptionStatus::Observed { fact: after } = after else { bail!("released preparation unavailable"); };
+    ensure!(after.binding == before.binding && after.source == before.source && after.target == before.target,
+        "refresh changed the selected binding or observed target");
+    ensure!(after.evidence_digest != before.evidence_digest && after.observed_at >= before.observed_at,
+        "changed source did not produce its own original archival identity/time");
+    let cards = catalog.cards()?;
+    ensure!(cards.iter().any(|card| card.unit_id == CUSTOM_UNIT
+        && card.perception == Some(PerceptionStatus::Observed { fact: after.clone() })),
+        "subsequent disclosure did not expose completed preparation");
+    let refreshed_text = catalog.disclosure_at(17)?;
+    ensure!(refreshed_text != text && refreshed_text.contains(CUSTOM_UNIT),
+        "the same rotated production disclosure did not visibly refresh");
+    ensure!(reads.load(Ordering::SeqCst) == 2, "visible refresh sampled on read");
+    let repeated = catalog.perception().observe(&binding);
+    ensure!(repeated == PerceptionStatus::Observed { fact: after.clone() }, "unchanged preparation minted new time/digest");
+    let after_rows = catalog.observations(CUSTOM_UNIT)?;
+    ensure!(after_rows.len() == before_rows.len() + 1, "changed observation has exactly one archive row");
+    ensure!(node.lock().unit_object_bytes(&Digest(before_digest))? == before_bytes, "original evidence changed");
+    ensure!(catalog.perception().unbind(registration), "exact source registration retirement");
+    ensure!(catalog.cards()?.iter().any(|card| card.unit_id == CUSTOM_UNIT
+        && matches!(card.perception, Some(PerceptionStatus::Unknown { .. }))), "retired source resurrected");
+    std::fs::remove_file(&fixture)?;
+    catalog.perception().bind(binding.clone(), Arc::new(FileFactSource::new(binding.clone(), fixture, None)))?;
+    ensure!(matches!(catalog.perception().observe(&binding), PerceptionStatus::Unavailable { .. }),
+        "actual failed source must be unavailable");
+    ensure!(catalog.cards()?.iter().any(|card| card.unit_id == CUSTOM_UNIT
+        && matches!(card.perception, Some(PerceptionStatus::Unavailable { .. }))), "failure hidden in cached disclosure");
+    println!("RECEIPT:{}", serde_json::to_string(&serde_json::json!({
+        "consumer": "prepared-disclosure-independent-writer", "binding": binding,
+        "before": before, "after": after, "disclosure_while_held": text,
+        "disclosure_after_release": refreshed_text,
+        "node_rows_before": rows_before, "observations_after": after_rows,
+        "probe_calls": reads.load(Ordering::SeqCst),
+        "scope": "actual Node/Store read and archive boundaries; no model efficacy claim"
+    }))?);
+    Ok(())
 }
