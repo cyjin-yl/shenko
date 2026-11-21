@@ -1,0 +1,16 @@
+{
+  "request_id": "9d498c26-d604-4603-9e40-0cd853a8660b",
+  "agent_id": "9dc15655-0143-495d-a1c5-64c0ca218c28",
+  "generation": "seed",
+  "epoch": 2,
+  "state": "paused",
+  "requested_at": {
+    "ledger_id": "61125b6a-4cca-4599-8452-a1f7f96b9a45",
+    "seq": 8
+  },
+  "boundary_at": {
+    "ledger_id": "61125b6a-4cca-4599-8452-a1f7f96b9a45",
+    "seq": 9
+  },
+  "closed_at": null
+}
