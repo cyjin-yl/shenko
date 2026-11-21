@@ -76,8 +76,9 @@ semantics. Only the independently verified S1/claim/E1 chain can use the new
 subject witness. Its `subject_steps` image contains exactly the immutable
 creator's full row, fetched by primary key before and after the single source
 evaluation. It cannot carry a step write. An observed trigger or view read of
-`subject_steps` is outside this closed proof and refuses capture before any
-preparation or choice instead of discarding that additional dependency.
+`subject_steps` is outside this closed proof and refuses capture before storing
+a prepared transition or requesting choice, instead of discarding that
+additional dependency. Earlier predecessor CAS publication is unaffected.
 
 The source still calls `read_subject`. In the final IMMEDIATE transaction,
 every new-version application calls it again and compares the complete head:
