@@ -21,11 +21,12 @@ use std::{
 
 #[path = "support/process_runtime.rs"]
 mod process_runtime;
+#[path = "support/ssh_fixture.rs"]
+mod ssh_fixture;
 #[path = "support/runtime_health.rs"]
 mod runtime_health;
-use process_runtime::{
-    OwnedProcess, append_json, copy_diagnostics, file_sha256, write_sshd_config,
-};
+use process_runtime::{OwnedProcess, append_json};
+use ssh_fixture::{copy_diagnostics, file_sha256, write_sshd_config};
 use runtime_health::health;
 
 // A named execution cold-verifies its installed artifact and compiles it on
