@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "kind": "controlled_regression_scope_with_compile_failure",
+  "source_revision": "be9cfe1ba9ac99f34c69fe57eea4aa369a8371e3",
+  "derived_at_utc": "2026-11-21T22:37:55.267223+00:00",
+  "scope_exit": 1,
+  "host_exit": 1,
+  "started_at": "2026-11-21T22:22:19Z",
+  "finished_at": "2026-11-21T22:25:29Z",
+  "requested_existing_tests": 2,
+  "actual_outer_test_executions": 1,
+  "actual_passed": 1,
+  "actual_failed": 0,
+  "compile_blocked_test_count": 1,
+  "authority": {
+    "filter": "runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners",
+    "cargo_exit": 101,
+    "actual_test_executed": false,
+    "diagnostic": "E0282: type annotations needed for drop-only mpsc::sync_channel at runtime_authority_tests.rs:289:42",
+    "log": {
+      "path": "authority.log.gz",
+      "bytes": 7799,
+      "sha256": "727d0ccc144ace449b3f80cbc17c6f29746dd755fcba6a3206763cda5010a85c"
+    },
+    "raw_bytes": 37640,
+    "raw_sha256": "c94c189d5b731d062f304feee3b28974d6c02fe293fcebf4879f05eaf6a16ab3"
+  },
+  "start_boundary": {
+    "filter": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+    "cargo_exit": 0,
+    "actual_outer_summary": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 73.29s",
+    "duration_seconds": 73.29,
+    "actual_passed": 1,
+    "actual_failed": 0,
+    "excluded_earlier_summaries": [],
+    "log": {
+      "path": "start-boundary.log.gz",
+      "bytes": 7610,
+      "sha256": "409e630d5e0b0320f0d340ab08f779b0a73863299079e866a44eaa9445e2fdd7"
+    },
+    "raw_bytes": 36109,
+    "raw_sha256": "89b6812391b2228407c68e3cebbb51e56c8eb26eb5d12061f4255d1262fc2d57",
+    "process_result": {
+      "path": "start-boundary/result.json",
+      "bytes": 271,
+      "sha256": "b0da8b66b99f55fd270b0b6719513db536ac956aa1d60eca9044281da3d7d882"
+    },
+    "recovery_stop_order": {
+      "path": "start-boundary/recovery-stop-order.json",
+      "bytes": 691,
+      "sha256": "84fc5fdcf0c83b35718cb0b8cd07d540f95a483b38d8c73a2d2a34c9011ade8c"
+    },
+    "recovery_stop_receipt": {
+      "path": "start-boundary/recovery-stop-receipt.json",
+      "bytes": 1028,
+      "sha256": "892d6d3f2d6cb3e8bbee48d6182558f6c59aef30e75fc7a900c5bb06dd6cd36e"
+    },
+    "source_identical_to_0c": true,
+    "source_path": "bin/shenko/tests/start_boundary.rs",
+    "source_sha256": "71f18ed20e751bf51fa8adaca4410de5e8520cd4b100a3df8d9beb874f6d0fad",
+    "original_three_second_cancellation_deadline_unchanged": true,
+    "process_receipt_retains_original_nonzero_exit": 1,
+    "original_request_termination": {
+      "kind": "unknown",
+      "length": false,
+      "max_tokens": null,
+      "output_tokens": null,
+      "stop_reason": null
+    },
+    "original_owner_held_until_e1_release": true,
+    "next_incarnation_started": false,
+    "model_completion_tested": false,
+    "remote_completion_claimed": false,
+    "event_order": [
+      {
+        "elapsed_ms": 0,
+        "event": "original_inference_post_held"
+      },
+      {
+        "elapsed_ms": 97,
+        "event": "authority_changed_and_process_continued"
+      },
+      {
+        "elapsed_ms": 118,
+        "event": "original_request_cancellation_observed_before_sigint"
+      },
+      {
+        "elapsed_ms": 118,
+        "event": "sigint_sent_during_owned_cleanup"
+      },
+      {
+        "elapsed_ms": 128,
+        "event": "host_stop_latched_before_writer_release"
+      },
+      {
+        "elapsed_ms": 128,
+        "event": "original_e1_writer_released"
+      },
+      {
+        "elapsed_ms": 436,
+        "event": "original_transport_end_confirmed"
+      },
+      {
+        "elapsed_ms": 686,
+        "event": "original_error_and_unknown_preserved_without_reconstruction"
+      }
+    ]
+  },
+  "preservation": {
+    "indexed_originals": 54,
+    "total_original_files": 55,
+    "index": {
+      "path": "index.json",
+      "bytes": 24827,
+      "sha256": "acf263f75f302ae9e5dcf265f38f029021005e7d681ffa26fb2dfb8e060964d8"
+    },
+    "encodings": {
+      "original": 28,
+      "gzip-mtime0": 26
+    },
+    "all_stored_and_uncompressed_bytes_and_sha256_verified": true,
+    "all_gzip_header_mtimes_zero": true,
+    "original_receipts_unmodified": true,
+    "transferred_archive_name": "scoped-be9cfe1b-public.tar.gz",
+    "transferred_archive_bytes": 80068,
+    "transferred_archive_sha256": "bdfe6c57207f713ca4e3a515379f7eac36b6911bbed11221eec51e44083477d1",
+    "transport_index": {
+      "path": "transport-index.json",
+      "bytes": 24452,
+      "sha256": "3bab7517d6be753eeab4269772ace0eab93069866365ac4f3fb93f04f7635ae6"
+    },
+    "reencoded_after_verified_transfer": [
+      "start-boundary/model-000.request",
+      "start-boundary/model-001.request",
+      "start-boundary/model-002.request",
+      "start-boundary/model-003.request",
+      "start-boundary/model-004.request",
+      "start-boundary/model-005.request",
+      "start-boundary/model-006.request",
+      "start-boundary/model-007.request",
+      "start-boundary/model-008.request",
+      "start-boundary/model-010.request",
+      "start-boundary/model-011.request",
+      "start-boundary/model-012.request",
+      "start-boundary/model-013.request",
+      "start-boundary/model-014.request",
+      "start-boundary/model-015.request",
+      "start-boundary/model-016.request",
+      "start-boundary/model-017.request"
+    ],
+    "retention_note": "After verifying the original transport index, all small HTTP request originals were also gzip encoded with mtime zero. Their CRLF wire bytes, source lengths and source SHA-256 remain unchanged. transport-index.json retains the original export index."
+  },
+  "limits": [
+    "The original authority compilation failure remains a failed scope; no authority test ran at this source.",
+    "This controlled process fixture uses its original local HTTP provider observations. Its journey_passed field is not a real reference-model task success.",
+    "The passing process observation after the short-circuit does not uniquely identify the earlier Nightly 3-second failure cause.",
+    "No release build or real-model execution was requested by this scope."
+  ]
+}

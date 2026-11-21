@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "kind": "single_authority_unit_with_source_identical_process_evidence_reuse",
+  "source_revision": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+  "derived_at_utc": "2026-11-21T22:40:31.836254+00:00",
+  "scope_exit": 0,
+  "host_exit": 0,
+  "authority_cargo_exit": 0,
+  "times": {
+    "host.started": "2026-11-21T22:36:14Z",
+    "host.admitted": "2026-11-21T22:36:14Z",
+    "started": "2026-11-21T22:36:16Z",
+    "authority.started": "2026-11-21T22:36:16Z",
+    "authority.finished": "2026-11-21T22:37:30Z",
+    "finished": "2026-11-21T22:37:30Z",
+    "host.finished": "2026-11-21T22:37:30Z"
+  },
+  "actual_test_executions_this_run": 1,
+  "actual_passed_this_run": 1,
+  "actual_failed_this_run": 0,
+  "actual_outer_summary": "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 12.79s",
+  "duration_seconds": 12.79,
+  "excluded_earlier_summaries": [],
+  "authority_log": {
+    "path": "authority.log.gz",
+    "bytes": 7914,
+    "sha256": "511bb9fd31543088b86b0527ced09ad46ad87470df76f0d72b828a65f225f03f"
+  },
+  "authority_log_uncompressed_bytes": 38148,
+  "authority_log_uncompressed_sha256": "228de7031a447cc5fd752959d3c70868f6edc69faa0d25d1c9ae6d499a7e7fc7",
+  "test_profile": "unoptimized test profile; CARGO_PROFILE_TEST_DEBUG=0",
+  "existing_test_filter": "runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners",
+  "meaningful_new_window": "A completed real SQLite binding read retains the Store connection mutex while a genuinely changed reserved Node has no current local fence. The original authority acquisition returns no fresh stamp and cancels before the holder is released; both scoped threads are joined before propagating any failed observation.",
+  "source_change": "Explicit unit type on the existing drop-only release channel in the authority test.",
+  "reuse": {
+    "receipt": {
+      "path": "reuse.json",
+      "bytes": 1779,
+      "sha256": "8b2e98b649a4fc595c1372c9089eeecd49f828f8894ab6b16d418e35b7be1e39"
+    },
+    "baseline_source_revision": "be9cfe1ba9ac99f34c69fe57eea4aa369a8371e3",
+    "all_other_source_bytes_identical": true,
+    "start_boundary_source_sha256": "71f18ed20e751bf51fa8adaca4410de5e8520cd4b100a3df8d9beb874f6d0fad",
+    "existing_process_test_reexecuted": false,
+    "prior_process_test_actual_passed": 1,
+    "prior_process_test_actual_failed": 0,
+    "prior_process_test_duration_seconds": 73.29,
+    "prior_process_summary": "../scoped-be9cfe1b/summary.json",
+    "prior_process_log_uncompressed_sha256": "89b6812391b2228407c68e3cebbb51e56c8eb26eb5d12061f4255d1262fc2d57",
+    "limits": "Reuse applies only to this fixture-only descendant with identical production and process-test bytes; it is not blanket evidence for later product changes."
+  },
+  "retained_failures": {
+    "authority_compile": {
+      "summary": "../scoped-be9cfe1b/summary.json",
+      "cargo_exit": 101,
+      "diagnostic": "E0282",
+      "actual_authority_test_executions": 0,
+      "raw_log_sha256": "c94c189d5b731d062f304feee3b28974d6c02fe293fcebf4879f05eaf6a16ab3"
+    },
+    "observer_preflight": {
+      "summary": "../scoped-8f14a704-preflight/summary.json",
+      "host_exit": 1,
+      "actual_test_executions": 0,
+      "raw_log_sha256": "02f47fa5c436a71f27b59aabad605028bfbba33c5b71a2d87e57b5bd2bda2867"
+    }
+  },
+  "source_transfer": {
+    "bundle_bytes": 798,
+    "bundle_sha256": "36516d21f91c2c36e0c032ea03b21781372095ce27fd618e5418b65ea2951646",
+    "candidate": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+    "required_base": "be9cfe1ba9ac99f34c69fe57eea4aa369a8371e3",
+    "host_log": {
+      "path": "host.log.gz",
+      "bytes": 638,
+      "sha256": "dd85d2d97c11f185b80349b19828a0d06fa2b0bb6842f9ee91363bb6a43c8d86"
+    }
+  },
+  "preservation": {
+    "archive_name": "scoped-8f14a704-r2-public.tar.gz",
+    "archive_bytes": 14272,
+    "archive_sha256": "f056652ad4777735a4a4549205960b4da91f9aa23968971e4f47c319784f2668",
+    "index": {
+      "path": "index.json",
+      "bytes": 7332,
+      "sha256": "c3715b349654d4a0f722eac51bde7e0b348588d77b6333e4c1b2af136292da80"
+    },
+    "indexed_originals": 17,
+    "total_original_files": 18,
+    "encodings": {
+      "original": 15,
+      "gzip-mtime0": 2
+    },
+    "all_stored_and_uncompressed_bytes_and_sha256_verified": true,
+    "all_gzip_header_mtimes_zero": true,
+    "original_receipts_unmodified": true
+  },
+  "limits": [
+    "One existing authority unit was executed once after the type annotation; the already-successful process test was not repeated.",
+    "The original be9 compilation failure and first 8f observer-preflight failure remain retained failures.",
+    "The process cancellation deadline was not increased. Neither this unit nor the reused process observation uniquely identifies the old Nightly failure cause.",
+    "No release build or real reference-model generation was run; this scope does not change the retained failed real-journey denominator."
+  ]
+}
