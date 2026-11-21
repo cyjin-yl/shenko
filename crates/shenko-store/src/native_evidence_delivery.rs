@@ -101,7 +101,7 @@ fn validate_item(item: &NativeEvidenceItem) -> Result<(), ShenkoError> {
     }
     match &item.availability {
         NativeEvidenceAvailability::Sealed { evidence_ref } => {
-            if !matches!(evidence_ref.codec.major, 1..=5) {
+            if !matches!(evidence_ref.codec.major, 1..=6) {
                 return Err(invalid("unsupported typed object for original E1"));
             }
             crate::native_facts::typed_json(
@@ -212,6 +212,35 @@ fn verify_delivery(
 }
 
 impl Store {
+    fn retain_native_evidence_transfer(
+        &self,
+        reference: &ObjectRef,
+        envelope: Option<&AnchoredNativeEvidence>,
+        objects: &[CommitAdmissionObject],
+    ) -> Result<(), ShenkoError> {
+        if let Some(envelope) = envelope {
+            self.verify_native_evidence_base(envelope)?;
+        }
+        for object in objects {
+            self.cas.seal_object(&object.bytes, &object.reference.media_type,
+                &object.reference.store_namespace, &object.reference.codec.name,
+                object.reference.codec.major)?;
+        }
+        let closure = self.native_evidence_closure(reference, envelope)?;
+        let digests: BTreeSet<_> = closure.iter().map(|object| &object.digest).collect();
+        let typed: BTreeSet<_> = closure.iter().map(NativeEvidenceObjectIdentity::from).collect();
+        if objects.iter().any(|object| {
+            if envelope.is_some() {
+                !typed.contains(&NativeEvidenceObjectIdentity::from(&object.reference))
+            } else {
+                !digests.contains(&object.reference.digest)
+            }
+        }) {
+            return Err(invalid("E1 transfer contains objects outside its original increment"));
+        }
+        Ok(())
+    }
+
     /// Only an actual source observation is advertised. A receiver's local
     /// materialization receipt is not a new source observation. Original
     /// paired-T1 observations without a supported seal are explicit gaps.
@@ -387,32 +416,19 @@ impl Store {
         {
             return Err(invalid("only an original source E1 can be published"));
         }
-        let (objects, missing) = self
-            .collect_closure_bounded(
-                std::slice::from_ref(evidence_ref),
-                NATIVE_EVIDENCE_CLOSURE_OBJECTS,
-                NATIVE_EVIDENCE_CLOSURE_BYTES,
-            )
-            .map_err(invalid)?;
-        if !missing.is_empty() {
-            return Err(invalid("original E1 closure is incomplete"));
-        }
+        let (_, envelope) = self.read_native_evidence_object(evidence_ref)?;
+        let objects = self.native_evidence_closure(evidence_ref, envelope.as_ref())?;
+        let mut selected = BTreeSet::new();
         objects
             .into_iter()
+            .filter(|object| selected.insert(object.digest.clone()))
             .map(|object| {
                 let bytes = self.cas.read_object(&object.digest)?;
                 if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
                     return Err(invalid("E1 closure bytes changed"));
                 }
                 Ok(CommitAdmissionObject {
-                    reference: ObjectRef {
-                        digest: object.digest,
-                        bytes: object.bytes,
-                        media_type: object.media_type,
-                        store_namespace: object.store_namespace,
-                        locator: String::new(),
-                        codec: object.codec,
-                    },
+                    reference: ObjectRef { locator: String::new(), ..object },
                     bytes,
                 })
             })
@@ -558,30 +574,12 @@ impl Store {
             {
                 return Err(invalid("E1 object digest or length differs"));
             }
-            self.cas.seal_object(
-                &object.bytes,
-                &object.reference.media_type,
-                &object.reference.store_namespace,
-                &object.reference.codec.name,
-                object.reference.codec.major,
-            )?;
         }
-        let (closure, missing) = self
-            .collect_closure_bounded(
-                std::slice::from_ref(evidence_ref),
-                NATIVE_EVIDENCE_CLOSURE_OBJECTS,
-                NATIVE_EVIDENCE_CLOSURE_BYTES,
-            )
-            .map_err(invalid)?;
-        let digests: BTreeSet<_> = closure.iter().map(|object| &object.digest).collect();
-        if !missing.is_empty()
-            || objects
-                .iter()
-                .any(|object| !digests.contains(&object.reference.digest))
-        {
-            return Err(invalid(
-                "E1 transfer is incomplete or contains objects outside its original closure",
-            ));
+        let incoming = if evidence_ref.codec.major == NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR {
+            Some(self.incoming_native_evidence_object(evidence_ref, objects)?)
+        } else { None };
+        if incoming.is_none() {
+            self.retain_native_evidence_transfer(evidence_ref, None, objects)?;
         }
         self.ledger.with_factual_mutation(
             || {
@@ -601,6 +599,13 @@ impl Store {
                     .map_err(storage_error)?;
                 let mut verified_receipt = None;
                 let applied = (|| {
+                    if let Some((fact, envelope)) = &incoming {
+                        // An actual local T1/source/first-E1 check precedes any
+                        // CAS write. The original full predecessor must already
+                        // be present; incoming E1 bytes cannot supply it.
+                        self.verify_anchored_native_predecessors(&tx, fact)?;
+                        self.retain_native_evidence_transfer(evidence_ref, envelope.as_ref(), objects)?;
+                    }
                     let existing = read_materialization(&tx, record.delivery.item.position.receipt_id)?;
                     // Historical source checks are permitted only for an exact,
                     // already materialized E1. Every fresh apply checks the
@@ -624,7 +629,7 @@ impl Store {
                     if record.state == NativeEvidenceDeliveryState::Applied {
                         return Err(invalid("applied E1 delivery lost its actual receipt"));
                     }
-                    let entities = if matches!(evidence_ref.codec.major, 3 | 5) {
+                    let entities = if matches!(fact.schema_version, 3 | 5) {
                         self.materialize_native_successor(&tx, evidence_ref, commit)?
                     } else {
                         self.materialize_native_evidence(&tx, evidence_ref, commit)?;
