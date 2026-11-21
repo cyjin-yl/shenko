@@ -28,6 +28,8 @@ pub(crate) async fn start(
     config: StartConfig,
 ) -> Result<()> {
     let StartConfig { port, pause_at_start, name, channels, ssh_targets } = config;
+    let host_stop = state.host_stop.clone();
+    if host_stop.is_stopping() { return host_stop.wait().await; }
     let _ = channels.napcat.configured_account()?;
     info!(
         data_dir=%data_dir.display(), port,
@@ -141,7 +143,7 @@ pub(crate) async fn start(
         _result = crate::runtime_model_health::initial_probe(
             &model_profile, Arc::clone(&store), &cancel,
         ) => _result?,
-        _result = tokio::signal::ctrl_c() => {
+        _result = host_stop.wait() => {
             _result?;
             cancel.cancel();
             return Ok(());
@@ -152,6 +154,7 @@ pub(crate) async fn start(
     // registry or dispatch consumer, including model-free services.
     let (primary_fence, authority_runtime) = match node_sync::establish_runtime(
         &data_dir, &store, &cancel, runtime_instance, &model_profile, model_health.eligibility(),
+        host_stop.wait(),
     ).await? {
         node_sync::RuntimeSelection::Selected { fence, authority, heartbeat } => {
             state.authority_heartbeat = Some(heartbeat);
@@ -162,7 +165,7 @@ pub(crate) async fn start(
             state.authority_heartbeat = Some(heartbeat);
             return run_deterministic_ui(supervisor, DeterministicUi {
                 port, store, data_dir, agent_id, runtime_instance, model_profile,
-                model_health, cancel, owner: owner_state, channels, reason, file_mounts,
+                model_health, cancel, host_stop, owner: owner_state, channels, reason, file_mounts,
             }).await;
         },
     };
@@ -273,6 +276,7 @@ pub(crate) async fn start(
         consumer_cancel,
         model_health: &model_health,
         authority: &authority_runtime,
+        host_stop: &host_stop,
     })
     .await;
     let runtime_inference::InferenceServices {
@@ -360,7 +364,6 @@ pub(crate) async fn start(
     let connector_stop = consumer_cancel.clone();
     tokio::spawn(async move { connector_stop.cancelled().await; connector_failure.cancel(); });
     node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
-    info!("subject loop started");
 
     // The configuration service installed with the native definitions:
     // discover/read/preview/apply over the durable config tables, the
@@ -401,14 +404,27 @@ pub(crate) async fn start(
     let cancel_subject = cancel.clone();
     let subject_store = Arc::clone(&store);
     let subject_driver = update_runtime::SubjectDriver::new(Arc::clone(&handoff_participants));
-    let mut subject_task = tokio::spawn(async move {
-        let _subject_driver = subject_driver;
-        crate::runtime_subject::supervise(make_subject, subject_store, agent_id,
-            subject_live, cancel_subject).await
+    let mut subject_task = host_stop.start_if_running(|| {
+        let task = tokio::spawn(async move {
+            let _subject_driver = subject_driver;
+            crate::runtime_subject::supervise(make_subject, subject_store, agent_id,
+                subject_live, cancel_subject).await
+        });
+        // The host stop latch and this ownership transfer share one admission
+        // boundary. A stop during installation cannot certify prior recovery.
+        state.incarnation_started = true;
+        task
     });
+    let started = subject_task.is_some();
+    if started { info!("subject loop started"); }
     let mut subject_finished = false;
     let runtime_result: Result<()> = tokio::select! {
-        _result = &mut subject_task => {
+        _result = async {
+            match &mut subject_task {
+                Some(task) => task.await,
+                None => std::future::pending().await,
+            }
+        } => {
             subject_finished = true;
             match _result {
                 Ok(Err(error)) => Err(error.into()),
@@ -416,15 +432,15 @@ pub(crate) async fn start(
                 Ok(Ok(())) => Err(anyhow::anyhow!("subject stopped unexpectedly")),
             }
         }
-        _result = ui.run() => _result,
-        _result = tokio::signal::ctrl_c() => {
+        _result = ui.run(), if started => _result,
+        _result = host_stop.wait() => {
             match _result {
                 Ok(()) => {
                     authority_runtime.request_shutdown();
                     info!("shutdown signal; settling subject at a recoverable boundary");
                     Ok(())
                 }
-                Err(error) => Err(error.into()),
+                Err(error) => Err(error),
             }
         }
         _ = cancel.cancelled() => Err(anyhow::anyhow!("runtime stopped after connector failure; reopen for recovery")),
@@ -436,7 +452,7 @@ pub(crate) async fn start(
     native_child.request_stop();
     if let Some(inference) = &state.inference { inference.request_stop(); }
     subject_inbox.close().await;
-    if !subject_finished {
+    if !subject_finished && let Some(mut subject_task) = subject_task {
         // The loop leaves its wait without abandoning the broker's receipt.
         // A slow local hook/worker remains owned: timeout is only diagnostic.
         match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task)
@@ -479,6 +495,7 @@ struct DeterministicUi {
     model_profile: shenko_seed::ModelProfile,
     model_health: Arc<crate::runtime_model_health::RuntimeModelHealth>,
     cancel: tokio_util::sync::CancellationToken,
+    host_stop: crate::runtime_host::HostStop,
     owner: shenko_ui::owner::OwnerState,
     channels: runtime_channels::ChannelConfig,
     reason: String,
@@ -489,7 +506,7 @@ async fn run_deterministic_ui(
     supervisor: &shenko_kernel::Supervisor, input: DeterministicUi,
 ) -> Result<()> {
     let DeterministicUi { port, store, data_dir, agent_id, runtime_instance,
-        model_profile, model_health, cancel, owner, channels, reason, file_mounts } = input;
+        model_profile, model_health, cancel, host_stop, owner, channels, reason, file_mounts } = input;
     let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
     // Channel-owned native definitions use the ordinary lifecycle registry;
     // absence of a dispatch consumer prevents new effect execution here.
@@ -523,12 +540,15 @@ async fn run_deterministic_ui(
             model_health.wait_for_change().await;
         }
     };
+    // Recovery-only ingress does not prove a previous primary failure has
+    // recovered. Only the subject's actual admission above clears that error.
+    let started = host_stop.start_if_running(|| ()).is_some();
     let result = tokio::select! {
-        _result = ui.run() => _result,
+        _result = ui.run(), if started => _result,
         _ = cancel.cancelled() => Err(anyhow::anyhow!("deterministic recovery stopped; retained inputs require recovery")),
-        _ = restored => Err(crate::runtime_authority::AuthorityRecoveryRequired(
+        _ = restored, if started => Err(crate::runtime_authority::AuthorityRecoveryRequired(
             "new actual model evidence permits primary selection".into()).into()),
-        _result = tokio::signal::ctrl_c() => _result.map_err(anyhow::Error::from),
+        _result = host_stop.wait() => _result,
     };
     cancel.cancel();
     live.set_wired(false);

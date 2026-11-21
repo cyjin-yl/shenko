@@ -55,6 +55,26 @@ fresh model evidence permits recovery services but does not qualify a thinking
 primary. Actual read-only probes and actual generation outcomes remain
 distinguishable observations bound to the configured provider/model.
 
+The native host observes human stop for the whole owned process lifetime,
+including authority-failure cleanup and the gap between Tokio incarnations.
+This stop fact is independent of each incarnation's failure cancellation;
+it prevents replacement work without reclassifying the original failure or
+an uncertain inference outcome as success. A stop during a replacement's
+startup retains the previous recovery error until recovered subject work
+has actually crossed the host's service-admission boundary. Recovery-only
+UI availability does not establish that the previous primary recovered.
+
+Implementation: `run_owned` retains a registered, joined signal observer
+and every retired runtime. The existing two-second reconstruction window
+may elapse while a blocking worker is still alive, but final exit and error
+unwinding join that worker before releasing installation ownership. The
+original inference, native, heartbeat and supervisor joins still settle
+their own facts; the host never races their cleanup against a signal future.
+The existing `start_boundary` process regression exercises failure followed
+by SIGINT while the original E1 writer is held, preserving the prior ordinary
+stop/reopen/Unknown path. Source-bound execution receipts, rather than the
+test definition, establish whether those paths passed for a candidate.
+
 The architecture repair in [Issue #325](https://github.com/cyjin-yl/shenko/issues/325)
 also supersedes the older automatic-`Ignored` implementation described in
 §57.3 below: an input without an authored disposition remains `Deferred` with
