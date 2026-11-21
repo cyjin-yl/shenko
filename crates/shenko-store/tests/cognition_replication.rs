@@ -59,6 +59,12 @@ fn legacy_pending_library_reference_is_not_a_verified_recovery() {
 
     // Old schema 2 senders did not report this missing identity as a gap.
     snapshot.manifest.schema = 2;
+    // Keep this missing-binding negative fixture in its original format:
+    // it has no fork/history rows and cannot declare those later classes.
+    assert!(!snapshot.manifest.rows.iter().any(|row|
+        matches!(row.table.as_str(), "subject_branch_forks" | "subject_head_history")));
+    snapshot.manifest.fact_classes.retain(|class|
+        !matches!(class.as_str(), "subject_branch_forks" | "subject_head_history"));
     snapshot.manifest.gaps.clear();
     let mut archive = Vec::new();
     snapshot.write_archive(&mut archive).unwrap();
