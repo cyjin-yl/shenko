@@ -18,7 +18,7 @@ use shenko_types::{
 use crate::{
     Store,
     native_evidence::{NativeEvidenceFact, read_materialization, verify_materialization},
-    native_facts::{invalid, same},
+    native_facts::{conflict, invalid, same},
     store::storage_error,
 };
 
@@ -101,7 +101,7 @@ fn validate_item(item: &NativeEvidenceItem) -> Result<(), ShenkoError> {
     }
     match &item.availability {
         NativeEvidenceAvailability::Sealed { evidence_ref } => {
-            if !matches!(evidence_ref.codec.major, 1..=3) {
+            if !matches!(evidence_ref.codec.major, 1..=5) {
                 return Err(invalid("unsupported typed object for original E1"));
             }
             crate::native_facts::typed_json(
@@ -188,11 +188,26 @@ fn write_delivery(
     tx: &Transaction<'_>,
     record: &NativeEvidenceDeliveryRecord,
 ) -> Result<(), ShenkoError> {
-    tx.execute("INSERT INTO native_evidence_deliveries(delivery_id,source_node_id,receipt_id,state,data,updated_commit_seq)
+    let affected = tx.execute("INSERT INTO native_evidence_deliveries(delivery_id,source_node_id,receipt_id,state,data,updated_commit_seq)
         VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(delivery_id) DO UPDATE SET state=excluded.state,data=excluded.data,updated_commit_seq=excluded.updated_commit_seq",
         params![record.delivery_id.to_string(), record.delivery.source.node_id.to_string(),
             record.delivery.item.position.receipt_id.to_string(), state_name(record.state), serde_json::to_string(record)?,
             i64::try_from(record.recorded_at.seq.0).map_err(invalid)?]).map_err(storage_error)?;
+    if affected != 1 {
+        return Err(conflict("E1 delivery write did not retain exactly one row"));
+    }
+    verify_delivery(tx, record)
+}
+
+fn verify_delivery(
+    conn: &Connection,
+    expected: &NativeEvidenceDeliveryRecord,
+) -> Result<(), ShenkoError> {
+    let actual = read_delivery(conn, expected.delivery_id)?
+        .ok_or_else(|| conflict("accepted E1 delivery lost its physical row"))?;
+    if !same(&actual, expected)? {
+        return Err(conflict("accepted E1 delivery changed its retained manifest or state"));
+    }
     Ok(())
 }
 
@@ -303,7 +318,11 @@ impl Store {
             }
             let availability = match read_materialization(&tx, receipt.receipt_id)? {
                 Some(marker) => {
-                    let (fact, _) = self.read_native_delivery_fact(&tx, &marker.evidence_ref)?;
+                    // The original source observation is immutable history, even
+                    // after its own source dependency advances.
+                    let (fact, _) = self.read_native_delivery_fact_at(
+                        &tx, &marker.evidence_ref, Some(false),
+                    )?;
                     verify_materialization(&tx, &marker, &fact)?;
                     if marker.committed_at != receipt.received_commit || marker.logical_result != marker.committed_at
                         || !same(&receipt, &fact.receipt)?
@@ -358,7 +377,7 @@ impl Store {
         let conn = self.ledger.conn.lock();
         let marker = read_materialization(&conn, item.position.receipt_id)?
             .ok_or_else(|| invalid("E1 has no local source receipt"))?;
-        let (fact, _) = self.read_native_delivery_fact(&conn, evidence_ref)?;
+        let (fact, _) = self.read_native_delivery_fact_at(&conn, evidence_ref, Some(false))?;
         verify_materialization(&conn, &marker, &fact)?;
         if marker.evidence_ref != *evidence_ref
             || marker.committed_at != marker.logical_result
@@ -425,6 +444,9 @@ impl Store {
                     .map_err(storage_error)?;
                 same_self(&tx, &delivery.source)?;
                 if let Some(record) = read_delivery(&tx, id)? {
+                    if record.delivery != *delivery {
+                        return Err(conflict("retained E1 delivery has a different source or manifest"));
+                    }
                     return Ok(record);
                 }
                 let commit =
@@ -450,6 +472,7 @@ impl Store {
                 };
                 write_delivery(&tx, &record)?;
                 self.ledger.record_commit(&tx, commit.seq, 1)?;
+                verify_delivery(&tx, &record)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(record)
             },
@@ -568,6 +591,9 @@ impl Store {
                     .map_err(storage_error)?;
                 let mut record = read_delivery(&tx, id)?
                     .ok_or_else(|| invalid("retained E1 delivery disappeared"))?;
+                if record.delivery != retained.delivery || record.first_seen != retained.first_seen {
+                    return Err(conflict("E1 delivery identity changed during object transfer"));
+                }
                 same_self(&tx, &record.delivery.source)?;
                 let commit =
                     CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
@@ -575,10 +601,16 @@ impl Store {
                     .map_err(storage_error)?;
                 let mut verified_receipt = None;
                 let applied = (|| {
-                    let (fact, _) = self.read_native_delivery_fact(&tx, evidence_ref)?;
+                    let existing = read_materialization(&tx, record.delivery.item.position.receipt_id)?;
+                    // Historical source checks are permitted only for an exact,
+                    // already materialized E1. Every fresh apply checks the
+                    // current source before touching the local projection.
+                    let (fact, _) = self.read_native_delivery_fact_at(
+                        &tx, evidence_ref, Some(existing.is_none()),
+                    )?;
                     verify_item(&record.delivery.item, &fact, &record.delivery.source)?;
                     verified_receipt = Some(fact.receipt.clone());
-                    if let Some(marker) = read_materialization(&tx, fact.receipt.receipt_id)? {
+                    if let Some(marker) = existing {
                         if marker.evidence_ref != *evidence_ref {
                             return Err(invalid(
                                 "existing E1 materialization differs from the original seal",
@@ -587,9 +619,12 @@ impl Store {
                         verify_materialization(&tx, &marker, &fact)?;
                         // A later local observation/case decision is not rolled
                         // back merely because the original first E1 is replayed.
-                        return Ok((false, marker.committed_at, 0));
+                        return Ok((false, marker.committed_at, 0, fact, marker));
                     }
-                    let entities = if evidence_ref.codec.major == 3 {
+                    if record.state == NativeEvidenceDeliveryState::Applied {
+                        return Err(invalid("applied E1 delivery lost its actual receipt"));
+                    }
+                    let entities = if matches!(evidence_ref.codec.major, 3 | 5) {
                         self.materialize_native_successor(&tx, evidence_ref, commit)?
                     } else {
                         self.materialize_native_evidence(&tx, evidence_ref, commit)?;
@@ -598,10 +633,12 @@ impl Store {
                         4 + usize::from(fact.operation.state
                             == shenko_types::operation::OperationState::Reconciling)
                     };
-                    Ok((true, commit, entities))
+                    let marker = read_materialization(&tx, fact.receipt.receipt_id)?
+                        .ok_or_else(|| conflict("fresh E1 delivery lost its physical materialization"))?;
+                    Ok((true, commit, entities, fact, marker))
                 })();
                 match applied {
-                    Ok((fresh, local, entities)) => {
+                    Ok((fresh, local, entities, accepted_fact, accepted_marker)) => {
                         tx.execute_batch("RELEASE native_e1_delivery")
                             .map_err(storage_error)?;
                         if record.state != NativeEvidenceDeliveryState::Applied {
@@ -615,9 +652,28 @@ impl Store {
                                 commit.seq,
                                 entities + 1, // Include the delivery state row.
                             )?;
+                            let (fact, _) = self.read_native_delivery_fact_at(
+                                &tx, evidence_ref, Some(fresh),
+                            )?;
+                            let marker = read_materialization(&tx, fact.receipt.receipt_id)?
+                                .ok_or_else(|| conflict("accepted E1 delivery lost its physical materialization"))?;
+                            if marker.evidence_ref != *evidence_ref
+                                || !same(&fact, &accepted_fact)?
+                                || !same(&marker, &accepted_marker)?
+                            {
+                                return Err(conflict("accepted E1 delivery changed its original fact or materialization"));
+                            }
+                            verify_materialization(&tx, &marker, &fact)?;
+                            if fresh {
+                                crate::native_evidence::verify_projection(&tx, &fact)?;
+                            }
+                            verify_delivery(&tx, &record)?;
                             tx.commit().map_err(storage_error)?;
-                        } else if fresh {
-                            return Err(invalid("applied E1 delivery lost its actual receipt"));
+                        } else if fresh
+                            || record.materialized_at != Some(local)
+                            || record.reason.is_some()
+                        {
+                            return Err(invalid("applied E1 delivery differs from its actual receipt"));
                         }
                         if fresh {
                             Ok(NativeEvidenceDeliveryOutcome::Applied {
@@ -632,6 +688,11 @@ impl Store {
                         }
                     }
                     Err(error @ ShenkoError::Conflict(_)) => {
+                        // An existing applied delivery is immutable history;
+                        // a failed historical proof must not downgrade it.
+                        if record.state == NativeEvidenceDeliveryState::Applied {
+                            return Err(error);
+                        }
                         tx.execute_batch(
                             "ROLLBACK TO native_e1_delivery; RELEASE native_e1_delivery",
                         )
@@ -671,6 +732,7 @@ impl Store {
                                 commit.seq,
                                 1 + usize::from(collision.is_some()),
                             )?;
+                            verify_delivery(&tx, &record)?;
                             tx.commit().map_err(storage_error)?;
                         }
                         Ok(NativeEvidenceDeliveryOutcome::ReconciliationRequired {

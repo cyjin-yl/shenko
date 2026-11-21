@@ -2,7 +2,8 @@
 //!
 //! Codec 3 has an explicit first-E1 predecessor and requires its real local
 //! materialization. It carries no case decision, task transition or send permit.
-//! The original codec 1/2 reader remains the only E1 reader used by chosen T2.
+//! Codec 5 retains this successor contract with an exact source dependency.
+//! Chosen T2 accepts only first-E1 codecs 1/2/4, never either successor codec.
 use rusqlite::{Connection, Transaction, params};
 use shenko_types::{
     commit::CommitRef,
@@ -81,9 +82,11 @@ impl NativeEvidenceFact {
     ) -> Result<(), ShenkoError> {
         let fold = self.fold.ok_or_else(|| invalid("successor E1 omitted its original fold"))?;
         let outcome = fold.outcome.ok_or_else(|| invalid("successor E1 is not definite"))?;
-        if self.schema_version != 3
+        if !matches!(self.schema_version, 3 | 5)
             || self.predecessor_ref.as_ref() != Some(predecessor_ref)
-            || predecessor.schema_version != 2
+            || !matches!(predecessor.schema_version, 2 | 4)
+            || (self.schema_version == 5) != self.source.is_some()
+            || (self.schema_version == 3 && (predecessor.schema_version != 2 || fold.source_operation_revision.is_some()))
             || !first_unknown(&predecessor.operation, &predecessor.attempt)
             || !same(&self.arm, &predecessor.arm)?
             || self.receipt.record_schema_version != 1
@@ -96,10 +99,24 @@ impl NativeEvidenceFact {
             || fold.effect == EffectStatus::Unknown
             || fold.terminal_content_conflict
             || fold.expected_revision.is_some_and(|revision| revision != RecordRevision(1))
+            || (self.schema_version == 5 && fold.expected_revision != Some(RecordRevision(1)))
             || self.attempt.last_observed_at.is_none()
             || chrono::NaiveDateTime::parse_from_str(&self.created_at, "%Y-%m-%d %H:%M:%S").is_err()
         {
             return Err(invalid("successor E1 changed its original first-Unknown causal predecessor"));
+        }
+        let guard = self.source.as_ref().map(|source|
+            (source.operation.operation_id, source.operation.record_revision));
+        if fold.source_operation_revision.is_some_and(|fold_guard| Some(fold_guard) != guard)
+            || (fold.source_operation_revision.is_none()
+                && !same(&self.source, &predecessor.source)?)
+            || predecessor.source.as_ref().is_some_and(|previous| self.source.as_ref().is_none_or(|source|
+                source.operation.operation_id != previous.operation.operation_id
+                    || source.operation.record_revision.0 < previous.operation.record_revision.0
+                    || (source.operation.record_revision == previous.operation.record_revision
+                        && source.evidence_ref != previous.evidence_ref)))
+        {
+            return Err(invalid("successor E1 changed or dropped its exact source dependency"));
         }
         // The predecessor is independently validated from the original paired
         // T1. Only the normal Unknown -> definite fold may follow it here.
@@ -128,10 +145,10 @@ impl Store {
         conn: &Connection,
         reference: &ObjectRef,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        if reference.codec.major != 2 {
-            return Err(invalid("successor E1 must name a codec-2 first Unknown"));
+        if !matches!(reference.codec.major, 2 | 4) {
+            return Err(invalid("successor E1 must name a codec-2/4 first Unknown"));
         }
-        let (first, original) = self.read_native_evidence_fact(conn, reference)?;
+        let (first, original) = self.read_native_evidence_fact_at(conn, reference, Some(false))?;
         if !first_unknown(&first.operation, &first.attempt) {
             return Err(invalid("successor E1 predecessor is not the first Unknown"));
         }
@@ -154,12 +171,21 @@ impl Store {
             || fold.effect == EffectStatus::Unknown
             || fold.terminal_content_conflict
         {
+            if fold.source_operation_revision.is_some() {
+                return Err(conflict("dependent later E1 lacks the supported original Unknown predecessor; retain debt"));
+            }
             return Ok(());
         }
         let Some(arm) = self.local_native_fact(tx, before.0.prepared_commit, "native.arm")? else {
+            if fold.source_operation_revision.is_some() {
+                return Err(conflict("dependent successor lacks its original paired T1; retain debt"));
+            }
             return Ok(());
         };
         if arm.transition_ref.codec.major == 1 {
+            if fold.source_operation_revision.is_some() {
+                return Err(conflict("dependent successor has no supported original paired T1; retain debt"));
+            }
             return Ok(());
         }
         let first_id = before.1.final_receipt_id
@@ -182,8 +208,12 @@ impl Store {
             "SELECT created_at FROM evidence_receipts WHERE receipt_id=?1",
             [receipt.receipt_id.to_string()], |row| row.get(0),
         ).map_err(storage_error)?;
+        let source = match fold.source_operation_revision {
+            Some(_) => self.native_evidence_source_dependency(tx, fold.source_operation_revision, operation)?,
+            None => first.source.clone(),
+        };
         let fact = NativeEvidenceFact {
-            schema_version: 3,
+            schema_version: if source.is_some() { 5 } else { 3 },
             arm,
             receipt: receipt.clone(),
             operation: operation.clone(),
@@ -191,21 +221,34 @@ impl Store {
             created_at,
             fold: Some(fold),
             predecessor_ref: Some(marker.evidence_ref.clone()),
+            source,
         };
         fact.validate_successor(&marker.evidence_ref, &first)?;
         self.seal_native_evidence_fact(tx, &fact)
     }
 
-    /// Factual intake only. The T2 reader intentionally still rejects codec 3.
+    /// Factual intake only. The T2 reader rejects both successor codecs.
     pub(crate) fn read_native_delivery_fact(
         &self,
         conn: &Connection,
         reference: &ObjectRef,
     ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
-        if reference.codec.major != 3 {
-            return self.read_native_evidence_fact(conn, reference);
+        self.read_native_delivery_fact_at(conn, reference, Some(true))
+    }
+
+    pub(crate) fn read_native_delivery_fact_at(
+        &self,
+        conn: &Connection,
+        reference: &ObjectRef,
+        current_source: Option<bool>,
+    ) -> Result<(NativeEvidenceFact, NativeArmFacts), ShenkoError> {
+        if !matches!(reference.codec.major, 3 | 5) {
+            return self.read_native_evidence_fact_at(conn, reference, current_source);
         }
-        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, 3)?;
+        let fact: NativeEvidenceFact = self.read_native_json(reference, CODEC, reference.codec.major)?;
+        if fact.schema_version != reference.codec.major {
+            return Err(invalid("successor E1 codec and schema disagree"));
+        }
         let predecessor_ref = fact.predecessor_ref.as_ref()
             .ok_or_else(|| invalid("successor E1 omitted its causal predecessor"))?;
         let (_, missing) = self.collect_closure_bounded(
@@ -216,8 +259,12 @@ impl Store {
         if !missing.is_empty() {
             return Err(invalid("successor E1 closure is incomplete"));
         }
-        let (first, original) = self.read_native_evidence_fact(conn, predecessor_ref)?;
+        let (first, original) = self.read_native_evidence_fact_at(conn, predecessor_ref,
+            current_source.map(|_| false))?;
         fact.validate_successor(predecessor_ref, &first)?;
+        if let (Some(source), Some(current)) = (&fact.source, current_source) {
+            self.verify_native_evidence_source_at(conn, source, &fact.operation, current)?;
+        }
         // Malformed typed bytes are rejected before a missing local first-E1
         // receipt is classified as retryable predecessor debt.
         verify_first_receipt(conn, predecessor_ref, &first)?;
@@ -258,6 +305,9 @@ impl Store {
             tx, fact.operation.operation_id, fact.receipt.receipt_id, local,
         )?;
         record_materialization(tx, reference, &fact, local)?;
+        if let Some(source) = &fact.source {
+            self.verify_native_evidence_source(tx, source, &fact.operation)?;
+        }
         Ok(4 + cases)
     }
 }
