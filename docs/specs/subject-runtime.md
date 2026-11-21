@@ -63,6 +63,13 @@ an uncertain inference outcome as success. A stop during a replacement's
 startup retains the previous recovery error until recovered subject work
 has actually crossed the host's service-admission boundary. Recovery-only
 UI availability does not establish that the previous primary recovered.
+The same host stop latch guards ownership transfer of the native dispatcher,
+replication consumer and inference runner during installation. Those short
+guards perform no synchronous Store or Node I/O. If model-child handlers have
+already queued requests when inference startup is refused, the original broker
+first closes send admission and then drains and joins its own queue. It retains
+the original `NeverDispatched` receipts rather than dropping queued requests or
+starting a provider call after the observed stop.
 
 Implementation: `run_owned` retains a registered, joined signal observer
 and every retired runtime. The existing two-second reconstruction window

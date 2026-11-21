@@ -257,11 +257,15 @@ pub(crate) async fn start(
     let cognition = runtime_cognition::install(
         supervisor, &store, &data_dir, &native_child, &self_knowledge,
     ).await?;
-    let consumers = RuntimeConsumers::spawn(
+    let Some(consumers) = RuntimeConsumers::spawn(
         &store, &native_child, agent_id,
         model_profile.configured.then(|| subject_inbox.sender()),
-        &data_dir, &cancel,
-    );
+        &data_dir, &cancel, &host_stop,
+    ) else {
+        host_stop.wait().await?;
+        authority_runtime.request_shutdown();
+        return Ok(());
+    };
     let consumer_cancel = &consumers.cancel;
 
     let inference = runtime_inference::install(runtime_inference::InferenceInstall {
@@ -290,7 +294,7 @@ pub(crate) async fn start(
             stopped => {
                 cancel.cancel();
                 let result = stopped.map(|_| ());
-                return match consumers.stop(&authority_runtime).await {
+                return match consumers.stop().await {
                     Ok(()) => result,
                     Err(cleanup) => match result {
                         Ok(()) => Err(cleanup),
@@ -478,7 +482,7 @@ pub(crate) async fn start(
     }
     // S1 has settled or left a durable unresolved step. Do not drop the
     // consumers first. Their unfinished work remains queryable on reopen.
-    consumers.stop(&authority_runtime).await?;
+    consumers.stop().await?;
     runtime_result?;
     info!("subject and durable consumers settled; joining runtime services");
     Ok(())
@@ -517,7 +521,11 @@ async fn run_deterministic_ui(
         subject_inbox: &subject_inbox, self_knowledge: None,
         consumer_cancel: &cancel, config: channels,
     }).await?;
-    let replication = node_sync::spawn_runtime(Arc::clone(&store), data_dir.clone(), cancel.clone());
+    let Some(replication) = host_stop.start_if_running(|| {
+        node_sync::spawn_runtime(Arc::clone(&store), data_dir.clone(), cancel.clone())
+    }) else {
+        return host_stop.wait().await;
+    };
     node_sync::open_node(&data_dir, &store)?.observe_runtime_roles(
         runtime_instance, vec![shenko_node::NodeRole::Recovery, shenko_node::NodeRole::Replica],
         Some(agent_id), "deterministic recovery and replication; no thought or effect dispatcher started".into(), None,

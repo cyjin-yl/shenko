@@ -275,8 +275,27 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
         .await?;
     // ModelChildHandler reconstructed all outstanding original charges
     // before any subject/child inference can enter this broker.
-    let task = InferenceTask {
-        handle: broker_handle.clone(), worker: Some(tokio::spawn(broker.run())),
+    let mut prepared_broker = Some(broker);
+    let task = host_stop.start_if_running(|| -> Result<InferenceTask> {
+        let broker = prepared_broker.take().context("inference runner ownership is absent before admission")?;
+        Ok(InferenceTask {
+            handle: broker_handle.clone(), worker: Some(tokio::spawn(broker.run())),
+        })
+    });
+    let task = match task {
+        Some(task) => task?,
+        None => {
+            // A model child may already have queued an original request while
+            // its handler was installed. Close admission before running this
+            // same broker solely to settle its queue; dropping it would lose
+            // the queued NeverDispatched receipts. No provider send may start.
+            let stopped = host_stop.wait().await;
+            if stopped.is_ok() { authority.request_shutdown(); } else { cancel.cancel(); }
+            broker_handle.request_stop();
+            if let Some(broker) = prepared_broker { broker.run().await; }
+            stopped?;
+            return Ok(None);
+        }
     };
     // The broker and model-child registrations above joined the live
     // catalog; the self-knowledge snapshot is a registry view and the
