@@ -173,7 +173,12 @@ impl AnthropicProvider {
                 // sealed request names the exact one that goes on the wire.
                 let _ = model;
             }
-            ProviderBinding::Profile { profile } => {
+            ProviderBinding::Profile { profile, prepared } => {
+                if prepared.is_some() {
+                    // A prepared implementation generation is executed by its
+                    // own adapter, never by the compiled profile runtime.
+                    return Err(ProviderWireError::BindingMismatch.into());
+                }
                 if !self.profile.matches_except_model(profile) {
                     return Err(ProviderWireError::BindingMismatch.into());
                 }
@@ -523,6 +528,7 @@ fn anthropic_profile(
         engine_incarnation: None,
         default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
         serializer_revision: SERIALIZER_REVISION,
+        process_generation: None,
     }
 }
 

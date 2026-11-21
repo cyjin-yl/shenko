@@ -376,7 +376,7 @@ pub(crate) fn validate_child_provider_bindings(bindings: &[ProviderBinding]) -> 
     let mut ids = BTreeSet::new();
     for binding in bindings {
         ensure!(ids.insert(binding.profile_id()), "duplicate frozen child provider profile_id");
-        if let ProviderBinding::Profile { profile } = binding { profile.validate()?; }
+        if let ProviderBinding::Profile { profile, .. } = binding { profile.validate()?; }
     }
     Ok(())
 }
