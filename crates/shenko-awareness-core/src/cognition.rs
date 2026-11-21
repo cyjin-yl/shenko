@@ -34,7 +34,7 @@ use shenko_node::{
 use shenko_types::object::Digest;
 
 use crate::perception::{
-    PerceptionBinding, PerceptionRegistry, PerceptionStatus, reconcile_perception_sources_from,
+    PerceptionBinding, PerceptionRegistry, PerceptionStatus,
 };
 
 /// Maximum bytes of one capability card.
@@ -786,6 +786,7 @@ pub struct CognitionObservation {
 /// and reports the new generation.
 pub struct CognitionCatalog {
     node: Arc<Mutex<Node>>,
+    installation_reader: shenko_node::InstalledUnitFactsReader,
     generation: RwLock<u64>,
     /// The live half of the same catalogue: which source speaks for which
     /// exact installed perception revision, and what it last observed. It
@@ -797,11 +798,18 @@ pub struct CognitionCatalog {
 impl CognitionCatalog {
     /// Wrap the installation authority this instance already owns.
     pub fn new(node: Arc<Mutex<Node>>) -> Self {
+        let installation_reader = node.lock().installed_unit_facts_reader();
         Self {
             node,
+            installation_reader,
             generation: RwLock::new(0),
             perception: PerceptionRegistry::new(),
         }
+    }
+
+    /// The installation authority used by owned preparation and unit writes.
+    pub fn node(&self) -> &Arc<Mutex<Node>> {
+        &self.node
     }
 
     /// The observation sources bound to exact installed perception revisions.
@@ -857,7 +865,7 @@ impl CognitionCatalog {
     /// installations or answer with a source bound to a version that reading
     /// no longer contains.
     fn facts(&self) -> Result<Vec<shenko_node::InstalledUnitFact>> {
-        Ok(self.node.lock().installed_unit_facts()?)
+        self.installation_reader.read()
     }
 
     /// The short index of the installed cognition units.
@@ -875,10 +883,9 @@ impl CognitionCatalog {
         &self,
         facts: &[shenko_node::InstalledUnitFact],
     ) -> Result<Vec<CognitionCard>> {
-        // The sources are re-derived from the installation on every
-        // projection: an updated or removed unit must not keep answering
-        // through the binding of the version it replaced.
-        reconcile_perception_sources_from(facts, &self.node, &self.perception)?;
+        // Preparation owns source construction, reconciliation and archival.
+        // The independently read installation selects the exact cache key;
+        // a replacement cannot inherit its predecessor's observation.
         Ok(facts
             .iter()
             .map(unit_from_fact)
@@ -897,7 +904,7 @@ impl CognitionCatalog {
                 // not produce one, so an unbound or silent source is reported
                 // as `unknown` rather than as a healthy fact.
                 let perception = (unit.kind == UnitKind::Perception).then(|| {
-                    self.perception.observe(&PerceptionBinding {
+                    self.perception.cached(&PerceptionBinding {
                         unit_id: unit.unit_id.clone(),
                         revision: unit.revision.clone(),
                         artifact_digest: unit.artifact_digest.clone(),
@@ -1754,6 +1761,10 @@ mod tests {
     #[test]
     fn the_shipped_installation_unit_observes_this_nodes_installation() {
         let catalog = installed(INSTALLATION_UNITS, UnitKind::Perception);
+        assert!(matches!(card(&catalog, INSTALLATION_UNITS).perception,
+            Some(PerceptionStatus::Unknown { .. })));
+        crate::perception::bind_builtin_perception_sources(
+            Arc::clone(catalog.node()), catalog.perception()).unwrap();
         let card = card(&catalog, INSTALLATION_UNITS);
         let Some(PerceptionStatus::Observed { fact }) = card.perception else {
             panic!("the shipped source did not produce a fact")
@@ -1800,6 +1811,9 @@ mod tests {
                 })),
             )
             .unwrap();
+        assert!(matches!(card(&catalog, "test.perception").perception,
+            Some(PerceptionStatus::Unknown { .. })));
+        catalog.perception().observe(&binding);
         let observed = card(&catalog, "test.perception");
         let Some(PerceptionStatus::Observed { fact }) = observed.perception else {
             panic!("a bound source that answered is an observation")

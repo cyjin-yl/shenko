@@ -324,13 +324,56 @@ pub struct Node {
     failed: bool,
     installation: Option<shenko_types::installation::InstallationDomain>,
 }
+
+/// An independent, read-only projection of the same physical installation.
+/// It never borrows the Node writer mutex or acquires installation/write
+/// admission. The connection is validated on first use; each read uses one deferred SQL
+/// snapshot; an exclusive writer or unavailable database is an error, never a
+/// previous installation presented as current.
+pub struct InstalledUnitFactsReader {
+    database: Option<std::path::PathBuf>,
+    node: std::sync::Mutex<Option<Node>>,
+}
+
+impl InstalledUnitFactsReader {
+    pub fn read(&self) -> Result<Vec<InstalledUnitFact>> {
+        let mut connection = self.node.lock()
+            .map_err(|_| anyhow::anyhow!("installation facts reader panicked"))?;
+        if connection.is_none() {
+            let database = self.database.as_ref()
+                .context("installation facts require a file-backed Node")?;
+            let directory = database.parent().context("Node database has no directory")?;
+            *connection = Some(Node::open_inspect_with_timeout(directory, std::time::Duration::ZERO)?
+                .context("Node installation is no longer present")?);
+        }
+        let node = connection.as_ref().context("installation facts reader has no connection")?;
+        let snapshot = node.conn.unchecked_transaction()?;
+        let facts = node.installed_unit_facts()?;
+        snapshot.commit()?;
+        Ok(facts)
+    }
+}
+
 impl Node {
+    /// Capture the installation location during composition, before the
+    /// observation owner starts. Reads use their own connection thereafter.
+    pub fn installed_unit_facts_reader(&self) -> InstalledUnitFactsReader {
+        InstalledUnitFactsReader {
+            database: self.conn.path().map(std::path::PathBuf::from),
+            node: std::sync::Mutex::new(None),
+        }
+    }
+
     /// Read-only inspection of an existing installation: opens the node
     /// database without creating it, without admitting foreign directories
     /// (the caller scopes the directory) and — crucially for read paths like
     /// `shenko tool list` — without running schema migrations or durable
     /// writes. Returns `Ok(None)` when no node installation exists at `dir`.
     pub fn open_inspect(dir: &Path) -> Result<Option<Self>> {
+        Self::open_inspect_with_timeout(dir, std::time::Duration::from_secs(5))
+    }
+
+    fn open_inspect_with_timeout(dir: &Path, timeout: std::time::Duration) -> Result<Option<Self>> {
         use std::os::unix::fs::MetadataExt;
         let db = dir.join("node.sqlite3");
         if !db.try_exists()? {
@@ -353,7 +396,7 @@ impl Node {
             &db,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.busy_timeout(timeout)?;
         // Inspection still requires a validated, current installation: an
         // older schema reports as such instead of silently reading past a
         // needed migration.

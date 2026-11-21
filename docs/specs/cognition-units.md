@@ -98,6 +98,40 @@ that would explain it, so a keyword filter hides exactly the perspective that
 was meant to help. The model receives the offered cards and decides what, if
 anything, it means here.
 
+## Prepared passive installation observations
+
+The production cognition installer starts one `RuntimePerceptionPlugin` on its
+existing Supervisor before publishing the catalogue. Its original
+`ContextPreparation` worker samples the enabled `InstallationFactsSource`
+initially and every 250 ms, skipping missed ticks and never overlapping batches.
+The callback reads installation facts and retains real observations through
+`RegisterObservation` under the exact unit revision and artifact digest.
+Unchanged content preserves its original timestamp and digest. A failed source
+attempt is Unavailable; an unprepared binding is Unknown. Historical retained
+observations do not become live sources automatically after restart.
+
+`cards`, discovery, revision and S0 disclosure read the current installation
+through a separate validated read-only Node connection, using one deferred
+SQLite snapshot per projection and a zero busy timeout. They never take the
+mutable Node mutex, construct a source, observe, archive or reconcile. A read
+failure is returned; it cannot be replaced with a previously read installation.
+The current exact revision/artifact selects the prepared cache, so a newly
+installed version is Unknown until preparation observes that version. The
+existing pagination, step rotation and 4 KiB disclosure bound still apply.
+
+Original generation retirement closes preparation admission and joins its
+already admitted callback and archive before withdrawing only that worker's
+registration IDs. Kernel stop retires preparation scopes before their remaining
+plugin dependencies. Cancelling a stop observer does not cancel the original
+retirement or discard its native error/panic payload.
+
+This production slice observes the installation catalogue. Other passive
+providers can use `PerceptionObserver`, exact named registry registrations and
+`ArchivedPerceptionSource` under the same preparation lifecycle. Adding recurring
+resource, desktop-session or role readers requires their actual APIs and owned
+registration wiring; none is installed by this slice. Observation grants no
+active desktop or server-control authority.
+
 ## Native children
 
 Every child follows the pinned finite-child contract: frozen input sealed in
