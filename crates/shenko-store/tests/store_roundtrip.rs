@@ -3255,6 +3255,7 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     // chosen S1 creates these new delegation rows on that distinct ledger.
     let mut archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let before_birth_archive = archive.clone();
     let follower = Store::open(dir.join("claim-follower.db"), dir.join("claim-follower-cas"))?;
     follower.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
     follower.attach_commit_authority(Arc::new(NativeT2Authority {
@@ -3322,19 +3323,22 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     let watermark = source.current_commit_seq()?;
     assert!(source.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
     assert_eq!(source.current_commit_seq()?, watermark);
-    // Corrupt only after recover_control_admission's initial subject read,
-    // at the retained grant's acquisition boundary. Each learned application
-    // must independently check the successor predicate and immutable creator;
-    // passing only the source capture or the recovery preflight is insufficient.
-    let follower_db = dir.join("claim-follower.db");
-    let connection = rusqlite::Connection::open(&follower_db)?;
-    let successor = follower.load_subject(agent)?.0.next_step_id;
+    // Each refusal owns a separate real receiver: import the pre-birth archive
+    // and locally materialize the original S1 before presenting its claim.
+    // Corrupt only after recovery's initial subject read, at grant acquisition.
+    // Keep the corruption and durable reconciliation fact; restoring a JSON
+    // row would neither restore every SQL cell nor erase the observed debt.
+    // The original follower remains untouched for the successful learned path.
     for fault in ["missing-successor", "wrong-successor-binding", "changed-creator"] {
+        let db = dir.join(format!("claim-{fault}.db"));
+        let refused_receiver = Store::open(db.clone(), dir.join(format!("claim-{fault}-cas")))?;
+        refused_receiver.import_cognition_archive(&before_birth_archive[..], &CognitionImportOptions::default())?;
+        refused_receiver.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: "native-claim-follower", stamp: None, state: Arc::clone(&state),
+        }))?;
+        assert_eq!(refused_receiver.recover_control_admission(&birth, &birth_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+        let successor = refused_receiver.load_subject(agent)?.0.next_step_id;
         let id = if fault == "changed-creator" { step.step_id } else { successor };
-        let original: (String, i64, String, i64, String, i64) = connection.query_row(
-            "SELECT branch_id,step_no,state,record_revision,data,updated_commit_seq FROM subject_steps WHERE step_id=?1",
-            [id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))?;
-        let db = follower_db.clone();
         state.lock().before_materialize = Some(Box::new(move || {
             let connection = rusqlite::Connection::open(db)?;
             if fault == "missing-successor" {
@@ -3350,13 +3354,14 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
             }
             Ok(())
         }));
-        let refused = follower.recover_control_admission(&claim_grant, &claim_objects, false);
+        let refused = refused_receiver.recover_control_admission(&claim_grant, &claim_objects, false);
         assert!(state.lock().before_materialize.is_none(), "{fault}: application boundary was not reached");
-        connection.execute("INSERT OR REPLACE INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq)
-            VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![id.to_string(), original.0, original.1, original.2, original.3, original.4, original.5])?;
         assert!(matches!(&refused, Ok(ControlRecoveryOutcome::ReconciliationRequired)), "{fault}: {refused:?}");
-        assert!(!follower.control_admission_applied_here(&claim_grant.admission)?);
-        assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+        assert!(!refused_receiver.control_admission_applied_here(&claim_grant.admission)?);
+        assert_eq!(serde_json::to_value(refused_receiver.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+        let debts = refused_receiver.pending_control_reconciliations(agent)?;
+        assert_eq!(debts.len(), 1, "{fault}: preserve the refused chosen fact");
+        assert_eq!(debts[0].payload["grant_id"], serde_json::to_value(&claim_grant.grant_id)?);
     }
     assert_eq!(follower.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
     assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&fresh.task)?);
