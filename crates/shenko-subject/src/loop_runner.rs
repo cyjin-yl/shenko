@@ -8,7 +8,7 @@
 use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
-use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, select_subject_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, SubjectQuotaRoute, select_subject_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -159,6 +159,43 @@ fn read_sealed(
         return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
     }
     Ok(bytes)
+}
+
+/// An active semantic wait continues the exact model that started it. Its
+/// original S0 is the authority even after reopen with a different default or
+/// quota policy. This pins a route, not spending permission: dispatch still
+/// passes through the current quota policy and original send accounting.
+fn semantic_wait_route(
+    store: &shenko_store::Store,
+    broker: Option<&shenko_broker::broker::BrokerHandle>,
+    wait: &SemanticWait,
+) -> Result<SubjectQuotaRoute, ShenkoError> {
+    let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, &wait.context_ref)?)?;
+    if !matches!(input.get("schema_version").and_then(serde_json::Value::as_u64), Some(12..=15))
+        || input.get("step_id") != Some(&serde_json::to_value(wait.created_step_id)?)
+    {
+        return Err(ShenkoError::conflict("semantic wait origin does not identify its original S0"));
+    }
+    let value = input.get("provider_binding")
+        .ok_or_else(|| ShenkoError::conflict("semantic wait origin has no provider binding"))?;
+    if Digest::blake3(&serde_json::to_vec(value)?) != wait.model_binding_digest {
+        return Err(ShenkoError::conflict("semantic wait origin provider binding digest differs"));
+    }
+    let binding: shenko_broker::request::ProviderBinding = serde_json::from_value(value.clone())
+        .map_err(|_| ShenkoError::conflict("semantic wait origin has no executable provider binding"))?;
+    let broker = broker.ok_or_else(|| ShenkoError::other(
+        "capacity_blocked: semantic wait has no installed broker",
+    ))?;
+    let selected = if broker.binding() == &binding {
+        // Keep the configured path's existing metadata semantics. No policy
+        // or default has changed this binding, so no new probe is required.
+        None
+    } else {
+        Some(broker.for_binding(&binding).map_err(|error| ShenkoError::conflict(format!(
+            "semantic wait original provider is unavailable; wait preserved: {error:#}",
+        )))?)
+    };
+    Ok(SubjectQuotaRoute { broker: selected, selection: None })
 }
 
 fn frozen_input(
@@ -1545,10 +1582,19 @@ async fn execute_step(
         // states the exact account/profile/model it will use, and the
         // dispatch resolves this exact installed binding, so a post-seal
         // replacement transport is refused instead of applied.
-        let Some(route) = select_subject_quota_route(
-            &store, state.broker.as_ref(), cancel, &state.quota_strategies, state.agent_id,
-        ).await? else {
-            return Ok(None);
+        // Observe expiry before routing; a restart never renews the deadline.
+        // Active waits retain their durable original model, while an ended or
+        // expired wait lets the next S0 use the current routing policy.
+        state.semantic_wait = store.observe_semantic_wait(&state.head)?;
+        let route = if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
+            semantic_wait_route(&store, state.broker.as_ref(), wait)?
+        } else {
+            let Some(route) = select_subject_quota_route(
+                &store, state.broker.as_ref(), cancel, &state.quota_strategies, state.agent_id,
+            ).await? else {
+                return Ok(None);
+            };
+            route
         };
         if let Some(selected) = route.broker {
             let capabilities = if let Some(model) = &state.prepared_model
@@ -1577,8 +1623,8 @@ async fn execute_step(
             };
             state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities });
         } else {
-            // No policy preserves the configured context path. A previously
-            // selected model is not an implicit new default.
+            // A configured wait binding or absent policy keeps this path. A
+            // previously selected model is not an implicit new default.
             state.prepared_model = None;
         }
         let input_binding = state.context_binding().cloned();
