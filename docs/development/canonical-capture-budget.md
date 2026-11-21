@@ -47,9 +47,10 @@ decodable, but a digest lacking this dependency is conservatively refused at
 materialization and retained through the existing reconciliation path. Missing
 original schema evidence is not fabricated by rewriting the sealed transition.
 
-Native claim/arm/dispatch/T2 retain their versioned typed witnesses:
-their independent validators use full read rows to verify operation absence and
-unfinished-child ranges. Write-only tables now retain actual touched keys from
+Native claim/arm/dispatch/T2 retain their versioned typed witnesses. Ordinary
+paths use full read rows to verify operation absence and unfinished-child
+ranges; the direct-chain operation predicates below are a separate version.
+Write-only tables now retain actual touched keys from
 the start. Direct first-claim, claim-proven T1 and childless E1-proven T2 already
 have a separately validated single-task witness; capture now constructs that
 same witness before copying any historical task rows. The exact target shape
@@ -69,8 +70,8 @@ progress is the mechanism this fix targets. The original error alone does not
 identify the changed row at the precise failure instant. The absence of an
 operation or attempt did not make those selected actions safe to retry.
 
-New direct first claims use claim codec 2. Their existing proof-bearing paired
-T1 and childless original T2 use codec 3. These readers bind row schema 3;
+Direct first claims use claim codec 2. The original proof-bearing paired
+T1 and childless original T2 format introduced codec 3 and row schema 3;
 old claim 1, arm/T2 1–2 and ordinary dispatch retain their original row schema 1
 semantics. Only the independently verified S1/claim/E1 chain can use the new
 subject witness. Its `subject_steps` image contains exactly the immutable
@@ -90,7 +91,7 @@ learned applications perform the same checks and never issue a new worker or
 execution permit. No chosen bytes, source identities, E1 or Unknown outcomes
 are rewritten, and this change introduces no retry.
 
-New archives use [schema 10](../specs/durable-state.md)
+That subject-witness format introduced [archive schema 10](../specs/durable-state.md)
 so older schema-7 readers refuse before payload publication. Current readers
 retain the old archive and transition versions; raw Node object transport is
 a separate compatibility boundary. The existing first-claim and 129 MiB chain
@@ -98,6 +99,81 @@ regressions now include post-choice real S0 progress, different successor
 progress on receivers, and post-preflight missing/badly bound successor and
 changed-creator refusals. These are controlled Store/authority fixtures;
 execution and fresh real-model journey evidence must be reported separately.
+
+### Direct native operation predicates (2026-11-22 candidate)
+
+The actual release `cdf71091` browser journey retained three failures out of
+three attempts. In attempts 001 and 003 the ordinary `host.printf` arm lost its
+complete `attempts` predecessor; attempt 002 reached real printf E1 but its
+ordinary T2 lost the complete `tasks` predecessor. The
+[attempt-001 witness audit](../evidence/daily-readiness-20261122/final-cdf71091-attempt001-native-arm-witness.json)
+binds the chosen arm codec 1, empty frozen operation/attempt images, the later
+independent model-child rows, and the original Store error. The stopped ledger
+is a later observation, not a reconstruction of every cell at the error instant.
+The later missing-materialization error does not make the chosen arm safe to
+replace or execute again. These failed receipts remain failures.
+
+The printf executor now requests the existing paired native T1/dispatch permit.
+Only its fresh return permits the original execution; replay and recovery still
+return a factual read. For a proven direct S1/claim chain, new arm codec 4 binds
+row schema 4 and two closed, typed predicates:
+
+| Table | Complete predicate whose matching rows must be absent before arm |
+| --- | --- |
+| `operations` | Physical operation PK or decoded operation ID equals the planned original ID, or decoded task ID and logical key equal the planned pair. |
+| `attempts` | Physical attempt PK or decoded attempt ID equals the planned attempt, or physical/decoded operation ID equals its original operation. |
+
+These are not sender-provided SQL fragments. The typed arm reader derives the
+exact selector set from its validated plan and rejects missing, duplicated,
+substituted or extra selectors. It requires empty matching preimages, and only
+the original task, operation and attempt writes remain legal. Capture and both
+materialization checks use the same predicate. Arm streams and parses each
+table's original `OperationRecord`/`AttemptRecord` one row at a time; it compares
+decoded `EntityId` values so UUID spelling aliases cannot conceal a collision.
+Malformed originals still refuse. Only matching full physical rows are retained,
+subject to the existing budget, but scanning and JSON parsing remain dependent
+on history size. This is not an indexed or constant-time absence query.
+
+New childless, original-E1-proven T2 also uses codec 4 / row schema 4. Its three
+selectors retain the full original operation, attempt and receipt rows by their
+physical primary keys. The reader binds those selectors to the plan's original
+identities. The original E1 and its operation/attempt projections are validated
+and, on a learned installation, staged in the same IMMEDIATE transaction before
+the row predicates run. Existing or newly observed conflicting original facts
+refuse the transaction; no Unknown is folded into success. The exact target
+task, independently proven child absence, creator row, current successor and
+complete subject-head checks remain in force. An unrelated child may advance
+without becoming an exact read dependency of these selected original rows.
+
+Both direct writers reject trigger/view reads of the narrowed operation tables
+before publishing a prepared transition or requesting choice. The physical
+write observer still sees every write; a write outside a selected predicate is
+refused. Full schemas and trigger definitions remain bound, and preimages,
+absence, writes and postimages are checked under one final IMMEDIATE transaction.
+Ordinary arm/T2 and generic dispatch keep their original format. Old arm/T2
+codecs 1–2 still require row schema 1; codec 3 requires row schema 3; only codec 4
+accepts row schema 4. Claim codec 2 continues to use row schema 3. Rows 1–3 cannot
+carry a selector. This introduces no retry, serialization of unrelated tasks,
+replacement chosen action or receiver execution permission.
+
+All new cognition snapshots declare archive schema 11, including snapshots
+without a direct action. Schema 10 remains readable with its original strict
+fact-family/layout rules; schemas 8 and 9 remain unsupported. Older readers that
+only admit schema 10 or earlier refuse schema 11 before payload CAS publication.
+The archive gate does not version raw Node object transport.
+
+The existing direct-chain regression adds six necessary windows: real unrelated
+E1 progress after the target arm's choice and after its T2 choice, trigger/view
+dependency refusal, logical-key absence conflict, a same-ID uppercase UUID
+under another physical key, and a T2 selector naming another attempt. It retains
+the original malformed-E1, staged-E1 rollback, foreign parking, one-effect,
+lost-reply, reopen and replay assertions. The archive increment adds three
+focused schema-10 compatibility windows, for nine new windows across existing
+test functions. No new test function or test factory is introduced. Static
+review checks the explicit legacy codec/row pairing; it is not a Rust execution
+receipt. These candidate checks and the next actual model journey still require
+the integration owner's scoped execution; this source change does not turn the
+three CDF journey failures into passes or claim a measured latency improvement.
 
 ### Remaining issue #316 boundaries
 
@@ -112,8 +188,8 @@ The native full witnesses remain history-dependent at these concrete paths:
 | Path | Still retained complete read dependencies | Consequence |
 | --- | --- | --- |
 | `claim_transition::evaluate_claim` | `operations` (original-operation absence) and subject heads | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
-| `arming_transition::evaluate_arm` | `operations` (ID or task/logical-key absence), `attempts` (ID or operation absence), `subject_intents` (publication absence), and subject heads | The independent `validate_absence` examines these complete witnesses. Ordinary/non-direct ancestry still retains `tasks` and `subject_steps`; only the new direct paired path has the creator-key/successor predicate. |
-| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. New direct E1-proven T2 narrows `tasks` and its creator read, while retaining current-successor validation. |
+| `arming_transition::evaluate_arm` | Ordinary paths retain full `operations` and `attempts`; all paths retain full `subject_intents` (publication absence) and subject heads | Direct arm 4 retains its two typed absence predicates instead of every unrelated row, but still scans/parses operations and attempts. Ordinary/non-direct ancestry also retains `tasks` and `subject_steps`. |
+| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Generic dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 4 narrows its task/creator and original operation/attempt/receipt reads while retaining current-successor validation. |
 
 All canonical actions also call
 `control_predecessor::prepare_control_predecessor_inner`, which takes a full

@@ -3493,7 +3493,8 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         &step.decision_ref.as_ref().context("original decision")?.digest)?)?;
     let task_id = EntityId::new();
     let delayed_id = EntityId::new();
-    for id in [task_id, delayed_id] {
+    let independent_id = EntityId::new();
+    for id in [task_id, delayed_id, independent_id] {
         decision.delegated_task_intents.push(DelegationIntent { intent_id: id,
             goal: "Append one observed local effect".into(), system_prompt: String::new(), model: None,
             capabilities: vec![], budget_hint: None, reply_grant: None,
@@ -3548,7 +3549,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
         assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
-        assert_eq!(frozen["rows"]["schema_version"], 3);
+        assert_eq!(frozen["rows"]["schema_version"], if phase == "native.claim" { 3 } else { 4 });
         let creator = frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .find(|table| table["before"]["table"]["name"] == "subject_steps").context("creator point witness")?;
         assert_eq!(creator["complete_read"], false);
@@ -3570,6 +3571,24 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         Ok(())
     };
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
+    // A separate real Store operation can receive E1 while the target's
+    // chosen T1/T2 is waiting to materialize. Its unknown observation grants
+    // no success and no local effect, and remains outside the target witness.
+    let independent = source.claim_native_task(independent_id, implementation.clone(), false)?.context("independent source claim")?;
+    let (independent_ctx, mut independent_op, mut independent_attempt) = draft_dispatch_operation(
+        &source, &independent.invocation, "independent-observation", independent.operation_id)?;
+    assert!(source.arm_native_operation_for_dispatch(&independent_ctx, &mut independent_op, &mut independent_attempt)?.is_none());
+    let independent_raw = source.cas.seal_object(b"observation ended without a known effect",
+        "text/plain", "native-chain", "text", 1)?.object;
+    let independent_receipt = EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(),
+        operation_id: Some(independent_op.operation_id), attempt_id: Some(independent_attempt.attempt_id),
+        source_id: "independent-native-chain-observation".into(), source_instance_id: "fixture-observer".into(),
+        source_event_key: Some("independent-before-target-arm".into()), producer_epoch: Some(independent_attempt.epoch.0),
+        producer_schema_version: Some("1".into()), raw_ref: independent_raw, decoder_ref: Some(independent_attempt.implementation_ref.clone()),
+        decode_status: DecodeStatus::Decoded, observation_level: None,
+        normalized_ref: None, observed_at: Some(chrono::Utc::now()), received_commit: independent_attempt.armed_commit,
+    };
     // Reproduce the real interleaving: capture the claim while the successor
     // is Planned, then advance that same step through real S0/result Store
     // writes after choose and before materialization. The head and committed
@@ -3598,9 +3617,30 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // One actual local effect follows only the fresh paired T1 permit. The
     // receiver installs the original armed intent, and never obtains None.
     let (ctx, mut operation, mut attempt) = draft_dispatch_operation(&source, &claim.invocation, "native-chain", claim.operation_id)?;
+    let injected = rusqlite::Connection::open(dir.join("head.db"))?;
+    injected.execute_batch("CREATE VIEW indirect_native_attempts AS SELECT data FROM attempts;
+        CREATE TRIGGER arm_attempt_dependency AFTER UPDATE ON tasks BEGIN
+            SELECT data FROM indirect_native_attempts; END;")?;
+    let grants_before = serde_json::to_value(&state.lock().grants)?;
+    let refused = source.arm_native_operation_for_dispatch(&ctx, &mut operation.clone(), &mut attempt.clone());
+    injected.execute_batch("DROP TRIGGER arm_attempt_dependency; DROP VIEW indirect_native_attempts")?;
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("cannot narrow a trigger or view read")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(&state.lock().grants)?, grants_before);
+    assert_eq!(injected.query_row("SELECT count(*) FROM operations WHERE operation_id=?1",
+        [operation.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    let progressing = Arc::clone(&source);
+    let observation = independent_receipt.clone();
+    state.lock().before_materialize = Some(Box::new(move || {
+        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
+            observation, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     let arm_started = std::time::Instant::now();
     let permit = source.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?;
     assert!(permit.is_none());
+    assert!(state.lock().before_materialize.is_none());
+    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(independent_receipt.receipt_id));
+    assert_eq!(source.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     if permit.is_none() {
         let mut effect = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("effect.log"))?;
         effect.write_all(b"effect\n")?;
@@ -3611,7 +3651,44 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let arm_objects = source.admission_objects(&arm.admission.payload_ref)?;
     let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&arm.admission.payload_ref.digest)?)?;
     let arm_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(arm_ref.codec.major, 3);
+    assert_eq!(arm_ref.codec.major, 4);
+    // Independent receivers preserve each refused chosen fact. A concurrent
+    // logical-key collision and a JSON UUID alias under another physical PK
+    // must both invalidate absence; neither failure is repaired for reuse.
+    for fault in ["logical-key", "json-uuid-alias"] {
+        let db = dir.join(format!("arm-{fault}.db"));
+        let refused_receiver = Store::open(db.clone(), dir.join(format!("arm-{fault}-cas")))?;
+        refused_receiver.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+        refused_receiver.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: "native-chain-follower", stamp: None, state: Arc::clone(&state),
+        }))?;
+        for (grant, originals) in [(&birth, &birth_objects), (&claim_grant, &claim_objects)] {
+            assert_eq!(refused_receiver.recover_control_admission(grant, originals, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+        }
+        let before = refused_receiver.external_task(task_id)?;
+        let sequence = refused_receiver.current_commit_seq()?;
+        let mut collision = operation.clone();
+        collision.operation_id = EntityId::new();
+        let physical_id = collision.operation_id;
+        let mut collision = serde_json::to_value(collision)?;
+        if fault == "json-uuid-alias" {
+            collision["operation_id"] = operation.operation_id.to_string().to_uppercase().into();
+            collision["logical_key"] = "independent-physical-row".into();
+            assert_eq!(serde_json::from_value::<OperationRecord>(collision.clone())?.operation_id, operation.operation_id);
+        }
+        state.lock().before_materialize = Some(Box::new(move || {
+            let conn = rusqlite::Connection::open(db)?;
+            conn.execute("INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq,created_at) VALUES(?1,0,?2,?3,?4)",
+                rusqlite::params![physical_id.to_string(), serde_json::to_string(&collision)?, sequence, chrono::Utc::now().to_rfc3339()])?;
+            Ok(())
+        }));
+        assert_eq!(refused_receiver.recover_control_admission(&arm, &arm_objects, false)?, ControlRecoveryOutcome::ReconciliationRequired);
+        assert!(state.lock().before_materialize.is_none());
+        assert!(!refused_receiver.control_admission_applied_here(&arm.admission)?);
+        assert_eq!(serde_json::to_value(refused_receiver.external_task(task_id)?)?, serde_json::to_value(before)?);
+        assert!(refused_receiver.external_operation_attempts(operation.operation_id)?.is_empty());
+        assert_eq!(refused_receiver.pending_control_reconciliations(agent)?.len(), 1);
+    }
     for replica in [&receiver, &blocked] {
         assert_eq!(replica.recover_control_admission(&arm, &arm_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
         assert!(replica.arm_native_operation_for_dispatch(&ctx, &mut operation.clone(), &mut attempt.clone())?.is_some());
@@ -3672,26 +3749,40 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let objects = source.admission_objects(&t2.admission.payload_ref)?;
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&t2.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(reference.codec.major, 3);
+    assert_eq!(reference.codec.major, 4);
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
     let expected_result: shenko_types::task::TaskResult = serde_json::from_value(transition["result"].clone())?;
     assert!(source.native_task_result(task_id)?.is_none());
     assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
 
-    // A chosen descriptor with an unsupported E1 reader is fatal, not a
-    // route to the old generic T2 or a receipt whose provenance was rebuilt.
-    let mut malformed = transition.clone();
-    malformed["evidence_fact"]["codec"]["major"] = 99.into();
-    let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
-    envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
-    let mut bad = t2.clone();
-    bad.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
-    state.lock().grants.insert(bad.admission.conflict_key.clone(), bad.clone());
-    let refused = receiver.recover_control_admission(&bad, &source.admission_objects(&bad.admission.payload_ref)?, false);
-    assert!(matches!(&refused, Err(error) if error.to_string().contains("unsupported typed object")), "{refused:#?}");
-    assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
-    assert_eq!(serde_json::to_value(receiver.external_task(task_id)?)?, serde_json::to_value(&armed_task)?);
-    assert!(!receiver.control_admission_applied_here(&bad.admission)?);
+    // Unsupported E1 readers and selectors naming another attempt are fatal.
+    // No fallback may reinterpret them as
+    // the original chosen T2 or reconstruct different receipt provenance.
+    for fault in ["evidence-reader", "wrong-attempt"] {
+        let mut malformed = transition.clone();
+        let expected_error = match fault {
+            "evidence-reader" => {
+                malformed["evidence_fact"]["codec"]["major"] = 99.into();
+                "unsupported typed object"
+            }
+            _ => {
+                let attempts = malformed["rows"]["tables"].as_array_mut().context("T2 tables")?.iter_mut()
+                    .find(|table| table["before"]["table"]["name"] == "attempts").context("original attempt selector")?;
+                attempts["read_selector"]["attempt_id"] = serde_json::to_value(EntityId::new())?;
+                "native read selectors differ"
+            }
+        };
+        let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
+        envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
+        let mut bad = t2.clone();
+        bad.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+        state.lock().grants.insert(bad.admission.conflict_key.clone(), bad.clone());
+        let refused = receiver.recover_control_admission(&bad, &source.admission_objects(&bad.admission.payload_ref)?, false);
+        assert!(matches!(&refused, Err(error) if error.to_string().contains(expected_error)), "{fault}: {refused:#?}");
+        assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
+        assert_eq!(serde_json::to_value(receiver.external_task(task_id)?)?, serde_json::to_value(&armed_task)?);
+        assert!(!receiver.control_admission_applied_here(&bad.admission)?);
+    }
     state.lock().grants.insert(t2.admission.conflict_key.clone(), t2.clone());
 
     // A real local inbox identity conflict makes T2 refuse after the staged
@@ -3728,8 +3819,23 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // application. Both retain the original result and refuse another effect.
     let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
     reopened.attach_commit_authority(Arc::new(NativeT2Authority { source: "native-chain-source", stamp: Some(stamp), state: Arc::clone(&state) }))?;
+    let independent_late = EvidenceReceipt {
+        receipt_id: EntityId::new(), source_event_key: Some("independent-before-target-t2".into()),
+        observed_at: Some(chrono::Utc::now()), ..independent_receipt.clone()
+    };
+    let late_id = independent_late.receipt_id;
+    let progressing = Arc::clone(&source);
+    state.lock().before_materialize = Some(Box::new(move || {
+        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
+            independent_late, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     let recovery_started = std::time::Instant::now();
     let recovered = reopened.resume_prepared_step_commits(agent)?;
+    assert!(state.lock().before_materialize.is_none());
+    assert_eq!(reopened.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(late_id));
+    assert_eq!(reopened.external_operation_evidence(independent_op.operation_id)?.len(), 2);
+    assert_eq!(reopened.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     assert_eq!(recovered.applied, 1);
     assert!(recovered.unresolved.is_empty());
     capacity_receipt(&reopened, &t2, "native.complete.recovered", recovery_started.elapsed())?;
@@ -3779,7 +3885,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let delayed_arm = chosen()?;
     let envelope: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&delayed_arm.admission.payload_ref.digest)?)?;
     let delayed_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(delayed_ref.codec.major, 3);
+    assert_eq!(delayed_ref.codec.major, 4);
     let original_path = reopened.cas.verified_object_path(&delayed_ref)?;
     let saved_path = dir.join("temporarily-unavailable-arm");
     std::fs::rename(&original_path, &saved_path)?;

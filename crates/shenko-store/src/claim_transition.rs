@@ -837,7 +837,7 @@ impl Store {
             }
             let (mut rows, ()) = self.capture_direct_native_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, &plan.task, &plan.creator, |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
+            }, &plan.task, &plan.creator, &[], |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
             // Only this independently validated direct-root action may reduce
             // its task read range. Generic RowTransition behavior is unchanged.
             let table = rows.tables.iter_mut().find(|table| table.before.table.name == "tasks")

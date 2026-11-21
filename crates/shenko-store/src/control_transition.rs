@@ -45,8 +45,12 @@ use crate::{
 const CODEC: &str = "store-s1-transition";
 #[path = "control_transition_capture.rs"]
 mod physical;
+#[path = "control_transition_native_reads.rs"]
+mod native_reads;
+pub(crate) use native_reads::NativeReadSelector;
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const NATIVE_SUBJECT_READ_SCHEMA: u32 = 3;
+pub(crate) const NATIVE_OPERATION_READ_SCHEMA: u32 = 4;
 // Account all retained before/after rows and duplicated change cells together,
 // before the eventual sealed JSON size is known. Untouched tables are not
 // scanned. S1 complete-read ranges stream borrowed values into fixed digests.
@@ -132,6 +136,10 @@ pub(crate) struct TableTransition {
     /// unrelated historical rows. Native v1 witnesses are unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_range: Option<RangeImage>,
+    /// Version 4 direct native readers name their bounded operation predicate.
+    /// This never carries SQL and must exactly match the action's typed plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_selector: Option<NativeReadSelector>,
     pub before: Image,
     pub changes: Vec<Change>,
 }
@@ -173,16 +181,40 @@ pub(crate) struct PreparedTransition {
 
 impl RowTransition {
     fn validate_capture_shape(&self) -> Result<(), ShenkoError> {
+        if self.schema_version != NATIVE_OPERATION_READ_SCHEMA
+            && self.tables.iter().any(|table| table.read_selector.is_some())
+        {
+            return Err(invalid("older row schema cannot carry native read selectors"));
+        }
         match self.schema_version {
             1 if self.tables.iter().all(|table| table.read_range.is_none()) => Ok(()),
             2 if self.tables.iter().all(|table| table.complete_read == table.read_range.is_some()
                 && table.before.rows.keys().all(|key| table.changes.iter().any(|change| &change.key == key))) => Ok(()),
-            NATIVE_SUBJECT_READ_SCHEMA if self.tables.iter().all(|table| table.read_range.is_none())
+            NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA
+                if self.tables.iter().all(|table| table.read_range.is_none()
+                    && table.read_selector.as_ref().is_none_or(|selector|
+                        !table.complete_read && selector.table_name() == table.before.table.name))
                 && matches!(self.tables.iter().filter(|table| table.before.table.name == "subject_steps")
                     .collect::<Vec<_>>().as_slice(), [table] if !table.complete_read
                         && table.changes.is_empty() && table.before.rows.len() == 1) => Ok(()),
             _ => Err(invalid("unsupported row capture schema or read witness")),
         }
+    }
+
+    /// Narrowed ranges are allowed only for the exact predicates derived from
+    /// the independently validated native plan; neither omission nor a wider
+    /// set of ad-hoc point selectors is a supported action format.
+    pub(crate) fn validate_native_read_selectors(&self, expected: &[NativeReadSelector]) -> Result<(), ShenkoError> {
+        let actual = self.tables.iter().filter_map(|table| table.read_selector.as_ref()).collect::<Vec<_>>();
+        if self.schema_version != NATIVE_OPERATION_READ_SCHEMA {
+            return if actual.is_empty() { Ok(()) } else { Err(invalid("legacy native read selector")) };
+        }
+        if actual.len() != expected.len() || expected.is_empty()
+            || expected.iter().any(|selector| actual.iter().filter(|actual| **actual == selector).count() != 1)
+        {
+            return Err(invalid("native read selectors differ from the original action plan"));
+        }
+        Ok(())
     }
 
     /// Check the complete frozen predecessor and apply its exact writes atomically.
@@ -197,7 +229,7 @@ impl RowTransition {
         });
         let _preconditions = crate::timing::Phase::new("materialize.preconditions");
         self.validate_capture_shape()?;
-        if self.schema_version == NATIVE_SUBJECT_READ_SCHEMA {
+        if matches!(self.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) {
             // The source evaluation calls read_subject even though it uses
             // only the returned head. Retain its successor existence, parent,
             // branch, epoch, generation and paused-boundary checks on every
@@ -1028,11 +1060,11 @@ impl Store {
     /// full subject binding; the typed reader must verify the creator exactly.
     pub(crate) fn capture_direct_native_transition<T>(
         &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>,
-        task: &TaskRecord, creator: &SubjectStep,
+        task: &TaskRecord, creator: &SubjectStep, selectors: &[NativeReadSelector],
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        self.capture_row_transition_inner(tx, input, false, Some(task), Some(creator), evaluate)
+        self.capture_row_transition_inner(tx, input, false, Some(task), Some((creator, selectors)), evaluate)
     }
 
     /// S1 v2 freezes the same conservative complete read ranges as streamed
@@ -1049,10 +1081,16 @@ impl Store {
     /// in this callback; generated IDs/time and the real write bytes are frozen.
     fn capture_row_transition_inner<T>(
         &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>, summarize_reads: bool,
-        direct_task: Option<&TaskRecord>, direct_creator: Option<&SubjectStep>,
+        direct_task: Option<&TaskRecord>, direct_reads: Option<(&SubjectStep, &[NativeReadSelector])>,
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
+        let direct_creator = direct_reads.map(|(creator, _)| creator);
+        let selectors = direct_reads.map_or(&[][..], |(_, selectors)| selectors);
+        let selected = selectors.iter().map(|selector| (selector.table_name(), selector)).collect::<BTreeMap<_, _>>();
+        if selected.len() != selectors.len() {
+            return Err(invalid("repeated native selector table"));
+        }
         let _phase = crate::timing::Phase::bound("capture.rows", crate::timing::Binding {
             subject_id: Some(input.head.agent_id), action_id: Some(input.action_id),
             ..Default::default()
@@ -1092,6 +1130,9 @@ impl Store {
             if direct_creator.is_some() && accesses.indirect_reads.contains("subject_steps") {
                 return Err(conflict("direct native subject witness cannot narrow a trigger or view read"));
             }
+            if selected.keys().any(|table| accesses.indirect_reads.contains(*table)) {
+                return Err(conflict("direct native operation witness cannot narrow a trigger or view read"));
+            }
             // Actual writes are independently observed at execution time,
             // including a cached statement or an observer removed by a helper.
             // Unrelated retained tables are never scanned to discover writes.
@@ -1112,12 +1153,24 @@ impl Store {
                 if table.key.is_empty() { return Err(conflict(format!("transition touched unkeyed table {name}"))); }
                 let full_witness = !summarize_reads && accesses.reads.contains(name)
                     && !(name == "tasks" && direct_task.is_some())
-                    && !(name == "subject_steps" && direct_creator.is_some());
+                    && !(name == "subject_steps" && direct_creator.is_some())
+                    && !selected.contains_key(name.as_str());
                 let postimage = if let Some(creator) = direct_creator.filter(|_| name == "subject_steps") {
                     if accesses.writes.contains(name) || physical.tables.contains(name) {
                         return Err(invalid("direct native action may not write subject steps"));
                     }
                     subject_step_image(tx, table, creator.step_id, &mut remaining)?
+                } else if let Some(selector) = selected.get(name.as_str()) {
+                    let image = selector.image(tx, table, &mut remaining)?;
+                    // A trigger cannot hide an out-of-predicate write. Direct
+                    // arm only inserts its named rows; direct T2 only reads
+                    // them, so a deleted or omitted physical key is invalid.
+                    if physical.rows.get(name).is_some_and(|rows|
+                        rows.keys().any(|key| !image.rows.contains_key(key)))
+                    {
+                        return Err(invalid("native write escaped its read selector"));
+                    }
+                    image
                 } else if !full_witness {
                     if summarize_reads && accesses.reads.contains(name) {
                         range_after.insert(name.clone(), range_digest(tx, table)?);
@@ -1145,24 +1198,28 @@ impl Store {
         for (name, after) in after {
             let complete_read = accesses.reads.contains(&name)
                 && !(name == "tasks" && direct_task.is_some())
-                && !(name == "subject_steps" && direct_creator.is_some());
+                && !(name == "subject_steps" && direct_creator.is_some())
+                && !selected.contains_key(name.as_str());
             let full_witness = !summarize_reads && complete_read;
             let creator = direct_creator.filter(|_| name == "subject_steps");
+            let read_selector = selected.get(name.as_str()).map(|selector| (*selector).clone());
             let mut original = if let Some(creator) = creator {
                 subject_step_image(tx, &tables[&name], creator.step_id, &mut remaining)?
+            } else if let Some(selector) = &read_selector {
+                selector.image(tx, &tables[&name], &mut remaining)?
             } else if !full_witness {
                 Image { table: tables[&name].clone(), rows: physical.rows.remove(&name)
                     .unwrap_or_default().into_iter().filter_map(|(key, row)| row.before.map(|row| (key, row))).collect() }
             } else { image_with_budget(tx, &tables[&name], &mut remaining)? };
             let changes = row_changes(&original, after, &mut remaining)?;
-            if summarize_reads || (!complete_read && creator.is_none()) {
+            if summarize_reads || (!complete_read && creator.is_none() && read_selector.is_none()) {
                 original.rows.retain(|key, _| changes.iter().any(|change| &change.key == key));
             }
             let read_range = if summarize_reads && complete_read {
                 Some(RangeImage { before: range_digest(tx, &tables[&name])?,
                     after: range_after.get(&name).cloned().ok_or_else(|| invalid("missing captured post-range"))? })
             } else { None };
-            transitions.push(TableTransition { complete_read, read_range, before: original, changes });
+            transitions.push(TableTransition { complete_read, read_range, read_selector, before: original, changes });
         }
         if let Some(task) = direct_task {
             let table = transitions.iter().find(|table| table.before.table.name == "tasks")
@@ -1176,13 +1233,15 @@ impl Store {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() });
         }
         let transition = RowTransition {
-            schema_version: if direct_creator.is_some() { NATIVE_SUBJECT_READ_SCHEMA }
+            schema_version: if !selectors.is_empty() { NATIVE_OPERATION_READ_SCHEMA }
+                else if direct_creator.is_some() { NATIVE_SUBJECT_READ_SCHEMA }
                 else if summarize_reads { 2 } else { 1 },
             action_id: input.action_id, input_digest: input.input_digest,
             source_ledger_id: self.ledger.ledger_id(), original_head: input.head.clone(),
             result_commit, created_at, updated, object_roots, tables: transitions,
         };
         transition.validate_capture_shape()?;
+        transition.validate_native_read_selectors(selectors)?;
         if let Some(creator) = direct_creator {
             crate::native_facts::validate_subject_read(&transition, creator)?;
         }
@@ -1381,6 +1440,7 @@ impl Store {
         &self,
         transition: &RowTransition,
     ) -> Result<(), ShenkoError> {
+        transition.validate_capture_shape()?;
         let _phase = crate::timing::Phase::new("materialize.closure");
         let roots = self.transition_object_roots(&transition.tables);
         let (_, missing) = self.collect_closure(&roots).map_err(storage_error)?;
@@ -1540,11 +1600,15 @@ pub(crate) fn prepared_transition_at(
 }
 
 fn current_image(conn: &Connection, transition: &TableTransition, schema: u32) -> Result<Image, ShenkoError> {
+    if let Some(selector) = &transition.read_selector {
+        return selector.current_image(conn, &transition.before.table);
+    }
     if transition.complete_read && transition.read_range.is_none() {
         return image(conn, &transition.before.table);
     }
     let mut remaining = MAX_CAPTURE_BYTES;
-    if schema == NATIVE_SUBJECT_READ_SCHEMA && transition.before.table.name == "subject_steps" {
+    if matches!(schema, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
+        && transition.before.table.name == "subject_steps" {
         return image_for_keys_with_budget(conn, &transition.before.table,
             transition.before.rows.values().map(Vec::as_slice), &mut remaining);
     }
