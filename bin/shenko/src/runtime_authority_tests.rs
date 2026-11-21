@@ -275,6 +275,53 @@ fn reserved_store_commit_and_ancestor_cancellation_fence_live_owners() -> Result
     observed.recv_timeout(Duration::from_secs(10))?;
     writer.join().map_err(|_| anyhow::anyhow!("Node writer panicked"))??;
     assert!(store.get_task(id)?.is_some());
+
+    // A real completed binding read holds this Store's connection mutex.
+    // The Node has already lost its original primary fence, so cancellation
+    // and refusal of a fresh stamp must not depend on releasing that mutex.
+    assert!(!old.cancel.is_cancelled());
+    let reservation = Node::open(&fixture.0.join("node"))?.reserve_authority()?;
+    assert!(reservation.snapshot().fence.is_none());
+    assert!(!is_availability(reservation.snapshot()));
+    drop(reservation);
+    std::thread::scope(|scope| -> Result<()> {
+        let (held, observed_held) = mpsc::sync_channel(1);
+        let (release_binding, proceed) = mpsc::sync_channel(1);
+        let binding_store = store.as_ref();
+        let holding = scope.spawn(move || {
+            let mut proceed = Some(proceed);
+            shenko_store::test_support::with_sqlite_statement_completion(binding_store, move |work| {
+                if work.sql == "SELECT data FROM subject_authority_bindings WHERE agent_id=?1"
+                    && let Some(proceed) = proceed.take()
+                {
+                    let _ = held.send(());
+                    let _ = proceed.recv();
+                }
+            }, || binding_store.subject_authority_binding(agent)).0
+        });
+        let held_result = observed_held.recv_timeout(Duration::from_secs(5));
+        let (finished, observed_finished) = mpsc::sync_channel(1);
+        let authority = old.as_ref();
+        let recovering = scope.spawn(move || {
+            let result = authority.acquire(None).map(|guard| guard.stamp().is_none());
+            let _ = finished.send(result);
+        });
+        let acquired = observed_finished.recv_timeout(Duration::from_secs(3));
+        let cancelled_while_held = old.cancel.is_cancelled();
+        // Release and join both owners before propagating any failed
+        // observation. Scope unwinding also drops this sender before joining.
+        drop(release_binding);
+        let binding = holding.join();
+        let recovered = recovering.join();
+        held_result.context("real binding lookup did not hold the Store connection")?;
+        assert!(binding.map_err(|_| anyhow::anyhow!("binding reader panicked"))??.is_some());
+        recovered.map_err(|_| anyhow::anyhow!("authority acquisition panicked"))?;
+        assert!(acquired.context("known Node loss waited for the Store connection")??,
+            "known Node loss retained a fresh authority stamp");
+        assert!(cancelled_while_held, "known Node loss did not cancel while Store was held");
+        Ok(())
+    })?;
+
     assert!(store.claim_native_task(id, implementation, false).is_err());
     assert!(old.recovery_required().is_some());
     old.request_shutdown();
