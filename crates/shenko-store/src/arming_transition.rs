@@ -30,8 +30,8 @@ use crate::{
         NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, NATIVE_SUBJECT_READ_SCHEMA, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA,
+        NativeReadSelector, PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::storage_error,
@@ -101,6 +101,20 @@ fn same(left: &impl Serialize, right: &impl Serialize) -> Result<bool, ShenkoErr
 }
 
 impl ArmPlan {
+    fn read_selectors(&self) -> [NativeReadSelector; 2] {
+        [
+            NativeReadSelector::ArmOperation {
+                operation_id: self.operation.operation_id,
+                task_id: self.task.task_id,
+                logical_key: self.operation.logical_key.clone(),
+            },
+            NativeReadSelector::ArmAttempt {
+                attempt_id: self.attempt.attempt_id,
+                operation_id: self.operation.operation_id,
+            },
+        ]
+    }
+
     fn position(&self) -> String {
         format!(
             "task/{}/operation/{}",
@@ -257,6 +271,10 @@ impl ArmTransition {
         };
         if name == "tasks" && self.canonical_claim.is_some() {
             validate_task_read(table, &self.plan.task)?;
+        } else if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA
+            && self.plan.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector))
+        {
+            // validate() binds this exact predicate set to the typed plan.
         } else if !table.complete_read {
             return Err(invalid(format!("incomplete {name} read condition")));
         }
@@ -292,6 +310,9 @@ impl ArmTransition {
     fn validate_absence(&self) -> Result<(), ShenkoError> {
         let plan = &self.plan;
         let operations = self.read_table("operations")?;
+        if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA && !operations.before.rows.is_empty() {
+            return Err(invalid("T1 original operation predicate is not absent"));
+        }
         for row in operations.before.rows.values() {
             let original: OperationRecord = json_row(operations, row)?;
             if column(operations, row, "operation_id")?
@@ -306,6 +327,9 @@ impl ArmTransition {
             }
         }
         let attempts = self.read_table("attempts")?;
+        if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA && !attempts.before.rows.is_empty() {
+            return Err(invalid("T1 original attempt predicate is not absent"));
+        }
         for row in attempts.before.rows.values() {
             let original: AttemptRecord = json_row(attempts, row)?;
             if column(attempts, row, "attempt_id")?
@@ -334,6 +358,7 @@ impl ArmTransition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&plan.read_selectors())?;
         if self.canonical_claim.is_some()
             && (!plan.native_dispatch
                 || memo_uuid(&plan.task, NATIVE_OPERATION_ID) != Some(plan.operation.operation_id))
@@ -343,8 +368,8 @@ impl ArmTransition {
             ));
         }
         let position = plan.position();
-        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA)
-            || (rows.schema_version == NATIVE_SUBJECT_READ_SCHEMA && self.canonical_claim.is_none())
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
+            || (rows.schema_version != 1 && self.canonical_claim.is_none())
             || rows.action_id != admission.action_id
             || rows.action_id
                 != EntityId::derived("commit-admission-action-v1", position.as_bytes())
@@ -618,7 +643,7 @@ impl Store {
                 let [creator] = position.expected_steps.as_slice() else {
                     return Err(invalid("direct T1 requires its original creator"));
                 };
-                self.capture_direct_native_transition(&tx, input, &plan.task, creator, evaluate)?
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
             } else {
                 self.capture_row_transition(&tx, input, None, evaluate)?
             };
@@ -628,7 +653,7 @@ impl Store {
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("T1 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if canonical_claim.is_some() { 3 } else { 1 })?.object;
+                if canonical_claim.is_some() { 4 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -716,7 +741,7 @@ impl Store {
     }
 
     fn read_arm_transition(&self, reference: &ObjectRef) -> Result<ArmTransition, ShenkoError> {
-        if !matches!(reference.codec.major, 1..=3) {
+        if !matches!(reference.codec.major, 1..=4) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -726,7 +751,11 @@ impl Store {
         }
         let transition: ArmTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
         if (reference.codec.major >= 2) != transition.canonical_claim.is_some()
-            || transition.rows.schema_version != if reference.codec.major == 3 { NATIVE_SUBJECT_READ_SCHEMA } else { 1 }
+            || transition.rows.schema_version != match reference.codec.major {
+                4 => NATIVE_OPERATION_READ_SCHEMA,
+                3 => NATIVE_SUBJECT_READ_SCHEMA,
+                _ => 1,
+            }
         {
             return Err(invalid(
                 "T1 reader version differs from its task dependency proof",

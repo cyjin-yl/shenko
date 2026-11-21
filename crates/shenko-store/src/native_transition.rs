@@ -30,8 +30,8 @@ use crate::{
         NATIVE_RECOVERY, NATIVE_RESULT_ID, NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, NATIVE_SUBJECT_READ_SCHEMA, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA,
+        NativeReadSelector, PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::{commit_error, storage_error},
@@ -116,6 +116,14 @@ fn task_outcome(outcome: OperationOutcome) -> TaskOutcome {
 }
 
 impl NativeT2Plan {
+    fn read_selectors(&self) -> [NativeReadSelector; 3] {
+        [
+            NativeReadSelector::OriginalOperation { operation_id: self.operation.operation_id },
+            NativeReadSelector::OriginalAttempt { attempt_id: self.attempt.attempt_id },
+            NativeReadSelector::OriginalReceipt { receipt_id: self.evidence.receipt_id },
+        ]
+    }
+
     fn input_digest(&self, head: &SubjectBranchHead) -> Result<Digest, ShenkoError> {
         Ok(Digest::blake3(&serde_json::to_vec(&(head, self))?))
     }
@@ -282,6 +290,8 @@ impl NativeT2Transition {
                 Ok(table)
             }
             [table] if table.complete_read => Ok(table),
+            [table] if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA
+                && self.plan.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector)) => Ok(table),
             _ => Err(invalid(format!("missing complete {name} read condition"))),
         }
     }
@@ -318,6 +328,7 @@ impl NativeT2Transition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&plan.read_selectors())?;
         if self.evidence_fact.is_some()
             && (!matches!(plan.phase, NativeT2Phase::Complete { .. }) || self.result.is_none())
         {
@@ -326,8 +337,8 @@ impl NativeT2Transition {
             ));
         }
         let key = plan.phase.position(&plan.task);
-        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA)
-            || (rows.schema_version == NATIVE_SUBJECT_READ_SCHEMA && self.evidence_fact.is_none())
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
+            || (rows.schema_version != 1 && self.evidence_fact.is_none())
             || rows.action_id != admission.action_id
             || rows.action_id != EntityId::derived("commit-admission-action-v1", key.as_bytes())
             || rows.input_digest != plan.input_digest(head)?
@@ -649,7 +660,7 @@ impl Store {
                 let [creator] = position.expected_steps.as_slice() else {
                     return Err(invalid("direct T2 requires its original creator"));
                 };
-                self.capture_direct_native_transition(&tx, input, &plan.task, creator, evaluate)?
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
             } else {
                 self.capture_row_transition(&tx, input, None, evaluate)?
             };
@@ -659,7 +670,7 @@ impl Store {
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("native T2 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if evidence_fact.is_some() { 3 } else { 1 })?.object;
+                if evidence_fact.is_some() { 4 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -762,7 +773,7 @@ impl Store {
         &self,
         reference: &ObjectRef,
     ) -> Result<NativeT2Transition, ShenkoError> {
-        if !matches!(reference.codec.major, 1..=3) {
+        if !matches!(reference.codec.major, 1..=4) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -772,7 +783,11 @@ impl Store {
         }
         let transition: NativeT2Transition = serde_json::from_slice(&bytes).map_err(invalid)?;
         if (reference.codec.major >= 2) != transition.evidence_fact.is_some()
-            || transition.rows.schema_version != if reference.codec.major == 3 { NATIVE_SUBJECT_READ_SCHEMA } else { 1 }
+            || transition.rows.schema_version != match reference.codec.major {
+                4 => NATIVE_OPERATION_READ_SCHEMA,
+                3 => NATIVE_SUBJECT_READ_SCHEMA,
+                _ => 1,
+            }
         {
             return Err(invalid(
                 "T2 reader version differs from its original E1 proof",
