@@ -85,8 +85,13 @@ already applied predecessor. It is not downloaded from the E1 peer. A marker
 whose Node bytes are missing or corrupt is refused rather than repaired by
 the new E1 exchange.
 
-The only object fetched before checking predecessors is the bounded envelope,
-which remains inert. Missing T1, source E1 or first Unknown can therefore
+The only object fetched before checking the declared predecessors is the
+bounded envelope, which remains inert. Node does not derive the original
+causal list from the inner fact; Store performs that independent comparison
+after those inner bytes are available. A malformed envelope which omits its
+real predecessor can therefore cause bounded inert downloads before Store
+rejects it, but cannot create an application or a send permission.
+Missing declared T1, source E1 or first Unknown can therefore
 stop the transport before Store intake; the previously queued delivery stays
 pending and the CLI returns the actual error without an application report.
 This differs from a transfer that reaches Store and records a blocked factual

@@ -27,7 +27,7 @@ pub(crate) fn predecessor_roots(fact: &NativeEvidenceFact) -> Vec<ObjectRef> {
     let mut roots = vec![fact.arm.admission.payload_ref.clone()];
     roots.extend(fact.source.iter().map(|source| source.evidence_ref.clone()));
     roots.extend(fact.predecessor_ref.iter().cloned());
-    roots.sort_by_key(NativeEvidenceObjectIdentity::from);
+    roots.sort_by_key(|reference| NativeEvidenceObjectIdentity::from(reference));
     roots.dedup_by(|left, right|
         NativeEvidenceObjectIdentity::from(&*left) == NativeEvidenceObjectIdentity::from(&*right));
     roots
