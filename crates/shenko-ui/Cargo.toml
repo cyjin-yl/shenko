@@ -43,6 +43,7 @@ sha2 = { workspace = true }
 
 [dev-dependencies]
 rusqlite = { workspace = true }
+shenko-store = { path = "../shenko-store", features = ["test-support"] }
 
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
