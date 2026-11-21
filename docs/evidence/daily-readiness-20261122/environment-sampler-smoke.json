@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T19:25:11.118676+00:00",
+  "environment": "local editing Linux environment, not doescompute/doescontainer",
+  "script_sha256": "6b07d0bae686fa6ac7850e0a6ddefe2330baca0e2469baeb04301e5d73b665fd",
+  "checks": [
+    {
+      "case": "duration",
+      "parent_pid": 5,
+      "interval_seconds": 0.1,
+      "max_duration_seconds": 0.45,
+      "exit_code": 0,
+      "end": {
+        "schema_version": 1,
+        "record": "end",
+        "utc": "2026-11-21T19:25:10.291168+00:00",
+        "monotonic_ns": 13967497071863,
+        "elapsed_ns": 450218914,
+        "reason": "max_duration",
+        "samples": 5,
+        "metric_error_count": 15,
+        "parent_error": null,
+        "exit_code": 0
+      },
+      "elapsed_seconds": 0.49111903100128984,
+      "signal_to_exit_seconds": null,
+      "sample_count": 5,
+      "max_read_elapsed_ns": 147620,
+      "raw_file": "/workspace/scratch/0e9f736f5ffa/observations/environment-sampler-smoke-20261122/duration.ndjson",
+      "raw_bytes": 4338,
+      "raw_sha256": "63049cfde8b0940cb7a3c23d69a30df03e275204940c7c1aae3a76469bbb9e1c",
+      "retained_file": "environment-sampler-smoke/duration.ndjson"
+    },
+    {
+      "case": "parent_exit",
+      "parent_pid": 7,
+      "interval_seconds": 0.1,
+      "max_duration_seconds": 2.0,
+      "exit_code": 0,
+      "end": {
+        "schema_version": 1,
+        "record": "end",
+        "utc": "2026-11-21T19:25:11.023827+00:00",
+        "monotonic_ns": 13968229730966,
+        "elapsed_ns": 704175876,
+        "reason": "parent_exited",
+        "samples": 7,
+        "metric_error_count": 21,
+        "parent_error": null,
+        "exit_code": 0
+      },
+      "elapsed_seconds": 0.7321531689995027,
+      "signal_to_exit_seconds": null,
+      "sample_count": 7,
+      "max_read_elapsed_ns": 372775,
+      "raw_file": "/workspace/scratch/0e9f736f5ffa/observations/environment-sampler-smoke-20261122/parent_exit.ndjson",
+      "raw_bytes": 5800,
+      "raw_sha256": "248164dabc31d5b3369a6d4f51b1b7a578ce3cec27129c0ddab8343eb8b7399a",
+      "retained_file": "environment-sampler-smoke/parent_exit.ndjson"
+    },
+    {
+      "case": "SIGTERM",
+      "parent_pid": 5,
+      "interval_seconds": 5.0,
+      "max_duration_seconds": 2.0,
+      "exit_code": 0,
+      "end": {
+        "schema_version": 1,
+        "record": "end",
+        "utc": "2026-11-21T19:25:11.080138+00:00",
+        "monotonic_ns": 13968286044760,
+        "elapsed_ns": 8941034,
+        "reason": "SIGTERM",
+        "samples": 1,
+        "metric_error_count": 3,
+        "parent_error": null,
+        "exit_code": 0
+      },
+      "elapsed_seconds": 0.05502634199910972,
+      "signal_to_exit_seconds": 0.0040474069992342265,
+      "sample_count": 1,
+      "max_read_elapsed_ns": 117114,
+      "raw_file": "/workspace/scratch/0e9f736f5ffa/observations/environment-sampler-smoke-20261122/SIGTERM.ndjson",
+      "raw_bytes": 1405,
+      "raw_sha256": "2c6751a798faaf21188ba18198ef2adeae88eeac869205f2481da1ec0fb9379b",
+      "retained_file": "environment-sampler-smoke/SIGTERM.ndjson"
+    },
+    {
+      "case": "SIGINT",
+      "parent_pid": 5,
+      "interval_seconds": 5.0,
+      "max_duration_seconds": 2.0,
+      "exit_code": 0,
+      "end": {
+        "schema_version": 1,
+        "record": "end",
+        "utc": "2026-11-21T19:25:11.115062+00:00",
+        "monotonic_ns": 13968320968421,
+        "elapsed_ns": 3481854,
+        "reason": "SIGINT",
+        "samples": 1,
+        "metric_error_count": 3,
+        "parent_error": null,
+        "exit_code": 0
+      },
+      "elapsed_seconds": 0.03429385799972806,
+      "signal_to_exit_seconds": 0.003568363999875146,
+      "sample_count": 1,
+      "max_read_elapsed_ns": 118847,
+      "raw_file": "/workspace/scratch/0e9f736f5ffa/observations/environment-sampler-smoke-20261122/SIGINT.ndjson",
+      "raw_bytes": 1405,
+      "raw_sha256": "b3d831ba0a4762fc5b3e1b5c2ee59bab5b8cbd7e660d8fc8123de78f65dfeed5",
+      "retained_file": "environment-sampler-smoke/SIGINT.ndjson"
+    }
+  ],
+  "boundary": "Short real-process lifecycle checks only; no Rust tests, builds, model requests or workload writes. NDJSON is line-flushed without fsync and does not claim power-loss durability.",
+  "available_metrics": [
+    "loadavg",
+    "memory_kib"
+  ],
+  "unavailable_metrics": {
+    "pressure.io": "FileNotFoundError errno 2",
+    "pressure.cpu": "FileNotFoundError errno 2",
+    "pressure.memory": "FileNotFoundError errno 2"
+  }
+}
