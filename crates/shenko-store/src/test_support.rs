@@ -23,18 +23,19 @@ pub struct SqliteStatementWork {
     pub profile_nanoseconds: u64,
 }
 
-#[derive(Default)]
-struct SqliteWork {
+struct SqliteWork<F> {
     rows: std::collections::BTreeMap<usize, u64>,
     statements: Vec<SqliteStatementWork>,
+    completed: F,
+    callback_panic: Option<Box<dyn std::any::Any + Send>>,
 }
 
-struct SqliteWorkObserver<'a> {
+struct SqliteWorkObserver<'a, F> {
     store: &'a Store,
-    state: Box<SqliteWork>,
+    state: Box<SqliteWork<F>>,
 }
 
-unsafe extern "C" fn observe_sqlite_work(
+unsafe extern "C" fn observe_sqlite_work<F: FnMut(&SqliteStatementWork) + Send>(
     event: std::ffi::c_uint,
     context: *mut std::ffi::c_void,
     statement: *mut std::ffi::c_void,
@@ -43,7 +44,7 @@ unsafe extern "C" fn observe_sqlite_work(
     use rusqlite::ffi;
     // SQLite invokes this synchronously under the Store connection lock.
     // The observer owns the stable Box until it detaches this callback.
-    let state = unsafe { &mut *context.cast::<SqliteWork>() };
+    let state = unsafe { &mut *context.cast::<SqliteWork<F>>() };
     if event == ffi::SQLITE_TRACE_ROW as u32 {
         *state.rows.entry(statement as usize).or_default() += 1;
     } else if event == ffi::SQLITE_TRACE_PROFILE as u32 {
@@ -61,15 +62,23 @@ unsafe extern "C" fn observe_sqlite_work(
                 *detail.cast::<u64>(),
             )
         };
-        state.statements.push(SqliteStatementWork {
+        let work = SqliteStatementWork {
             sql, rows: state.rows.remove(&(statement as usize)).unwrap_or(0),
             fullscan_steps, vm_steps, profile_nanoseconds,
-        });
+        };
+        // A test callback must never unwind across SQLite's C boundary.
+        // Detach the observer before resuming its original panic below.
+        if state.callback_panic.is_none() {
+            state.callback_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                (state.completed)(&work);
+            })).err();
+        }
+        state.statements.push(work);
     }
     0
 }
 
-impl Drop for SqliteWorkObserver<'_> {
+impl<F> Drop for SqliteWorkObserver<'_, F> {
     fn drop(&mut self) {
         let conn = self.store.ledger.conn.lock();
         // Detach before freeing the callback context, also during unwinding.
@@ -84,8 +93,24 @@ impl Drop for SqliteWorkObserver<'_> {
 pub fn with_sqlite_work_observation<T>(store: &Store, run: impl FnOnce() -> T)
     -> (T, Vec<SqliteStatementWork>)
 {
+    with_sqlite_statement_completion(store, |_| {}, run)
+}
+
+/// Observe completed real statements while a public Store consumer runs.
+/// Completion runs synchronously under the connection lock: it may coordinate
+/// another connection, but must not re-enter this Store. Unlike an authorizer,
+/// a completed zero-row lookup establishes that the requested row was absent.
+/// Use only on an otherwise idle fixture with no existing trace observer.
+pub fn with_sqlite_statement_completion<T, F>(store: &Store, completed: F, run: impl FnOnce() -> T)
+    -> (T, Vec<SqliteStatementWork>)
+where
+    F: FnMut(&SqliteStatementWork) + Send,
+{
     use rusqlite::ffi;
-    let mut observer = SqliteWorkObserver { store, state: Box::default() };
+    let mut observer = SqliteWorkObserver { store, state: Box::new(SqliteWork {
+        rows: std::collections::BTreeMap::new(), statements: Vec::new(), completed,
+        callback_panic: None,
+    }) };
     {
         let conn = store.ledger.conn.lock();
         // Cached statements may predate this window. Discard their old work
@@ -100,13 +125,17 @@ pub fn with_sqlite_work_observation<T>(store: &Store, run: impl FnOnce() -> T)
             }
             let status = ffi::sqlite3_trace_v2(db,
                 (ffi::SQLITE_TRACE_ROW | ffi::SQLITE_TRACE_PROFILE) as u32,
-                Some(observe_sqlite_work),
-                (&mut *observer.state as *mut SqliteWork).cast());
+                Some(observe_sqlite_work::<F>),
+                (&mut *observer.state as *mut SqliteWork<F>).cast());
             assert_eq!(status, ffi::SQLITE_OK, "install SQLite work observer");
         }
     }
     let result = run();
     let statements = std::mem::take(&mut observer.state.statements);
+    let callback_panic = observer.state.callback_panic.take();
     drop(observer);
+    if let Some(panic) = callback_panic {
+        std::panic::resume_unwind(panic);
+    }
     (result, statements)
 }
