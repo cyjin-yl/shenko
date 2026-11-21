@@ -20,6 +20,7 @@ use shenko_types::{
 };
 
 use crate::{CognitionSnapshotOptions, Store};
+use crate::cas::PendingObjectGraph;
 use crate::cognition_archive::{CognitionDerivative, CognitionManifest, CognitionRow};
 
 const PAGE_CAPACITY: usize = 32;
@@ -141,23 +142,28 @@ impl Store {
         }
         let roots = roots.into_values().collect::<Vec<_>>();
         let root_count = roots.len();
-        let rows = std::mem::take(&mut manifest.rows).into_iter().map(|row| {
-            Ok(Entry { key: format!("{}\u{1f}{}", row.table, row.key),
-                value: self.seal_control_value(&row, "store-control-row")? })
-        }).collect::<Result<Vec<_>>>()?;
-        manifest.objects.clear();
-        let derivatives = std::mem::take(&mut manifest.derivatives).into_iter().map(|frame| {
-            Ok(Entry { key: format!("{}\u{1f}{}", frame.window_id, frame.idx),
-                value: self.seal_control_value(&frame, "store-control-derivative")? })
-        }).collect::<Result<Vec<_>>>()?;
-        let root = Predecessor {
-            schema_version: 1, head: head.clone(), manifest,
-            row_count, object_count, root_count, derivative_count,
-            rows: self.seal_control_tree("rows", rows, 0)?,
-            roots: self.seal_control_tree("roots", roots, 0)?,
-            derivatives: self.seal_control_tree("derivatives", derivatives, 0)?,
-        };
-        self.seal_control_value(&root, ROOT_CODEC)
+        // The partially moved export retains its publication lease through
+        // this entire call. Pending child references stay inside the graph
+        // builder; the ordinary durable root seal follows the child barrier.
+        Ok(self.cas.seal_graph_root("application/json", "commit-authority", ROOT_CODEC, 1, |graph| {
+            let rows = std::mem::take(&mut manifest.rows).into_iter().map(|row| {
+                Ok(Entry { key: format!("{}\u{1f}{}", row.table, row.key),
+                    value: write_control_value(graph, &row, "store-control-row")? })
+            }).collect::<Result<Vec<_>>>()?;
+            manifest.objects.clear();
+            let derivatives = std::mem::take(&mut manifest.derivatives).into_iter().map(|frame| {
+                Ok(Entry { key: format!("{}\u{1f}{}", frame.window_id, frame.idx),
+                    value: write_control_value(graph, &frame, "store-control-derivative")? })
+            }).collect::<Result<Vec<_>>>()?;
+            let root = Predecessor {
+                schema_version: 1, head: head.clone(), manifest,
+                row_count, object_count, root_count, derivative_count,
+                rows: write_control_tree(graph, "rows", rows, 0)?,
+                roots: write_control_tree(graph, "roots", roots, 0)?,
+                derivatives: write_control_tree(graph, "derivatives", derivatives, 0)?,
+            };
+            Ok(serde_json::to_vec(&root)?)
+        })?.object)
     }
 
     /// Verify retained source evidence without changing any live Store rows.
@@ -260,11 +266,6 @@ impl Store {
             original_source: source_ledger_id == self.ledger.ledger_id(), original_head: root.head })
     }
 
-    fn seal_control_value(&self, value: &impl Serialize, codec: &str) -> Result<ObjectRef> {
-        Ok(self.cas.seal_object(&serde_json::to_vec(value)?, "application/json",
-            "commit-authority", codec, 1)?.object)
-    }
-
     fn verified_control_bytes(&self, reference: &ObjectRef) -> Result<Vec<u8>> {
         let bytes = self.cas.read_object(&reference.digest)?;
         ensure!(bytes.len() as u64 == reference.bytes && Digest::blake3(&bytes) == reference.digest,
@@ -276,22 +277,6 @@ impl Store {
         ensure!(reference.codec.name == codec && reference.codec.major == 1
             && reference.media_type == "application/json", "unsupported snapshot object type");
         Ok(serde_json::from_slice(&self.verified_control_bytes(reference)?)?)
-    }
-
-    fn seal_control_tree(&self, kind: &str, mut entries: Vec<Entry>, depth: usize) -> Result<ObjectRef> {
-        entries.sort_by(|left, right| left.key.cmp(&right.key));
-        ensure!(entries.windows(2).all(|pair| pair[0].key != pair[1].key), "duplicate snapshot item identity");
-        let mut children = Vec::new();
-        if entries.len() > PAGE_CAPACITY && depth < 64 {
-            let mut groups: BTreeMap<u8, Vec<Entry>> = BTreeMap::new();
-            for entry in std::mem::take(&mut entries) {
-                groups.entry(key_path(&entry.key)[depth]).or_default().push(entry);
-            }
-            for (nibble, group) in groups {
-                children.push(Edge { nibble, child: self.seal_control_tree(kind, group, depth + 1)? });
-            }
-        }
-        self.seal_control_value(&Page { schema_version: 1, kind: kind.into(), entries, children }, PAGE_CODEC)
     }
 
     fn read_control_tree(&self, kind: &str, reference: &ObjectRef, count: usize) -> Result<Vec<Entry>> {
@@ -322,6 +307,28 @@ impl Store {
         ensure!(out.len() == count, "incomplete snapshot tree");
         Ok(out)
     }
+}
+
+fn write_control_value(graph: &mut PendingObjectGraph<'_>, value: &impl Serialize, codec: &str) -> Result<ObjectRef> {
+    Ok(graph.write_object(&serde_json::to_vec(value)?, "application/json", "commit-authority", codec, 1)?)
+}
+
+fn write_control_tree(
+    graph: &mut PendingObjectGraph<'_>, kind: &str, mut entries: Vec<Entry>, depth: usize,
+) -> Result<ObjectRef> {
+    entries.sort_by(|left, right| left.key.cmp(&right.key));
+    ensure!(entries.windows(2).all(|pair| pair[0].key != pair[1].key), "duplicate snapshot item identity");
+    let mut children = Vec::new();
+    if entries.len() > PAGE_CAPACITY && depth < 64 {
+        let mut groups: BTreeMap<u8, Vec<Entry>> = BTreeMap::new();
+        for entry in std::mem::take(&mut entries) {
+            groups.entry(key_path(&entry.key)[depth]).or_default().push(entry);
+        }
+        for (nibble, group) in groups {
+            children.push(Edge { nibble, child: write_control_tree(graph, kind, group, depth + 1)? });
+        }
+    }
+    write_control_value(graph, &Page { schema_version: 1, kind: kind.into(), entries, children }, PAGE_CODEC)
 }
 
 fn key_path(key: &str) -> Vec<u8> {
