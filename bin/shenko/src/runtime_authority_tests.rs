@@ -286,7 +286,7 @@ fn reserved_store_commit_and_ancestor_cancellation_fence_live_owners() -> Result
     drop(reservation);
     std::thread::scope(|scope| -> Result<()> {
         let (held, observed_held) = mpsc::sync_channel(1);
-        let (release_binding, proceed) = mpsc::sync_channel(1);
+        let (release_binding, proceed) = mpsc::sync_channel::<()>(1);
         let binding_store = store.as_ref();
         let holding = scope.spawn(move || {
             let mut proceed = Some(proceed);
