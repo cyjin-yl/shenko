@@ -8,12 +8,30 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use cordis_core::{Context, FiberState, InjectSpec, Plugin, PreparedPlugin, Service};
+use cordis_core::observation::RuntimeSnapshot;
 use futures::FutureExt;
 use shenko_kernel::Supervisor;
 use shenko_types::ids::RuntimeGeneration;
 use tokio::sync::{Notify, oneshot};
 
 type Error = std::io::Error;
+
+// The permanent root owns the preparation gate, including its closed state.
+// Cleanup must restore every exact bootstrap publication and leave no plugin
+// service behind. Native snapshots have no semantic collection order.
+fn assert_bootstrap_services(context: &Context, bootstrap: &RuntimeSnapshot) {
+    let current = context.runtime_snapshot();
+    assert_eq!(current.services().len(), bootstrap.services().len());
+    for expected in bootstrap.services() {
+        let Some(actual) = current.services().iter().find(|service| service.id() == expected.id()) else {
+            panic!("bootstrap service publication disappeared: {expected:?}");
+        };
+        assert_eq!(actual.service(), expected.service());
+        assert_eq!(actual.realm(), expected.realm());
+        assert_eq!(actual.provider(), expected.provider());
+        assert_eq!(actual.visible(), expected.visible());
+    }
+}
 
 struct LiveResource(usize);
 impl Service for LiveResource {
@@ -211,6 +229,7 @@ impl Plugin for BadDeclaration {
 async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let host = Arc::new(Supervisor::new(RuntimeGeneration::new("test")));
+        let bootstrap = host.context().runtime_snapshot();
         let consumer = Arc::new(Consumer::default());
         let dependent = host.spawn(consumer.clone(), ()).await.unwrap();
         assert_eq!(dependent.state(), FiberState::Pending);
@@ -224,7 +243,11 @@ async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
         let before = root.runtime_snapshot();
         assert_eq!(root.try_service::<LiveResource>().unwrap().0, 1);
         let provider_id = provider.id();
-        assert_eq!(before.services()[0].provider(), &provider_id);
+        let Some(service_before) = before.services().iter().find(|service| service.service() == LiveResource::NAME) else {
+            panic!("native provider did not publish LiveResource");
+        };
+        assert_eq!(before.services().len(), bootstrap.services().len() + 1);
+        assert_eq!(service_before.provider(), &provider_id);
         host.restart(&provider).await.unwrap();
         dependent
             .wait_state(FiberState::Active, Duration::from_secs(2))
@@ -233,7 +256,12 @@ async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
         let after = root.runtime_snapshot();
         assert_eq!(root.try_service::<LiveResource>().unwrap().0, 2);
         assert_eq!(provider.id(), provider_id);
-        assert_ne!(before.services()[0].id(), after.services()[0].id());
+        let Some(service_after) = after.services().iter().find(|service| service.service() == LiveResource::NAME) else {
+            panic!("restarted native provider did not publish LiveResource");
+        };
+        assert_eq!(after.services().len(), bootstrap.services().len() + 1);
+        assert_eq!(service_after.provider(), &provider_id);
+        assert_ne!(service_before.id(), service_after.id());
         assert_eq!(plugin.joined.load(Ordering::SeqCst), 1);
         let cleaned = Arc::new(AtomicUsize::new(0));
         // Terminal admission closes first, but an exact resident handle can
@@ -254,7 +282,7 @@ async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
         assert!(host.spawn(Healthy(cleaned.clone()), ()).await.is_err());
         assert!(root.try_service::<LiveResource>().is_err());
         assert_eq!(root.runtime_snapshot().fibers().len(), 1);
-        assert!(root.runtime_snapshot().services().is_empty());
+        assert_bootstrap_services(root, &bootstrap);
         assert_eq!(plugin.applies.load(Ordering::SeqCst), 2);
         assert_eq!(plugin.joined.load(Ordering::SeqCst), 2);
         assert_eq!(plugin.cleanups.load(Ordering::SeqCst), 2);
@@ -273,6 +301,7 @@ async fn native_services_restart_join_order_reentry_and_terminal_shutdown() {
 async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let host = Arc::new(Supervisor::new(RuntimeGeneration::new("test")));
+        let bootstrap = host.context().runtime_snapshot();
         let cleaned = Arc::new(AtomicUsize::new(0));
         let healthy = host.spawn(Healthy(cleaned.clone()), ()).await.unwrap();
         assert!(
@@ -302,7 +331,7 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
         assert_eq!(cleaned.load(Ordering::SeqCst), 0);
         assert_eq!(plugin.cleanups.load(Ordering::SeqCst), 1);
         assert_eq!(plugin.joined.load(Ordering::SeqCst), 1);
-        assert!(host.context().runtime_snapshot().services().is_empty());
+        assert_bootstrap_services(host.context(), &bootstrap);
         assert!(
             host.plugins
                 .diagnostics()
@@ -322,6 +351,7 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
         assert!(host.plugins.uninstall(&healthy).await.is_err()); // cleanup keeps the unknown latch
         assert_eq!(cleaned.load(Ordering::SeqCst), 2);
         assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
+        assert_bootstrap_services(host.context(), &bootstrap);
     })
     .await
     .expect("native failure must not lose an owner or skip remaining cleanup");
@@ -333,6 +363,7 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
 async fn shutdown_interrupts_abandoned_pending_creation_and_closes_admission() {
     tokio::time::timeout(Duration::from_secs(10), async {
         let host = Arc::new(Supervisor::new(RuntimeGeneration::new("test")));
+        let bootstrap = host.context().runtime_snapshot();
         let cleaned = Arc::new(AtomicUsize::new(0));
         host.spawn(Healthy(cleaned.clone()), ()).await.unwrap();
         let plugin = Arc::new(RuntimePlugin::new(&host, true, false));
@@ -354,7 +385,7 @@ async fn shutdown_interrupts_abandoned_pending_creation_and_closes_admission() {
         assert_eq!(plugin.applies.load(Ordering::SeqCst), 1);
         assert_eq!(plugin.joined.load(Ordering::SeqCst), 1);
         assert_eq!(plugin.cleanups.load(Ordering::SeqCst), 1);
-        assert!(host.context().runtime_snapshot().services().is_empty());
+        assert_bootstrap_services(host.context(), &bootstrap);
         assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
     })
     .await
@@ -428,6 +459,7 @@ async fn shutdown_joins_native_composition_after_cancelled_detached_removal() {
         let host = Arc::new(Supervisor::new(RuntimeGeneration::new(
             "native-composition",
         )));
+        let bootstrap = host.context().runtime_snapshot();
         let child = Arc::new(NativeChild {
             entered: Arc::new(Notify::new()),
             release: Arc::new(Notify::new()),
@@ -463,7 +495,7 @@ async fn shutdown_joins_native_composition_after_cancelled_detached_removal() {
         stopping.await.unwrap();
         assert_eq!(child.cleaned.load(Ordering::SeqCst), 1);
         assert_eq!(child.joined.load(Ordering::SeqCst), 1);
-        assert!(host.context().runtime_snapshot().services().is_empty());
+        assert_bootstrap_services(host.context(), &bootstrap);
         assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
         assert!(
             host.context()
