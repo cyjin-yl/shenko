@@ -6,9 +6,12 @@
 //! cargo run -p shenko --example obelisk_acceptance
 //!
 //! The config supplies only the independently installed, source-pinned CLI.
-//! Every provider root is replaced with this test's synthetic corpus. The
-//! baseline gets the same messages through native history.query; the candidate
-//! must discover them through a real history.external.query Obelisk call.
+//! With no argument, every provider root is replaced with the embedded corpus.
+//! --local-scenario <owner input JSON> instead captures the explicitly selected
+//! complete originals once, then gives both arms independent identical copies.
+//! Runs require an explicit private SHENKO_OBELISK_ACCEPTANCE_ROOT in Life.
+//! The baseline retrieves authenticated historical observations with history.query;
+//! the candidate uses the installed history.external.query capability.
 //! No answer or retrieved evidence is inserted into either subject prompt.
 //! This is a bounded production-path smoke comparison, not a statistical
 //! benchmark or an unconstrained local-model capability evaluation. Actual
@@ -42,7 +45,7 @@ use shenko_exec_host::{
 };
 use shenko_kernel::{Supervisor, task::NativeTaskHandler};
 use shenko_node::Node;
-use shenko_store::Store;
+use shenko_store::{SessionEventFilter, Store};
 use shenko_subject::{NativeTaskHandlerPlugin, SubjectLoopState, input_model_caps};
 use shenko_types::{
     ids::EntityId,
@@ -51,12 +54,24 @@ use shenko_types::{
 };
 use std::{
     collections::BTreeSet,
+    ffi::OsString,
     io::Write as _,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
 };
 
+mod obelisk_local_scenario;
+
+#[cfg(test)]
+fn fixture_parent() -> PathBuf {
+    std::env::var_os("SHENKO_OBELISK_LOCAL_SCENARIO_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+}
+use obelisk_local_scenario::{FrozenScenario, SnapshotManifest};
+
+const SYNTHETIC_SOURCE_INSTANCE: &str = "obelisk-acceptance/synthetic-v1";
 const CORPUS: &[u8] = include_bytes!("../tests/fixtures/obelisk_auth_history.json");
 const SCENARIO: &str = "auth_history_candidate_and_implemented_change";
 const MESSAGE: &str = "上次 Hydra auth refresh 并发问题最后改了哪些文件，为什么这么改？请用本次可用的历史检索能力核实，给出可回查的来源，并区分候选方案与已实施的修改。";
@@ -68,6 +83,111 @@ struct Message {
     timestamp: String,
     role: String,
     text: String,
+}
+
+enum SelectedScenario {
+    Synthetic { corpus: Vec<Message>, digest: Digest },
+    Local(Box<FrozenScenario>),
+}
+
+impl SelectedScenario {
+    fn synthetic() -> Result<Self> {
+        Self::synthetic_bytes(CORPUS)
+    }
+
+    fn synthetic_bytes(bytes: &[u8]) -> Result<Self> {
+        let corpus: Vec<Message> = serde_json::from_slice(bytes)?;
+        let digest = Digest::blake3(&serde_json::to_vec(&corpus)?);
+        Ok(Self::Synthetic { corpus, digest })
+    }
+
+    fn local(&self) -> Option<&FrozenScenario> {
+        match self { Self::Local(snapshot) => Some(snapshot), Self::Synthetic { .. } => None }
+    }
+
+    fn scenario(&self) -> &str {
+        self.local().map_or(SCENARIO, |snapshot| &snapshot.manifest().scenario)
+    }
+
+    fn question(&self) -> &str {
+        self.local().map_or(MESSAGE, |snapshot| &snapshot.manifest().question)
+    }
+
+    fn rubric(&self) -> &str {
+        self.local().map_or(RUBRIC, |snapshot| &snapshot.manifest().rubric)
+    }
+
+    fn corpus_digest(&self) -> &Digest {
+        match self {
+            Self::Synthetic { digest, .. } => digest,
+            Self::Local(snapshot) => &snapshot.manifest().corpus_digest,
+        }
+    }
+
+    // Identical in the run and both arm bindings; paths are relative to the run.
+    fn binding(&self) -> Result<Value> {
+        Ok(match self {
+            Self::Synthetic { .. } => json!({"kind":"synthetic", "fixture_file":"fixture.json",
+                "fixture_digest":Digest::blake3(CORPUS), "fixture_bytes":CORPUS.len(),
+                "corpus_digest":self.corpus_digest(),
+                "question_digest":Digest::blake3(self.question().as_bytes()),
+                "rubric_digest":Digest::blake3(self.rubric().as_bytes())}),
+            Self::Local(snapshot) => {
+                let manifest = snapshot.manifest();
+                json!({"kind":"local", "snapshot_file":"local-scenario/snapshot.json",
+                    "snapshot_digest":snapshot.manifest_digest(),
+                    "corpus_digest":manifest.corpus_digest, "source_instance":manifest.source_instance,
+                    "question_digest":manifest.question_digest, "rubric_digest":manifest.rubric_digest,
+                    "selection_digest":manifest.selection_digest, "limits":manifest.limits,
+                    "file_count":manifest.file_count, "total_bytes":manifest.total_bytes,
+                    "coverage":manifest.coverage})
+            }
+        })
+    }
+}
+
+enum Command {
+    Run(Option<PathBuf>),
+    ReportOnly(PathBuf),
+}
+
+fn parse_command(arguments: impl IntoIterator<Item = OsString>) -> Result<Command> {
+    let mut arguments = arguments.into_iter();
+    let Some(flag) = arguments.next() else { return Ok(Command::Run(None)) };
+    ensure!(flag == "--local-scenario" || flag == "--report-only",
+        "expected --local-scenario <owner input JSON> or --report-only <existing run directory>");
+    let path = arguments.next().context("scenario/report flag requires one path")?;
+    ensure!(!path.is_empty() && path != "--local-scenario" && path != "--report-only"
+        && arguments.next().is_none(), "expected exactly one path and one mode");
+    Ok(if flag == "--report-only" { Command::ReportOnly(PathBuf::from(path)) }
+        else { Command::Run(Some(PathBuf::from(path))) })
+}
+
+fn open_retained_scenario(root: &Path, run: &Value) -> Result<SelectedScenario> {
+    let scenario = match run["scenario_kind"].as_str() {
+        Some("local") => {
+            let digest: Digest = serde_json::from_value(run["source_selection"]["snapshot_digest"].clone())
+                .context("local run lacks its original snapshot digest")?;
+            SelectedScenario::Local(Box::new(FrozenScenario::open(&root.join("local-scenario"), &digest)?))
+        }
+        None | Some("synthetic") => {
+            let fixture = std::fs::read(root.join("fixture.json"))?;
+            ensure!(run["fixture_digest"] == json!(Digest::blake3(&fixture))
+                && run["fixture_bytes"].as_u64() == Some(fixture.len() as u64),
+                "retained fixture differs from the original run binding");
+            SelectedScenario::synthetic_bytes(&fixture)?
+        }
+        Some(_) => anyhow::bail!("unsupported retained scenario kind"),
+    };
+    if scenario.local().is_some() || !run["source_selection"].is_null() {
+        ensure!(run["source_selection"] == scenario.binding()?
+            && run["scenario"] == scenario.scenario()
+            && run["corpus_digest"] == json!(scenario.corpus_digest())
+            && run["message_digest"] == json!(Digest::blake3(scenario.question().as_bytes()))
+            && run["rubric_digest"] == json!(Digest::blake3(scenario.rubric().as_bytes())),
+            "retained scenario differs from the original run binding");
+    }
+    Ok(scenario)
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
@@ -182,6 +302,8 @@ struct CliObservation {
     status: ObeliskRunStatus,
     source_instance: String,
     data: Value,
+    #[serde(default)]
+    source_manifests: Vec<shenko_exec_host::obelisk_runtime::ObeliskSourceManifest>,
     process: CliProcess,
 }
 
@@ -231,6 +353,264 @@ struct RawPage {
     offset_unit: String,
 }
 
+fn cli_observation(returned: &Value, expected_source_instance: &str) -> Result<Option<CliObservation>> {
+    let observation = CliResult::deserialize(returned)?.observation.result;
+    let process = &observation.process;
+    if observation.schema_version != 1 || observation.status != ObeliskRunStatus::Succeeded
+        || observation.source_instance != expected_source_instance
+        || !process.started || !process.reaped || !process.readers_joined || !process.readers_drained
+        || process.exit_code != Some(0) || process.termination_requested
+        || process.stdout_truncated || process.stderr_truncated || process.custom_script_host_authority {
+        return Ok(None);
+    }
+    Ok(Some(observation))
+}
+
+fn local_selected<'a>(manifest: &'a SnapshotManifest, source: &Value, digest: &Value)
+    -> Option<&'a obelisk_local_scenario::SelectedFile>
+{
+    manifest.files.iter().find(|file| json!(file.source) == *source && json!(file.digest) == *digest)
+}
+
+// Source facts come only from archive_into/read_record. Retained reconstruction
+// rechecks their selected versions before trusting the original consumption.
+fn local_facts_bound(facts: &[Value], snapshot: &FrozenScenario) -> Result<bool> {
+    let manifest = snapshot.manifest();
+    let originals: Vec<_> = facts.iter().filter(|fact| fact["kind"] == "source").collect();
+    if originals.len() != manifest.files.len()
+        || facts.iter().any(|fact| fact["snapshot_digest"] != json!(snapshot.manifest_digest())) {
+        return Ok(false);
+    }
+    for file in &manifest.files {
+        let matching: Vec<_> = originals.iter().filter(|fact|
+            fact["archive"]["source"] == json!(file.source)
+                && fact["archive"]["raw_ref"]["digest"] == json!(file.digest)).collect();
+        if matching.len() != 1 { return Ok(false) }
+        let archive: shenko_exec_host::external_history::ArchivedSource =
+            shenko_exec_host::external_history::ArchivedSource::deserialize(&matching[0]["archive"])?;
+        if archive.bytes != file.bytes || archive.raw_ref.bytes != file.bytes {
+            return Ok(false);
+        }
+    }
+    for fact in facts.iter().filter(|fact| fact["kind"] != "source") {
+        if fact["kind"] != "record" { return Ok(false) }
+        let record: shenko_exec_host::external_history::ArchivedRecord =
+            shenko_exec_host::external_history::ArchivedRecord::deserialize(&fact["record"])?;
+        let Some(file) = local_selected(manifest, &json!(record.source), &json!(record.source_digest))
+            else { return Ok(false) };
+        if record.byte_start > record.byte_end || record.byte_end > file.bytes
+            || !originals.iter().any(|original| original["archive"]["archive_session_id"] == json!(record.archive_session_id)
+                && original["archive"]["source"] == json!(record.source)
+                && original["archive"]["raw_ref"]["digest"] == json!(record.source_digest)) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn local_source_facts(snapshot: &FrozenScenario, mounted_root: &Path,
+    prepared: &PreparedSandbox, candidate: bool) -> Result<Vec<Value>>
+{
+    use shenko_exec_host::external_history;
+    let mounted_root = mounted_root.canonicalize().context("mounted local snapshot unavailable")?;
+    let store = prepared.store();
+    let agent_id = prepared.agent_id();
+    let (head, _) = store.load_subject(agent_id)?;
+    let mut facts = Vec::new();
+    for archive in snapshot.archive_into(store, agent_id)? {
+        let selected = snapshot.manifest().files.iter().find(|file| file.source == archive.source
+            && file.digest == archive.raw_ref.digest).context("archive not in selected inventory")?;
+        facts.push(json!({"kind":"source", "snapshot_digest":snapshot.manifest_digest(),
+            "archive":archive, "local_path":mounted_root.join("originals")
+                .join(&selected.source.provider).join(&selected.relative_path)}));
+        let mut from_seq = 0;
+        loop {
+            let rows = store.list_session_events(archive.archive_session_id, &SessionEventFilter {
+                from_seq, limit:64, event_types:vec!["external_history_record".into()],
+                ..Default::default()
+            })?;
+            if rows.is_empty() { break; }
+            for row in rows {
+                let record = external_history::read_record(store, agent_id, row.event_id, false)?;
+                let mut fact = json!({"kind":"record", "record":record,
+                    "snapshot_digest":snapshot.manifest_digest()});
+                if !candidate {
+                    let identity = serde_json::to_vec(&("shenko.obelisk.local-baseline/1",
+                        &record.source, &record.source_digest, record.ordinal))?;
+                    let branch = store.append_subject_raw_fact(&head,
+                        EntityId::derived("obelisk-local-baseline-record", &identity),
+                        "external_observation", &json!({"text":record.text, "source":record.source,
+                            "source_digest":record.source_digest, "archive_session_id":record.archive_session_id,
+                            "archived_event_id":record.event_id, "logical_event_id":record.logical_event_id,
+                            "byte_start":record.byte_start, "byte_end":record.byte_end,
+                            "record_blake3_hex":record.record_blake3_hex, "native_fields":record.fields,
+                            "parse_error":record.parse_error, "synthetic":false,
+                            "authority":"historical observation only"}))?;
+                    fact["event_id"] = json!(branch.event_id);
+                    fact["session_id"] = json!(branch.session_id);
+                    fact["seq"] = json!(branch.seq);
+                    fact["event_type"] = json!(branch.event_type);
+                    fact["role"] = json!(branch.role);
+                    fact["data"] = json!(branch.data);
+                }
+                facts.push(fact);
+                from_seq = row.seq.checked_add(1).context("archive sequence overflow")?;
+            }
+        }
+    }
+    ensure!(local_facts_bound(&facts, snapshot)?, "prepared local facts differ from the snapshot");
+    Ok(facts)
+}
+
+fn input_usize(input: &Value, name: &str, default: usize) -> Result<usize> {
+    input.get(name).map_or(Ok(default), |value| {
+        usize::try_from(value.as_u64().context("reader range must be an unsigned integer")?)
+            .context("reader range exceeds platform size")
+    })
+}
+
+fn local_archive_evidence(definition: &NativeTaskDefinition, returned: &Value,
+    facts: &[Value], manifest: &SnapshotManifest) -> Result<Vec<Value>>
+{
+    use shenko_exec_host::external_history::{ArchiveSearch, ArchivedRecord, OriginalPage};
+    use base64::Engine as _;
+    let value = &returned["observation"]["result"];
+    match definition.input["op"].as_str() {
+        Some("search") => {
+            let page = ArchiveSearch::deserialize(value)?;
+            let mut admitted = Vec::new();
+            for hit in page.hits {
+                let source = json!(hit.source);
+                let digest = json!(hit.source_digest);
+                if !has_text(&hit.preview) || local_selected(manifest, &source, &digest).is_none() {
+                    continue;
+                }
+                if facts.iter().filter(|fact| fact["kind"] == "record").any(|fact| {
+                    let record = &fact["record"];
+                    record["event_id"] == json!(hit.event_id)
+                        && record["logical_event_id"] == json!(hit.logical_event_id)
+                        && record["archive_session_id"] == json!(hit.archive_session_id)
+                        && record["source"] == source && record["source_digest"] == digest
+                        && record["ordinal"] == hit.ordinal && record["fields"] == json!(hit.fields)
+                        && record["byte_start"] == hit.byte_start && record["byte_end"] == hit.byte_end
+                        && record["text"].as_str().is_some_and(|text| text.chars()
+                            .skip(hit.preview_start_char).take(hit.preview.chars().count()).eq(hit.preview.chars()))
+                }) && hit.citation == format!("shenko-history://{}/{}?version={}&bytes={}-{}",
+                    hit.archive_session_id, hit.event_id, hit.source_digest, hit.byte_start, hit.byte_end) {
+                    admitted.push(serde_json::to_value(hit)?);
+                }
+            }
+            Ok(admitted)
+        }
+        Some("read") => {
+            let record = ArchivedRecord::deserialize(value)?;
+            let offset = input_usize(&definition.input, "offset_chars", 0)?;
+            let limit = input_usize(&definition.input, "limit_chars", 4096)?;
+            if definition.input["event_id"] != json!(record.event_id) || !has_text(&record.text)
+                || local_selected(manifest, &json!(record.source), &json!(record.source_digest)).is_none() {
+                return Ok(Vec::new());
+            }
+            for fact in facts.iter().filter(|fact| fact["kind"] == "record") {
+                let mut expected: ArchivedRecord = shenko_exec_host::external_history::ArchivedRecord::deserialize(&fact["record"])?;
+                if expected.event_id != record.event_id { continue; }
+                let total = expected.text.chars().count();
+                expected.text = expected.text.chars().skip(offset).take(limit).collect();
+                let count = expected.text.chars().count();
+                if serde_json::to_value(expected)? == serde_json::to_value(&record)?
+                    && value["page"] == json!({"offset_chars":offset, "returned_chars":count,
+                        "total_chars":total, "next_offset_chars":(offset + count < total).then_some(offset + count)}) {
+                    return Ok(vec![value.clone()]);
+                }
+            }
+            Ok(Vec::new())
+        }
+        Some("original") => {
+            let page = OriginalPage::deserialize(value)?;
+            let offset = u64::try_from(input_usize(&definition.input, "offset", 0)?)?;
+            let limit = input_usize(&definition.input, "limit", 16 * 1024)?;
+            let content = base64::engine::general_purpose::STANDARD.decode(&page.content_base64)?;
+            if !page.authenticated || content.is_empty() || page.offset != offset
+                || definition.input["archive_session_id"] != json!(page.archive_session_id)
+                || offset > page.total_bytes { return Ok(Vec::new()); }
+            let count = (page.total_bytes - offset).min(u64::try_from(limit)?);
+            if content.len() as u64 != count || page.next_offset !=
+                (offset + count < page.total_bytes).then_some(offset + count) {
+                return Ok(Vec::new());
+            }
+            for fact in facts.iter().filter(|fact| fact["kind"] == "source") {
+                let archive = &fact["archive"];
+                if archive["archive_session_id"] == json!(page.archive_session_id)
+                    && archive["raw_ref"]["digest"] == json!(page.digest)
+                    && archive["bytes"] == page.total_bytes
+                    && local_selected(manifest, &archive["source"], &json!(page.digest)).is_some() {
+                    return Ok(vec![json!({"source":archive["source"], "source_digest":page.digest,
+                        "byte_start":offset, "byte_end":offset + count, "page":page})]);
+                }
+            }
+            Ok(Vec::new())
+        }
+        // Import, listings and generic artifacts are retained but are not a
+        // source-content read in this comparison.
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn local_message_source<'a>(id: &str, facts: &[Value], manifest: &'a SnapshotManifest,
+    prior: &[&Value]) -> Option<&'a obelisk_local_scenario::SelectedFile>
+{
+    use shenko_exec_host::obelisk_runtime::ObeliskSourceAvailability;
+    for record in prior {
+        if record["authenticated"] != true { continue; }
+        let Ok(definition) = NativeTaskDefinition::deserialize(&record["definition"]) else { continue };
+        let Ok(result) = TaskResult::deserialize(&record["result"]) else { continue };
+        if definition.kind != obelisk::TASK_KIND || definition.definition_version != 1
+            || result.schema_version != 1 || definition.input["op"] != "obelisk"
+            || !matches!(result.outcome, TaskOutcome::Succeeded) {
+            continue;
+        }
+        let Some(returned) = result.result.as_ref() else { continue };
+        match definition.input["request"]["op"].as_str() {
+            Some("search" | "messages") => {
+                let Ok(evidence) = reader_evidence(&definition, &result.outcome,
+                    Some(returned), facts, Some(manifest), &[]) else { continue };
+                for evidence in evidence {
+                    let item = &evidence["evidence"];
+                    if item["uuid"] == id || item["message"]["uuid"] == id {
+                        return local_selected(manifest, &evidence["source"], &evidence["source_digest"]);
+                    }
+                }
+            }
+            Some("manifest") => {
+                let Ok(Some(observation)) = cli_observation(returned, &manifest.source_instance)
+                    else { continue };
+                for native in observation.source_manifests {
+                    if !matches!(native.availability, ObeliskSourceAvailability::Available)
+                        || native.error.is_some() { continue; }
+                    for file in &manifest.files {
+                        let basis = match file.identity_basis {
+                            obelisk_local_scenario::IdentityBasis::NativeSession => "native_session",
+                            obelisk_local_scenario::IdentityBasis::ConfiguredRootRelativePath => "configured_root_relative_path",
+                        };
+                        if native.source_instance == file.source.source_instance
+                            && native.provider.as_str() == file.source.provider
+                            && native.source_key == file.source.source_key && native.session_id == file.source.session_id
+                            && native.identity_basis == basis && native.observed_size == Some(file.bytes)
+                            && facts.iter().any(|fact| fact["kind"] == "source"
+                                && fact["archive"]["source"] == json!(file.source)
+                                && fact["archive"]["raw_ref"]["digest"] == json!(file.digest)
+                                && fact["local_path"] == json!(native.local_path))
+                            && native.records.iter().any(|record| record.id == id) {
+                            return Some(file);
+                        }
+                    }
+                }
+            }
+            _ => {},
+        }
+    }
+    None
+}
+
 fn has_text(text: &str) -> bool { !text.trim().is_empty() }
 
 // This checks returned evidence structure and corpus identity, never answer
@@ -240,6 +620,8 @@ fn reader_evidence(
     outcome: &TaskOutcome,
     returned: Option<&Value>,
     source_facts: &[Value],
+    local: Option<&SnapshotManifest>,
+    prior: &[&Value],
 ) -> Result<Vec<Value>> {
     if !matches!(outcome, TaskOutcome::Succeeded) || definition.definition_version != 1 {
         return Ok(Vec::new());
@@ -269,22 +651,28 @@ fn reader_evidence(
                 }
         }).map(|record| Ok(serde_json::to_value(record)?)).collect();
     }
-    if definition.kind != obelisk::TASK_KIND || definition.input["op"] != "obelisk" {
+    if definition.kind != obelisk::TASK_KIND {
         return Ok(Vec::new());
     }
-    let observation = serde_json::from_value::<CliResult>(returned.clone())?.observation.result;
-    let process = &observation.process;
-    if observation.schema_version != 1 || observation.status != ObeliskRunStatus::Succeeded
-        || observation.source_instance != "obelisk-acceptance/synthetic-v1"
-        || !process.started || !process.reaped || !process.readers_joined || !process.readers_drained
-        || process.exit_code != Some(0) || process.termination_requested
-        || process.stdout_truncated || process.stderr_truncated || process.custom_script_host_authority {
-        return Ok(Vec::new());
+    if definition.input["op"] != "obelisk" {
+        return match local {
+            Some(manifest) => local_archive_evidence(definition, returned, source_facts, manifest),
+            None => Ok(Vec::new()),
+        };
     }
-    let known_session = |id: &str| source_facts.iter().any(|fact| fact["obelisk_session_id"] == id);
+    let Some(observation) = cli_observation(returned,
+        local.map_or(SYNTHETIC_SOURCE_INSTANCE, |manifest| manifest.source_instance.as_str()))?
+        else { return Ok(Vec::new()) };
+    let known_session = |id: &str| match local {
+        Some(manifest) => manifest.files.iter().any(|file|
+            file.source.session_id.as_deref() == Some(id)
+                && id.strip_prefix(file.source.provider.as_str())
+                    .and_then(|suffix| suffix.strip_prefix(':')).is_some_and(has_text)),
+        None => source_facts.iter().any(|fact| fact["obelisk_session_id"] == id),
+    };
     let request = &definition.input["request"];
     let data = observation.data;
-    match request["op"].as_str() {
+    let evidence: Result<Vec<Value>> = match request["op"].as_str() {
         Some("search") if data["mode"] == "fts5" => {
             let hits: Vec<FtsHit> = serde_json::from_value(data["hits"].clone())?;
             hits.into_iter().filter(|hit| known_session(&hit.session.id)
@@ -307,6 +695,8 @@ fn reader_evidence(
         Some("raw_page") => {
             let page: RawPage = serde_json::from_value(data)?;
             Ok(if page.status == "available" && has_text(&page.message_uuid) && has_text(&page.text)
+                && local.is_none_or(|manifest| local_message_source(&page.message_uuid, source_facts,
+                    manifest, prior).is_some())
                 && request["message_uuid"] == page.message_uuid
                 && page.offset as u64 == request["offset_utf16"].as_u64().unwrap_or(0)
                 && page.offset_unit == "utf16_code_units" {
@@ -316,25 +706,39 @@ fn reader_evidence(
         // Directory metadata, arbitrary script output, errors and outlines are
         // retained, but do not attest that historical message text was read.
         _ => Ok(Vec::new()),
-    }
+    };
+    let evidence = evidence?;
+    let Some(manifest) = local else { return Ok(evidence) };
+    // A CLI result is an indexed/native observation over the selected copies;
+    // it is never relabelled as an authenticated full-original record read.
+    Ok(evidence.into_iter().filter_map(|item| {
+        let session = item["session"]["id"].as_str().or_else(|| item["session_id"].as_str());
+        let selected = session.and_then(|session| manifest.files.iter().find(|file|
+            file.source.session_id.as_deref() == Some(session)))
+            .or_else(|| item["message_uuid"].as_str().and_then(|id|
+                local_message_source(id, source_facts, manifest, prior)));
+        selected.map(|file| json!({"source":file.source, "source_digest":file.digest,
+            "source_bytes":file.bytes, "evidence":item, "coverage":"upstream projection; original retained separately"}))
+    }).collect())
 }
 
-fn report_summary(arms: Vec<Value>, cleanup_ok: bool) -> Value {
+fn report_summary(arms: Vec<Value>, cleanup_ok: bool, scenario: &SelectedScenario) -> Result<Value> {
     let complete = arms.len() == 2 && arms.iter().all(|arm| arm["status"] == "scored");
     let passed = complete && cleanup_ok && arms.iter().all(|arm|
         arm["effective"] == true && arm["used_expected_reader"] == true);
-    json!({"schema_version":2,
+    Ok(json!({"schema_version":2,
         "status":if passed { "passed_smoke" } else { "inconclusive_or_failed" },
-        "scenario":SCENARIO, "planned_arms":2, "complete":complete, "cleanup_ok":cleanup_ok,
-        "corpus_digest":Digest::blake3(CORPUS),
+        "scenario":scenario.scenario(), "planned_arms":2, "complete":complete, "cleanup_ok":cleanup_ok,
+        "corpus_digest":scenario.corpus_digest(), "source_selection":scenario.binding()?,
         "evaluation_scope":"one bounded production-path comparison; no efficacy or token-saving claim",
-        "arms":arms})
+        "arms":arms}))
 }
 
 // A retained authentication flag describes the original live observation.
 // Admission also needs this arm's committed consumption and prepared sources;
 // copied receipts and cached evidence summaries cannot supply either binding.
-fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &str) -> Result<bool> {
+fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &str,
+    scenario: &SelectedScenario) -> Result<bool> {
     let binding = &arm["binding"];
     let installation = &arm["installation_binding"];
     let preparation = &arm["preparation"];
@@ -350,7 +754,21 @@ fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &s
         || preparation["source_facts_digest"] != json!(Digest::blake3(&serde_json::to_vec(source_facts)?)) {
         return Ok(false);
     }
-    for record in retrievals {
+    if let Some(snapshot) = scenario.local()
+        && (binding["source_selection"] != scenario.binding()?
+            || preparation["source_selection"] != scenario.binding()?
+            || arm["source_integrity"]["snapshot_digest"] != json!(snapshot.manifest_digest())
+            || arm["source_integrity"]["validated"] != true
+            || arm["source_integrity"]["original_snapshot_validated"] != true
+            || arm["source_integrity"]["mounted_snapshot_validated"] != true
+            || !local_facts_bound(source_facts, snapshot)?) {
+        return Ok(false);
+    }
+    let owned: Vec<_> = retrievals.iter().filter(|record| record["schema_version"] == 1
+        && record["task_kind"] == expected_kind && record["authenticated"] == true
+        && consumed.iter().any(|result| result == &record["result"]))
+        .collect();
+    for record in &owned {
         if record["schema_version"] != 1 || record["task_kind"] != expected_kind
             || record["authenticated"] != true
             || !consumed.iter().any(|result| result == &record["result"]) {
@@ -361,7 +779,8 @@ fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &s
         if definition.kind != expected_kind || result.schema_version != 1 {
             continue;
         }
-        if reader_evidence(&definition, &result.outcome, result.result.as_ref(), source_facts)
+        if reader_evidence(&definition, &result.outcome, result.result.as_ref(), source_facts,
+            scenario.local().map(FrozenScenario::manifest), &owned)
             .is_ok_and(|evidence| !evidence.is_empty()
                 && record["retrieved_evidence"].as_array() == Some(&evidence)) {
             return Ok(true);
@@ -377,10 +796,7 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
         .context("existing run has no readable durable binding")?;
     let run: Value = serde_json::from_slice(&run_bytes)?;
     ensure!(run["schema_version"] == 2, "unsupported retained run schema");
-    let fixture = std::fs::read(root.join("fixture.json"))?;
-    ensure!(run["fixture_digest"] == json!(Digest::blake3(&fixture))
-        && run["fixture_bytes"].as_u64() == Some(fixture.len() as u64),
-        "retained fixture differs from the original run binding");
+    let scenario = open_retained_scenario(root, &run)?;
     let run_digest = Digest::blake3(&run_bytes);
     let mut arms = Vec::new();
     for candidate in [false, true] {
@@ -396,7 +812,8 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
         for (key, file) in [("installation_binding", "installation.json"),
             ("source_facts", "source-facts.json"), ("preparation", "prepared.json"),
             ("starting_context", "starting-context.json"), ("committed_capture", "committed.json"),
-            ("judge_input", "judge-input.json"), ("judgement", "judgement.json")] {
+            ("judge_input", "judge-input.json"), ("judgement", "judgement.json"),
+            ("source_integrity", "source-integrity.json")] {
             arm[key] = read_optional_json(&arm_root.join(file))?.unwrap_or(Value::Null);
         }
         let mut retrievals = Vec::new();
@@ -432,7 +849,9 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
         }
         if let Some(binding) = arm["binding"].as_object() {
             ensure!(binding.get("run_binding_digest") == Some(&json!(run_digest))
-                && binding.get("condition").and_then(Value::as_str) == Some(condition_name(candidate)),
+                && binding.get("condition").and_then(Value::as_str) == Some(condition_name(candidate))
+                && (scenario.local().is_none() || (binding.get("source_selection") == Some(&scenario.binding()?)
+                    && binding.get("budget") == run.get("budget"))),
                 "retained arm belongs to a different run or condition");
         }
         if arm["status"] == "scored" && (arm["binding"].is_null()
@@ -440,22 +859,22 @@ fn reconstruct_report(root: &Path) -> Result<Value> {
             || arm["committed_capture"].is_null() || arm["judgement"].is_null()
             || arm["binding"]["attempt_id"] != arm["attempt_id"]
             || arm["preparation"]["attempt_id"] != arm["attempt_id"]
-            || arm["judgement"]["attempt_id"] != arm["attempt_id"]) {
+            || arm["judgement"]["attempt_id"] != arm["attempt_id"]
+            || (scenario.local().is_some() && arm["source_integrity"]["validated"] != true)) {
             arm["recorded_status"] = arm["status"].clone();
             arm["status"] = json!("incomplete");
         }
         let expected_kind = if candidate { obelisk::TASK_KIND } else { "history.query" };
         arm["recorded_reader_admission"] = arm["used_expected_reader"].clone();
-        let admitted = retained_reader_admitted(&arm, &retrievals, expected_kind)?;
+        let admitted = retained_reader_admitted(&arm, &retrievals, expected_kind, &scenario)?;
         arm["used_expected_reader"] = json!(admitted);
         arm["retained_native_results"] = json!(retrievals);
         arms.push(arm);
     }
     let cleanup = read_optional_json(&root.join("cleanup.json"))?;
-    let mut report = report_summary(arms, cleanup.as_ref().is_some_and(|value| value["cleanup_ok"] == true));
+    let mut report = report_summary(arms, cleanup.as_ref().is_some_and(|value| value["cleanup_ok"] == true), &scenario)?;
     report["run_binding"] = run;
     report["scenario"] = report["run_binding"]["scenario"].clone();
-    report["corpus_digest"] = report["run_binding"]["fixture_digest"].clone();
     report["cleanup"] = cleanup.unwrap_or(Value::Null);
     report["reconstruction"] = json!({"requests_issued":false,"original_reports_replaced":false});
     Ok(report)
@@ -523,16 +942,17 @@ fn write_codex_corpus(root: &Path, corpus: &[Message]) -> Result<Vec<Value>> {
     Ok(facts)
 }
 
-struct Runtime {
+struct Runtime<'a> {
     node: Arc<Mutex<Node>>,
     candidate: bool,
     capabilities: ProviderCapabilities,
     evidence_root: PathBuf,
     source_facts: Vec<Value>,
+    local: Option<&'a SnapshotManifest>,
     retrievals: Mutex<Vec<Value>>,
 }
 
-impl SandboxRuntime for Runtime {
+impl SandboxRuntime for Runtime<'_> {
     async fn install(
         &self,
         supervisor: &Supervisor,
@@ -650,10 +1070,14 @@ impl SandboxRuntime for Runtime {
         let normalized = receipt.normalized_ref.as_ref().map(|reference| read_json(store, reference)).transpose()?;
         ensure!(normalized == result.result, "acceptance native normalized result mismatch");
         let frozen_input = read_json(store, &operation.final_input_ref)?;
-        let (evidence, rejection) = match reader_evidence(definition, &result.outcome,
-            result.result.as_ref(), &self.source_facts) {
-            Ok(evidence) => (evidence, None),
-            Err(error) => (Vec::new(), Some(format!("{error:#}"))),
+        let (evidence, rejection) = {
+            let retained = self.retrievals.lock();
+            let prior: Vec<_> = retained.iter().collect();
+            match reader_evidence(definition, &result.outcome,
+                result.result.as_ref(), &self.source_facts, self.local, &prior) {
+                Ok(evidence) => (evidence, None),
+                Err(error) => (Vec::new(), Some(format!("{error:#}"))),
+            }
         };
         let record = json!({"schema_version":1, "authenticated":true,
             "task_kind":task.kind, "definition":definition, "input_ref":task.input_ref,
@@ -702,7 +1126,7 @@ async fn run_arm(
     root: &Path,
     candidate: bool,
     configuration: &ObeliskConfig,
-    corpus: &[Message],
+    scenario: &SelectedScenario,
     deadline_ms: u64,
     context_tokens: u32,
 ) -> Result<Value> {
@@ -713,21 +1137,22 @@ async fn run_arm(
     let attempt_id = EntityId::new();
     write_json(&evidence_root.join("arm-binding.json"), &json!({
         "schema_version":2, "attempt_id":attempt_id, "condition":name, "trial":0,
-        "run_binding":"../run-binding.json", "scenario":SCENARIO,
+        "run_binding":"../run-binding.json", "scenario":scenario.scenario(),
         "run_binding_digest":Digest::blake3(&std::fs::read(root.join("run-binding.json"))?),
-        "fixture":{"file":"../fixture.json", "digest":Digest::blake3(CORPUS), "bytes":CORPUS.len()},
-        "corpus_digest":Digest::blake3(&serde_json::to_vec(corpus)?),
-        "message_digest":Digest::blake3(MESSAGE.as_bytes()), "rubric_digest":Digest::blake3(RUBRIC.as_bytes()),
+        "source_selection":scenario.binding()?, "corpus_digest":scenario.corpus_digest(),
+        "message_digest":Digest::blake3(scenario.question().as_bytes()),
+        "rubric_digest":Digest::blake3(scenario.rubric().as_bytes()),
         "provider":provider_identity(handle)?,
         "input_configuration_digest":Digest::blake3(&serde_json::to_vec(configuration)?),
         "budget":{"arm_deadline_ms":deadline_ms, "context_tokens":context_tokens,
             "judge_max_output_tokens":8192, "sampling":"unchanged production defaults"},
         "originals":"installation Store/CAS and native-results; no automatic replay",
     }))?;
-    let result = run_bound_arm(handle, &evidence_root, candidate, configuration, corpus,
+    let result = run_bound_arm(handle, &evidence_root, candidate, configuration, scenario,
         ArmBudget { deadline_ms, context_tokens }, attempt_id).await;
     if let Err(error) = &result {
         let failure = json!({"schema_version":2, "condition":name, "attempt_id":attempt_id,
+            "scenario":scenario.scenario(), "source_selection":scenario.binding()?,
             "binding_file":evidence_root.join("arm-binding.json"), "status":"failed",
             "effective":null, "used_expected_reader":null, "error":format!("{error:#}"),
             "cleanup_failed":error.downcast_ref::<shenko_exec_host::SandboxCleanupFailure>().is_some(),
@@ -750,7 +1175,7 @@ async fn run_bound_arm(
     evidence_root: &Path,
     candidate: bool,
     configuration: &ObeliskConfig,
-    corpus: &[Message],
+    scenario: &SelectedScenario,
     budget: ArmBudget,
     attempt_id: EntityId,
 ) -> Result<Value> {
@@ -771,20 +1196,46 @@ async fn run_bound_arm(
         "subject_root_task_id":head.subject_root_task_id, "first_step_id":first_step.step_id,
         "controller_epoch":head.controller_epoch, "software_generation":head.software_generation,
     }))?;
-    let mut source_facts = Vec::new();
+    let mounted_root = installation.join("local-scenario");
+    let mounted = match scenario.local() {
+        Some(snapshot) => match snapshot.mount(&mounted_root) {
+            Ok(mounted) => Some(mounted),
+            Err(error) => {
+                let retained = write_json(&evidence_root.join("source-integrity.json"), &json!({
+                    "snapshot_digest":snapshot.manifest_digest(), "validated":false,
+                    "original_snapshot_validated":false, "mounted_snapshot_validated":false,
+                    "phase":"mount", "error":format!("{error:#}")}));
+                return Err(match retained {
+                    Ok(()) => error,
+                    Err(recording) => error.context(format!("retain mount integrity failure: {recording:#}")),
+                });
+            }
+        },
+        None => None,
+    };
+    let result: Result<Value> = async {
+    let mut source_facts = match &mounted {
+        Some(snapshot) => local_source_facts(snapshot, &mounted_root, &prepared, candidate)?,
+        None => Vec::new(),
+    };
     let mut runtime_configuration_digest = None;
     if candidate {
         let mut config = configuration.clone();
+        if let Some(snapshot) = &mounted {
+            config = snapshot.configuration(configuration, &installation.join("obelisk-index"))?;
+        } else if let SelectedScenario::Synthetic { corpus, .. } = scenario {
         let source_root = installation.join("synthetic-codex");
         source_facts = write_codex_corpus(&source_root, corpus)?;
-        write_json(&evidence_root.join("source-facts.json"), &source_facts)?;
         config.sources = vec![ObeliskSourceRoot {
             provider: ObeliskProvider::Codex,
             root_label: "synthetic-codex".into(),
             path: source_root,
         }];
-        config.source_instance = "obelisk-acceptance/synthetic-v1".into();
+        config.source_instance = SYNTHETIC_SOURCE_INSTANCE.into();
         config.index_home = installation.join("obelisk-index");
+        } else {
+            anyhow::bail!("local candidate has no mounted source snapshot");
+        }
         runtime_configuration_digest = Some(Digest::blake3(&serde_json::to_vec(&config)?));
         let file = installation.join("fixture-config.json");
         write_json(&file, &config)?;
@@ -802,7 +1253,7 @@ async fn run_bound_arm(
             },
         )
         .await?;
-    } else {
+    } else if let SelectedScenario::Synthetic { corpus, .. } = scenario {
         let (head, _) = store.load_subject(prepared.agent_id())?;
         for (index, message) in corpus.iter().enumerate() {
             let mut identity = CORPUS.to_vec();
@@ -820,14 +1271,15 @@ async fn run_bound_arm(
                 "role":fact.role, "data":fact.data,
             }));
         }
-        write_json(&evidence_root.join("source-facts.json"), &source_facts)?;
     }
+    write_json(&evidence_root.join("source-facts.json"), &source_facts)?;
     let node = Arc::new(Mutex::new(Node::open(&installation.join("node"))?));
     let catalog = Arc::new(CognitionCatalog::new(node.clone()));
     let configuration_ref = seal(
         &store,
-        &json!({"scenario":SCENARIO,
-        "corpus_digest":Digest::blake3(CORPUS), "message":MESSAGE, "model":handle.binding().model(),
+        &json!({"scenario":scenario.scenario(), "source_selection":scenario.binding()?,
+        "corpus_digest":scenario.corpus_digest(), "message":scenario.question(),
+        "rubric_digest":Digest::blake3(scenario.rubric().as_bytes()), "model":handle.binding().model(),
         "provider":provider_identity(handle)?, "attempt_id":attempt_id,
         "runtime_configuration_digest":runtime_configuration_digest,
         "deadline_ms":deadline_ms, "evaluation_scope":"bounded_production_smoke",
@@ -846,13 +1298,14 @@ async fn run_bound_arm(
         "attempt_id":attempt_id, "configuration_ref":configuration_ref,
         "installation_ref":installation_ref, "runtime_configuration_digest":runtime_configuration_digest,
         "source_facts_digest":Digest::blake3(&serde_json::to_vec(&source_facts)?),
-        "source_facts_file":"source-facts.json", "inference_started":false,
+        "source_facts_file":"source-facts.json", "source_selection":scenario.binding()?,
+        "inference_started":false,
     }))?;
     let stop = tokio::time::Instant::now() + Duration::from_millis(deadline_ms);
     let began = std::time::Instant::now();
     let runtime = Runtime {
         node, candidate, evidence_root:evidence_root.to_path_buf(), source_facts,
-        retrievals:Mutex::new(Vec::new()),
+        local:mounted.as_ref().map(FrozenScenario::manifest), retrievals:Mutex::new(Vec::new()),
         capabilities:ProviderCapabilities {
             binding:handle.binding().clone(), max_context_tokens:Some(context_tokens), vision:None,
         },
@@ -861,7 +1314,7 @@ async fn run_bound_arm(
         prepared,
         handle,
         catalog,
-        MESSAGE,
+        scenario.question(),
         stop,
         &runtime,
     )
@@ -876,10 +1329,11 @@ async fn run_bound_arm(
         && record["retrieved_evidence"].as_array().is_some_and(|evidence| !evidence.is_empty()));
     let facts_ref = seal(
         &store,
-        &json!({"schema_version":1, "corpus":corpus,
-        "corpus_digest":Digest::blake3(CORPUS), "source_facts":runtime.source_facts,
-        "retrievals":retrievals, "synthetic":true,
-        "claim_scope":"historical statements in a controlled fixture, not independent verification of code changes"}),
+        &json!({"schema_version":1, "scenario":scenario.scenario(), "source_selection":scenario.binding()?,
+        "corpus":match scenario { SelectedScenario::Synthetic { corpus, .. } => Some(corpus), _ => None },
+        "corpus_digest":scenario.corpus_digest(), "source_facts":runtime.source_facts,
+        "retrievals":retrievals, "synthetic":scenario.local().is_none(),
+        "claim_scope":"historical source statements with original-byte references; no independent rerun of their claims"}),
         "observed-facts",
     )?;
     let sample_ref = seal(&store, &execution.committed, "committed-output")?;
@@ -895,8 +1349,8 @@ async fn run_bound_arm(
         store.clone(),
         handle,
         SandboxJudgement {
-            rubric: RUBRIC,
-            message: MESSAGE,
+            rubric: scenario.rubric(),
+            message: scenario.question(),
             output: &execution.committed.output,
             facts_ref: &facts_ref,
         },
@@ -904,7 +1358,7 @@ async fn run_bound_arm(
             configuration_ref: &configuration_ref,
             installation_ref: &installation_ref,
             sample_digest: &sample_digest,
-            scenario: SCENARIO,
+            scenario: scenario.scenario(),
             condition: if candidate {
                 Condition::Candidate
             } else {
@@ -927,6 +1381,7 @@ async fn run_bound_arm(
         "facts_ref":facts_ref,
     }))?;
     let report = json!({"condition":name, "installation":installation, "attempt_id":attempt_id,
+        "scenario":scenario.scenario(), "source_selection":scenario.binding()?,
         "binding_file":evidence_root.join("arm-binding.json"),
         "status":if effective.is_some() { "scored" } else { "failed" },
         "effective":effective, "used_expected_reader":used_expected_reader,
@@ -935,33 +1390,67 @@ async fn run_bound_arm(
         "installation_ref":installation_ref, "facts_ref":facts_ref, "sample_ref":sample_ref,
         "judge_receipt":judge_receipt, "judge_text":judge_text, "judge_error":judge_error,
         "committed":execution.committed});
+    Ok(report)
+    }.await;
+    let result = if let Some(snapshot) = &mounted {
+        let original = scenario.local().context("mounted local scenario lost its original binding")?;
+        let original_error = original.validate().err().map(|error| format!("{error:#}"));
+        let mounted_error = snapshot.validate().err().map(|error| format!("{error:#}"));
+        let integrity = json!({"snapshot_digest":original.manifest_digest(),
+            "original_snapshot_validated":original_error.is_none(),
+            "mounted_snapshot_validated":mounted_error.is_none(),
+            "validated":original_error.is_none() && mounted_error.is_none(),
+            "original_error":original_error, "mounted_error":mounted_error});
+        let retained = write_json(&evidence_root.join("source-integrity.json"), &integrity);
+        let result = match result {
+            Ok(mut report) if integrity["validated"] == true => {
+                report["source_integrity"] = integrity.clone();
+                Ok(report)
+            }
+            Ok(_) => Err(anyhow::anyhow!("local source integrity failed: {integrity}")),
+            Err(error) if integrity["validated"] != true =>
+                Err(error.context(format!("local source integrity also failed: {integrity}"))),
+            Err(error) => Err(error),
+        };
+        match retained {
+            Ok(()) => result,
+            Err(recording) => match result {
+                Ok(_) => Err(recording),
+                Err(error) => Err(error.context(format!("retaining source integrity also failed: {recording:#}"))),
+            },
+        }
+    } else { result };
+    let report = result?;
     write_json(&evidence_root.join("acceptance.json"), &report)?;
     Ok(report)
 }
 
 fn main() -> Result<()> {
-    let mut arguments = std::env::args_os().skip(1);
-    if let Some(flag) = arguments.next() {
-        ensure!(flag == "--report-only", "expected --report-only <existing run directory>");
-        let root = PathBuf::from(arguments.next().context("report-only requires an existing run directory")?);
-        ensure!(arguments.next().is_none(), "unexpected report-only argument");
-        println!("{}", serde_json::to_string_pretty(&reconstruct_report(&root)?)?);
-        return Ok(());
-    }
+    let local_input = match parse_command(std::env::args_os().skip(1))? {
+        Command::ReportOnly(root) => {
+            println!("{}", serde_json::to_string_pretty(&reconstruct_report(&root)?)?);
+            return Ok(());
+        }
+        Command::Run(input) => input,
+    };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?
-        .block_on(run())
+        .block_on(run(local_input))
 }
 
-async fn run() -> Result<()> {
+async fn run(local_input: Option<PathBuf>) -> Result<()> {
     let run_id = EntityId::new();
-    let root = std::env::var_os("SHENKO_OBELISK_ACCEPTANCE_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../build/obelisk-acceptance")
-        })
-        .join(format!("run-{run_id}"));
+    let selected_root = PathBuf::from(std::env::var_os("SHENKO_OBELISK_ACCEPTANCE_ROOT")
+        .filter(|value| !value.is_empty())
+        .context("select a private Life evidence parent with SHENKO_OBELISK_ACCEPTANCE_ROOT")?);
+    ensure!(selected_root.is_absolute(), "SHENKO_OBELISK_ACCEPTANCE_ROOT must be absolute");
+    let root = selected_root.join(format!("run-{run_id}"));
+    let requested = if local_input.is_some() {
+        json!({"kind":"local", "scenario":null, "corpus_digest":null, "capture_complete":false})
+    } else {
+        json!({"kind":"synthetic", "scenario":SCENARIO, "corpus_digest":Digest::blake3(CORPUS)})
+    };
     create_evidence_dir(&root)?;
     #[cfg(unix)]
     {
@@ -982,16 +1471,15 @@ async fn run() -> Result<()> {
         write_json(
             &root.join("report.json"),
             &json!({"schema_version":1,
-            "status":"blocked_external", "complete":false, "scenario":SCENARIO,
-            "reason":"explicit real local model and CLI configuration are required",
-            "missing":missing, "corpus_digest":Digest::blake3(CORPUS), "scored":0}),
+            "status":"blocked_external", "complete":false, "scenario":requested["scenario"],
+            "requested_scenario":requested, "reason":"explicit real local model and CLI configuration are required",
+            "missing":missing, "corpus_digest":requested["corpus_digest"], "scored":0}),
         )?;
         anyhow::bail!(
             "blocked_external: set SHENKO_USE_LOCAL_MODEL=1 and {required:?}; report {}",
             root.display()
         );
     }
-    let corpus: Vec<Message> = serde_json::from_slice(CORPUS)?;
     let configuration_path =
         PathBuf::from(std::env::var_os("SHENKO_OBELISK_CONFIG").context("config path")?);
     let installation_proof = obelisk::load_config(&configuration_path).and_then(|config| {
@@ -1007,8 +1495,8 @@ async fn run() -> Result<()> {
             write_json(
                 &root.join("report.json"),
                 &json!({"schema_version":1,
-                "status":"blocked_external", "complete":false, "scenario":SCENARIO,
-                "reason":"the independently installed CLI failed its preflight",
+                "status":"blocked_external", "complete":false, "scenario":requested["scenario"],
+                "requested_scenario":requested, "reason":"the independently installed CLI failed its preflight",
                 "error":format!("{error:#}"), "scored":0}),
             )?;
             return Err(error.context("blocked_external: no model request was started"));
@@ -1030,13 +1518,33 @@ async fn run() -> Result<()> {
         context_tokens > 8192,
         "deployment context must exceed the judge output reservation"
     );
+    let scenario = match local_input {
+        Some(input) => match FrozenScenario::capture(&input, &root.join("local-scenario")) {
+            Ok(snapshot) => SelectedScenario::Local(Box::new(snapshot)),
+            Err(error) => {
+                let retained = write_json(&root.join("report.json"), &json!({"schema_version":2,
+                    "status":"failed_preparation", "complete":false, "requested_scenario":requested,
+                    "inference_started":false, "error":format!("{error:#}"), "replay_permitted":false}));
+                return Err(match retained {
+                    Ok(()) => error,
+                    Err(recording) => error.context(format!("retain local preparation failure: {recording:#}")),
+                });
+            }
+        },
+        None => SelectedScenario::synthetic()?,
+    };
     let (broker, handle) = Broker::new()?;
-    write_bytes(&root.join("fixture.json"), CORPUS)?;
-    let run_binding = json!({"schema_version":2, "run_id":run_id, "scenario":SCENARIO,
+    if matches!(&scenario, SelectedScenario::Synthetic { .. }) {
+        write_bytes(&root.join("fixture.json"), CORPUS)?;
+    }
+    let mut run_binding = json!({"schema_version":2, "run_id":run_id, "scenario":scenario.scenario(),
+        "scenario_kind":if scenario.local().is_some() { "local" } else { "synthetic" },
         "planned_conditions":["baseline","candidate"], "trial":0,
-        "fixture_digest":Digest::blake3(CORPUS), "fixture_bytes":CORPUS.len(),
-        "corpus_digest":Digest::blake3(&serde_json::to_vec(&corpus)?),
+        "source_selection":scenario.binding()?, "corpus_digest":scenario.corpus_digest(),
+        "message_digest":Digest::blake3(scenario.question().as_bytes()),
+        "rubric_digest":Digest::blake3(scenario.rubric().as_bytes()),
         "runner_source_digest":Digest::blake3(include_bytes!("obelisk_acceptance.rs")),
+        "scenario_module_source_digest":Digest::blake3(include_bytes!("obelisk_local_scenario/mod.rs")),
         "executable_digest":shenko_kernel::native_artifact::native_artifact_digest()?,
         "provider":provider_identity(&handle)?,
         "input_configuration_digest":Digest::blake3(&serde_json::to_vec(&configuration)?),
@@ -1044,6 +1552,10 @@ async fn run() -> Result<()> {
             "judge_max_output_tokens":8192,"sampling":"unchanged production defaults"},
         "inference_started":false,
     });
+    if scenario.local().is_none() {
+        run_binding["fixture_digest"] = json!(Digest::blake3(CORPUS));
+        run_binding["fixture_bytes"] = json!(CORPUS.len());
+    }
     write_json(&root.join("run-binding.json"), &run_binding)?;
     let broker_task = tokio::spawn(broker.run());
     let mut arms = Vec::new();
@@ -1053,7 +1565,7 @@ async fn run() -> Result<()> {
             &root,
             candidate,
             &configuration,
-            &corpus,
+            &scenario,
             deadline_ms,
             context_tokens,
         )
@@ -1066,6 +1578,7 @@ async fn run() -> Result<()> {
                     .is_some();
                 let evidence_root = root.join(condition_name(candidate));
                 arms.push(json!({"condition":condition_name(candidate),
+                    "scenario":scenario.scenario(), "source_selection":scenario.binding()?,
                     "status":"failed", "error":format!("{error:#}"), "cleanup_failed":cleanup_failed,
                     "effective":null, "used_expected_reader":null,
                     "binding_file":evidence_root.join("arm-binding.json"),
@@ -1095,7 +1608,7 @@ async fn run() -> Result<()> {
     let cleanup = json!({"cleanup_ok":cleanup_ok,
         "shutdown_artifact_error":shutdown_artifact.err().map(|error| format!("{error:#}"))});
     write_json(&root.join("cleanup.json"), &cleanup)?;
-    let mut report = report_summary(arms, cleanup_ok);
+    let mut report = report_summary(arms, cleanup_ok, &scenario)?;
     report["run_binding"] = run_binding;
     report["cleanup"] = cleanup;
     let passed = report["status"] == "passed_smoke";
@@ -1115,6 +1628,36 @@ async fn run() -> Result<()> {
 mod tests {
     use super::*;
 
+    pub(super) fn retained_result(returned: Value) -> Result<TaskResult> {
+        use shenko_types::{commit::CommitRef, ids::{LedgerSeq, RecordRevision, TaskRevision}, object::SchemaRef};
+        let result_bytes = serde_json::to_vec(&returned)?;
+        Ok(TaskResult {
+            schema_version:1, result_id:EntityId::new(), task_id:EntityId::new(),
+            task_revision:TaskRevision(1), task_record_revision:RecordRevision(1),
+            invocation_id:EntityId::new(), operation_id:EntityId::new(), receipt_id:EntityId::new(),
+            outcome:TaskOutcome::Succeeded, result:Some(returned),
+            evidence_ref:ObjectRef {
+                digest:Digest::blake3(&result_bytes), bytes:result_bytes.len() as u64,
+                media_type:"application/json".into(), store_namespace:"obelisk-acceptance".into(),
+                locator:"retained-native-result".into(), codec:SchemaRef {
+                    name:"retained-native-result".into(), major:1,
+                    digest:Digest::blake3(b"retained-native-result/v1"),
+                },
+            },
+            commit_ref:CommitRef::new(EntityId::new(), LedgerSeq(1)),
+        })
+    }
+
+    pub(super) fn cli_result(source_instance: &str, data: Value) -> Value {
+        json!({"observation":{"result":{
+            "schema_version":1,"status":"succeeded","source_instance":source_instance,
+            "process":{"started":true,"reaped":true,"readers_joined":true,"readers_drained":true,
+                "exit_code":0,"termination_requested":false,"stdout_truncated":false,
+                "stderr_truncated":false,"custom_script_host_authority":false},
+            "data":data,
+        }}})
+    }
+
     #[test]
     fn native_history_admission_requires_successful_nonempty_corpus_evidence() -> Result<()> {
         let event_id = EntityId::new();
@@ -1128,14 +1671,14 @@ mod tests {
             "data_preview":"arbitrary retained source text"});
         let mut returned = json!({"schema_version":1,"status":"ok","op":"search","events":[record]});
         assert!(reader_evidence(&definition, &TaskOutcome::Failed { reason:"original failure".into() },
-            Some(&returned), &facts)?.is_empty());
-        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.len(), 1);
+            Some(&returned), &facts, None, &[])?.is_empty());
+        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.len(), 1);
         returned["events"] = json!([]);
-        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.is_empty());
+        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.is_empty());
         let report = report_summary(vec![
             json!({"status":"scored","effective":true,"used_expected_reader":false}),
             json!({"status":"scored","effective":true,"used_expected_reader":true}),
-        ], true);
+        ], true, &SelectedScenario::synthetic()?)?;
         assert_eq!(report["status"], "inconclusive_or_failed");
         assert_eq!(report["arms"][0]["effective"], true, "reader admission must not rewrite the judge score");
         definition.input = json!({"op":"read","event_id":event_id});
@@ -1144,7 +1687,7 @@ mod tests {
             "event_ref":format!("session:{session_id}/event:{event_id}/seq:3"),
             "data":serde_json::to_string(&json!({"text":"arbitrary retained source text"}))?,
         }});
-        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.len(), 1);
+        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.len(), 1);
         Ok(())
     }
 
@@ -1156,22 +1699,17 @@ mod tests {
             kind:obelisk::TASK_KIND.into(), definition_version:1,
             input:json!({"op":"obelisk","request":{"op":"search","query":"arbitrary"}}),
         };
-        let mut returned = json!({"observation":{"result":{
-            "schema_version":1,"status":"succeeded","source_instance":"obelisk-acceptance/synthetic-v1",
-            "process":{"started":true,"reaped":true,"readers_joined":true,"readers_drained":true,
-                "exit_code":0,"termination_requested":false,"stdout_truncated":false,
-                "stderr_truncated":false,"custom_script_host_authority":false},
-            "data":{"mode":"fts5","hits":[{"message":{"uuid":"source-message","text":"arbitrary source text"},
-                "session":{"id":session}}]},
-        }}});
-        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.len(), 1);
+        let mut returned = cli_result(SYNTHETIC_SOURCE_INSTANCE,
+            json!({"mode":"fts5","hits":[{"message":{"uuid":"source-message","text":"arbitrary source text"},
+                "session":{"id":session}}]}));
+        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.len(), 1);
         returned["observation"]["result"]["data"] = json!({"mode":"fts5","hits":[]});
-        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.is_empty());
+        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.is_empty());
         returned["observation"]["result"]["data"] = json!({"mode":"literal_index_fallback","hits":[{
             "uuid":"source-message","session_id":session,"text":"arbitrary source text"}]});
-        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.len(), 1);
+        assert_eq!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.len(), 1);
         returned["observation"]["result"]["status"] = json!("failed");
-        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts)?.is_empty());
+        assert!(reader_evidence(&definition, &TaskOutcome::Succeeded, Some(&returned), &facts, None, &[])?.is_empty());
         Ok(())
     }
 
@@ -1182,15 +1720,10 @@ mod tests {
 
     #[test]
     fn interrupted_arm_reconstructs_original_identity_without_replay_or_replacement() -> Result<()> {
-        use shenko_types::{
-            commit::CommitRef,
-            evidence::{DecodeStatus, EvidenceReceipt},
-            ids::{LedgerSeq, RecordRevision, TaskRevision},
-            object::SchemaRef,
-        };
+        use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 
-        let root = EvidenceRoot(Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../build").join(format!("obelisk-offline-report-{}", EntityId::new())));
+        let root = EvidenceRoot(fixture_parent()
+            .join(format!("obelisk-offline-report-{}", EntityId::new())));
         std::fs::create_dir_all(root.0.join("baseline/native-results"))?;
         let attempt_id = EntityId::new();
         let binding = json!({"schema_version":2,"run_id":EntityId::new(),"scenario":SCENARIO,
@@ -1220,22 +1753,7 @@ mod tests {
             "event_ref":format!("session:{session_id}/event:{event_id}/seq:3"),
             "data_preview":"arbitrary retained source text",
         }]});
-        let result_bytes = serde_json::to_vec(&returned)?;
-        let result = TaskResult {
-            schema_version:1, result_id:EntityId::new(), task_id:EntityId::new(),
-            task_revision:TaskRevision(1), task_record_revision:RecordRevision(1),
-            invocation_id:EntityId::new(), operation_id:EntityId::new(), receipt_id:EntityId::new(),
-            outcome:TaskOutcome::Succeeded, result:Some(returned),
-            evidence_ref:ObjectRef {
-                digest:Digest::blake3(&result_bytes), bytes:result_bytes.len() as u64,
-                media_type:"application/json".into(), store_namespace:"obelisk-acceptance".into(),
-                locator:"retained-native-result".into(), codec:SchemaRef {
-                    name:"retained-native-result".into(), major:1,
-                    digest:Digest::blake3(b"retained-native-result/v1"),
-                },
-            },
-            commit_ref:CommitRef::new(EntityId::new(), LedgerSeq(1)),
-        };
+        let result = retained_result(returned)?;
         let native_attempt_id = EntityId::new();
         let receipt = EvidenceReceipt {
             record_schema_version:1, receipt_id:result.receipt_id,
@@ -1250,7 +1768,7 @@ mod tests {
             "task_kind":definition.kind,"definition":definition,"result":result,
             "attempt_id":native_attempt_id,"receipt":receipt,"evidence_rejection":null,
             "retrieved_evidence":reader_evidence(&definition, &result.outcome,
-                result.result.as_ref(), &source_facts)?});
+                result.result.as_ref(), &source_facts, None, &[])?});
         let mut foreign = record.clone();
         for key in ["result_id", "task_id", "invocation_id", "operation_id", "receipt_id"] {
             foreign["result"][key] = json!(EntityId::new());
@@ -1299,13 +1817,13 @@ mod tests {
         let records = admitted["arms"][0]["retained_native_results"].as_array().unwrap();
         let mut unbound = admitted["arms"][0].clone();
         unbound["committed_capture"]["installation"] = json!("a different installation");
-        assert!(!retained_reader_admitted(&unbound, records, "history.query")?);
+        assert!(!retained_reader_admitted(&unbound, records, "history.query", &SelectedScenario::synthetic()?)?);
         unbound = admitted["arms"][0].clone();
         unbound["source_facts"][0]["session_id"] = json!(EntityId::new());
-        assert!(!retained_reader_admitted(&unbound, records, "history.query")?);
+        assert!(!retained_reader_admitted(&unbound, records, "history.query", &SelectedScenario::synthetic()?)?);
         unbound["preparation"]["source_facts_digest"] =
             json!(Digest::blake3(&serde_json::to_vec(&unbound["source_facts"])?));
-        assert!(!retained_reader_admitted(&unbound, records, "history.query")?,
+        assert!(!retained_reader_admitted(&unbound, records, "history.query", &SelectedScenario::synthetic()?)?,
             "a nonempty copied summary must still pass the original reader's source checks");
         assert!(write_json(&arm_root.join("failure.json"), &json!({"replacement":true})).is_err());
         assert_eq!(std::fs::read(arm_root.join("failure.json"))?, original);
