@@ -17,6 +17,7 @@ pub mod evidence;
 pub mod native_evidence;
 pub mod identity;
 pub mod ids;
+pub mod generation;
 pub mod inbox;
 pub mod media;
 pub mod object;

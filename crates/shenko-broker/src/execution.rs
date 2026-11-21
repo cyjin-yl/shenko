@@ -719,6 +719,7 @@ mod tests {
                     engine_incarnation: None,
                     default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
                     serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+                    process_generation: None,
                 });
             &PROFILE
         }

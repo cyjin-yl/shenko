@@ -1146,7 +1146,7 @@ impl ChannelOrigin {
         let origin = match binding {
             ProviderBinding::Local { base_url, .. }
             | ProviderBinding::Anthropic { base_url, .. } => base_url.clone(),
-            ProviderBinding::Profile { profile } => profile.endpoint_origin.clone(),
+            ProviderBinding::Profile { profile, .. } => profile.endpoint_origin.clone(),
             ProviderBinding::Stub { .. } => {
                 bail!(
                     "the broker binding is the offline stub; a channel distinctness observation needs a live wire"

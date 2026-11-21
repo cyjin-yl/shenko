@@ -541,6 +541,7 @@ fn local_profile(
         engine_incarnation: None,
         default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
         serializer_revision: SERIALIZER_REVISION,
+        process_generation: None,
     }
 }
 
