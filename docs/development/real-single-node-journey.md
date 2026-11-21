@@ -43,7 +43,7 @@ or claim a complete software handoff.
 
 ## Run
 
-Use Python with `websockets==16.0`, an actual model endpoint, and a CLI built from
+Use Python 3.11+ with `websockets==16.0`, an actual model endpoint, and a CLI built from
 the revision named in the command. Preserve the model checkpoint/quantization,
 runtime identity, context size, and sampling parameters with the run's evidence.
 
@@ -79,9 +79,24 @@ success-rate denominator; binary or model-card drift stops the batch and
 leaves the remaining runs explicitly unattempted. Model-card equality is an
 observed serving identity, not proof that weight bytes did not change; record
 the checkpoint/template/runtime identity separately for a deployment claim.
+Only response-generation metadata (`permission` and `created`) is excluded
+from that comparison: an unchanged vLLM process can regenerate both fields.
+The selected card's other fields, including model ID, root, owner and served
+context capacity, remain bound. Each attempt retains the raw `/v1/models`
+response in `models.json`, and the batch report names the excluded fields.
 
-Recovery now also compares the real original child operation/attempt sets and
-the complete stored result/receipt rows. This recall-only second input must not
+The fresh installation must contain exactly one `model.child` and one
+`host.printf` task. The completed child's recorded model, local endpoint and
+every transcript step's provider binding must match the requested deployment.
+The native task must have exactly one operation, attempt and original
+postcondition-verified receipt bound to its result. Extra failed or unstarted
+tasks/attempts still fail this strict journey; their complete records remain
+available for diagnosing refusal, retries and unknown effects.
+
+Recovery compares the original child operation/attempt rows and complete stored
+result/receipt rows from the first successful answer through the paused boundary
+and final shutdown snapshot. New tasks, operations, attempts or receipts cannot
+be incorporated into a later baseline. This recall-only second input must not
 create another model or `host.printf` child. Retaining the old result or returning
 the same WebSocket receipt alone cannot prove that execution was not repeated.
 The driver records its own SHA-256, phase deadline and elapsed wall time.
@@ -89,6 +104,15 @@ The driver records its own SHA-256, phase deadline and elapsed wall time.
 are diagnostic observations, not successful effect receipts or model-quality
 evidence. All existing child, output, pause, browser and clean-exit assertions
 remain required.
+
+With `--browser`, the actual composer chooses the mode according to the current
+socket's preceding `hello` capabilities, following the already merged one-send
+UI (`a0f008a7c262209f1b6ce6333aa5d00f8421c8a1`). The witness checks that `append`
+and durable receipts are available, and requires `steer` exactly when advertised.
+It preserves the actual submitted mode and checks the same socket's accepted
+receipt: durable acceptance, matching requested mode, and `next_boundary`
+placement at this journey's clean pause. It does not change the composer or
+force a mode, and does not claim an active-generation steering/replay test.
 
 `python3 -I scripts/real_single_node_journey_test.py` checks only the driver's
 reexecution detection and failed-attempt accounting with synthetic records.
@@ -580,6 +604,14 @@ shutdown check. An incomplete or unverified cleanup stops a repeated batch befor
 another installation is launched. Log-close/cleanup errors remain failures while
 the other final evidence is collected; an unwritable summary is also printed in
 full to the caller's captured stdout.
+
+Cancellation, KeyboardInterrupt and SystemExit are retained as failed-attempt
+facts and propagated after runtime cleanup and final evidence retention.
+Browser cleanup allows 15 seconds for its final capture and 10 seconds each for
+context, browser and driver shutdown. A timeout or interruption remains an
+explicit failed/unknown cleanup observation; the remaining owners and owned
+runtime are still closed. A browser error cannot skip the runtime shutdown,
+final ledger, CAS copy or attempt summary.
 
 One driver regression exercises an actual parent exiting zero with a child that
 ignores SIGTERM. The child is removed by the bounded SIGKILL fallback, the parent

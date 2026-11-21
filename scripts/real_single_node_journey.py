@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run an explicit, bounded real-model single-node journey.
 
-Requires an actual OpenAI-compatible model service and Python websockets 16.
+Requires an actual OpenAI-compatible model service, Python 3.11+ and websockets 16.
 Starts the real Shenko CLI, submits over its public WebSocket, inspects durable
 child/E1/decision facts read-only, restarts the same installation, replays the
 same input identity, and asks the model to continue from its prior context.
@@ -121,8 +121,10 @@ def contains_expected_product(text):
     return isinstance(text, str) and re.search(r"(?<!\d)437(?!\d)", text) is not None
 
 
-def evaluate_first(facts, marker):
+def evaluate_first(facts, marker, expected_model, expected_url):
     tasks = {row["task_id"]: row["data"] for row in facts.get("tasks", [])}
+    model_tasks = {key for key, task in tasks.items() if task.get("kind") == "model.child"}
+    native_tasks = {key for key, task in tasks.items() if task.get("kind") == "host.printf"}
     results = [row["data"] for row in facts.get("task_results", [])]
     model = [row for row in results if tasks.get(row["task_id"], {}).get("kind") == "model.child"
              and outcome_succeeded(row) and row.get("result", {}).get("termination") == "completed"
@@ -131,6 +133,37 @@ def evaluate_first(facts, marker):
               and outcome_succeeded(row) and row.get("result", {}).get("stdout_utf8") == marker
               and row.get("result", {}).get("exact_postcondition") is True]
     required = model[:1] + native[:1]
+    # This is one bounded task on a fresh installation, not a best-of sample.
+    # Failed or unstarted extra children remain in the ledger and fail this
+    # strict journey too; they are never erased by selecting one later success.
+    native_operations = [row for row in facts.get("operations", [])
+                         if row["data"].get("task_id") in native_tasks]
+    native_operation_ids = {row["operation_id"] for row in native_operations}
+    native_attempts = [row for row in facts.get("attempts", [])
+                       if row["operation_id"] in native_operation_ids]
+    native_receipts = [row for row in facts.get("evidence_receipts", [])
+                       if row.get("operation_id") in native_operation_ids]
+
+    def bound_model(result):
+        binding = result.get("provider_binding", {})
+        transcript = result.get("transcript", [])
+        return (result.get("model") == expected_model and binding.get("kind") == "local"
+            and binding.get("model") == expected_model and binding.get("base_url") == expected_url
+            and bool(transcript) and all(step.get("provider_binding") == binding for step in transcript))
+
+    native_once = (len(native_tasks) == len(native) == len(native_operations)
+        == len(native_attempts) == len(native_receipts) == 1)
+    if native_once:
+        operation, attempt, receipt = native_operations[0], native_attempts[0], native_receipts[0]
+        native_once = (native[0]["operation_id"] == operation["operation_id"]
+            and operation["data"].get("operation_name") == "host.printf.v1"
+            and operation["data"].get("outcome") == "succeeded"
+            and not operation["data"].get("outcome_conflict")
+            and not operation["data"].get("possible_duplicate_of")
+            and receipt["data"].get("attempt_id") == attempt["attempt_id"]
+            and attempt["data"].get("final_receipt_id") == receipt["receipt_id"]
+            and receipt["data"].get("source_id") == "host.printf.v1"
+            and receipt["data"].get("observation_level") == "postcondition_verified")
     operation_ids = {row["operation_id"] for row in required}
     attempts = {row["operation_id"] for row in facts.get("attempts", [])}
     evidence = {row.get("operation_id") for row in facts.get("evidence_receipts", [])}
@@ -140,8 +173,11 @@ def evaluate_first(facts, marker):
                and marker in row["decision"]["output"]["text"]
                and contains_expected_product(row["decision"]["output"]["text"])]
     checks = {
+        "one_child_of_each_requested_kind": len(model_tasks) == len(native_tasks) == 1,
         "finite_model_child_succeeded": bool(model),
+        "child_model_matches_requested_binding": len(model) == 1 and bound_model(model[0].get("result", {})),
         "native_host_process_exact_result": bool(native),
+        "native_effect_observed_once": native_once,
         "both_children_have_attempt_and_e1": len(required) == 2 and operation_ids <= attempts & evidence,
         "committed_output_after_child_results": bool(outputs),
     }
@@ -163,9 +199,9 @@ def evaluate_recovery(before, after):
                    if row["data"].get("kind") in kinds}
 
     def effects(facts):
-        operations = {row["operation_id"] for row in facts.get("operations", [])
+        operations = {row["operation_id"]: row for row in facts.get("operations", [])
                       if row["data"].get("task_id") in original_tasks}
-        attempts = {row["attempt_id"] for row in facts.get("attempts", [])
+        attempts = {row["attempt_id"]: row for row in facts.get("attempts", [])
                     if row["operation_id"] in operations}
         return operations, attempts
 
@@ -177,14 +213,14 @@ def evaluate_recovery(before, after):
     later_operations, later_attempts = effects(after)
     original_receipts = {row["receipt_id"]: row for row in before.get("evidence_receipts", [])
                          if row.get("operation_id") in original_operations}
-    later_receipts = {row["receipt_id"]: row for row in after.get("evidence_receipts", [])}
+    later_receipts = {row["receipt_id"]: row for row in after.get("evidence_receipts", [])
+                      if row.get("operation_id") in original_operations}
     return {
         "no_child_redelegation_after_restart": bool(original_tasks) and original_tasks == later_tasks,
         "original_child_operations_and_attempts_unchanged": bool(original_operations and original_attempts)
             and original_operations == later_operations and original_attempts == later_attempts,
         "original_child_result_bytes_retained": bool(original_results) and original_results == later_results,
-        "original_child_receipt_bytes_retained": bool(original_receipts)
-            and all(later_receipts.get(key) == value for key, value in original_receipts.items()),
+        "original_child_receipt_bytes_retained": bool(original_receipts) and original_receipts == later_receipts,
     }
 
 
@@ -209,7 +245,7 @@ async def collect(ws, process, data_dir, log_path, timeout, predicate):
     return facts, messages
 
 
-async def start(args, phase, data_dir, pause_request_id=None):
+async def start(args, phase, data_dir, pause_request_id=None, *, on_interrupt=None):
     environment = os.environ.copy()
     environment.update(SHENKO_USE_LOCAL_MODEL="1", SHENKO_LOCAL_MODEL_URL=args.model_url,
                        SHENKO_LOCAL_MODEL=args.model,
@@ -236,7 +272,7 @@ async def start(args, phase, data_dir, pause_request_id=None):
         raise TimeoutError("Shenko did not expose a bound subject within 60 seconds")
     except BaseException as error:
         if process is not None:
-            stopped = await stop(process, log)
+            stopped = await stop(process, log, on_interrupt=on_interrupt)
             error.shenko_startup_shutdown = stopped
             try:
                 save(args.evidence_dir / f"{phase}.startup-shutdown.json", stopped)
@@ -287,7 +323,7 @@ def owned_group_state(pgid):
     return {"live_pids": None, "zombie_pids": None, "alive": alive}
 
 
-async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_timeout=5):
+async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_timeout=5, on_interrupt=None):
     receipt = {"parent_exit": None, "parent_timed_out": False, "clean": False, "interrupted": False,
                "group_cleanup": {"pgid": getattr(process, "shenko_owned_pgid", None),
                                  "required": False, "forced": False, "signals": [],
@@ -295,6 +331,15 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
     group = receipt["group_cleanup"]
     pgid = group["pgid"]
     owned = isinstance(pgid, int) and pgid > 0 and pgid == process.pid and pgid != os.getpgrp()
+
+    def record_error(stage, error):
+        receipt["errors"].append(f"{stage}: {type(error).__name__}: {error}")
+        interrupted = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+        receipt["interrupted"] |= interrupted
+        if interrupted and on_interrupt is not None:
+            # The owner retains the original exception and propagates it only
+            # after this receipt and the rest of the evidence are saved.
+            on_interrupt(error)
 
     def signal_group(sig):
         if not owned:
@@ -337,8 +382,7 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
         group["remaining"] = remaining
         group["complete"] = not remaining["alive"]
     except BaseException as error:
-        receipt["errors"].append(f"runtime cleanup: {type(error).__name__}: {error}")
-        receipt["interrupted"] = isinstance(error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+        record_error("runtime cleanup", error)
         # Cancellation/inspection failures must not strand the group or prevent
         # the caller retaining its failure summary. This is still only our PGID.
         if owned:
@@ -347,14 +391,13 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
                 group["remaining"] = await wait_group(kill_timeout)
                 group["complete"] = not group["remaining"]["alive"]
             except BaseException as cleanup_error:
-                receipt["errors"].append(f"forced cleanup: {type(cleanup_error).__name__}: {cleanup_error}")
-                receipt["interrupted"] |= isinstance(cleanup_error, (asyncio.CancelledError, KeyboardInterrupt, SystemExit))
+                record_error("forced cleanup", cleanup_error)
     finally:
         receipt["parent_exit"] = process.poll()
         try:
             log.close()
-        except Exception as error:
-            receipt["errors"].append(f"runtime log close: {type(error).__name__}: {error}")
+        except BaseException as error:
+            record_error("runtime log close", error)
     receipt["clean"] = (receipt["parent_exit"] == 0 and not receipt["parent_timed_out"]
                         and group["complete"] and not group["required"] and not group["forced"]
                         and not receipt["errors"])
@@ -513,12 +556,32 @@ async def run(args):
         "scope": "real configured model and installed CLI only; no stronger model baseline, NapCat, coding seat, long-run or physical-failure claim",
     }
     save(args.evidence_dir / "manifest.json", manifest)
-    summary = {"passed": False, "checks": {}, "errors": []}
+    summary = {"passed": False, "checks": {}, "errors": [], "interruptions": []}
     process = log = browser = None
     recovery_baseline = None
+    pending_interrupt = None
+
+    def record_failure(stage, error):
+        nonlocal pending_interrupt
+        summary["passed"] = False
+        summary["errors"].append(f"{stage}: {type(error).__name__}: {error}")
+        if not isinstance(error, Exception):
+            if pending_interrupt is None:
+                pending_interrupt = error
+            summary["interruptions"].append({"stage": stage, "type": type(error).__name__, "message": str(error)})
+
+    def interrupted_shutdown(error):
+        record_failure("runtime cleanup interrupted", error)
+
+    def retain_browser_report(report):
+        summary["browser"] = report
+        summary["checks"].update(report["checks"])
+        summary["errors"].extend(report["errors"])
+        summary["passed"] = summary["passed"] and not report["errors"] and all(report["checks"].values())
+
     try:
         save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/v1/models"))
-        process, log, subject = await start(args, "first", data_dir, startup_boundary)
+        process, log, subject = await start(args, "first", data_dir, startup_boundary, on_interrupt=interrupted_shutdown)
         await observe_pause(args, process, data_dir, startup_boundary, "first", set())
         summary["checks"]["startup_paused_before_inference"] = True
         if args.browser:
@@ -540,14 +603,19 @@ async def run(args):
                 "first", submission, startup_boundary, set())
             summary["checks"]["input_accepted_before_inference"] = True
             first, messages = await collect(ws, process, data_dir, args.evidence_dir / "first.websocket.jsonl", args.timeout,
-                lambda facts, _: all(evaluate_first(facts, marker).values()))
+                lambda facts, _: all(evaluate_first(facts, marker, args.model, args.model_url).values()))
             messages = initial_messages + messages
         if browser:
             # Receipts are sent to the submitting connection. Keep the
             # original receipt assertion, using that page's actual frames.
             messages.extend(browser.received())
         save(args.evidence_dir / "first.ledger.json", first)
-        summary["checks"].update(evaluate_first(first, marker))
+        summary["checks"].update(evaluate_first(first, marker, args.model, args.model_url))
+        # Start the immutable-effect comparison at the first successful
+        # answer. Browser observation and requesting pause can take time;
+        # repetitions in that tail must not become part of a later baseline.
+        if all(summary["checks"].values()):
+            recovery_baseline = first
         accepted = accepted_receipt(messages, submission)
         summary["checks"]["input_durably_accepted"] = bool(accepted and accepted.get("accepted_commit"))
         summary["checks"]["first_request_contains_exact_input"] = first_request_contains_input(
@@ -557,20 +625,24 @@ async def run(args):
         if browser:
             if summary["checks"]["committed_output_after_child_results"]:
                 output = next(row for row in reversed(first["decisions"])
-                    if evaluate_first(dict(first, decisions=[row]), marker)["committed_output_after_child_results"])
+                    if evaluate_first(dict(first, decisions=[row]), marker, args.model, args.model_url)["committed_output_after_child_results"])
                 await browser.observe_output("first", output["step"]["step_id"], (marker, "437"))
             else:
                 browser.observations["first_output"] = {"observed": False, "reason": "no qualifying committed model result"}
         if not all(summary["checks"].values()):
-            raise AssertionError("first phase did not satisfy the unchanged child/result/output checks")
+            raise AssertionError("first phase did not satisfy the child/binding/single-execution/output checks")
         await runtime_control(args, data_dir, "pause", restart_boundary)
         paused = await observe_pause(args, process, data_dir, restart_boundary, "before-restart")
-        recovery_baseline = paused
+        pause_checks = evaluate_first(paused, marker, args.model, args.model_url)
+        pause_checks.update(evaluate_recovery(recovery_baseline, paused))
+        summary["checks"].update(pause_checks)
+        if not all(pause_checks.values()):
+            raise AssertionError("child effects changed between the first answer and the restart boundary")
         prior_requests = request_ids(paused)
         summary["checks"]["clean_boundary_before_restart"] = True
         if browser:
             await browser.prepare_restart("未发送草稿 · " + marker)
-        summary["first_shutdown"] = await stop(process, log)
+        summary["first_shutdown"] = await stop(process, log, on_interrupt=interrupted_shutdown)
         summary["first_exit"] = summary["first_shutdown"]["parent_exit"]
         process = log = None
         summary["checks"]["first_shutdown_clean"] = summary["first_shutdown"]["clean"]
@@ -578,7 +650,7 @@ async def run(args):
             raise RuntimeError(f"paused runtime did not shut down cleanly (parent exit {summary['first_exit']}); see first_shutdown and first.runtime.log")
         if browser:
             await browser.observe_stopped()
-        process, log, resumed_subject = await start(args, "restart", data_dir, restart_boundary)
+        process, log, resumed_subject = await start(args, "restart", data_dir, restart_boundary, on_interrupt=interrupted_shutdown)
         await observe_pause(args, process, data_dir, restart_boundary, "restart", prior_requests)
         summary["checks"]["restart_kept_original_pause"] = True
         summary["checks"]["same_subject_after_restart"] = resumed_subject == subject
@@ -610,7 +682,7 @@ async def run(args):
         summary["checks"]["continued_request_contains_exact_input"] = first_request_contains_input(
             data_dir, after, prior_requests, resumed_accepted, resumed_input)
         summary["checks"]["original_results_retained"] = before_ids <= {row["task_id"] for row in after.get("task_results", [])}
-        summary["checks"].update(evaluate_recovery(paused, after))
+        summary["checks"].update(evaluate_recovery(recovery_baseline, after))
         replay = next((row for row in messages if row.get("type") == "receipt" and row.get("submission_id") == submission["submission_id"]), None)
         summary["checks"]["replayed_input_same_event"] = bool(accepted and replay and replay.get("replayed") is True
             and replay.get("event_id") == accepted.get("event_id") and replay.get("accepted_commit") == accepted.get("accepted_commit"))
@@ -623,39 +695,43 @@ async def run(args):
             else:
                 browser.observations["restart_output"] = {"observed": False, "reason": "no qualifying continued model result"}
             await browser.finish_journey()
-        summary["passed"] = all(summary["checks"].values())
-    except Exception as error:
-        summary["errors"].append(f"{type(error).__name__}: {error}")
+        summary["passed"] = all(summary["checks"].values()) and not summary["errors"]
+    except BaseException as error:
+        record_failure("journey", error)
         if hasattr(error, "shenko_startup_shutdown"):
             summary["startup_shutdown"] = error.shenko_startup_shutdown
-        (args.evidence_dir / "failure.txt").write_text(traceback.format_exc())
+        try:
+            (args.evidence_dir / "failure.txt").write_text(traceback.format_exc())
+        except BaseException as retention_error:
+            record_failure("failure traceback retention", retention_error)
     finally:
         if browser is not None:
             try:
                 report = await browser.close()
-                summary["browser"] = report
-                summary["checks"].update(report["checks"])
-                summary["errors"].extend(report["errors"])
-                summary["passed"] = summary["passed"] and not report["errors"] and all(report["checks"].values())
-            except Exception as error:
-                summary["passed"] = False
-                summary["errors"].append(f"browser evidence/cleanup: {type(error).__name__}: {error}")
+                retain_browser_report(report)
+            except BaseException as error:
+                record_failure("browser evidence/cleanup", error)
+                summary["checks"]["browser_cleanup_complete"] = False
+                if hasattr(error, "shenko_browser_cleanup"):
+                    retain_browser_report(error.shenko_browser_cleanup)
         if process is not None:
             try:
-                summary["last_shutdown"] = await stop(process, log)
+                summary["last_shutdown"] = await stop(process, log, on_interrupt=interrupted_shutdown)
                 summary["last_exit"] = summary["last_shutdown"]["parent_exit"]
                 summary["checks"]["final_shutdown_clean"] = summary["last_shutdown"]["clean"]
                 summary["passed"] = summary["passed"] and summary["checks"]["final_shutdown_clean"]
                 if not summary["checks"]["final_shutdown_clean"]:
                     summary["errors"].append(f"owned runtime did not shut down cleanly (parent exit {summary['last_exit']}); see last_shutdown, runtime logs and final ledger")
-            except Exception as error:
-                summary["passed"] = False
+            except BaseException as error:
+                record_failure("runtime cleanup failed", error)
                 summary["checks"]["final_shutdown_clean"] = False
-                summary["errors"].append(f"runtime cleanup failed: {type(error).__name__}: {error}")
         if (data_dir / "shenko.db").exists():
             try:
                 final_facts = snapshot(data_dir)
                 save(args.evidence_dir / "final.ledger.json", final_facts)
+                final_checks = evaluate_first(final_facts, marker, args.model, args.model_url)
+                summary["checks"].update(final_checks)
+                summary["passed"] = summary["passed"] and all(final_checks.values())
                 if recovery_baseline is not None:
                     # The subject continues while the browser observes and
                     # shutdown completes. Include that tail in the no-replay
@@ -663,27 +739,26 @@ async def run(args):
                     recovery_checks = evaluate_recovery(recovery_baseline, final_facts)
                     summary["checks"].update(recovery_checks)
                     summary["passed"] = summary["passed"] and all(recovery_checks.values())
-            except Exception as error:
-                summary["passed"] = False
-                summary["errors"].append(f"final ledger snapshot: {type(error).__name__}: {error}")
+            except BaseException as error:
+                record_failure("final ledger snapshot", error)
         # The private installation stays local. Published evidence is the
         # explicit ledger/CAS subset, never owner claim/control secrets.
         if (data_dir / "cas").exists():
             try:
                 shutil.copytree(data_dir / "cas", args.evidence_dir / "cas")
-            except Exception as error:
-                summary["passed"] = False
-                summary["errors"].append(f"CAS evidence retention: {type(error).__name__}: {error}")
+            except BaseException as error:
+                record_failure("CAS evidence retention", error)
         summary["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         summary["elapsed_seconds"] = time.monotonic() - started
         try:
             save(args.evidence_dir / "summary.json", summary)
-        except Exception as error:
-            summary["passed"] = False
-            summary["errors"].append(f"summary retention: {type(error).__name__}: {error}")
+        except BaseException as error:
+            record_failure("summary retention", error)
             # The caller's captured stdout still receives the complete failure
             # below, even when the evidence filesystem itself cannot write.
         print(json.dumps(summary, ensure_ascii=False, indent=2))
+    if pending_interrupt is not None:
+        raise pending_interrupt
     if any(summary.get(key, {}).get("interrupted")
            for key in ("startup_shutdown", "first_shutdown", "last_shutdown")):
         raise asyncio.CancelledError("runtime cleanup was interrupted; retained the attempt evidence")
@@ -717,14 +792,16 @@ async def repeat(args):
                  if card.get("id") == args.model]
         if len(cards) != 1:
             raise ValueError("the selected model must have one unambiguous served model card")
-        # Permission IDs may be freshly generated by /models. They do not
-        # identify weights, runtime or serving capacity.
-        return {key: value for key, value in cards[0].items() if key != "permission"}
+        # vLLM may regenerate both permission IDs and the response's created
+        # timestamp without restarting the loaded model. Neither is serving
+        # identity. Raw cards remain in every attempt's models.json.
+        return {key: value for key, value in cards[0].items() if key not in {"permission", "created"}}
 
     checkpoint()
     try:
         report["binary_sha256"] = sha256(args.binary)
         report["model_card"] = model_card()
+        report["model_card_non_identity_fields"] = ["permission", "created"]
         report["model_url"] = args.model_url
         checkpoint()
         for index in range(1, args.repeat + 1):
