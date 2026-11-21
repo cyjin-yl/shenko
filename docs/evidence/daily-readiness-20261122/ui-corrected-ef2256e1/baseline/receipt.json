@@ -1,0 +1,29 @@
+{
+  "production_source": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "fixture_source": "ef2256e1a420a739b9ddccb18f57af96ff2979b9",
+  "command": [
+    "node",
+    "--test",
+    "--test-reporter=tap",
+    "--test-name-pattern=^a streamed prefix is not labelled committed and is replaced by the committed text$",
+    "tests/live-controller.test.mjs"
+  ],
+  "started_at": "2026-11-21T23:29:14.413851+00:00",
+  "finished_at": "2026-11-21T23:29:14.793678+00:00",
+  "elapsed_seconds": 0.37979994498891756,
+  "exit_code": 1,
+  "reducer_sha256": "0b3c8e4a4ac8c29fbbf748830fb3c32eed3c77cf0daf92c5f5ddfca70795b168",
+  "fixture_sha256": "3d4987f7cfaf146e6c916f9fd74fa5f736933071dd55eb9e29889fbf9ecb945f",
+  "fixture_patch_sha256": "f7203e6881096dbccc73f357807462a4d0df1effac26fe843cfeaaca860d1c78",
+  "log_sha256": "deb72df5cab5a75802d9e7e2b8c86aba2578b384855ebcdf4dbec5ad424df224",
+  "summary_lines": [
+    "# tests 1",
+    "# pass 0",
+    "# fail 1",
+    "# cancelled 0",
+    "# skipped 0",
+    "# duration_ms 332.664778"
+  ],
+  "production_unchanged": true,
+  "candidate_fixture_exact": true
+}
