@@ -305,6 +305,13 @@ recovered node replays the same units instead of re-streaming.
   remain errors. The classification is emitted before this preparation orders
   an admission: it does not inspect or rewrite an older chosen image, renew a
   permit, replay an E1 effect, or turn an uncertain write into success.
+  A synchronous native settlement may already have committed its preceding
+  claim. It must park that exact claim revision for reconciliation before
+  deferring a fresh T2 preparation; it keeps the original operation and E1.
+  A failed or refused park carries `NativeClaimNeedsRecovery`, which the
+  dispatcher preserves as failure even if its cause is preparation drift or
+  ordinary admission closure. The same guard covers a fresh claim refused
+  before a managed worker takes ownership; managed-worker teardown is unchanged.
 - Staged installation inspection is Linux-only: its confined snapshot path
   uses Linux `pipe2`, errno and fork behavior. Other targets return an
   unsupported error rather than substituting an unconfined copy.
