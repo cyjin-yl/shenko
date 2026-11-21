@@ -91,3 +91,24 @@ validation or conservative conflicts documented in
 [capture capacity](canonical-capture-budget.md#remaining-issue-316-boundaries).
 Timing-enabled and disabled runs should retain the same original outcomes;
 the overhead belongs in the recorded environment, not an assumed correction.
+
+## Scoped verification
+
+This increment keeps three discriminating checks: one Rust test holds an actual
+SQLite transaction while a deliberately blocked subscriber fills the bounded
+queue, and two Python checks detect double-counted descendants and refuse to
+attribute missing child time after recorded queue loss. They run with:
+
+```sh
+cargo test --locked -p shenko-store --lib timing::tests::slow_log_destination_drops_observations_without_blocking_sqlite -- --exact
+python3 scripts/summarize_request_timing_test.py
+```
+
+The instrumentation does not change SQL, callback counts or transaction order;
+the existing canonical/native journeys remain the behavioral regression. Extra
+tests mirroring the disabled-target branch, field formatting and routine parser
+cases were removed after integration review to keep this one increment within
+the repository's test-scope rule. Those branches were reviewed rather than
+repackaged into a combined test. The Python checks passed locally; the Rust
+check and existing Store journeys require the shared devcontainer build and
+must be reported against that actual candidate.

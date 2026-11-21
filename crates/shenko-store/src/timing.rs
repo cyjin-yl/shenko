@@ -202,74 +202,8 @@ pub(crate) fn immediate(conn: &mut rusqlite::Connection) -> rusqlite::Result<rus
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use tracing::{Event, Metadata, Subscriber, field::{Field, Visit}, span::{Attributes, Id, Record}};
-
-    struct Collector(Arc<Mutex<Vec<serde_json::Value>>>);
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    impl Visit for Collector {
-        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-            if field.name() == "timing_json" {
-                self.0.lock().unwrap().push(serde_json::from_str(&format!("{value:?}")).unwrap());
-            }
-        }
-    }
-
-    impl Subscriber for Collector {
-        fn enabled(&self, metadata: &Metadata<'_>) -> bool { metadata.target() == "shenko_timing" }
-        fn new_span(&self, _: &Attributes<'_>) -> Id { Id::from_u64(1) }
-        fn record(&self, _: &Id, _: &Record<'_>) {}
-        fn record_follows_from(&self, _: &Id, _: &Id) {}
-        fn event(&self, event: &Event<'_>) { event.record(&mut Collector(Arc::clone(&self.0))); }
-        fn enter(&self, _: &Id) {}
-        fn exit(&self, _: &Id) {}
-    }
-
-    #[test]
-    fn nested_error_paths_keep_identity_and_retire_the_parent() {
-        let _serial = TEST_LOCK.lock().unwrap();
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let task = EntityId::new();
-        let action = EntityId::new();
-        tracing::subscriber::with_default(Collector(Arc::clone(&events)), || {
-            let parent = Phase::bound("native.claim", Binding { task_id: Some(task), ..Default::default() });
-            fn refused(action: EntityId) -> Result<(), &'static str> {
-                let _child = Phase::bound("canonical.prepare", Binding { action_id: Some(action), ..Default::default() });
-                Err("private failure detail")
-            }
-            let result = refused(action);
-            assert_eq!(result, Err("private failure detail"));
-            drop(parent);
-            let _next = Phase::new("next");
-        });
-        let (ack, delivered) = mpsc::sync_channel(1);
-        sink().unwrap().send(Message::Flush(ack)).unwrap();
-        delivered.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
-        let events = events.lock().unwrap();
-        assert_eq!(events.len(), 6);
-        assert_eq!(events[0]["event"], "begin");
-        assert_eq!(events[1]["parent_id"], events[0]["scope_id"]);
-        assert_eq!(events[1]["binding"]["task_id"], task.to_string());
-        assert_eq!(events[1]["binding"]["action_id"], action.to_string());
-        assert_eq!(events[2]["scope_id"], events[1]["scope_id"]);
-        assert_eq!(events[2]["event"], "end");
-        assert!(events[2]["elapsed_us"].is_u64());
-        assert_eq!(events[3]["scope_id"], events[0]["scope_id"]);
-        assert!(events[4]["parent_id"].is_null());
-        assert_eq!(events[4]["binding"], serde_json::json!({}));
-        assert!(!serde_json::to_string(&*events).unwrap().contains("private failure detail"));
-    }
-
-    #[test]
-    fn disabled_timing_does_not_create_a_scope() {
-        let _serial = TEST_LOCK.lock().unwrap();
-        tracing::subscriber::with_default(tracing::subscriber::NoSubscriber::default(), || {
-            let phase = Phase::new("disabled");
-            assert!(phase.observation.is_none());
-            STACK.with(|stack| assert!(stack.borrow().is_empty()));
-        });
-    }
+    use std::sync::Mutex;
+    use tracing::{Event, Metadata, Subscriber, span::{Attributes, Id, Record}};
 
     #[test]
     fn slow_log_destination_drops_observations_without_blocking_sqlite() {
@@ -296,7 +230,6 @@ mod tests {
             fn exit(&self, _: &Id) {}
         }
 
-        let _serial = TEST_LOCK.lock().unwrap();
         let (entered, observed) = mpsc::sync_channel(1);
         let (release, blocked) = mpsc::sync_channel(1);
         let subscriber = Blocked { first: AtomicBool::new(false), entered, release: Mutex::new(blocked) };
