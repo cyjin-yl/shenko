@@ -17,8 +17,8 @@ SHENKO_LOG=info,shenko_timing=debug shenko start --port 7860 2>runtime.log
 python3 scripts/summarize_request_timing.py runtime.log --output request-timing.json
 ```
 
-The real single-node driver owns the child's environment; it must pass this
-filter to the child rather than replace it with plain `info`. The same report
+The real single-node driver's `--timing` option passes this filter into the
+child's environment. The same report
 can consume both `first.runtime.log` and `restart.runtime.log`. Keep the source
 revision, binary hash, model identity, installation size and the original logs
 with the existing journey evidence. This diagnostic does not call a model or
