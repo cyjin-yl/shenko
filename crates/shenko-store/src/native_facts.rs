@@ -22,6 +22,11 @@ use crate::{
     store::storage_error,
 };
 
+#[path = "native_ancestry.rs"]
+mod ancestry;
+pub(crate) use ancestry::{validate_native_ancestry, validate_native_ancestry_envelope,
+    validate_native_ancestry_fences};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CanonicalFact {
