@@ -406,6 +406,7 @@ async def run(args):
     save(args.evidence_dir / "manifest.json", manifest)
     summary = {"passed": False, "checks": {}, "errors": []}
     process = log = browser = None
+    recovery_baseline = None
     try:
         save(args.evidence_dir / "models.json", get_json(args.model_url.rstrip("/") + "/v1/models"))
         process, log, subject = await start(args, "first", data_dir, startup_boundary)
@@ -455,6 +456,7 @@ async def run(args):
             raise AssertionError("first phase did not satisfy the unchanged child/result/output checks")
         await runtime_control(args, data_dir, "pause", restart_boundary)
         paused = await observe_pause(args, process, data_dir, restart_boundary, "before-restart")
+        recovery_baseline = paused
         prior_requests = request_ids(paused)
         summary["checks"]["clean_boundary_before_restart"] = True
         if browser:
@@ -534,7 +536,15 @@ async def run(args):
                 summary["errors"].append(f"owned runtime shutdown exited {summary['last_exit']}; see runtime logs and final ledger")
         if (data_dir / "shenko.db").exists():
             try:
-                save(args.evidence_dir / "final.ledger.json", snapshot(data_dir))
+                final_facts = snapshot(data_dir)
+                save(args.evidence_dir / "final.ledger.json", final_facts)
+                if recovery_baseline is not None:
+                    # The subject continues while the browser observes and
+                    # shutdown completes. Include that tail in the no-replay
+                    # verdict instead of checking only its first answer.
+                    recovery_checks = evaluate_recovery(recovery_baseline, final_facts)
+                    summary["checks"].update(recovery_checks)
+                    summary["passed"] = summary["passed"] and all(recovery_checks.values())
             except Exception as error:
                 summary["passed"] = False
                 summary["errors"].append(f"final ledger snapshot: {type(error).__name__}: {error}")
@@ -567,7 +577,8 @@ async def repeat(args):
 
     def checkpoint():
         runs = report["runs"]
-        report.update(completed_runs=len(runs), passed_runs=sum(row["passed"] for row in runs),
+        report.update(attempted_runs=len(runs), completed_runs=sum(row["completed"] for row in runs),
+                      passed_runs=sum(row["passed"] for row in runs),
                       failed_runs=sum(not row["passed"] for row in runs),
                       unattempted_runs=args.repeat - len(runs))
         report["success_rate"] = report["passed_runs"] / len(runs) if runs else None
@@ -594,15 +605,27 @@ async def repeat(args):
                 raise RuntimeError("binary or served model identity changed during the frozen batch")
             attempt = copy.copy(args)
             attempt.evidence_dir = args.evidence_dir / f"attempt-{index:03d}"
-            exit_code = await run(attempt)
-            summary_path = attempt.evidence_dir / "summary.json"
-            summary = json.loads(summary_path.read_text())
-            report["runs"].append({"attempt": index, "directory": attempt.evidence_dir.name,
-                                   "summary_sha256": sha256(summary_path), "exit_code": exit_code,
-                                   "passed": exit_code == 0 and summary["passed"],
-                                   "elapsed_seconds": summary["elapsed_seconds"],
-                                   "errors": summary["errors"]})
+            row = {"attempt": index, "directory": attempt.evidence_dir.name,
+                   "completed": False, "passed": False, "errors": []}
+            # Persist the denominator before starting an external process.
+            # A driver/cleanup crash is an attempted failure, not an omitted run.
+            report["runs"].append(row)
             checkpoint()
+            try:
+                exit_code = await run(attempt)
+                summary_path = attempt.evidence_dir / "summary.json"
+                summary = json.loads(summary_path.read_text())
+                row.update(summary_sha256=sha256(summary_path), exit_code=exit_code,
+                           elapsed_seconds=summary["elapsed_seconds"], errors=summary["errors"],
+                           completed=True)
+                if sha256(args.binary) != report["binary_sha256"] or model_card() != report["model_card"]:
+                    raise RuntimeError("binary or served model identity changed within an attempt")
+                row["passed"] = exit_code == 0 and summary["passed"]
+            except BaseException as error:
+                row["errors"].append(f"{type(error).__name__}: {error}")
+                raise
+            finally:
+                checkpoint()
     except Exception as error:
         report["errors"].append(f"{type(error).__name__}: {error}")
         (args.evidence_dir / "batch-failure.txt").write_text(traceback.format_exc())
