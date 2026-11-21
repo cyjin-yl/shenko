@@ -13,6 +13,7 @@ retains the same evidence and exits nonzero; this is not a default CI test.
 import argparse
 import asyncio
 import copy
+import datetime
 import hashlib
 import json
 import os
@@ -377,7 +378,12 @@ def owned_group_state(pgid):
 
 
 async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_timeout=5, on_interrupt=None):
+    def clock_observation():
+        return {"utc": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="microseconds"),
+                "monotonic_ns": time.monotonic_ns()}
+
     receipt = {"parent_exit": None, "parent_timed_out": False, "clean": False, "interrupted": False,
+               "started": clock_observation(), "signal_calls": [],
                "group_cleanup": {"pgid": getattr(process, "shenko_owned_pgid", None),
                                  "required": False, "forced": False, "signals": [],
                                  "complete": False}, "errors": []}
@@ -397,12 +403,21 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
     def signal_group(sig):
         if not owned:
             raise RuntimeError("refusing to signal a group not created by this journey")
+        event = {"target": "owned_group", "id": pgid, "signal": sig.name,
+                 "started": clock_observation(), "result": "pending"}
+        receipt["signal_calls"].append(event)
         try:
             os.killpg(pgid, sig)
+            event["result"] = "returned"
             group["signals"].append(sig.name)
             group["forced"] |= sig == signal.SIGKILL
         except ProcessLookupError:
-            pass  # The last member exited between observation and signalling.
+            event["result"] = "group_absent"
+        except BaseException:
+            event["result"] = "raised"
+            raise
+        finally:
+            event["finished"] = clock_observation()
 
     async def wait_group(timeout):
         deadline = time.monotonic() + timeout
@@ -420,7 +435,20 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
         if not owned:
             raise RuntimeError("runtime has no owned start_new_session process group")
         if process.poll() is None:
-            process.send_signal(signal.SIGINT)
+            event = {"target": "owned_parent", "id": process.pid, "signal": "SIGINT",
+                     "started": clock_observation(), "result": "pending"}
+            receipt["signal_calls"].append(event)
+            try:
+                # Popen guards against a reaped/reused PID and may return if
+                # the parent just exited. A returned call is not proof that
+                # Shenko observed the signal; retain its runtime log separately.
+                process.send_signal(signal.SIGINT)
+                event["result"] = "returned"
+            except BaseException:
+                event["result"] = "raised"
+                raise
+            finally:
+                event["finished"] = clock_observation()
             deadline = time.monotonic() + parent_timeout
             while process.poll() is None and time.monotonic() < deadline:
                 await asyncio.sleep(0.05)
@@ -461,6 +489,7 @@ async def stop(process, log, *, parent_timeout=30, terminate_timeout=2, kill_tim
     receipt["clean"] = (receipt["parent_exit"] == 0 and not receipt["parent_timed_out"]
                         and group["complete"] and not group["required"] and not group["forced"]
                         and not receipt["errors"])
+    receipt["finished"] = clock_observation()
     return receipt
 
 

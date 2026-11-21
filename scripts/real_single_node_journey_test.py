@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import contextlib
 import copy
+import datetime
 import io
 import json
 import os
@@ -49,6 +50,18 @@ class JourneyEvidenceTests(unittest.TestCase):
                 self.assertTrue(cleanup["required"])
                 self.assertTrue(cleanup["forced"])
                 self.assertEqual(cleanup["signals"], ["SIGTERM", "SIGKILL"])
+                self.assertEqual([(event["target"], event["signal"], event["result"])
+                                  for event in receipt["signal_calls"]],
+                                 [("owned_group", "SIGTERM", "returned"),
+                                  ("owned_group", "SIGKILL", "returned")])
+                previous = receipt["started"]["monotonic_ns"]
+                for event in receipt["signal_calls"]:
+                    self.assertEqual(event["id"], process.pid)
+                    self.assertLessEqual(previous, event["started"]["monotonic_ns"])
+                    self.assertLessEqual(event["started"]["monotonic_ns"], event["finished"]["monotonic_ns"])
+                    self.assertIsNotNone(datetime.datetime.fromisoformat(event["started"]["utc"]).tzinfo)
+                    previous = event["finished"]["monotonic_ns"]
+                self.assertLessEqual(previous, receipt["finished"]["monotonic_ns"])
                 self.assertTrue(cleanup["complete"])
                 self.assertEqual(cleanup["remaining"]["live_pids"], [])
                 self.assertTrue(log.closed)

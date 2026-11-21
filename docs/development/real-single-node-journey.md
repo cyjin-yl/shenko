@@ -623,6 +623,14 @@ another installation is launched. Log-close/cleanup errors remain failures while
 the other final evidence is collected; an unwritable summary is also printed in
 full to the caller's captured stdout.
 
+Shutdown receipts also retain UTC and monotonic observations before and after
+each signal API call, including the initial parent SIGINT. These bound the
+driver's call, not Shenko's receipt of that signal: `Popen.send_signal` may
+return after observing that its child already exited. Runtime signal messages,
+durable failures and reconstruction logs remain separate evidence. The older
+`2b9707f6` protocol batches did not record these call times, so a 30-second
+cleanup timeout alone cannot locate when their runtime received SIGINT.
+
 Cancellation, KeyboardInterrupt and SystemExit are retained as failed-attempt
 facts and propagated after runtime cleanup and final evidence retention.
 Browser cleanup allows 15 seconds for its final capture and 10 seconds each for
