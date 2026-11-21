@@ -215,13 +215,36 @@ Rust 的 E0599 来自新测试对 `anyhow::Error` 直接调用 typed helper；Cl
 另发现新增 `expect_used` 一处。`86b05db0` 修正 downcast 及 checked parent，不改变断言标准
 或持久化屏障。[原 CI 诊断回执](daily-readiness-20261122/ci-f70-diagnostic-summary.json)保留两项失败与
 旧日志、artifact 身份。修正后的[四项实际容器回归](daily-readiness-20261122/scoped-86b05db0/summary.json)
-在 `86b05db0` 全部通过，原始完整日志按字节校验并保留：
-[主体循环](daily-readiness-20261122/scoped-86b05db0/shutdown-loop.log)、
-[Node authority](daily-readiness-20261122/scoped-86b05db0/shutdown-authority.log)、
-[目录屏障故障](daily-readiness-20261122/scoped-86b05db0/cas-graph-barrier.log)、
-[跨账本恢复](daily-readiness-20261122/scoped-86b05db0/canonical-recovery.log)。
+在 `86b05db0` 全部通过，原始完整日志按字节校验并以 gzip 原样保留（[归档索引](daily-readiness-20261122/scoped-86b05db0/archive-index.json)）：
+[主体循环](daily-readiness-20261122/scoped-86b05db0/shutdown-loop.log.gz)、
+[Node authority](daily-readiness-20261122/scoped-86b05db0/shutdown-authority.log.gz)、
+[目录屏障故障](daily-readiness-20261122/scoped-86b05db0/cas-graph-barrier.log.gz)、
+[跨账本恢复](daily-readiness-20261122/scoped-86b05db0/canonical-recovery.log.gz)。
 它们使用 Rust 1.98.1、`--offline --locked --all-features`，每项 exact filter 实际执行一个测试。
 这仍不是全工作区、断电或真实模型完整任务证据。
+
+### 停止窗口内的已选择 claim 冲突
+
+[三例尾部诊断](daily-readiness-20261122/protocol-after-r1-shutdown-compact.json)与
+[完整计时关联](daily-readiness-20261122/protocol-after-r1-shutdown-diagnostic.json)确认，
+after 的 case02、03、07 都记录了 `native_dispatcher` 的
+`canonical Store transition: predecessor/schema differs for subject_steps`。
+[目标 action 的 Node 回执](daily-readiness-20261122/protocol-after-r1-chosen-claims.json)
+表明 claim 已有 index 7 / term 2 的真实 durability acknowledgement，Store prepared 各一条、
+materialization 各零条；随后 branch-fork 的 `control:7` digest 与该 chosen 记录一致。
+这不是“尚未选择、可以随便重新准备”的普通失败，不能通过重试潜在已发生效果来修复。
+
+三例原主体与 broker 已退出，进程又恢复分支并创建新的 main request；两个原 child 仍 pending，
+operation、attempt、task result 均为零。最后请求保持 dispatched、无 terminal，
+provider stream 为 open/0 units；这些字段不证明远端还在计算或已停止。
+
+完整日志没有普通 SIGINT 接收标记，旧 driver 也未记录初始 signal API 调用时刻，
+所以不能断定取消分支和 SIGINT 哪个先赢。新 driver `21bb24ab` 仅补充发送调用前后
+UTC/monotonic 观测；调用返回仍不等于应用接收，30 秒停止窗口和原失败判据均未改变。
+
+此处的 source-level 根因是 native 物化把另一主体步的 S0 变化纳入完整 `subject_steps` 见证。
+当前收敛工作需保留原创建 step 的精确条件及当前 successor 的存在/绑定校验，
+并在真实源码、现有恢复测试和完整模型旅程上验证，不能丢弃旧版本的完整见证或改写旧 chosen 事实。
 
 固定最终 release 候选的完整浏览器回执和新候选计时仍待取得。
 在这些回执写入前，本记录不宣称首条完整真实任务已收口或重复运行已通过。
