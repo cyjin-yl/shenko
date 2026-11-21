@@ -4336,3 +4336,171 @@ fn peer_dialogue_reserves_both_writers_and_replays_without_the_source() -> Resul
     assert_eq!(reopened.pending_child_dialogue(recipient.task.task_id)?.len(), 1);
     Ok(())
 }
+
+#[test]
+fn s1_dialogue_inbox_decode_failure_rolls_back_ordinary_and_captured_writes() -> Result<()> {
+    use shenko_store::child::DIALOGUE_INBOX;
+    use shenko_types::{ids::EntityId, output::{DialogueSpec, OutputAction, OutputControl},
+        subject::{DialogueDirection, DialogueIntent, StepDecision}, task::TaskOwner};
+
+    fn attach_dialogue(
+        store: &Store,
+        step: &mut shenko_types::subject::SubjectStep,
+        messages: &[(EntityId, &str)],
+    ) -> Result<()> {
+        let mut decision: StepDecision = serde_json::from_slice(&store.cas.read_object(
+            &step.decision_ref.as_ref().context("candidate decision")?.digest,
+        )?)?;
+        for &(target_task_id, message) in messages {
+            let intent = DialogueIntent {
+                intent_id: EntityId::new(), target_task_id, message: message.into(),
+                in_reply_to: None, direction: DialogueDirection::ToChild,
+            };
+            decision.output.controls.push(OutputControl {
+                action_id: intent.intent_id, spans: vec![],
+                action: OutputAction::Dialogue { spec: DialogueSpec {
+                    target_task_id, message: message.into(), in_reply_to: None,
+                    direction: DialogueDirection::ToChild,
+                } },
+            });
+            decision.child_dialogue_intents.push(intent);
+        }
+        step.decision_ref = Some(store.cas.seal_object(
+            &serde_json::to_vec(&decision)?, "application/json", "test", "StepDecision", 8,
+        )?.object);
+        Ok(())
+    }
+
+    fn retained_rows(conn: &rusqlite::Connection)
+        -> Result<Vec<Vec<Vec<rusqlite::types::Value>>>>
+    {
+        let mut retained = Vec::new();
+        for sql in [
+            "SELECT * FROM tasks ORDER BY task_id",
+            "SELECT * FROM subject_steps ORDER BY step_id",
+            "SELECT * FROM subject_intents ORDER BY intent_id",
+            "SELECT * FROM subject_intent_steps ORDER BY step_id",
+            "SELECT * FROM control_prepared_transitions ORDER BY action_id",
+            "SELECT * FROM control_materializations ORDER BY conflict_key",
+            "SELECT * FROM inbox_events ORDER BY event_id",
+            "SELECT * FROM commit_log ORDER BY ledger_id,seq",
+        ] {
+            let mut query = conn.prepare(sql)?;
+            let columns = query.column_count();
+            let rows = query.query_map([], |row| {
+                (0..columns).map(|index| row.get(index))
+                    .collect::<rusqlite::Result<Vec<rusqlite::types::Value>>>()
+            })?.collect::<rusqlite::Result<Vec<_>>>()?;
+            retained.push(rows);
+        }
+        Ok(retained)
+    }
+
+    for captured in [false, true] {
+        let (dir, store, agent) = initialized_subject();
+        let (head, first) = store.load_subject(agent)?;
+        let mut damaged = recovery_task(&store, agent, 1, false);
+        let mut clean = recovery_task(&store, agent, 2, false);
+        damaged.owner = TaskOwner::Task { id: head.subject_root_task_id };
+        clean.owner = TaskOwner::Task { id: head.subject_root_task_id };
+        let damaged_id = damaged.task_id;
+        let clean_id = clean.task_id;
+        let mut batch = WriteBatch::new();
+        batch.task_upserts.extend([damaged, clean]);
+        store.commit(batch)?;
+        assert!(store.pending_child_dialogue(clean_id)?.is_empty());
+        assert_eq!(store.consume_child_dialogue(clean_id, &[EntityId::new()])?, 0);
+
+        // Retain two real S1 deliveries before introducing the damaged memo.
+        let result = recorded_result(&store, &head, first)?;
+        let next = EntityId::new();
+        let mut initial = committed_candidate(&store, result, next);
+        attach_dialogue(&store, &mut initial, &[
+            (damaged_id, "retain the first original owner turn"),
+            (damaged_id, "retain the second original owner turn"),
+        ])?;
+        store.commit_step_and_advance_head(&initial, &head, next)?;
+        assert_eq!(store.pending_child_dialogue(damaged_id)?.len(), 2);
+        let chosen = if captured { Some(canonical_source(&store, agent, false)?) } else { None };
+
+        let connection = rusqlite::Connection::open(dir.join("head.db"))?;
+        let original: String = connection.query_row(
+            "SELECT data FROM tasks WHERE task_id=?1", [damaged_id.to_string()], |row| row.get(0),
+        )?;
+        let mut invalid: serde_json::Value = serde_json::from_str(&original)?;
+        invalid["memos"][DIALOGUE_INBOX].as_array_mut().context("two retained deliveries")?
+            .push(serde_json::json!({"message":"invalid member without delivery bindings"}));
+        let damaged_row = serde_json::to_string(&invalid)?;
+        assert_eq!(connection.execute("UPDATE tasks SET data=?2 WHERE task_id=?1",
+            rusqlite::params![damaged_id.to_string(), damaged_row])?, 1);
+        let decoding_error = store.pending_child_dialogue(damaged_id).unwrap_err();
+        let expected_error = decoding_error.downcast_ref::<serde_json::Error>()
+            .context("retain the original inbox decoding cause")?.to_string();
+
+        let (head, first) = store.load_subject(agent)?;
+        let result = recorded_result(&store, &head, first)?;
+        let next = EntityId::new();
+        let mut candidate = committed_candidate(&store, result, next);
+        attach_dialogue(&store, &mut candidate, &[
+            (clean_id, "this earlier sibling delivery must roll back"),
+            (damaged_id, "do not replace an unreadable inbox"),
+        ])?;
+        let before = retained_rows(&connection)?;
+        let head_and_step_before = serde_json::to_value(store.load_subject(agent)?)?;
+        let seq_before = store.current_commit_seq()?;
+        let history_before = serde_json::to_value(
+            store.session_events_range(EntityId(head.branch_id.0), 0, 100)?,
+        )?;
+        let chosen_before = chosen.as_ref().map(|chosen| {
+            serde_json::to_value(chosen.lock().as_ref())
+        }).transpose()?;
+        let mut objects_before = Vec::new();
+        for reference in [
+            candidate.input_plan_ref.as_ref(), candidate.model_result_ref.as_ref(),
+            candidate.model_outcome_ref.as_ref(), candidate.decision_ref.as_ref(),
+        ] {
+            let reference = reference.context("original S0/model/decision binding")?;
+            objects_before.push((reference.clone(), store.cas.read_object(&reference.digest)?));
+        }
+
+        let error = store.commit_step_and_advance_head(&candidate, &head, next)
+            .expect_err("the entire ordinary/captured S1 must reject the malformed existing memo");
+        assert!(error.to_string().contains(&expected_error), "captured={captured}: {error}");
+        assert_eq!(store.current_commit_seq()?, seq_before);
+        assert_eq!(serde_json::to_value(store.load_subject(agent)?)?, head_and_step_before);
+        assert_eq!(retained_rows(&connection)?, before,
+            "captured={captured}: no sibling, intent, successor, preparation or receipt may survive");
+        assert_eq!(serde_json::to_value(
+            store.session_events_range(EntityId(head.branch_id.0), 0, 100)?,
+        )?, history_before);
+        assert_eq!(chosen.as_ref().map(|chosen| {
+            serde_json::to_value(chosen.lock().as_ref())
+        }).transpose()?, chosen_before, "failed capture must not ask the source to choose S1");
+        for (reference, bytes) in &objects_before {
+            assert_eq!(store.cas.read_object(&reference.digest)?, *bytes);
+        }
+        drop(connection);
+        drop(store);
+
+        let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+        let connection = rusqlite::Connection::open(dir.join("head.db"))?;
+        assert_eq!(reopened.current_commit_seq()?, seq_before);
+        assert_eq!(serde_json::to_value(reopened.load_subject(agent)?)?, head_and_step_before);
+        assert_eq!(retained_rows(&connection)?, before);
+        let retained: String = connection.query_row(
+            "SELECT data FROM tasks WHERE task_id=?1", [damaged_id.to_string()], |row| row.get(0),
+        )?;
+        assert_eq!(retained, damaged_row);
+        assert!(reopened.pending_child_dialogue(clean_id)?.is_empty());
+        let error = reopened.pending_child_dialogue(damaged_id).unwrap_err();
+        assert_eq!(error.downcast_ref::<serde_json::Error>()
+            .context("reopen must preserve the same original decoding cause")?.to_string(), expected_error);
+        assert_eq!(serde_json::to_value(
+            reopened.session_events_range(EntityId(head.branch_id.0), 0, 100)?,
+        )?, history_before);
+        for (reference, bytes) in &objects_before {
+            assert_eq!(reopened.cas.read_object(&reference.digest)?, *bytes);
+        }
+    }
+    Ok(())
+}
