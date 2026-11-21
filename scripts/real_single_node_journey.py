@@ -48,6 +48,14 @@ def get_json(url):
         return json.load(response)
 
 
+def observer_websocket_options(timeout):
+    # This socket observes the real browser/runtime; its library's default
+    # 20-second pong deadline must not silently replace the explicit phase
+    # observation limit. Browser frames and Store timings retain real stalls.
+    return {"proxy": None, "max_size": 16 * 1024 * 1024,
+            "ping_interval": 20, "ping_timeout": timeout}
+
+
 def read_cas(data_dir, reference):
     digest = reference["digest"].removeprefix("blake3:")
     path = data_dir / "cas" / digest[:2] / digest[2:4] / digest
@@ -579,6 +587,7 @@ async def run(args):
         "websockets_version": websockets.__version__, "marker": marker, "resume_marker": resume_marker,
         "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
         "phase_timeout_seconds": args.timeout,
+        "observer_websocket": observer_websocket_options(args.timeout),
         "request_path_timing": args.timing,
         "input_surface": "live_browser_composer" if args.browser else "public_websocket",
         "startup_boundary": startup_boundary, "restart_boundary": restart_boundary,
@@ -622,7 +631,7 @@ async def run(args):
             "message_id": str(uuid.uuid4()), "subject_id": subject, "mode": "append",
             "content": f"请完成一次有真实回执的有限任务：委派一个使用 {args.model} 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 {marker}。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
         }
-        async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", proxy=None, max_size=16*1024*1024) as ws:
+        async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", **observer_websocket_options(args.timeout)) as ws:
             if browser:
                 submission = await browser.submit("first", submission["content"], subject)
             else:
@@ -687,7 +696,7 @@ async def run(args):
             await browser.observe_restarted()
         resumed_input = dict(submission, submission_id=str(uuid.uuid4()), message_id=str(uuid.uuid4()),
             content=f"刚才运行进程已重启。请从已有上下文继续：报告上一条任务的原始标记和 child 计算结果，再附上本次继续工作的标记 {resume_marker}。不要重新执行上一条任务。")
-        async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", proxy=None, max_size=16*1024*1024) as ws:
+        async with websockets.connect(f"ws://127.0.0.1:{args.port}/ws", **observer_websocket_options(args.timeout)) as ws:
             # This is the pre-existing idempotency check, never a new input:
             # the page's exact original IDs and payload are replayed intact.
             await ws.send(json.dumps(submission, ensure_ascii=False))

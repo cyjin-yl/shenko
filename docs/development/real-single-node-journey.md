@@ -48,9 +48,9 @@ the revision named in the command. Preserve the model checkpoint/quantization,
 runtime identity, context size, and sampling parameters with the run's evidence.
 
 ```sh
-SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) cargo build --locked -p shenko -j2
+SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) cargo build --release --locked -p shenko -j2
 python scripts/real_single_node_journey.py \
-  --binary target/debug/shenko \
+  --binary target/release/shenko \
   --source-revision "$(git rev-parse HEAD)" \
   --model-url http://127.0.0.1:18832 \
   --model Qwen3-0.6B-Q4_K_M \
@@ -67,6 +67,17 @@ the paused and accepted snapshots show whether any request was admitted before
 each explicit resume. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
+
+For a deployed latency observation, use the README's release profile and record
+the exact binary hash and build profile. Debug observations remain useful for
+diagnosis, but their unoptimized execution and larger implementation artifacts
+are a different configuration. The ancillary Python observer socket retains
+its 20-second ping interval and uses the explicit phase timeout for its pong
+deadline; both are recorded in the manifest. This prevents the observer's
+implicit 20-second deadline from stopping a longer declared experiment. It does
+not improve product responsiveness: keep the real browser's frame gaps and
+Store phase timings, and never count a longer observation window as a latency
+improvement.
 
 ### Repeated candidate and recovery evidence
 
