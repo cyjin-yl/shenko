@@ -612,7 +612,9 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
                 shenko_store::external::ExternalEvidenceFold {
                     expected_revision: RecordRevision(0),
                     terminal_content_conflict: false,
-                    source_operation_revision: None,
+                    source_operation: None,
+                    source_reads: &[],
+                    receipt_scopes: &[],
                 },
             )?
             .context("first fold")?;
@@ -1324,6 +1326,402 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
             "malformed_delivery":forged.delivery_id,"replay_after_local_fact":successor_replay_report,
             "later_local_receipt":newest_receipt,"distinct_new_windows":7}}),
     )?;
+    fixture.capture_originals()?;
+    Ok(())
+}
+
+/// Real original T1/E1 predecessors, with independent local E1 custody.
+/// The retained-value authority proves Store composition, not consensus or SSH.
+#[test]
+fn source_bound_original_e1_requires_local_source_custody_and_current_heads() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let source = Arc::new(Store::open(
+        fixture.data("source").join("shenko.db"), fixture.data("source").join("cas"),
+    )?);
+    let agent = initialize_subject_in_with_route(&source, b"{}", None)?;
+    let state = Arc::new(parking_lot::Mutex::new(NativeT2AuthorityState::default()));
+    let head = source.load_subject(agent)?.0;
+    source.attach_commit_authority(Arc::new(NativeT2Authority {
+        source: "source-bound-e1",
+        stamp: Some(CommitAuthorityStamp {
+            source_id: "source-bound-e1".into(), holder_id: EntityId::new(), subject_id: agent,
+            branch_id: head.branch_id.clone(), revision: Digest::blake3(b"source-bound E1 authority"),
+        }),
+        state: Arc::clone(&state),
+    }))?;
+    source.activate_runtime_authority(&head)?;
+    let (head, first) = source.load_subject(agent)?;
+    let result = recorded_result_with_docket(&source, &head, first, None, &[])?;
+    let next = EntityId::new();
+    let mut step = committed_candidate_with(&source, result, next, vec![]);
+    let mut decision: StepDecision = serde_json::from_slice(&source.cas.read_object(
+        &step.decision_ref.as_ref().context("source-bound decision")?.digest,
+    )?)?;
+    let tasks = [EntityId::new(), EntityId::new()];
+    for task in tasks {
+        decision.delegated_task_intents.push(DelegationIntent {
+            intent_id: task, goal: "Observe the original file result without repeating its effect".into(),
+            system_prompt: String::new(), model: None, capabilities: vec![], budget_hint: None,
+            reply_grant: None,
+            definition: Some(NativeTaskDefinition {
+                kind: "fixture.e1.file-observation".into(), definition_version: 1,
+                input: json!({"task":task}),
+            }),
+        });
+    }
+    step.decision_ref = Some(source.cas.seal_object(
+        &serde_json::to_vec(&decision)?, "application/json", "test", "StepDecision", 8,
+    )?.object);
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    // Keep the existing fixture's original-row exporter and failure retention.
+    // One receiver applies the dependent while current. The second retains
+    // only the source predecessor until its projection has advanced.
+    let mut stores = Vec::new();
+    for name in ["receiver", "parked", "causal", "diverged"] {
+        let store = Store::open(fixture.data(name).join("shenko.db"), fixture.data(name).join("cas"))?;
+        store.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+        stores.push(store);
+    }
+    let receiver = &stores[0];
+    let stale_receiver = &stores[1];
+    for follower in [receiver, stale_receiver] {
+        follower.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: "source-bound-follower", stamp: None, state: Arc::clone(&state),
+        }))?;
+        assert_ne!(follower.ledger.ledger_id(), source.ledger.ledger_id());
+    }
+    source.commit_step_and_advance_head(&step, &head, next)?;
+    let birth = latest(&state)?;
+    let birth_objects = source.admission_objects(&birth.admission.payload_ref)?;
+    for follower in [receiver, stale_receiver] {
+        assert_eq!(follower.recover_control_admission(
+            &birth, &birth_objects, false,
+        )?, ControlRecoveryOutcome::RecoveredCanonical);
+    }
+    let implementation = ImplementationRef {
+        plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"source-bound observation fixture"),
+        registry_revision: 1,
+    };
+    let mut originals = Vec::new();
+    for task in tasks {
+        let claim = source.claim_native_task(task, implementation.clone(), false)?.context("original claim")?;
+        let grant = latest(&state)?;
+        let grant_objects = source.admission_objects(&grant.admission.payload_ref)?;
+        for follower in [receiver, stale_receiver] {
+            assert_eq!(follower.recover_control_admission(
+                &grant, &grant_objects, false,
+            )?, ControlRecoveryOutcome::RecoveredCanonical);
+        }
+        let (ctx, mut operation, mut attempt) = draft_dispatch_operation(
+            &source, &claim.invocation, "source-bound-original", claim.operation_id,
+        )?;
+        assert!(source.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?.is_none());
+        let arm = latest(&state)?;
+        let arm_objects = source.admission_objects(&arm.admission.payload_ref)?;
+        for follower in [receiver, stale_receiver] {
+            assert_eq!(follower.recover_control_admission(
+                &arm, &arm_objects, false,
+            )?, ControlRecoveryOutcome::RecoveredCanonical);
+        }
+        for store in [source.as_ref(), receiver, stale_receiver] {
+            assert_eq!(store.commit_native_dispatch(&ctx, operation.operation_id, attempt.attempt_id)?,
+                shenko_store::child::NativeDispatchTransition::AlreadyCommitted);
+        }
+        originals.push((operation, attempt));
+    }
+    let (source_armed, source_attempt) = &originals[0];
+    let (dependent_armed, dependent_attempt) = &originals[1];
+    let mut effects = fs::OpenOptions::new().create_new(true).write(true).open(fixture.private().join("effects"))?;
+    effects.write_all(b"original effect\n")?;
+    effects.sync_all()?;
+    let observed = fs::read(fixture.private().join("effects"))?;
+    let raw = source.cas.seal_object(&observed, "text/plain", "native-e1-fixture", "raw", 1)?.object;
+    let normalized = source.cas.seal_object(&serde_json::to_vec(&json!({"observed_bytes":observed}))?,
+        "application/json", "native-e1-fixture", "normalized", 1)?.object;
+    let make_receipt = |operation: &OperationRecord, attempt: &AttemptRecord, event: &str| EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(operation.operation_id),
+        attempt_id: Some(attempt.attempt_id), source_id: "original-file-observer".into(),
+        source_instance_id: "source-bound-fixture".into(), source_event_key: Some(event.into()),
+        producer_epoch: Some(attempt.epoch.0), producer_schema_version: Some("1".into()),
+        raw_ref: raw.clone(), decoder_ref: Some(attempt.implementation_ref.clone()),
+        decode_status: DecodeStatus::Decoded, observation_level: Some(ObservationLevel::PostconditionVerified),
+        normalized_ref: Some(normalized.clone()), observed_at: Some(chrono::Utc::now()),
+        received_commit: attempt.armed_commit,
+    };
+    let original = make_receipt(source_armed, source_attempt, "first-source-observation");
+    let source_head = source.record_external_evidence(
+        source_armed.operation_id, source_attempt.attempt_id, original.clone(),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete,
+    )?;
+    let original = source.external_evidence(original.receipt_id)?;
+    assert_eq!(source_head.record_revision, source_armed.record_revision.next());
+    assert_eq!(source_head.evidence_through, Some(original.received_commit));
+    let dependent = make_receipt(dependent_armed, dependent_attempt, "guarded-source-reuse");
+    let source_reads = [shenko_store::external::ExternalEvidenceSource {
+        operation: source_head.clone(),
+        attempt: source.external_attempt(source_attempt.attempt_id)?,
+        receipts: vec![original.clone()],
+    }];
+    let fold = |revision| shenko_store::external::ExternalEvidenceFold {
+        expected_revision: revision, terminal_content_conflict: false, source_operation: Some(&source_head),
+        source_reads: &source_reads,
+        receipt_scopes: &[],
+    };
+    // The source head alone cannot admit a stale consumer head.
+    assert!(source.record_external_evidence_if_current(
+        dependent_armed.operation_id, dependent_attempt.attempt_id, dependent.clone(),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete, fold(dependent_armed.record_revision.next()),
+    )?.is_none());
+    assert!(source.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+    let connection = rusqlite::Connection::open(fixture.data("source").join("shenko.db"))?;
+    let source_receipt_time = || -> rusqlite::Result<String> {
+        connection.query_row("SELECT created_at FROM evidence_receipts WHERE receipt_id=?1",
+            [original.receipt_id.to_string()], |row| row.get(0))
+    };
+    let original_time = source_receipt_time()?;
+    connection.execute_batch(&format!("CREATE TRIGGER fixture_rewrite_source_receipt AFTER UPDATE ON operations
+        WHEN NEW.operation_id='{}' BEGIN UPDATE evidence_receipts SET created_at='rewritten'
+        WHERE receipt_id='{}'; END;", dependent_armed.operation_id, original.receipt_id))?;
+    assert!(source.record_external_evidence_if_current(
+        dependent_armed.operation_id, dependent_attempt.attempt_id, dependent.clone(),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete, fold(dependent_armed.record_revision),
+    )?.is_none());
+    assert_eq!(source_receipt_time()?, original_time);
+    assert!(source.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+    connection.execute_batch("DROP TRIGGER fixture_rewrite_source_receipt")?;
+    let scopes = [shenko_store::external::ExternalReceiptScope {
+        operation_id: source_armed.operation_id,
+        source_id: "fixture-late-source-receipt",
+    }];
+    let late_receipt_id = EntityId::new();
+    // A new selected receipt at native marker publication invalidates a
+    // decoder's observed absence even when all previously read rows agree.
+    connection.execute_batch(&format!("CREATE TRIGGER fixture_insert_scoped_receipt
+        AFTER INSERT ON native_evidence_materializations WHEN NEW.receipt_id='{}'
+        BEGIN INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq)
+        SELECT '{}',operation_id,json_set(data,'$.receipt_id','{}','$.source_id','fixture-late-source-receipt'),NEW.updated_commit_seq
+        FROM evidence_receipts WHERE receipt_id='{}'; END;",
+        dependent.receipt_id, late_receipt_id, late_receipt_id, original.receipt_id))?;
+    assert!(source.record_external_evidence_if_current(
+        dependent_armed.operation_id, dependent_attempt.attempt_id, dependent.clone(),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete,
+        shenko_store::external::ExternalEvidenceFold { receipt_scopes: &scopes, ..fold(dependent_armed.record_revision) },
+    )?.is_none());
+    assert_eq!(source.external_operation_evidence(source_armed.operation_id)?, vec![original.clone()]);
+    assert!(source.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+    assert_eq!(serde_json::to_value(source.external_operation(dependent_armed.operation_id)?)?,
+        serde_json::to_value(dependent_armed)?);
+    assert_eq!(connection.query_row("SELECT count(*) FROM native_evidence_materializations WHERE receipt_id=?1",
+        [dependent.receipt_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    connection.execute_batch("DROP TRIGGER fixture_insert_scoped_receipt")?;
+    let dependent_head = source.record_external_evidence_if_current(
+        dependent_armed.operation_id, dependent_attempt.attempt_id, dependent.clone(),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete,
+        shenko_store::external::ExternalEvidenceFold { receipt_scopes: &scopes, ..fold(dependent_armed.record_revision) },
+    )?.context("guarded original dependent E1")?;
+    let dependent = source.external_evidence(dependent.receipt_id)?;
+    assert_eq!(dependent_head.record_revision, dependent_armed.record_revision.next());
+    assert_eq!(dependent_head.evidence_through, Some(dependent.received_commit));
+    assert_eq!(serde_json::to_value(source.external_operation(source_armed.operation_id)?)?, serde_json::to_value(&source_head)?);
+    assert_eq!(source.external_evidence(original.receipt_id)?, original);
+    let source_node = shenko::node_sync::open_node(&fixture.data("source"), &source)?;
+    let identity = source_node.local_identity()?.context("original Node identity")?;
+    let descriptor = NativeEvidenceSource {
+        node_id: source_node.local_node_id()?.context("original Node")?, ledger_id: source.ledger.ledger_id(),
+        agent_id: agent, branch_id: EntityId(head.branch_id.0), origin_proof: identity.origin_proof,
+    };
+    let page = source.native_evidence_page(&descriptor, None, 2)?;
+    assert_eq!(page.items.len(), 2);
+    assert!(page.next.is_none());
+    let source_item = page.items.iter().find(|item| item.position.receipt_id == original.receipt_id).context("source E1 item")?;
+    let dependent_item = page.items.iter().find(|item| item.position.receipt_id == dependent.receipt_id).context("dependent E1 item")?;
+    let NativeEvidenceAvailability::Sealed { evidence_ref: source_ref } = &source_item.availability else {
+        anyhow::bail!("original source E1 must be sealed");
+    };
+    let NativeEvidenceAvailability::Sealed { evidence_ref: dependent_ref } = &dependent_item.availability else {
+        anyhow::bail!("guarded original E1 must be sealed");
+    };
+    assert_eq!(dependent_ref.codec.major, 4);
+    let dependent_bytes = source.cas.read_object(&dependent_ref.digest)?;
+    let fact: Value = serde_json::from_slice(&dependent_bytes)?;
+    assert_eq!(fact["schema_version"], 4);
+    assert_eq!(fact["receipt"], serde_json::to_value(&dependent)?);
+    assert_eq!(fact["operation"], serde_json::to_value(&dependent_head)?);
+    assert_eq!(fact["source"]["evidence_ref"], serde_json::to_value(source_ref)?);
+    assert_eq!(fact["source"]["operation"], serde_json::to_value(&source_head)?);
+    assert_eq!(fact["fold"]["expected_revision"], serde_json::to_value(dependent_armed.record_revision)?);
+    assert_eq!(fact["fold"]["source_operation_revision"], serde_json::to_value((source_head.operation_id, source_head.record_revision))?);
+    let source_bytes = source.cas.read_object(&source_ref.digest)?;
+    let source_fact: Value = serde_json::from_slice(&source_bytes)?;
+    assert_eq!(source_fact["receipt"], serde_json::to_value(&original)?);
+    let source_objects = source.native_evidence_objects(source_item)?;
+    let dependent_objects = source.native_evidence_objects(dependent_item)?;
+    for reference in [source_ref, &original.raw_ref, original.normalized_ref.as_ref().context("source normalized")?] {
+        assert!(dependent_objects.iter().any(|object| object.reference.digest == reference.digest));
+    }
+    let dependent_delivery = NativeEvidenceDelivery {
+        source: descriptor.clone(), item: dependent_item.clone(),
+    };
+    let connection = rusqlite::Connection::open(fixture.data("receiver").join("shenko.db"))?;
+    connection.execute_batch("CREATE TRIGGER fixture_ignore_delivery BEFORE INSERT ON native_evidence_deliveries
+        BEGIN SELECT RAISE(IGNORE); END;")?;
+    assert!(receiver.queue_native_evidence_delivery(&dependent_delivery).is_err());
+    assert_eq!(connection.query_row("SELECT count(*) FROM native_evidence_deliveries", [],
+        |row| row.get::<_, i64>(0))?, 0);
+    connection.execute_batch("DROP TRIGGER fixture_ignore_delivery")?;
+    let delivery = receiver.queue_native_evidence_delivery(&dependent_delivery)?;
+    let marker = |id: EntityId| -> Result<Option<Value>> {
+        use rusqlite::OptionalExtension;
+        let raw: Option<String> = connection.query_row(
+            "SELECT data FROM native_evidence_materializations WHERE receipt_id=?1", [id.to_string()], |row| row.get(0),
+        ).optional()?;
+        Ok(raw.map(|raw| serde_json::from_str(&raw)).transpose()?)
+    };
+    // Both real T1s exist. Supplying the complete dependent CAS closure still
+    // cannot synthesize the original source's local E1 materialization.
+    let mut predecessor_reasons = Vec::new();
+    for _ in 0..2 {
+        let NativeEvidenceDeliveryOutcome::ReconciliationRequired { reason, .. } =
+            receiver.receive_native_evidence(delivery.delivery_id, &dependent_objects)? else {
+                anyhow::bail!("CAS closure without actual source E1 custody must retain predecessor debt");
+            };
+        ensure!(!reason.is_empty(), "predecessor debt must retain its reason");
+        predecessor_reasons.push(reason);
+        assert!(marker(original.receipt_id)?.is_none());
+        assert!(marker(dependent.receipt_id)?.is_none());
+        assert!(receiver.external_operation_evidence(source_armed.operation_id)?.is_empty());
+        assert!(receiver.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+        assert_eq!(serde_json::to_value(receiver.external_operation(source_armed.operation_id)?)?, serde_json::to_value(source_armed)?);
+        assert_eq!(serde_json::to_value(receiver.external_operation(dependent_armed.operation_id)?)?, serde_json::to_value(dependent_armed)?);
+        assert!(receiver.native_task_result(tasks[1])?.is_none());
+    }
+    let source_delivery = receiver.queue_native_evidence_delivery(&NativeEvidenceDelivery {
+        source: descriptor.clone(), item: source_item.clone(),
+    })?;
+    let NativeEvidenceDeliveryOutcome::Applied { source_commit, local_commit } =
+        receiver.receive_native_evidence(source_delivery.delivery_id, &source_objects)? else {
+            anyhow::bail!("original source E1 must apply after its real T1");
+        };
+    assert_eq!(source_commit, original.received_commit);
+    assert_eq!(local_commit.ledger_id, receiver.ledger.ledger_id());
+    assert_ne!(source_commit, local_commit);
+    let original_marker = marker(original.receipt_id)?.context("learned source marker")?;
+    let blocked = receiver.native_evidence_delivery(delivery.delivery_id)?.context("blocked delivery")?;
+    connection.execute_batch(&format!("CREATE TRIGGER fixture_rewrite_applied_delivery AFTER INSERT ON commit_log
+        BEGIN UPDATE native_evidence_deliveries SET data=json_set(data,'$.reason','rewritten')
+        WHERE delivery_id='{}' AND state='applied'; END;", delivery.delivery_id))?;
+    assert!(receiver.receive_native_evidence(delivery.delivery_id, &dependent_objects).is_err());
+    connection.execute_batch("DROP TRIGGER fixture_rewrite_applied_delivery")?;
+    assert_eq!(serde_json::to_value(receiver.native_evidence_delivery(delivery.delivery_id)?)?,
+        serde_json::to_value(Some(blocked))?);
+    assert!(marker(dependent.receipt_id)?.is_none());
+    assert!(receiver.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+    let NativeEvidenceDeliveryOutcome::Applied { source_commit, local_commit } =
+        receiver.receive_native_evidence(delivery.delivery_id, &dependent_objects)? else {
+            anyhow::bail!("dependent E1 must apply after actual original source E1");
+        };
+    assert_eq!(source_commit, dependent.received_commit);
+    assert_eq!(local_commit.ledger_id, receiver.ledger.ledger_id());
+    assert_ne!(source_commit, local_commit);
+    let dependent_marker = marker(dependent.receipt_id)?.context("learned dependent marker")?;
+    assert_eq!(dependent_marker["evidence_ref"], serde_json::to_value(dependent_ref)?);
+    assert_eq!(dependent_marker["logical_result"], serde_json::to_value(dependent.received_commit)?);
+    assert_eq!(dependent_marker["committed_at"], serde_json::to_value(local_commit)?);
+    assert_eq!(connection.query_row("SELECT count(*) FROM native_evidence_materializations", [],
+        |row| row.get::<_, i64>(0))?, 2);
+    for store in [source.as_ref(), receiver] {
+        assert_eq!(store.external_evidence(original.receipt_id)?, original);
+        assert_eq!(store.external_evidence(dependent.receipt_id)?, dependent);
+        assert_eq!(store.external_operation_evidence(source_armed.operation_id)?.len(), 1);
+        assert_eq!(store.external_operation_evidence(dependent_armed.operation_id)?.len(), 1);
+        assert_eq!(serde_json::to_value(store.external_operation(source_armed.operation_id)?)?, serde_json::to_value(&source_head)?);
+        assert_eq!(serde_json::to_value(store.external_operation(dependent_armed.operation_id)?)?, serde_json::to_value(&dependent_head)?);
+        assert_eq!(serde_json::to_value(store.external_attempt(source_attempt.attempt_id)?)?,
+            serde_json::to_value(source.external_attempt(source_attempt.attempt_id)?)?);
+        assert_eq!(serde_json::to_value(store.external_attempt(dependent_attempt.attempt_id)?)?,
+            serde_json::to_value(source.external_attempt(dependent_attempt.attempt_id)?)?);
+        assert!(store.native_task_result(tasks[0])?.is_none());
+        assert!(store.native_task_result(tasks[1])?.is_none());
+    }
+    assert!(matches!(receiver.receive_native_evidence(delivery.delivery_id, &dependent_objects)?,
+        NativeEvidenceDeliveryOutcome::AlreadyApplied { source_commit, local_commit: replay_commit }
+            if source_commit == dependent.received_commit && replay_commit == local_commit));
+    assert_eq!(marker(original.receipt_id)?.context("source marker after dependent")?, original_marker);
+    assert_eq!(marker(dependent.receipt_id)?.context("dependent marker after replay")?, dependent_marker);
+    let reopened = Store::open(fixture.data("receiver").join("shenko.db"), fixture.data("receiver").join("cas"))?;
+    assert!(matches!(reopened.receive_native_evidence(delivery.delivery_id, &dependent_objects)?,
+        NativeEvidenceDeliveryOutcome::AlreadyApplied { source_commit, local_commit: replay_commit }
+            if source_commit == dependent.received_commit && replay_commit == local_commit));
+    assert_eq!(reopened.external_evidence(original.receipt_id)?, original);
+    assert_eq!(reopened.external_evidence(dependent.receipt_id)?, dependent);
+    // A genuine later observation advances the source without another effect.
+    // Use the public E1 path on each installation; never forge operation SQL.
+    assert_eq!(fs::read(fixture.private().join("effects"))?, observed);
+    let later = make_receipt(source_armed, source_attempt, "later-file-observation");
+    let later_head = source.record_external_evidence(source_head.operation_id, source_attempt.attempt_id,
+        later, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    assert_eq!(later_head.record_revision, source_head.record_revision.next());
+    let stale = make_receipt(dependent_armed, dependent_attempt, "stale-source-reuse");
+    assert!(source.record_external_evidence_if_current(dependent_head.operation_id, dependent_attempt.attempt_id,
+        stale.clone(), Some(OperationOutcome::Succeeded), EffectStatus::Complete, fold(dependent_head.record_revision))?.is_none());
+    assert_eq!(source.external_operation_evidence(dependent_head.operation_id)?.len(), 1);
+    let history = source.native_evidence_page(&descriptor, None, NATIVE_EVIDENCE_PAGE_ITEMS)?;
+    let historical = history.items.iter().find(|item| item.position.receipt_id == dependent.receipt_id)
+        .context("source advancement discarded the original dependent history")?;
+    assert_eq!(historical, dependent_item);
+    let historical_objects = source.native_evidence_objects(historical)?;
+    let mut transported_dependent = dependent_ref.clone();
+    transported_dependent.locator.clear();
+    assert!(historical_objects.iter().any(|object| object.reference == transported_dependent
+        && object.bytes.as_slice() == dependent_bytes.as_slice()));
+    assert_eq!(historical_objects.len(), dependent_objects.len());
+    for (historical_object, original_object) in historical_objects.iter().zip(&dependent_objects) {
+        assert_eq!(historical_object.reference, original_object.reference);
+        assert_eq!(historical_object.bytes, original_object.bytes);
+    }
+    let local_later = make_receipt(source_armed, source_attempt, "receiver-later-file-observation");
+    let local_source = reopened.record_external_evidence(source_head.operation_id, source_attempt.attempt_id,
+        local_later.clone(), Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    assert_eq!(local_source.record_revision, source_head.record_revision.next());
+    let applied_before = reopened.native_evidence_delivery(delivery.delivery_id)?;
+    for _ in 0..2 {
+        assert!(matches!(reopened.receive_native_evidence(delivery.delivery_id, &dependent_objects)?,
+            NativeEvidenceDeliveryOutcome::AlreadyApplied { source_commit, local_commit: replay_commit }
+                if source_commit == dependent.received_commit && replay_commit == local_commit));
+    }
+    assert_eq!(serde_json::to_value(reopened.native_evidence_delivery(delivery.delivery_id)?)?,
+        serde_json::to_value(applied_before)?);
+    let stale_source_delivery = stale_receiver.queue_native_evidence_delivery(&NativeEvidenceDelivery {
+        source: descriptor.clone(), item: source_item.clone(),
+    })?;
+    assert!(matches!(stale_receiver.receive_native_evidence(stale_source_delivery.delivery_id, &source_objects)?,
+        NativeEvidenceDeliveryOutcome::Applied { .. }));
+    stale_receiver.record_external_evidence(source_head.operation_id, source_attempt.attempt_id,
+        make_receipt(source_armed, source_attempt, "separate-receiver-later-observation"),
+        Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+    let stale_delivery = stale_receiver.queue_native_evidence_delivery(&dependent_delivery)?;
+    assert!(matches!(stale_receiver.receive_native_evidence(stale_delivery.delivery_id, &dependent_objects)?,
+        NativeEvidenceDeliveryOutcome::ReconciliationRequired { .. }));
+    assert!(stale_receiver.external_operation_evidence(dependent_armed.operation_id)?.is_empty());
+    assert!(stale_receiver.native_task_result(tasks[1])?.is_none());
+    assert_eq!(reopened.external_evidence(original.receipt_id)?, original);
+    assert_eq!(reopened.external_evidence(dependent.receipt_id)?, dependent);
+    assert_eq!(serde_json::to_value(reopened.external_operation(source_head.operation_id)?)?, serde_json::to_value(&local_source)?);
+    assert_eq!(serde_json::to_value(reopened.external_operation(dependent_head.operation_id)?)?, serde_json::to_value(&dependent_head)?);
+    assert_eq!(marker(original.receipt_id)?.context("historical source marker")?, original_marker);
+    assert_eq!(marker(dependent.receipt_id)?.context("historical dependent marker")?, dependent_marker);
+    assert_eq!(source.cas.read_object(&dependent_ref.digest)?, dependent_bytes);
+    assert_eq!(source.cas.read_object(&source_ref.digest)?, source_bytes);
+    assert_eq!(fs::read(fixture.private().join("effects"))?, b"original effect\n");
+    append_json(&fixture.logs().join("source-bound-observations.jsonl"), &json!({
+        "source":descriptor, "original_source_receipt":original, "dependent_receipt":dependent,
+        "source_head":source_head, "dependent_head":dependent_head, "dependent_fact":fact,
+        "source_marker":original_marker, "dependent_marker":dependent_marker,
+        "later_source_head":later_head, "later_receiver_source_head":local_source,
+        "predecessor_reasons":predecessor_reasons,
+        "physical_effect_count":1, "chosen_t2_count":0,
+    }))?;
     fixture.capture_originals()?;
     Ok(())
 }
