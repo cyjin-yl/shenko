@@ -234,6 +234,12 @@ after 的 case02、03、07 都记录了 `native_dispatcher` 的
 materialization 各零条；随后 branch-fork 的 `control:7` digest 与该 chosen 记录一致。
 这不是“尚未选择、可以随便重新准备”的普通失败，不能通过重试潜在已发生效果来修复。
 
+[冻结见证与停止后原行的只读比较](daily-readiness-20261122/protocol-after-r1-frozen-subject-comparison.json)
+逐一核对三份原 claim 的两个主键。creator 的完整规范 cell 与 JSON 原文字节仍一致；
+旧分支只有 successor 从 `preparing` 变为 `awaiting_model`、revision 1 变为 2，
+并记录原第二请求的 `active_request_id`。这直接证明捕获后发生了 S0 推进。
+停止后的全表另含恢复分支的新 step；它不是失败瞬间的事务快照，不能排除当时其它瞬时差异。
+
 三例原主体与 broker 已退出，进程又恢复分支并创建新的 main request；两个原 child 仍 pending，
 operation、attempt、task result 均为零。最后请求保持 dispatched、无 terminal，
 provider stream 为 open/0 units；这些字段不证明远端还在计算或已停止。
@@ -242,7 +248,7 @@ provider stream 为 open/0 units；这些字段不证明远端还在计算或已
 所以不能断定取消分支和 SIGINT 哪个先赢。新 driver `21bb24ab` 仅补充发送调用前后
 UTC/monotonic 观测；调用返回仍不等于应用接收，30 秒停止窗口和原失败判据均未改变。
 
-此处的 source-level 根因是 native 物化把另一主体步的 S0 变化纳入完整 `subject_steps` 见证。
+与原错误及保留行变化相符的源码机制是：native 物化把另一主体步的 S0 变化纳入完整 `subject_steps` 见证。
 当前收敛工作需保留原创建 step 的精确条件及当前 successor 的存在/绑定校验，
 并在真实源码、现有恢复测试和完整模型旅程上验证，不能丢弃旧版本的完整见证或改写旧 chosen 事实。
 
