@@ -415,3 +415,56 @@ retains the 19,258,866-byte original job-log hash and GitHub's uploaded artifact
 identity. `c3f7b04c` follows the existing `_signal_result` binding convention
 while still checking its `Result`, context and stop request; it adds no lint
 allowance and changes no gate. The next candidate must obtain its own green CI.
+
+
+## Complete cdf71091 checkpoint
+
+[CI 44947215539](https://github.com/cyjin-yl/shenko/actions/runs/44947215539)
+completed all six regular jobs successfully on exact PR head
+`cdf7109163d2d8b1d63abd81b630dd681d9f6507`. Its synthetic merge checkout was
+`d4da2dcf1f3021b7a03a5a4dd5f9c966ef26d1fb`. The
+[outer-harness audit](daily-readiness-20261122/ci-cdf71091-rust-outer-audit.json)
+records **1240 passed, 0 failed, 11 ignored** across 125 executable and 33 doctest
+targets. The 33 doctest targets contained zero cases. The separate unconfigured
+real-model executable explicitly skipped; 19 nested child-process results are
+retained separately and not added again to the workspace total.
+
+The single explicit [Nightly run 44947707192](https://github.com/cyjin-yl/shenko/actions/runs/44947707192)
+started at 2026-11-21 20:42:34 UTC on that exact source and completed both jobs
+successfully. This is the first complete green Nightly in this development
+sequence; the preceding failures and partial passes remain recorded above.
+
+| Job | Actual result | Retained evidence |
+| --- | --- | --- |
+| [Long Rust 136978567621](https://github.com/cyjin-yl/shenko/actions/runs/44947707192/job/136978567621) | Workspace: 1240 passed, 0 failed, 11 ignored. Separate explicit model skip. | [Summary](daily-readiness-20261122/nightly-cdf71091-rust.json), [outer-harness audit](daily-readiness-20261122/nightly-cdf71091-rust-outer-audit.json) |
+| Explicit partition proof | 1 passed in 1.01 s, all 17 receipt checks passed. Its six child harnesses are not counted again. | [Original stdout receipt](daily-readiness-20261122/nightly-cdf71091-partition-receipt.json.gz), [raw/compressed hashes](daily-readiness-20261122/nightly-cdf71091-partition-integrity.json) |
+| Explicit native SSH helper proofs | Lost-reply recovery: 1 passed in 2.05 s. Wrong host-pin/helper refusal: 1 passed in 0.91 s. | Original commands, outer results and exact source recorded in the Rust summary. |
+| [Complete compiler 136978567938](https://github.com/cyjin-yl/shenko/actions/runs/44947707192/job/136978567938) | 183 suites passed, 0 failed, 2 skipped; 2913 tests passed, 0 failed, 9 skipped; 840.18 s. | [Compiler summary and browser receipt](daily-readiness-20261122/nightly-cdf71091-compiler.json) |
+
+The compiler executed the pinned Proto-UI source
+`795b1b4958333cf904547e484acb4de9d4b3ee80`; its focused scrolling fixture
+passed all 28 tests. The actual environment was hosted Ubuntu 24 image
+`20261116.376.1`, UID 1001, Node 24.22.1, Playwright 1.58.2 and Chromium
+157.0.8103.78. The recorded launch used `chromiumSandbox: true`; Chromium's
+namespace, PID namespace, network namespace, seccomp and TSYNC diagnostics
+all reported active. These are observed sandbox conditions, not merely
+the requested workflow configuration.
+
+The downloaded compiler artifact `14725145846` is 1,152,542 bytes, with
+independently recomputed ZIP SHA-256
+`f2631c2791357ee073e197cee54b30ff0f9ae4b82cc48cb471ea5b2936252158`.
+The 2,298,663-byte original compiler log has SHA-256
+`1e06b38ed02ccde8d8ecdf42571b0ae11810dfce6bff5cb6621cc93c78457113`.
+The 695,636-byte original long-Rust log has SHA-256
+`f1713da8db4c3bd80c116848e8abd48f15cf68f2d791cb4960f34ae7b76f0bec`.
+The native artifact `14725047106` is 1,109,823,006 bytes; GitHub metadata
+and the original upload log agree on SHA-256
+`0afc42fd115a394812cde722cb59f3eb2a5e4b46583730d2fb3fa55c7abf292d`.
+That larger ZIP was not downloaded and independently rehashed.
+
+This closes the observed environment and full-regression gap for `cdf71091`.
+Its separately retained [actual browser/model batch](daily-readiness-20261122.md#cdf71091-的三次完整旅程尝试03)
+still failed **0/3**: native arm and settlement encountered unrelated-table
+witness conflicts. No successful full task, restart or clean-shutdown result
+is inferred from green CI. Subsequent product changes must obtain their own
+regression and real-model receipts before the PR is made ready.

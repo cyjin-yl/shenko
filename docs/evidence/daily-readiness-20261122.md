@@ -307,8 +307,13 @@ follower 的时间列被 `INSERT OR REPLACE` 默认值改写，其余规范列�
 
 `cdf71091` release 于 2026-11-21 20:39:11–20:46:55 UTC 实际构建成功。
 完整 Nightly [44947707192](https://github.com/cyjin-yl/shenko/actions/runs/44947707192)
-的编译器 job 已通过，长 Rust job 仍在运行；常规
+的编译器与长 Rust job 均已通过；常规
 [CI 44947215539](https://github.com/cyjin-yl/shenko/actions/runs/44947215539) 六项已全部成功。
+这两个运行各自的 Rust 外层汇总均为 1240 passed / 0 failed / 11 ignored，
+另有未配置真实模型的显式 skip，不把 19 个嵌套子进程结果重复计入分母。
+完整编译器为 183 个套件通过、零失败、2 个跳过；测试用例为 2913 通过、零失败、9 个跳过。
+[完整 Nightly 回执与范围](nightly-environment-20261122.md#complete-cdf71091-checkpoint)
+还保留了实际 Chromium sandbox 与三个额外恢复证明；它们不替代下面失败的真实模型旅程。
 
 ### `cdf71091` 的三次完整旅程尝试：0/3
 
