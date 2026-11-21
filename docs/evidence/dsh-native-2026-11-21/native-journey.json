@@ -1,0 +1,2069 @@
+{
+  "config_sha256": "e6bb88a7c0b3f70b183bd014457d5f265f72f7eedaa7e2d26fe2587a803aaa81",
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tool-executor-native": "0.2.2-rc.5",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.5",
+    "@modelcontextprotocol/sdk": "1.32.2"
+  },
+  "effect_witness": "add\neffect-before-timeout\ndisposed\ndisposed\n",
+  "first_generation": {
+    "add": {
+      "call_id": "10828649-cf67-44b5-b330-f2ad432d91f4",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 654,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "kind": "cas_object",
+          "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "_meta": {
+                "shenko.dsh": {}
+              },
+              "content": [
+                {
+                  "text": "42",
+                  "type": "text"
+                }
+              ],
+              "isError": false,
+              "structuredContent": {
+                "value": 42
+              }
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4"
+    },
+    "list": {
+      "call_id": "acbc4a22-5789-49b4-84c1-12d562eab5bd",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 1142,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/12/5b/125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "29f367ad-b170-d66e-e48a-224d54dce0a6",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "kind": "cas_object",
+          "reference": "operation:29f367ad-b170-d66e-e48a-224d54dce0a6"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "tools": [
+                {
+                  "description": "Add two integers and retain an independent dispatch witness.",
+                  "inputSchema": {
+                    "properties": {
+                      "a": {
+                        "type": "integer"
+                      },
+                      "b": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "object"
+                  },
+                  "name": "add",
+                  "outputSchema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "value": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                {
+                  "description": "Record an effect, then wait until the owner cancels.",
+                  "inputSchema": {
+                    "properties": {},
+                    "type": "object"
+                  },
+                  "name": "uncertain",
+                  "outputSchema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                }
+              ]
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 1142,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/12/5b/125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "acbc4a22-5789-49b4-84c1-12d562eab5bd"
+    },
+    "success_durable": {
+      "attempts": [
+        {
+          "armed_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 8
+          },
+          "attempt_id": "44d0762a-c6d3-44eb-a9ca-f129af3282fe",
+          "attempt_no": 1,
+          "dispatch_stage": "ended",
+          "epoch": 1,
+          "final_receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+          "implementation_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "invocation_id": "f2ec65aa-e50d-27f6-208d-19ed9e74b58f",
+          "last_observed_at": "2026-11-20T21:55:15.416138689Z",
+          "node_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+          "provider_handle": null,
+          "provider_idempotency": null,
+          "record_schema_version": 1,
+          "started_at": null,
+          "transport_ref": null,
+          "worker_id": "7c866448-b611-488c-aa30-f074d2be9854"
+        }
+      ],
+      "normalized": {
+        "learning_source": {
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "kind": "cas_object",
+          "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "_meta": {
+                "shenko.dsh": {}
+              },
+              "content": [
+                {
+                  "text": "42",
+                  "type": "text"
+                }
+              ],
+              "isError": false,
+              "structuredContent": {
+                "value": 42
+              }
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "operation": {
+        "acceptance_predicate_ref": {
+          "bytes": 105,
+          "codec": {
+            "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482",
+            "major": 1,
+            "name": "compat-acceptance"
+          },
+          "digest": "blake3:9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/9a/7a/9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "authority_ref": {
+          "decision_ref": "15a7df0e-ac7b-4578-a444-fa0dfe5a51f4",
+          "delegation_id": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+          "delegation_revision": 0
+        },
+        "checkpoint_scope_ref": null,
+        "compensates": null,
+        "contract_ref": {
+          "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "contract_digest": "blake3:3e8e323a28e17ea4048440eeaebf03840bb28961497a95f6dc1e65b48e8d9a1f",
+          "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+          "receipt_reader_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          }
+        },
+        "effect_status": "complete",
+        "evidence_through": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 9
+        },
+        "final_input_ref": {
+          "bytes": 315,
+          "codec": {
+            "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce",
+            "major": 1,
+            "name": "compat-frozen-input"
+          },
+          "digest": "blake3:e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/e5/ff/e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "input_digest": "blake3:e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+        "input_schema_version": 1,
+        "logical_key": "native-handler",
+        "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+        "operation_name": "compat.mcp.request",
+        "outcome": "succeeded",
+        "outcome_conflict": false,
+        "output_schema_version": 1,
+        "possible_duplicate_of": [],
+        "prepared_commit": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 8
+        },
+        "record_revision": 1,
+        "record_schema_version": 1,
+        "resource_bindings_ref": {
+          "bytes": 394,
+          "codec": {
+            "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44",
+            "major": 1,
+            "name": "compat-bindings"
+          },
+          "digest": "blake3:113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/11/3c/113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_contract_ref": {
+          "bytes": 94,
+          "codec": {
+            "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2",
+            "major": 1,
+            "name": "compat-retry"
+          },
+          "digest": "blake3:c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/c3/0a/c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_of": null,
+        "state": "resolved",
+        "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4"
+      },
+      "raw": {
+        "effect_scope": "protocol_exchange",
+        "protocol": {
+          "result": {
+            "_meta": {
+              "shenko.dsh": {}
+            },
+            "content": [
+              {
+                "text": "42",
+                "type": "text"
+              }
+            ],
+            "isError": false,
+            "structuredContent": {
+              "value": 42
+            }
+          },
+          "server": {
+            "capabilities": {
+              "tools": {
+                "listChanged": true
+              }
+            },
+            "protocolVersion": "2025-11-25",
+            "serverInfo": {
+              "name": "shenko-dsh-tools",
+              "version": "0.1.0"
+            }
+          },
+          "status": "received"
+        },
+        "remote_business_effect_status": "not_independently_verified",
+        "remote_business_success_proven": false,
+        "source": {
+          "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "unit_id": "dsh.native-journey"
+        }
+      },
+      "receipts": [
+        {
+          "attempt_id": "44d0762a-c6d3-44eb-a9ca-f129af3282fe",
+          "decode_status": "decoded",
+          "decoder_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "normalized_ref": {
+            "bytes": 1342,
+            "codec": {
+              "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5",
+              "major": 1,
+              "name": "compat-result"
+            },
+            "digest": "blake3:93a59c286e91fe7e5dcd55eb0b543fe68d2a509a556b1d5f5de478256ed5460e",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/93/a5/93a59c286e91fe7e5dcd55eb0b543fe68d2a509a556b1d5f5de478256ed5460e",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "observation_level": "remote_completed",
+          "observed_at": "2026-11-20T21:55:15.415353396Z",
+          "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+          "producer_epoch": 1,
+          "producer_schema_version": "1",
+          "raw_ref": {
+            "bytes": 654,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+          "received_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 9
+          },
+          "record_schema_version": 1,
+          "source_event_key": null,
+          "source_id": "compat.mcp.request",
+          "source_instance_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18"
+        }
+      ],
+      "task_result": {
+        "commit_ref": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 10
+        },
+        "evidence_ref": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "invocation_id": "f2ec65aa-e50d-27f6-208d-19ed9e74b58f",
+        "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+        "outcome": "succeeded",
+        "receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+        "result": {
+          "learning_source": {
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "kind": "cas_object",
+            "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+          },
+          "observation": {
+            "effect_scope": "protocol_exchange",
+            "protocol": {
+              "result": {
+                "_meta": {
+                  "shenko.dsh": {}
+                },
+                "content": [
+                  {
+                    "text": "42",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "structuredContent": {
+                  "value": 42
+                }
+              },
+              "server": {
+                "capabilities": {
+                  "tools": {
+                    "listChanged": true
+                  }
+                },
+                "protocolVersion": "2025-11-25",
+                "serverInfo": {
+                  "name": "shenko-dsh-tools",
+                  "version": "0.1.0"
+                }
+              },
+              "status": "received"
+            },
+            "remote_business_effect_status": "not_independently_verified",
+            "remote_business_success_proven": false,
+            "source": {
+              "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+              "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+              "unit_id": "dsh.native-journey"
+            }
+          },
+          "source_receipt": {
+            "bytes": 654,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          }
+        },
+        "result_id": "69ab6493-8d9c-33c0-6d24-cb97a1a5121d",
+        "schema_version": 1,
+        "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4",
+        "task_record_revision": 3,
+        "task_revision": 0
+      }
+    },
+    "unknown": {
+      "call_id": "589f150c-58d2-4a29-9181-54d518ee7b3e",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 579,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+      "outcome": "unknown",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "kind": "cas_object",
+          "reference": "operation:65385d81-ca9f-4790-ca8f-6b41025995db"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "reason": "protocol_or_transport_completion_unknown",
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "unknown"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 579,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "589f150c-58d2-4a29-9181-54d518ee7b3e"
+    },
+    "unknown_durable": {
+      "attempts": [
+        {
+          "armed_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 12
+          },
+          "attempt_id": "05c46f61-4a2f-43d1-80c9-4a88a26f464d",
+          "attempt_no": 1,
+          "dispatch_stage": "unknown",
+          "epoch": 1,
+          "final_receipt_id": "8f34b2bf-33e0-41ea-bc39-084fddaf8a0c",
+          "implementation_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "invocation_id": "b64cc58d-4b87-97b2-d37a-eaf66032de15",
+          "last_observed_at": "2026-11-20T21:55:18.444386865Z",
+          "node_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+          "provider_handle": null,
+          "provider_idempotency": null,
+          "record_schema_version": 1,
+          "started_at": null,
+          "transport_ref": null,
+          "worker_id": "7c866448-b611-488c-aa30-f074d2be9854"
+        }
+      ],
+      "normalized": {
+        "learning_source": {
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "kind": "cas_object",
+          "reference": "operation:65385d81-ca9f-4790-ca8f-6b41025995db"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "reason": "protocol_or_transport_completion_unknown",
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "unknown"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 579,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "operation": {
+        "acceptance_predicate_ref": {
+          "bytes": 105,
+          "codec": {
+            "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482",
+            "major": 1,
+            "name": "compat-acceptance"
+          },
+          "digest": "blake3:9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/9a/7a/9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "authority_ref": {
+          "decision_ref": "15a7df0e-ac7b-4578-a444-fa0dfe5a51f4",
+          "delegation_id": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+          "delegation_revision": 0
+        },
+        "checkpoint_scope_ref": null,
+        "compensates": null,
+        "contract_ref": {
+          "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "contract_digest": "blake3:3e8e323a28e17ea4048440eeaebf03840bb28961497a95f6dc1e65b48e8d9a1f",
+          "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+          "receipt_reader_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          }
+        },
+        "effect_status": "unknown",
+        "evidence_through": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 13
+        },
+        "final_input_ref": {
+          "bytes": 308,
+          "codec": {
+            "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce",
+            "major": 1,
+            "name": "compat-frozen-input"
+          },
+          "digest": "blake3:0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/0d/9b/0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "input_digest": "blake3:0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+        "input_schema_version": 1,
+        "logical_key": "native-handler",
+        "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+        "operation_name": "compat.mcp.request",
+        "outcome": null,
+        "outcome_conflict": false,
+        "output_schema_version": 1,
+        "possible_duplicate_of": [],
+        "prepared_commit": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 12
+        },
+        "record_revision": 1,
+        "record_schema_version": 1,
+        "resource_bindings_ref": {
+          "bytes": 394,
+          "codec": {
+            "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44",
+            "major": 1,
+            "name": "compat-bindings"
+          },
+          "digest": "blake3:113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/11/3c/113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_contract_ref": {
+          "bytes": 94,
+          "codec": {
+            "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2",
+            "major": 1,
+            "name": "compat-retry"
+          },
+          "digest": "blake3:c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/c3/0a/c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_of": null,
+        "state": "reconciling",
+        "task_id": "589f150c-58d2-4a29-9181-54d518ee7b3e"
+      },
+      "raw": {
+        "effect_scope": "protocol_exchange",
+        "protocol": {
+          "reason": "protocol_or_transport_completion_unknown",
+          "server": {
+            "capabilities": {
+              "tools": {
+                "listChanged": true
+              }
+            },
+            "protocolVersion": "2025-11-25",
+            "serverInfo": {
+              "name": "shenko-dsh-tools",
+              "version": "0.1.0"
+            }
+          },
+          "status": "unknown"
+        },
+        "remote_business_effect_status": "not_independently_verified",
+        "remote_business_success_proven": false,
+        "source": {
+          "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "unit_id": "dsh.native-journey"
+        }
+      },
+      "receipts": [
+        {
+          "attempt_id": "05c46f61-4a2f-43d1-80c9-4a88a26f464d",
+          "decode_status": "decoded",
+          "decoder_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "normalized_ref": {
+            "bytes": 1267,
+            "codec": {
+              "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5",
+              "major": 1,
+              "name": "compat-result"
+            },
+            "digest": "blake3:6c30b09447af0458a12fbca0c13804e8dcd009675f3db2ab76ca77babd1e13b7",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/6c/30/6c30b09447af0458a12fbca0c13804e8dcd009675f3db2ab76ca77babd1e13b7",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "observation_level": null,
+          "observed_at": "2026-11-20T21:55:18.443468301Z",
+          "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+          "producer_epoch": 1,
+          "producer_schema_version": "1",
+          "raw_ref": {
+            "bytes": 579,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "receipt_id": "8f34b2bf-33e0-41ea-bc39-084fddaf8a0c",
+          "received_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 13
+          },
+          "record_schema_version": 1,
+          "source_event_key": null,
+          "source_id": "compat.mcp.request",
+          "source_instance_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18"
+        }
+      ],
+      "task_result": null
+    }
+  },
+  "native_artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+  "node": {
+    "execPath": "/__t/node/24.22.1/x64/bin/node",
+    "version": "v24.22.1"
+  },
+  "owned_processes_joined": [
+    21243,
+    21256
+  ],
+  "process_witness_wrapper_sha256": "fbdc68733267edfc59b109896999d2005fbb470e8964106a8e8e5ccc0bb81aa4",
+  "profile": {
+    "connection": {
+      "args": [
+        "/__w/shenko/shenko/adapters/dsh/src/cli.mjs",
+        "serve",
+        "/__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/bridge.json",
+        "--sha256",
+        "e6bb88a7c0b3f70b183bd014457d5f265f72f7eedaa7e2d26fe2587a803aaa81"
+      ],
+      "cwd": null,
+      "env_refs": {},
+      "program": "/__t/node/24.22.1/x64/bin/node",
+      "transport": "stdio"
+    },
+    "description": "DSH tool bridge: native-witness (standalone tools only)",
+    "provenance_refs": [
+      "https://github.com/deepseek-ai/deepseek-harness/tree/2e39e70496aa02986ca6a820c5d497e816b69d7e",
+      "urn:sha256:e6bb88a7c0b3f70b183bd014457d5f265f72f7eedaa7e2d26fe2587a803aaa81"
+    ]
+  },
+  "reopened_generation": {
+    "adapter_disabled": {
+      "call_id": "c4305f4a-75d7-4b28-b4eb-86046a063a4d",
+      "definition_version": 1,
+      "evidence_ref": null,
+      "kind": "compat.mcp.request",
+      "operation_id": "00000000-0000-0000-0000-000000000000",
+      "outcome": "unavailable",
+      "result": {
+        "definition_version": 1,
+        "kind": "compat.mcp.request",
+        "reason": "no registered native definition for this tool"
+      },
+      "task_id": "c4305f4a-75d7-4b28-b4eb-86046a063a4d"
+    },
+    "add": {
+      "call_id": "10828649-cf67-44b5-b330-f2ad432d91f4",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 654,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "kind": "cas_object",
+          "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "_meta": {
+                "shenko.dsh": {}
+              },
+              "content": [
+                {
+                  "text": "42",
+                  "type": "text"
+                }
+              ],
+              "isError": false,
+              "structuredContent": {
+                "value": 42
+              }
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4"
+    },
+    "connection_disabled": {
+      "call_id": "f50098eb-4470-4618-b2fb-7188a3703da7",
+      "definition_version": 1,
+      "evidence_ref": null,
+      "kind": "compat.mcp.request",
+      "operation_id": "00000000-0000-0000-0000-000000000000",
+      "outcome": "failed",
+      "result": {
+        "kind": "compat.mcp.request",
+        "reason": "tool handler failed: external unit is not the current enabled version"
+      },
+      "task_id": "f50098eb-4470-4618-b2fb-7188a3703da7"
+    },
+    "connection_fact": {
+      "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+      "artifact_source": {
+        "source": "inline"
+      },
+      "current": true,
+      "descriptor": {
+        "applicability": null,
+        "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+        "config": {
+          "cognition": {
+            "applicability": null,
+            "capability_card": "DSH tool bridge: native-witness (standalone tools only)",
+            "cues": [],
+            "knowledge": [],
+            "learning": null,
+            "negative_cues": [],
+            "provenance_refs": [
+              "https://github.com/deepseek-ai/deepseek-harness/tree/2e39e70496aa02986ca6a820c5d497e816b69d7e",
+              "urn:sha256:e6bb88a7c0b3f70b183bd014457d5f265f72f7eedaa7e2d26fe2587a803aaa81"
+            ],
+            "supersedes": [],
+            "title": "dsh.native-journey",
+            "why": null
+          },
+          "compat": {
+            "format": "mcp-connection",
+            "schema_version": 1
+          }
+        },
+        "dependencies": [
+          {
+            "edge_id": "compatibility-plugin",
+            "purpose": "Separately installed compatibility plugin; not the third-party implementation",
+            "selector": {
+              "artifact_digest": "blake3:7a4a03603a001d0ca98f360d3683d8dda51e891a2ef6940e23aec36cfe77a8c9",
+              "match": "exact",
+              "revision_requirement": "1",
+              "unit_id": "compat.mcp"
+            },
+            "strength": "required"
+          }
+        ],
+        "kind": "code",
+        "provides": [
+          "mcp:dsh.native-journey"
+        ],
+        "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+        "unit_id": "dsh.native-journey"
+      },
+      "edges": [
+        {
+          "edge_id": "compatibility-plugin",
+          "reason": "resolved to unit compat.mcp revision 1",
+          "selected_artifact_digest": "blake3:7a4a03603a001d0ca98f360d3683d8dda51e891a2ef6940e23aec36cfe77a8c9",
+          "selected_revision": "1",
+          "selected_unit_id": "compat.mcp",
+          "selector": {
+            "artifact_digest": "blake3:7a4a03603a001d0ca98f360d3683d8dda51e891a2ef6940e23aec36cfe77a8c9",
+            "match": "exact",
+            "revision_requirement": "1",
+            "unit_id": "compat.mcp"
+          },
+          "status": "satisfied",
+          "strength": "required"
+        }
+      ],
+      "enabled": false,
+      "imported_at": "2026-11-20T21:55:14.735709295+00:00",
+      "kind": "code",
+      "materialization": {
+        "detail": "",
+        "path": "/__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/units/units/dsh.native-journey/85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89/blake3_85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89.11be5986/package.bin",
+        "root": "/__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/units",
+        "state": "materialized"
+      },
+      "origin_node": null,
+      "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+      "superseded_by": [],
+      "supersedes": [],
+      "unit_id": "dsh.native-journey"
+    },
+    "explicit_list": {
+      "call_id": "915a0a04-5f1a-4b70-93ac-0dd38152bb62",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 1142,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/12/5b/125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "3f98773c-3011-f4dd-a395-a5137557ca7d",
+      "outcome": "succeeded",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "kind": "cas_object",
+          "reference": "operation:3f98773c-3011-f4dd-a395-a5137557ca7d"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "tools": [
+                {
+                  "description": "Add two integers and retain an independent dispatch witness.",
+                  "inputSchema": {
+                    "properties": {
+                      "a": {
+                        "type": "integer"
+                      },
+                      "b": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "object"
+                  },
+                  "name": "add",
+                  "outputSchema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "value": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                {
+                  "description": "Record an effect, then wait until the owner cancels.",
+                  "inputSchema": {
+                    "properties": {},
+                    "type": "object"
+                  },
+                  "name": "uncertain",
+                  "outputSchema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                }
+              ]
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 1142,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/12/5b/125b054911c6c2d2fed8051d4250877d7c95f5a642e66991b95d411352d8ffa2",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "915a0a04-5f1a-4b70-93ac-0dd38152bb62"
+    },
+    "recovery_task_after_shutdown": {
+      "agent_id": "b1079123-341e-4835-b563-b828ae123c69",
+      "background": false,
+      "conversation_id": "b1079123-341e-4835-b563-b828ae123c69",
+      "created_commit": {
+        "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+        "seq": 11
+      },
+      "definition_version": 1,
+      "dispatch_eligibility": {
+        "reason_ref": "589f150c-58d2-4a29-9181-54d518ee7b3e",
+        "status": "parked",
+        "until_utc": "2026-11-20T21:55:19.604118046Z"
+      },
+      "first_run_at": "2026-11-20T21:55:15.422006025Z",
+      "implementation_ref": {
+        "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+        "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+        "registry_revision": 1
+      },
+      "input_ref": {
+        "bytes": 308,
+        "codec": {
+          "digest": "blake3:473805d83f1d6b9559d020a1f6199a5f37b1ef7e4f2480451a459b5bc73615b1",
+          "major": 1,
+          "name": "model-child-tool-input"
+        },
+        "digest": "blake3:a601c5c37b3b44865df43d2cb61d5ccaffac4a4505e2df5c5e6aa3120e214d25",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/a6/01/a601c5c37b3b44865df43d2cb61d5ccaffac4a4505e2df5c5e6aa3120e214d25",
+        "media_type": "application/json",
+        "store_namespace": "model-child-tool"
+      },
+      "kind": "compat.mcp.request",
+      "memos": {
+        "child_tool_parent": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+        "external:last_operation": {
+          "attempt_id": "05c46f61-4a2f-43d1-80c9-4a88a26f464d",
+          "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db"
+        },
+        "native_child": true,
+        "native_diagnostic": {
+          "detail": "original armed operation has no conclusive outcome; no replay",
+          "reason": "reconciling"
+        },
+        "native_execution_assignment": {
+          "assigned_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 11
+          },
+          "epoch": 1,
+          "implementation_ref": {
+            "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+            "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+            "registry_revision": 1
+          },
+          "invocation_id": "b64cc58d-4b87-97b2-d37a-eaf66032de15",
+          "node_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "worker_id": "7c866448-b611-488c-aa30-f074d2be9854"
+        },
+        "native_implementation_artifact": {
+          "bytes": 72358496,
+          "codec": {
+            "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+            "major": 1,
+            "name": "native-executable"
+          },
+          "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "locator": "native:executable/blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "media_type": "application/octet-stream",
+          "store_namespace": "native-implementation"
+        },
+        "native_input": "object",
+        "native_operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+        "native_park": "reconciling",
+        "native_recovery": true,
+        "native_result_id": "f8c6d74a-d14d-5f7e-74ff-b7aa61b2d6b3",
+        "subject_branch_id": "7c94062e-a99a-4169-8302-13c5428e7aa0"
+      },
+      "no_progress_crashes": 0,
+      "owner": {
+        "id": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+        "kind": "task"
+      },
+      "record_revision": 4,
+      "record_schema_version": 1,
+      "state": {
+        "checkpoint_ref": null,
+        "status": "pending"
+      },
+      "task_id": "589f150c-58d2-4a29-9181-54d518ee7b3e",
+      "task_revision": 0,
+      "updated_commit": {
+        "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+        "seq": 18
+      }
+    },
+    "success_durable": {
+      "attempts": [
+        {
+          "armed_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 8
+          },
+          "attempt_id": "44d0762a-c6d3-44eb-a9ca-f129af3282fe",
+          "attempt_no": 1,
+          "dispatch_stage": "ended",
+          "epoch": 1,
+          "final_receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+          "implementation_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "invocation_id": "f2ec65aa-e50d-27f6-208d-19ed9e74b58f",
+          "last_observed_at": "2026-11-20T21:55:15.416138689Z",
+          "node_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+          "provider_handle": null,
+          "provider_idempotency": null,
+          "record_schema_version": 1,
+          "started_at": null,
+          "transport_ref": null,
+          "worker_id": "7c866448-b611-488c-aa30-f074d2be9854"
+        }
+      ],
+      "normalized": {
+        "learning_source": {
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "kind": "cas_object",
+          "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "result": {
+              "_meta": {
+                "shenko.dsh": {}
+              },
+              "content": [
+                {
+                  "text": "42",
+                  "type": "text"
+                }
+              ],
+              "isError": false,
+              "structuredContent": {
+                "value": 42
+              }
+            },
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "received"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "operation": {
+        "acceptance_predicate_ref": {
+          "bytes": 105,
+          "codec": {
+            "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482",
+            "major": 1,
+            "name": "compat-acceptance"
+          },
+          "digest": "blake3:9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/9a/7a/9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "authority_ref": {
+          "decision_ref": "15a7df0e-ac7b-4578-a444-fa0dfe5a51f4",
+          "delegation_id": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+          "delegation_revision": 0
+        },
+        "checkpoint_scope_ref": null,
+        "compensates": null,
+        "contract_ref": {
+          "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "contract_digest": "blake3:3e8e323a28e17ea4048440eeaebf03840bb28961497a95f6dc1e65b48e8d9a1f",
+          "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+          "receipt_reader_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          }
+        },
+        "effect_status": "complete",
+        "evidence_through": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 9
+        },
+        "final_input_ref": {
+          "bytes": 315,
+          "codec": {
+            "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce",
+            "major": 1,
+            "name": "compat-frozen-input"
+          },
+          "digest": "blake3:e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/e5/ff/e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "input_digest": "blake3:e5ff022cbdc167620a3c54e393f6dd27da08da8dee84295a24a3ef976d95da1f",
+        "input_schema_version": 1,
+        "logical_key": "native-handler",
+        "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+        "operation_name": "compat.mcp.request",
+        "outcome": "succeeded",
+        "outcome_conflict": false,
+        "output_schema_version": 1,
+        "possible_duplicate_of": [],
+        "prepared_commit": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 8
+        },
+        "record_revision": 1,
+        "record_schema_version": 1,
+        "resource_bindings_ref": {
+          "bytes": 394,
+          "codec": {
+            "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44",
+            "major": 1,
+            "name": "compat-bindings"
+          },
+          "digest": "blake3:113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/11/3c/113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_contract_ref": {
+          "bytes": 94,
+          "codec": {
+            "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2",
+            "major": 1,
+            "name": "compat-retry"
+          },
+          "digest": "blake3:c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/c3/0a/c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_of": null,
+        "state": "resolved",
+        "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4"
+      },
+      "raw": {
+        "effect_scope": "protocol_exchange",
+        "protocol": {
+          "result": {
+            "_meta": {
+              "shenko.dsh": {}
+            },
+            "content": [
+              {
+                "text": "42",
+                "type": "text"
+              }
+            ],
+            "isError": false,
+            "structuredContent": {
+              "value": 42
+            }
+          },
+          "server": {
+            "capabilities": {
+              "tools": {
+                "listChanged": true
+              }
+            },
+            "protocolVersion": "2025-11-25",
+            "serverInfo": {
+              "name": "shenko-dsh-tools",
+              "version": "0.1.0"
+            }
+          },
+          "status": "received"
+        },
+        "remote_business_effect_status": "not_independently_verified",
+        "remote_business_success_proven": false,
+        "source": {
+          "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "unit_id": "dsh.native-journey"
+        }
+      },
+      "receipts": [
+        {
+          "attempt_id": "44d0762a-c6d3-44eb-a9ca-f129af3282fe",
+          "decode_status": "decoded",
+          "decoder_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "normalized_ref": {
+            "bytes": 1342,
+            "codec": {
+              "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5",
+              "major": 1,
+              "name": "compat-result"
+            },
+            "digest": "blake3:93a59c286e91fe7e5dcd55eb0b543fe68d2a509a556b1d5f5de478256ed5460e",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/93/a5/93a59c286e91fe7e5dcd55eb0b543fe68d2a509a556b1d5f5de478256ed5460e",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "observation_level": "remote_completed",
+          "observed_at": "2026-11-20T21:55:15.415353396Z",
+          "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+          "producer_epoch": 1,
+          "producer_schema_version": "1",
+          "raw_ref": {
+            "bytes": 654,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+          "received_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 9
+          },
+          "record_schema_version": 1,
+          "source_event_key": null,
+          "source_id": "compat.mcp.request",
+          "source_instance_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18"
+        }
+      ],
+      "task_result": {
+        "commit_ref": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 10
+        },
+        "evidence_ref": {
+          "bytes": 654,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "invocation_id": "f2ec65aa-e50d-27f6-208d-19ed9e74b58f",
+        "operation_id": "c199f60f-a0ff-3e8a-88fb-ef08cb544b5c",
+        "outcome": "succeeded",
+        "receipt_id": "c474d090-f6e5-4ce9-bec9-7a6318543630",
+        "result": {
+          "learning_source": {
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "kind": "cas_object",
+            "reference": "operation:c199f60f-a0ff-3e8a-88fb-ef08cb544b5c"
+          },
+          "observation": {
+            "effect_scope": "protocol_exchange",
+            "protocol": {
+              "result": {
+                "_meta": {
+                  "shenko.dsh": {}
+                },
+                "content": [
+                  {
+                    "text": "42",
+                    "type": "text"
+                  }
+                ],
+                "isError": false,
+                "structuredContent": {
+                  "value": 42
+                }
+              },
+              "server": {
+                "capabilities": {
+                  "tools": {
+                    "listChanged": true
+                  }
+                },
+                "protocolVersion": "2025-11-25",
+                "serverInfo": {
+                  "name": "shenko-dsh-tools",
+                  "version": "0.1.0"
+                }
+              },
+              "status": "received"
+            },
+            "remote_business_effect_status": "not_independently_verified",
+            "remote_business_success_proven": false,
+            "source": {
+              "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+              "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+              "unit_id": "dsh.native-journey"
+            }
+          },
+          "source_receipt": {
+            "bytes": 654,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/f1/fa/f1fab63e39d74b821e0ea6a8624a5b529d3a0c427e178935bff8a72dda845d78",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          }
+        },
+        "result_id": "69ab6493-8d9c-33c0-6d24-cb97a1a5121d",
+        "schema_version": 1,
+        "task_id": "10828649-cf67-44b5-b330-f2ad432d91f4",
+        "task_record_revision": 3,
+        "task_revision": 0
+      }
+    },
+    "unknown": {
+      "call_id": "589f150c-58d2-4a29-9181-54d518ee7b3e",
+      "definition_version": 1,
+      "evidence_ref": {
+        "bytes": 579,
+        "codec": {
+          "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+          "major": 1,
+          "name": "compat-observation"
+        },
+        "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+        "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+        "media_type": "application/json",
+        "store_namespace": "ecosystem-compat"
+      },
+      "kind": "compat.mcp.request",
+      "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+      "outcome": "unknown",
+      "result": {
+        "learning_source": {
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "kind": "cas_object",
+          "reference": "operation:65385d81-ca9f-4790-ca8f-6b41025995db"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "reason": "protocol_or_transport_completion_unknown",
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "unknown"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 579,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "task_id": "589f150c-58d2-4a29-9181-54d518ee7b3e"
+    },
+    "unknown_durable": {
+      "attempts": [
+        {
+          "armed_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 12
+          },
+          "attempt_id": "05c46f61-4a2f-43d1-80c9-4a88a26f464d",
+          "attempt_no": 1,
+          "dispatch_stage": "unknown",
+          "epoch": 1,
+          "final_receipt_id": "8f34b2bf-33e0-41ea-bc39-084fddaf8a0c",
+          "implementation_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "invocation_id": "b64cc58d-4b87-97b2-d37a-eaf66032de15",
+          "last_observed_at": "2026-11-20T21:55:18.444386865Z",
+          "node_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+          "provider_handle": null,
+          "provider_idempotency": null,
+          "record_schema_version": 1,
+          "started_at": null,
+          "transport_ref": null,
+          "worker_id": "7c866448-b611-488c-aa30-f074d2be9854"
+        }
+      ],
+      "normalized": {
+        "learning_source": {
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "kind": "cas_object",
+          "reference": "operation:65385d81-ca9f-4790-ca8f-6b41025995db"
+        },
+        "observation": {
+          "effect_scope": "protocol_exchange",
+          "protocol": {
+            "reason": "protocol_or_transport_completion_unknown",
+            "server": {
+              "capabilities": {
+                "tools": {
+                  "listChanged": true
+                }
+              },
+              "protocolVersion": "2025-11-25",
+              "serverInfo": {
+                "name": "shenko-dsh-tools",
+                "version": "0.1.0"
+              }
+            },
+            "status": "unknown"
+          },
+          "remote_business_effect_status": "not_independently_verified",
+          "remote_business_success_proven": false,
+          "source": {
+            "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+            "unit_id": "dsh.native-journey"
+          }
+        },
+        "source_receipt": {
+          "bytes": 579,
+          "codec": {
+            "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+            "major": 1,
+            "name": "compat-observation"
+          },
+          "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        }
+      },
+      "operation": {
+        "acceptance_predicate_ref": {
+          "bytes": 105,
+          "codec": {
+            "digest": "blake3:23ff2aca2f32c0dddd27bd7906ef46673ecd71ad4ca33fea7026ba9eb4df0482",
+            "major": 1,
+            "name": "compat-acceptance"
+          },
+          "digest": "blake3:9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/9a/7a/9a7a1166fc8dfac3bd2f96345d4033a4e2520734c6d83799aa91479e9e4e2c1c",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "authority_ref": {
+          "decision_ref": "15a7df0e-ac7b-4578-a444-fa0dfe5a51f4",
+          "delegation_id": "502ee42f-59bc-42d0-bdb4-8120e4e2f8f8",
+          "delegation_revision": 0
+        },
+        "checkpoint_scope_ref": null,
+        "compensates": null,
+        "contract_ref": {
+          "artifact_digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+          "contract_digest": "blake3:3e8e323a28e17ea4048440eeaebf03840bb28961497a95f6dc1e65b48e8d9a1f",
+          "plugin_id": "485e5654-274e-490b-939a-ab1255864246",
+          "receipt_reader_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          }
+        },
+        "effect_status": "unknown",
+        "evidence_through": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 13
+        },
+        "final_input_ref": {
+          "bytes": 308,
+          "codec": {
+            "digest": "blake3:351b7a5493b85a016d28b2992d90b364d4bba468cfe2cedb6922b9d6e099abce",
+            "major": 1,
+            "name": "compat-frozen-input"
+          },
+          "digest": "blake3:0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/0d/9b/0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "input_digest": "blake3:0d9b44b7eba4c1daaccee87f4885ddc4808711de34d4eb3458195bdc4f186736",
+        "input_schema_version": 1,
+        "logical_key": "native-handler",
+        "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+        "operation_name": "compat.mcp.request",
+        "outcome": null,
+        "outcome_conflict": false,
+        "output_schema_version": 1,
+        "possible_duplicate_of": [],
+        "prepared_commit": {
+          "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+          "seq": 12
+        },
+        "record_revision": 1,
+        "record_schema_version": 1,
+        "resource_bindings_ref": {
+          "bytes": 394,
+          "codec": {
+            "digest": "blake3:337bab7fb67ce2a3933387445e24a010cfa3611b2212eca166452df601c50f44",
+            "major": 1,
+            "name": "compat-bindings"
+          },
+          "digest": "blake3:113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/11/3c/113cac60821c9b04d5b27cbb8bb581362666d1e4114e0245cf3551c193badc28",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_contract_ref": {
+          "bytes": 94,
+          "codec": {
+            "digest": "blake3:bd9ff65a160a98fd690aad1e57e05ef3dc0bad31789d63ede2d714472e4e78e2",
+            "major": 1,
+            "name": "compat-retry"
+          },
+          "digest": "blake3:c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/c3/0a/c30a3717eb599ff4d7dc05bbc0c4e77e687a6360069304968184633aa9f6f87d",
+          "media_type": "application/json",
+          "store_namespace": "ecosystem-compat"
+        },
+        "retry_of": null,
+        "state": "reconciling",
+        "task_id": "589f150c-58d2-4a29-9181-54d518ee7b3e"
+      },
+      "raw": {
+        "effect_scope": "protocol_exchange",
+        "protocol": {
+          "reason": "protocol_or_transport_completion_unknown",
+          "server": {
+            "capabilities": {
+              "tools": {
+                "listChanged": true
+              }
+            },
+            "protocolVersion": "2025-11-25",
+            "serverInfo": {
+              "name": "shenko-dsh-tools",
+              "version": "0.1.0"
+            }
+          },
+          "status": "unknown"
+        },
+        "remote_business_effect_status": "not_independently_verified",
+        "remote_business_success_proven": false,
+        "source": {
+          "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+          "unit_id": "dsh.native-journey"
+        }
+      },
+      "receipts": [
+        {
+          "attempt_id": "05c46f61-4a2f-43d1-80c9-4a88a26f464d",
+          "decode_status": "decoded",
+          "decoder_ref": {
+            "artifact": {
+              "digest": "blake3:3d7a08b28194d051d861a466302dffb33ba65dfe4c597c9ac179bdd541acd463",
+              "locator": "builtin:compat.mcp.request:1"
+            },
+            "schema": {
+              "digest": "blake3:78df10ba3ee65526d3a1e86d3103974f64bbe1ed3781ee265f0f62baf448a843",
+              "major": 1,
+              "name": "compat-receipt"
+            },
+            "symbol": "compat.mcp.request"
+          },
+          "normalized_ref": {
+            "bytes": 1267,
+            "codec": {
+              "digest": "blake3:52a3c86041f6bca4748e83e3857dc86fa5f61dd684900b464f9a055bdc43ede5",
+              "major": 1,
+              "name": "compat-result"
+            },
+            "digest": "blake3:6c30b09447af0458a12fbca0c13804e8dcd009675f3db2ab76ca77babd1e13b7",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/6c/30/6c30b09447af0458a12fbca0c13804e8dcd009675f3db2ab76ca77babd1e13b7",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "observation_level": null,
+          "observed_at": "2026-11-20T21:55:18.443468301Z",
+          "operation_id": "65385d81-ca9f-4790-ca8f-6b41025995db",
+          "producer_epoch": 1,
+          "producer_schema_version": "1",
+          "raw_ref": {
+            "bytes": 579,
+            "codec": {
+              "digest": "blake3:2b80e2d220ca9ad5728af6f829c22c608bfe07ba7a1caa142cdf96a16d9aca20",
+              "major": 1,
+              "name": "compat-observation"
+            },
+            "digest": "blake3:703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+            "locator": "file:///__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d/cas/70/3b/703b65b7e095a28cf9b98f9a0a8a5c8b66a735929efe228b7d3ba12d4444f1e6",
+            "media_type": "application/json",
+            "store_namespace": "ecosystem-compat"
+          },
+          "receipt_id": "8f34b2bf-33e0-41ea-bc39-084fddaf8a0c",
+          "received_commit": {
+            "ledger_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18",
+            "seq": 13
+          },
+          "record_schema_version": 1,
+          "source_event_key": null,
+          "source_id": "compat.mcp.request",
+          "source_instance_id": "b427d77d-7c42-4b58-a5a9-71182a3bad18"
+        }
+      ],
+      "task_result": null
+    }
+  },
+  "schema_version": 1,
+  "scope": "real DSH upstream runtime, generated MCP profile, Node installation, native-child, Store/CAS, shutdown/reopen, Unknown reconciliation and disable; no model efficacy or arbitrary plugin compatibility",
+  "source_revision": "476fa82d1965463d08167c6179547f933c565f13",
+  "source_sha256": {
+    "package-lock.json": "5ed00859e4c5d9bd4bd8c1201c99c11c7940802b2efc1a263641c3ee6f3664c4",
+    "package.json": "67dda0ac792efdcb185652610397929b657e1e6545d6177c557c3be78281527d",
+    "src/cli.mjs": "b9a7b67c84c33cc9a507b409a59fd10c7f2603fcde2943ca2ddf923381dc7af5",
+    "src/config.mjs": "fc3b70ab4be386f60592b486da610cadcec7552236a49161624f77a3f7c8c969",
+    "src/host.mjs": "a957e0cdd9eda85299ea34d3d30c938b93461a609a43b693eecefc88ef1565b0",
+    "src/server.mjs": "3e482f6761e314d5d6dd52584227b5900b937c40da3d6b719520e61772c5247d",
+    "test/fixtures/protocol-plugin.mjs": "c595292f4a7cb0055b685fad221d10216f72fffc7f8e169920eea801780d3297"
+  },
+  "store_root": "/__w/shenko/shenko/.ci/evidence/compat/dsh-37643a61-8d60-48a6-b71b-27d9c9f2969d",
+  "test_sha256": "d09fe3bbdf5bd9842d82ba905b828a66681d5a4e875f9dc2e4621c2c58e5b195",
+  "unit": {
+    "artifact_digest": "blake3:85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+    "revision": "85270342d58a41128da0ce67947eb7c66b2bb01677755ab2186926eed5c5ea89",
+    "unit_id": "dsh.native-journey"
+  }
+}
