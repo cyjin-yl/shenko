@@ -62,9 +62,12 @@ task while capturing and applying the small native-v1 delta.
 
 The real protocol observations found three selected `native.claim` actions at
 Node control index 7 with durable acceptance and no Store materialization. The
-frozen complete `subject_steps` image conflicted with the next main step's S0
-progress, and recovering the same selected value retained that conflict. The
-absence of an operation or attempt did not make those actions safe to retry.
+frozen complete `subject_steps` image differed from the live table, and
+recovering the same selected value retained that conflict. The source path
+includes the next main step's mutable S0 bytes in that image, so concurrent S0
+progress is the mechanism this fix targets. The original error alone does not
+identify the changed row at the precise failure instant. The absence of an
+operation or attempt did not make those selected actions safe to retry.
 
 New direct first claims use claim codec 2. Their existing proof-bearing paired
 T1 and childless original T2 use codec 3. These readers bind row schema 3;
