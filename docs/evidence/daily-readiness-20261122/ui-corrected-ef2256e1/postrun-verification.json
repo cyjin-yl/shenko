@@ -1,0 +1,34 @@
+{
+  "observed_at": "2026-11-21T23:37:12.487370+00:00",
+  "baseline_head": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "baseline_changed_paths": [
+    "crates/shenko-ui/web/tests/live-controller.test.mjs"
+  ],
+  "baseline_reducer_sha256": "0b3c8e4a4ac8c29fbbf748830fb3c32eed3c77cf0daf92c5f5ddfca70795b168",
+  "baseline_fixture_sha256": "3d4987f7cfaf146e6c916f9fd74fa5f736933071dd55eb9e29889fbf9ecb945f",
+  "producer_head": "ef2256e1a420a739b9ddccb18f57af96ff2979b9",
+  "producer_changed_paths": [
+    "crates/shenko-ui/src/static/app.js",
+    "crates/shenko-ui/src/static/build-manifest.json"
+  ],
+  "original_inventories": {
+    "generation/inputs-before.json": {
+      "bytes": 3860239,
+      "sha256": "439ccc876d28105f4b773c21a5ee42f25bb60c67d996baadbc8c749b214bd87a",
+      "web_inputs": 53,
+      "upstream_inputs": 13502
+    },
+    "generation/inputs-after.json": {
+      "bytes": 3860072,
+      "sha256": "beec0494060cf3fdc25fb9e613cd7cfc7a5c73c95aa8f0bc7c96761b4ea3087b",
+      "web_inputs": 53,
+      "upstream_inputs": 13502
+    },
+    "rebuild/inputs.json": {
+      "bytes": 3863563,
+      "sha256": "4c3430a3c32c5764c296a0b7ac35ab2f0304e8195afcf0ffc1a7872e4cb2017d",
+      "web_inputs": 53,
+      "upstream_inputs": 13502
+    }
+  }
+}

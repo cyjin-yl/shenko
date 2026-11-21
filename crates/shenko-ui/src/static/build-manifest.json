@@ -5,12 +5,12 @@
     "commit": "795b1b4958333cf904547e484acb4de9d4b3ee80",
     "previous_reviewed_commit": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
     "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/var/idw-target/daily-web-pin-795b1b49-r4/source/proto-ui",
+    "source_checkout": "/var/idw-target/ui-corrected-ef2256e1/source/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/var/idw-target/daily-web-pin-795b1b49-r4/generation/upstream-build.json",
-      "receipt_sha256": "66af82f3017ef2856e15ab39f46274933bb483b063ee4b001df975d53adfedd1"
+      "receipt_path": "/var/idw-target/ui-corrected-ef2256e1/generation/upstream-build.json",
+      "receipt_sha256": "da3438a8d67683dd7c2df837801e09acc14a301d0d6827179e8552b79e89e84d"
     }
   },
   "packages": [
@@ -189,16 +189,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/var/idw-target/daily-web-pin-795b1b49-r4/source/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-21T19:34:21.693Z",
+  "web_root": "/var/idw-target/ui-corrected-ef2256e1/source/shenko/crates/shenko-ui/web",
+  "built_at": "2026-11-21T23:30:46.713Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1141997,
-      "sha256": "d6eeca7719da01e6769f041c44f30b8709ac49eb0c7ae50051d8268531f61452"
+      "bytes": 1143122,
+      "sha256": "dd01c9a64a8ee6bc7aabdbf63bf0289f27ed93701c6f37b853b44c55e88ce19c"
     },
     "chunks/chunk-O3OVBR66.js": {
       "bytes": 65273,
