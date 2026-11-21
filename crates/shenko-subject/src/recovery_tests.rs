@@ -5031,3 +5031,95 @@ fn the_attention_budget_comes_from_the_subjects_own_policy() {
     assert!(budget.idle_wait_ms >= 1, "a step always waits at least a moment");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test]
+async fn unreadable_child_dialogue_preserves_turns_and_rolls_back_delivery_and_settlement() -> anyhow::Result<()> {
+    use shenko_store::child::DIALOGUE_INBOX;
+
+    for operation in ["delivery", "settlement"] {
+        let (dir, store, agent) = fixture();
+        let mut subject = state(store.clone(), agent)?;
+        commit_output(&store, &mut subject, 1, &[], concat!(
+            "[delegate:fixture.gated:1] {\"hold\":false,\"endpoint\":\"first\"}\n",
+            "[delegate:fixture.gated:1] {\"hold\":false,\"endpoint\":\"second\"}\n",
+        )).await;
+        let tasks = store.native_task_candidates_after(None, 8)?;
+        assert_eq!(tasks.len(), 2);
+        let damaged_task = tasks[0].1.task_id;
+        let clean_task = tasks[1].1.task_id;
+        // An absent memo is a genuine empty inbox. The first valid turn
+        // creates it, and the second appends without replacing that turn.
+        assert_eq!(store.consume_child_dialogue(clean_task, &[EntityId::new()])?, 0);
+        let turns = ["retain the first original owner turn", "retain the second original owner turn"]
+            .into_iter().map(|message| format!("[dialogue] {}", serde_json::json!({
+                "target_task_id":damaged_task, "message":message,
+            }))).collect::<Vec<_>>().join("\n");
+        commit_output(&store, &mut subject, 2, &[], &turns).await;
+        let delivered = store.pending_child_dialogue(damaged_task)?;
+        assert_eq!(delivered.len(), 2);
+        let delivery_ids = delivered.iter().map(|turn| turn.intent_id).collect::<Vec<_>>();
+        let prior_intents = serde_json::to_value(store.committed_intents(Some("dialogue"), None, 8)?)?;
+        assert!(prior_intents.as_array().unwrap().iter().all(|intent| intent["state"] == "claimed"));
+
+        let connection = rusqlite::Connection::open(dir.join("store.db"))?;
+        let original: String = connection.query_row("SELECT data FROM tasks WHERE task_id=?1",
+            [damaged_task.to_string()], |row| row.get(0))?;
+        let clean_before: String = connection.query_row("SELECT data FROM tasks WHERE task_id=?1",
+            [clean_task.to_string()], |row| row.get(0))?;
+        let mut invalid: serde_json::Value = serde_json::from_str(&original)?;
+        invalid["memos"][DIALOGUE_INBOX].as_array_mut().unwrap()
+            .push(serde_json::json!({"message":"invalid member without delivery bindings"}));
+        let retained = serde_json::to_string(&invalid)?;
+        connection.execute("UPDATE tasks SET data=?2 WHERE task_id=?1",
+            rusqlite::params![damaged_task.to_string(), retained])?;
+        let decoding_error = store.pending_child_dialogue(damaged_task).unwrap_err();
+        let expected_error = decoding_error.downcast_ref::<serde_json::Error>()
+            .context("the invalid member must expose its original decoding error")?.to_string();
+
+        if operation == "delivery" {
+            let cancel = tokio_util::sync::CancellationToken::new();
+            cancel.cancel();
+            execute_step(3, &[], &mut subject, &cancel).await?;
+            let raw = format!("[dialogue] {}\n[dialogue] {}", serde_json::json!({
+                "target_task_id":clean_task, "message":"this earlier delivery must roll back too",
+            }), serde_json::json!({
+                "target_task_id":damaged_task, "message":"do not replace an unreadable inbox",
+            }));
+            let step_id = record_result(&store, &mut subject, &raw);
+            let recorded = subject.step.clone();
+            let head_before = store.load_subject(agent)?.0;
+            let error = execute_step(3, &[], &mut subject,
+                &tokio_util::sync::CancellationToken::new()).await.unwrap_err();
+            assert!(error.to_string().contains(&expected_error), "{error}");
+            let (head, step) = store.load_subject(agent)?;
+            assert_eq!(serde_json::to_value(head)?, serde_json::to_value(head_before)?);
+            assert_eq!(step.step_id, step_id);
+            assert_eq!(step.state, SubjectStepState::ResultRecorded);
+            assert_eq!(step.input_plan_ref, recorded.input_plan_ref);
+            assert_eq!(step.model_result_ref, recorded.model_result_ref);
+            assert_eq!(step.model_outcome_ref, recorded.model_outcome_ref);
+            assert_eq!(step.active_request_id, recorded.active_request_id);
+            assert!(step.commit_ref.is_none());
+            let marker_count: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM subject_intent_steps WHERE step_id=?1",
+                [step_id.to_string()], |row| row.get(0))?;
+            assert_eq!(marker_count, 0, "failed S1 must not leave its materialization marker");
+        } else {
+            let seq_before = store.current_commit_seq()?;
+            let error = store.consume_child_dialogue(damaged_task, &delivery_ids).unwrap_err();
+            assert_eq!(error.downcast_ref::<serde_json::Error>()
+                .context("settlement must propagate the original decoding error")?.to_string(), expected_error);
+            assert_eq!(store.current_commit_seq()?, seq_before);
+        }
+
+        let unchanged: String = connection.query_row("SELECT data FROM tasks WHERE task_id=?1",
+            [damaged_task.to_string()], |row| row.get(0))?;
+        assert_eq!(unchanged, retained, "{operation} must preserve the entire invalid task row byte for byte");
+        let clean_after: String = connection.query_row("SELECT data FROM tasks WHERE task_id=?1",
+            [clean_task.to_string()], |row| row.get(0))?;
+        assert_eq!(clean_after, clean_before, "{operation} must not commit an earlier sibling delivery");
+        assert_eq!(serde_json::to_value(store.committed_intents(Some("dialogue"), None, 8)?)?, prior_intents,
+            "{operation} must preserve prior delivery states and must not retain new intents");
+    }
+    Ok(())
+}
