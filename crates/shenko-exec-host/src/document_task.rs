@@ -13,7 +13,7 @@ use shenko_document::{CredentialHandle, DocumentProvider, OxrDocument, OxrEngine
     PageCheckpoint, PageRef, PageResult, ParseRequest, ParseState, ProviderAvailability, page_cache_key};
 use shenko_kernel::task::{NativeTaskDeferred, NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_node::Node;
-use shenko_store::{external::ExternalEvidenceFold, Store};
+use shenko_store::{external::{ExternalEvidenceFold, ExternalEvidenceSource, ExternalReceiptScope}, Store};
 use shenko_types::{commit::CommitRef, effect::*, evidence::{DecodeStatus, EvidenceReceipt},
     ids::*, inbox::{InboxEvent, InboxEventKind}, object::*, operation::*,
     plugin_runtime::NativeCapabilityDeclaration, task::{ImplementationRef, NativeEvidenceObservation,
@@ -169,9 +169,22 @@ struct FrozenPageRead {
     limit: usize,
 }
 
+/// One decoded checkpoint and the exact inputs used to derive its fold.
+/// Borrowed only for publication; this is not a durable checkpoint format.
+struct SnapshotObservation<'a> {
+    bytes: &'a [u8],
+    schema_version: u32,
+    outcome: Option<OperationOutcome>,
+    effect: EffectStatus,
+    source_reads: &'a [ExternalEvidenceSource],
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Snapshot {
+    /// In-memory decoder custody, never part of immutable checkpoint bytes.
+    #[serde(skip)]
+    source_reads: Vec<ExternalEvidenceSource>,
     schema_version: u32,
     response_mapping_version: u32,
     provider_code_digest: String,
@@ -194,7 +207,7 @@ struct Snapshot {
 }
 impl Snapshot {
     fn new(operation: &OperationRecord, attempt: &AttemptRecord, provider: &OxrProviderBinding) -> Self {
-        Self { schema_version: 2, response_mapping_version: 2, provider_code_digest: provider.code_digest.clone(),
+        Self { source_reads: Vec::new(), schema_version: 2, response_mapping_version: 2, provider_code_digest: provider.code_digest.clone(),
             operation_id: operation.operation_id, attempt_id: attempt.attempt_id,
             state: ParseState::Running, provider_task_id: None, accepted_at: None, raw_output: None, raw_observation: None, pages: BTreeMap::new(),
             source_operation: None, remote_may_be_running: false, remote_finished: false, reason: None }
@@ -220,6 +233,8 @@ struct ResponseObservationRef {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LegacySnapshotV1 {
+    #[serde(skip)]
+    source_reads: Vec<ExternalEvidenceSource>,
     schema_version: u32,
     operation_id: EntityId,
     attempt_id: EntityId,
@@ -236,10 +251,14 @@ struct LegacySnapshotV1 {
 enum SavedSnapshot {
     Current(Snapshot),
     Legacy(LegacySnapshotV1),
-    Main { pages: BTreeMap<u32, ObjectRef>, remote_may_be_running: bool },
+    Main { pages: BTreeMap<u32, ObjectRef>, remote_may_be_running: bool, source_reads: Vec<ExternalEvidenceSource> },
 }
 
 impl SavedSnapshot {
+    fn source_reads(&self) -> &[ExternalEvidenceSource] {
+        match self { Self::Current(s) => &s.source_reads, Self::Legacy(s) => &s.source_reads,
+            Self::Main { source_reads, .. } => source_reads }
+    }
     fn remote_may_be_running(&self) -> bool {
         match self { Self::Current(s) => s.remote_may_be_running, Self::Legacy(s) => s.remote_may_be_running,
             Self::Main { remote_may_be_running, .. } => *remote_may_be_running }
@@ -451,11 +470,14 @@ impl DocumentParseHandler {
         let evidence = self.store().external_evidence(id)?;
         ensure!(evidence.operation_id == Some(operation.operation_id) && evidence.attempt_id == Some(attempt.attempt_id)
             && evidence.source_id == PARSE && evidence.source_instance_id == attempt.node_id.to_string()
-            && evidence.producer_epoch == Some(attempt.epoch.0), "document receipt identity mismatch");
+            && evidence.producer_epoch == Some(attempt.epoch.0)
+            && evidence.decoder_ref.as_ref() == Some(&operation.contract_ref.receipt_reader_ref), "document receipt identity mismatch");
         let value: serde_json::Value = serde_json::from_slice(&self.read(evidence.normalized_ref.as_ref().unwrap_or(&evidence.raw_ref), 512 * 1024)?)?;
+        let mut source_reads = vec![ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(),
+            receipts: vec![evidence.clone()] }];
         let snapshot = match value.get("schema_version").and_then(serde_json::Value::as_u64) {
             Some(2) => {
-                let snapshot: Snapshot = serde_json::from_value(value)?;
+                let mut snapshot: Snapshot = serde_json::from_value(value)?;
                 ensure!(snapshot.schema_version == 2 && snapshot.response_mapping_version == 2
                     && snapshot.operation_id == operation.operation_id && snapshot.attempt_id == attempt.attempt_id
                     && snapshot.pages.len() <= MAX_PAGES, "document checkpoint identity/decoder mismatch");
@@ -475,14 +497,95 @@ impl DocumentParseHandler {
                         && observation.source_digest == frozen.request.source_digest
                         && observation.provider_code_digest == frozen.provider.code_digest,
                         "document response observation source/attempt mismatch");
+                    if original.operation_id != operation.operation_id {
+                        source_reads.push(ExternalEvidenceSource { operation: original, attempt: original_attempt,
+                            receipts: Vec::new() });
+                    }
                 }
+                if let Some(source) = snapshot.source_operation {
+                    ensure!(source != operation.operation_id, "document alias cannot be its own original");
+                    let original = self.store().external_operation(source)?;
+                    let original_attempt = self.store().external_operation_attempt(source)?;
+                    let Some(receipt_id) = original_attempt.final_receipt_id else {
+                        ensure!(snapshot.raw_output.is_none() && snapshot.pages.is_empty()
+                            && !snapshot.remote_finished && operation.state != OperationState::Resolved,
+                            "document alias original has no required receipt");
+                        source_reads.retain(|read| read.operation.operation_id != source);
+                        source_reads.push(ExternalEvidenceSource { operation: original, attempt: original_attempt,
+                            receipts: Vec::new() });
+                        snapshot.source_reads = source_reads;
+                        return Ok(Some(SavedSnapshot::Current(snapshot)));
+                    };
+                    let receipt = self.store().external_evidence(receipt_id)?;
+                    ensure!(receipt.operation_id == Some(source) && receipt.attempt_id == Some(original_attempt.attempt_id)
+                        && receipt.source_id == PARSE && receipt.source_instance_id == original_attempt.node_id.to_string()
+                        && receipt.producer_epoch == Some(original_attempt.epoch.0)
+                        && receipt.decoder_ref.as_ref() == Some(&original.contract_ref.receipt_reader_ref),
+                        "document alias original receipt identity mismatch");
+                    let original_snapshot: Snapshot = serde_json::from_slice(&self.read(
+                        receipt.normalized_ref.as_ref().unwrap_or(&receipt.raw_ref), 512 * 1024)?)?;
+                    let SavedFrozenParse::Current(original_frozen) = self.saved_frozen(&original)? else {
+                        anyhow::bail!("document alias original requires its recorded decoder");
+                    };
+                    let SavedFrozenParse::Current(own_frozen) = self.saved_frozen(operation)? else {
+                        anyhow::bail!("document alias requires its recorded decoder");
+                    };
+                    ensure!(original_snapshot.schema_version == 2 && original_snapshot.response_mapping_version == 2
+                        && original_snapshot.operation_id == source && original_snapshot.attempt_id == original_attempt.attempt_id
+                        && original_snapshot.source_operation.is_none()
+                        && original_snapshot.provider_code_digest == snapshot.provider_code_digest
+                        && original_frozen.provider == own_frozen.provider
+                        && original_frozen.installation == own_frozen.installation
+                        && Self::document_key(&original_frozen)? == Self::document_key(&own_frozen)?
+                        && (original.outcome_conflict || snapshot.raw_output.as_ref()
+                            .is_none_or(|raw| original_snapshot.raw_output.as_ref() == Some(raw))),
+                        "document alias no longer matches its original raw/page evidence");
+                    if !original.outcome_conflict
+                        && snapshot.pages.iter().any(|(page, object)| original_snapshot.pages.get(page) != Some(object)) {
+                        let raw = original_snapshot.raw_output.as_ref().context("document alias original has no raw output")?;
+                        let document = OxrDocument::from_response(self.read(raw, MAX_RESPONSE_BYTES)?)?;
+                        for (index, object) in &snapshot.pages {
+                            if original_snapshot.pages.get(index) == Some(object) { continue; }
+                            let checkpoint: PageCheckpoint = serde_json::from_slice(&self.read(object, MAX_CHECKPOINT_BYTES)?)?;
+                            let page = PageRef { page_index: *index };
+                            ensure!(checkpoint.cache_key == page_cache_key(&own_frozen.request, page)
+                                && checkpoint.unknown_outcome.is_none(), "document alias page identity mismatch");
+                            let parsed = document.pages.iter().find(|parsed| parsed.page_num == *index);
+                            match (&checkpoint.result, &checkpoint.failure, parsed) {
+                                (Some(result), None, Some(parsed)) => ensure!(result.page == page
+                                    && result.source_digest == own_frozen.request.source_digest
+                                    && result.blocks == parsed.blocks && result.page_size == parsed.page_size
+                                    && !result.coordinates_restored && result.provenance.provider_id == "oxr"
+                                    && result.provenance.code_version == own_frozen.provider.code_digest
+                                    && result.provenance.model_version == own_frozen.provider.model_identity
+                                    && result.provenance.params_digest.as_deref() == Some(&own_frozen.provider.params_digest)
+                                    && result.provenance.raw_output_ref.as_deref() == Some(raw.digest.0.as_str()),
+                                    "document alias page differs from original raw output"),
+                                (None, Some(failure), None) => ensure!(*failure == format!("upstream returned no original page {}", index),
+                                    "document alias page failure differs from original raw output"),
+                                _ => anyhow::bail!("document alias page is not a projection of original raw output"),
+                            }
+                        }
+                    }
+                    source_reads.retain(|read| read.operation.operation_id != source);
+                    source_reads.push(ExternalEvidenceSource { operation: original, attempt: original_attempt,
+                        receipts: vec![receipt] });
+                }
+                snapshot.source_reads = source_reads;
                 SavedSnapshot::Current(snapshot)
             }
             Some(1) => {
-                let snapshot: LegacySnapshotV1 = serde_json::from_value(value)?;
+                let mut snapshot: LegacySnapshotV1 = serde_json::from_value(value)?;
                 ensure!(snapshot.schema_version == 1 && snapshot.operation_id == operation.operation_id
                     && snapshot.attempt_id == attempt.attempt_id && snapshot.pages.len() <= MAX_PAGES,
                     "historical document checkpoint identity mismatch");
+                if let Some(source) = snapshot.source_operation {
+                    let original = self.store().external_operation(source)?;
+                    let original_attempt = self.store().external_operation_attempt(source)?;
+                    source_reads.push(ExternalEvidenceSource { operation: original, attempt: original_attempt,
+                        receipts: Vec::new() });
+                }
+                snapshot.source_reads = source_reads;
                 SavedSnapshot::Legacy(snapshot)
             }
             _ => anyhow::bail!("unsupported document checkpoint schema"),
@@ -509,6 +612,8 @@ impl DocumentParseHandler {
         struct Entry { cache_key: String, checkpoint_ref: ObjectRef }
         let mut pages = BTreeMap::new();
         let mut no_send = false;
+        let mut source_read = ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(),
+            receipts: Vec::new() };
         for evidence in self.store().external_operation_evidence(operation.operation_id)? {
             if evidence.source_id != "document.parse.result.v1" { continue; }
             ensure!(evidence.operation_id == Some(operation.operation_id) && evidence.attempt_id == Some(attempt.attempt_id)
@@ -518,6 +623,7 @@ impl DocumentParseHandler {
             let result: serde_json::Value = serde_json::from_slice(&self.read(
                 evidence.normalized_ref.as_ref().context("historical main result has no manifest projection")?, MAX_RESPONSE_BYTES)?)?;
             let manifest_ref: ObjectRef = serde_json::from_value(result["checkpoint_manifest_ref"].clone())?;
+            source_read.receipts.push(evidence.clone());
             let manifest: Manifest = serde_json::from_slice(&self.read(&manifest_ref, 512 * 1024)?)?;
             ensure!(manifest.schema_version == 1 && manifest.operation_id == operation.operation_id
                 && manifest.attempt_id == attempt.attempt_id && manifest.pages.len() <= MAX_PAGES,
@@ -545,7 +651,7 @@ impl DocumentParseHandler {
                 pages.insert(page.page_index, entry.checkpoint_ref);
             }
         }
-        Ok(SavedSnapshot::Main { pages, remote_may_be_running: operation.outcome_conflict
+        Ok(SavedSnapshot::Main { pages, source_reads: vec![source_read], remote_may_be_running: operation.outcome_conflict
             || operation.state != OperationState::Resolved
             || !(operation.effect_status == EffectStatus::Complete || no_send) })
     }
@@ -553,7 +659,22 @@ impl DocumentParseHandler {
     fn observe(&self, operation: &OperationRecord, attempt: &AttemptRecord, snapshot: &Snapshot,
         outcome: Option<OperationOutcome>, effect: EffectStatus) -> Result<OperationRecord>
     {
-        self.observe_snapshot(operation, attempt, &serde_json::to_vec(snapshot)?, snapshot.schema_version, outcome, effect)
+        self.observe_snapshot(operation, attempt, SnapshotObservation {
+            bytes: &serde_json::to_vec(snapshot)?, schema_version: snapshot.schema_version,
+            outcome, effect, source_reads: &snapshot.source_reads,
+        })
+    }
+
+    fn observe_progress(&self, operation: &OperationRecord, attempt: &AttemptRecord,
+        snapshot: &mut Snapshot) -> Result<OperationRecord>
+    {
+        let observed = self.observe(operation, attempt, snapshot, None, EffectStatus::Unknown)?;
+        let current_attempt = self.store().external_operation_attempt(operation.operation_id)?;
+        // Continue only from a complete reread/redecode of our new checkpoint.
+        // In particular, never rebind retained raw bytes to a fresh source head.
+        *snapshot = self.latest(&observed, &current_attempt)?
+            .context("document observation has no readable checkpoint; retry requires reread and redecode")?;
+        Ok(observed)
     }
 
     fn remote_terminal(snapshot: &Snapshot) -> bool {
@@ -590,10 +711,22 @@ impl DocumentParseHandler {
         }
     }
 
-    fn observe_snapshot(&self, operation: &OperationRecord, attempt: &AttemptRecord, bytes: &[u8], schema_version: u32,
-        outcome: Option<OperationOutcome>, effect: EffectStatus) -> Result<OperationRecord>
+    fn observe_snapshot(&self, operation: &OperationRecord, attempt: &AttemptRecord,
+        observation: SnapshotObservation<'_>) -> Result<OperationRecord>
     {
-        let raw = self.seal_bytes(bytes, "document-request-checkpoint", schema_version)?;
+        self.observe_snapshot_captured(operation, attempt, observation, None)
+    }
+
+    /// Only a response just delivered by the original current-format client
+    /// may be reconstructed after its decoded own checkpoint loses admission.
+    /// Aliases, historical decoders and ordinary derived page folds still
+    /// require their caller to reread and redecode their original sources.
+    fn observe_snapshot_captured(&self, operation: &OperationRecord, attempt: &AttemptRecord,
+        observation: SnapshotObservation<'_>, captured: Option<(&FrozenParse, OxrResponseSource)>,
+    ) -> Result<OperationRecord>
+    {
+        let SnapshotObservation { bytes, schema_version, outcome, effect, source_reads } = observation;
+        let mut raw = self.seal_bytes(bytes, "document-request-checkpoint", schema_version)?;
         let receipt_id = EntityId::new();
         let observed_at = chrono::Utc::now();
         let evidence = EvidenceReceipt {
@@ -605,20 +738,42 @@ impl DocumentParseHandler {
             received_commit: operation.prepared_commit,
         };
         let incoming = (schema_version == 2).then(|| serde_json::from_slice::<Snapshot>(bytes)).transpose()?;
+        let source_id = match &incoming {
+            Some(snapshot) => snapshot.source_operation,
+            None if schema_version == 1 => serde_json::from_slice::<LegacySnapshotV1>(bytes)?.source_operation,
+            None => None,
+        };
         let mut committed = None;
+        let mut redecode = false;
         for _ in 0..32 {
             let current = self.store().external_operation(operation.operation_id)?;
             let current_attempt = self.store().external_operation_attempt(operation.operation_id)?;
             ensure!(current_attempt.attempt_id == attempt.attempt_id, "document original attempt changed");
+            let rebuilt = if redecode {
+                let (frozen, phase) = captured.context("document response has no captured original decoder")?;
+                let original = incoming.as_ref().context("document response has no current-format checkpoint")?;
+                Some(self.redecode_captured_result((operation, attempt), (&current, &current_attempt), frozen, phase, original)?)
+            } else { None };
+            let incoming = rebuilt.as_ref().or(incoming.as_ref());
+            let source_reads = rebuilt.as_ref().map_or(source_reads, |snapshot| snapshot.source_reads.as_slice());
             let mut evidence = evidence.clone();
+            if let Some(rebuilt) = &rebuilt {
+                raw = self.seal(rebuilt, "document-request-checkpoint", 2)?;
+                evidence.raw_ref = raw.clone();
+                evidence.normalized_ref = Some(raw.clone());
+            }
             let mut conflict = current.outcome_conflict;
-            let source = incoming.as_ref().and_then(|snapshot| snapshot.source_operation)
-                .map(|id| self.store().external_operation(id)).transpose()?;
-            conflict |= source.as_ref().is_some_and(|source| source.outcome_conflict);
+            let source = source_id
+                .map(|id| source_reads.iter().find(|read| read.operation.operation_id == id)
+                    .map(|read| &read.operation).context("document source requires reread and redecode before observation"))
+                .transpose()?;
+            conflict |= source.is_some_and(|source| source.outcome_conflict);
+            let mut folded_reads = source_reads.to_vec();
             let mut folded_outcome = outcome;
             let mut folded_effect = effect;
-            if let Some(incoming) = &incoming
+            if let Some(incoming) = incoming
                 && let Some(SavedSnapshot::Current(previous)) = self.saved_snapshot(&current, &current_attempt)? {
+                folded_reads.extend(previous.source_reads.iter().cloned());
                 conflict |= self.terminal_conflict(&previous, incoming)?;
                 if Self::remote_terminal(&previous) && (!Self::remote_terminal(incoming)
                     || (current.state == OperationState::Resolved && !conflict)) {
@@ -633,9 +788,20 @@ impl DocumentParseHandler {
             committed = self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id,
                 evidence, folded_outcome, folded_effect, ExternalEvidenceFold {
                     expected_revision: current.record_revision, terminal_content_conflict: conflict,
-                    source_operation_revision: source.map(|source| (source.operation_id, source.record_revision)),
+                    source_operation: source,
+                    source_reads: &folded_reads,
+                    receipt_scopes: &[],
                 })?;
             if committed.is_some() { break; }
+            if captured.is_some() {
+                // Store wrote nothing. Keep the one original response and
+                // receipt identity, but derive the next fold from a complete
+                // authenticated current checkpoint rather than replacing its
+                // old read set underneath an already-derived projection.
+                redecode = true;
+            } else {
+                ensure!(source_reads.is_empty(), "document decoder source changed; retry requires reread and redecode");
+            }
         }
         let operation = committed.context("document evidence head kept changing; original attempt remains reconcilable")?;
         if outcome.is_none() {
@@ -652,6 +818,69 @@ impl DocumentParseHandler {
             self.store().admit_inbox_event(receipt_id, task.agent_id, "system_event", NATIVE_EVIDENCE_OBSERVATION_SOURCE, &serde_json::to_value(event)?)?;
         }
         Ok(operation)
+    }
+
+    fn redecode_captured_result(&self, original: (&OperationRecord, &AttemptRecord),
+        current: (&OperationRecord, &AttemptRecord), frozen: &FrozenParse,
+        phase: OxrResponseSource, captured: &Snapshot,
+    ) -> Result<Snapshot> {
+        let (original_operation, original_attempt) = original;
+        let (operation, attempt) = current;
+        ensure!(operation.operation_id == original_operation.operation_id
+            && operation.task_id == original_operation.task_id && operation.operation_name == PARSE
+            && operation.final_input_ref == original_operation.final_input_ref
+            && attempt.attempt_id == original_attempt.attempt_id && attempt.operation_id == operation.operation_id
+            && attempt.node_id == original_attempt.node_id && attempt.epoch == original_attempt.epoch
+            && attempt.attempt_no == original_attempt.attempt_no && attempt.invocation_id == original_attempt.invocation_id
+            && attempt.worker_id == original_attempt.worker_id && attempt.armed_commit == original_attempt.armed_commit
+            && captured.operation_id == operation.operation_id && captured.attempt_id == attempt.attempt_id
+            && captured.source_operation.is_none() && captured.schema_version == 2
+            && captured.response_mapping_version == 2 && captured.provider_code_digest == frozen.provider.code_digest,
+            "captured document response lost its original operation/attempt/decoder binding");
+        let SavedFrozenParse::Current(recorded) = self.saved_frozen(operation)? else {
+            anyhow::bail!("captured document response requires its original current-format request");
+        };
+        ensure!(serde_json::to_vec(&recorded)? == serde_json::to_vec(frozen)?,
+            "captured document response frozen binding changed");
+        ensure!(serde_json::to_vec(&operation.contract_ref)? == serde_json::to_vec(&original_operation.contract_ref)?
+            && serde_json::to_vec(&attempt.implementation_ref)? == serde_json::to_vec(&original_attempt.implementation_ref)?
+            && frozen.provider.code_digest == self.provider.binding().code_digest,
+            "captured document response original receipt reader/mapper changed");
+        let raw = captured.raw_output.as_ref().context("captured document response has no immutable body")?;
+        let bytes = self.read(raw, MAX_RESPONSE_BYTES)?;
+        match phase {
+            OxrResponseSource::AsyncCheck => {
+                let envelope: serde_json::Value = serde_json::from_slice(&bytes)?;
+                let handle = captured.provider_task_id.as_deref().context("captured original check has no handle")?;
+                ensure!(frozen.provider.transport == OxrTransport::Async
+                    && !handle.trim().is_empty() && handle.len() <= 4096
+                    && envelope["data"]["task_id"].as_str() == Some(handle)
+                    && envelope["data"]["status"].as_str() == Some("success"),
+                    "captured response does not decode under its original check phase/handle");
+            }
+            OxrResponseSource::Sync => ensure!(frozen.provider.transport == OxrTransport::Sync
+                && captured.provider_task_id.is_none() && captured.accepted_at.is_none(),
+                "captured synchronous response acquired an accepted task"),
+            _ => anyhow::bail!("captured result has no original successful response phase"),
+        }
+        // Run the original current mapper on authenticated captured bytes.
+        // These are neither newly observed bytes nor a new remote attempt.
+        let document = OxrDocument::from_response(bytes)?;
+        drop(document);
+        let mut snapshot = self.latest(operation, attempt)?.unwrap_or_else(|| {
+            let mut snapshot = Snapshot::new(operation, attempt, &frozen.provider);
+            snapshot.source_reads.push(ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(), receipts: Vec::new() });
+            snapshot
+        });
+        ensure!(snapshot.source_operation.is_none() && snapshot.provider_code_digest == frozen.provider.code_digest
+            && snapshot.provider_task_id == captured.provider_task_id && snapshot.accepted_at == captured.accepted_at,
+            "captured response cannot replace the original handle/acceptance or another source");
+        // Preserve the freshly decoded page inventory, cancellation state and
+        // original acceptance/deadline. Only this same remote result is new.
+        snapshot.raw_output = Some(raw.clone());
+        snapshot.remote_finished = true;
+        snapshot.remote_may_be_running = false;
+        Ok(snapshot)
     }
 
     fn worker_finished(&self, operation: &OperationRecord) -> Result<()> {
@@ -713,14 +942,17 @@ impl DocumentParseHandler {
                 let attempt = self.store().external_operation_attempt(operation.operation_id)?;
                 if operation.outcome_conflict {
                     let mut unknown = Snapshot::new(&operation, &attempt, &original.provider);
+                    unknown.source_reads.push(ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(),
+                        receipts: Vec::new() });
                     unknown.remote_may_be_running = true;
                     unknown.reason = Some("original source has conflicting evidence; no replacement upload or successful projection is permitted".into());
                     return Ok(Some((operation.operation_id, unknown)));
                 }
                 if let Some(snapshot) = self.latest(&operation, &attempt)? {
                     if let Some(source) = snapshot.source_operation
-                        && self.store().external_operation(source)?.outcome_conflict {
+                        && snapshot.source_reads.iter().any(|read| read.operation.operation_id == source && read.operation.outcome_conflict) {
                         let mut unknown = Snapshot::new(&operation, &attempt, &original.provider);
+                        unknown.source_reads = snapshot.source_reads;
                         unknown.source_operation = Some(source);
                         unknown.reason = Some("original cache source has conflicting evidence; no replacement upload or successful projection is permitted".into());
                         return Ok(Some((operation.operation_id, unknown)));
@@ -736,6 +968,8 @@ impl DocumentParseHandler {
                     }
                 } else {
                     let mut unknown = Snapshot::new(&operation, &attempt, &original.provider);
+                    unknown.source_reads.push(ExternalEvidenceSource { operation: operation.clone(), attempt: attempt.clone(),
+                        receipts: Vec::new() });
                     unknown.remote_may_be_running = true;
                     unknown.reason = Some("original attempt has no completion receipt; no upload was repeated".into());
                     unresolved = Some((operation.operation_id, unknown));
@@ -818,10 +1052,10 @@ impl DocumentParseHandler {
     }
 
     async fn result(&self, operation: &OperationRecord, attempt: &AttemptRecord, frozen: &FrozenParse,
-        mut snapshot: Snapshot, document: OxrDocument) -> Result<OperationRecord>
+        mut snapshot: Snapshot, document: OxrDocument, captured_phase: Option<OxrResponseSource>) -> Result<OperationRecord>
     {
         if let Some(source) = snapshot.source_operation
-            && self.store().external_operation(source)?.outcome_conflict {
+            && snapshot.source_reads.iter().any(|read| read.operation.operation_id == source && read.operation.outcome_conflict) {
             snapshot.state = ParseState::Running;
             snapshot.reason = Some("original source has conflicting evidence; saved evidence is retained without successful projection".into());
             return self.observe(operation, attempt, &snapshot, None, EffectStatus::Unknown);
@@ -836,12 +1070,21 @@ impl DocumentParseHandler {
             snapshot.raw_output = Some(self.seal_bytes(&raw_response, "oxr-response", 1)?);
             // Result first, page projection second: restart can finish from
             // this authenticated original response without another HTTP call.
-            let observed = self.observe(operation, attempt, &snapshot, None, EffectStatus::Unknown)?;
+            let observed = if let Some(phase) = captured_phase {
+                let observed = self.observe_snapshot_captured(operation, attempt, SnapshotObservation {
+                    bytes: &serde_json::to_vec(&snapshot)?, schema_version: snapshot.schema_version,
+                    outcome: None, effect: EffectStatus::Unknown, source_reads: &snapshot.source_reads,
+                }, Some((frozen, phase)))?;
+                let current_attempt = self.store().external_operation_attempt(operation.operation_id)?;
+                snapshot = self.latest(&observed, &current_attempt)?
+                    .context("captured document observation has no readable checkpoint")?;
+                observed
+            } else { self.observe_progress(operation, attempt, &mut snapshot)? };
             if observed.outcome_conflict || observed.state == OperationState::Resolved { return Ok(observed); }
         }
         drop(raw_response);
         let mut parsed_pages: BTreeMap<_, _> = parsed_pages.into_iter().map(|page| (page.page_num, page)).collect();
-        let raw = snapshot.raw_output.as_ref().context("document raw output missing after result sealing")?;
+        let raw_digest = snapshot.raw_output.as_ref().context("document raw output missing after result sealing")?.digest.clone();
         let pages: Vec<PageRef> = if frozen.request.pages.is_empty() {
             let count = page_count.unwrap_or(parsed_pages.len() as u32);
             if count as usize > MAX_PAGES {
@@ -876,7 +1119,7 @@ impl DocumentParseHandler {
             let (result, failure) = match parsed {
                 Some(parsed) => {
                     let mut provenance = self.provider.provenance();
-                    provenance.raw_output_ref = Some(raw.digest.0.clone());
+                    provenance.raw_output_ref = Some(raw_digest.0.clone());
                     (Some(PageResult { page, source_digest: frozen.request.source_digest.clone(), blocks: parsed.blocks,
                         provenance, coordinates_restored: false, page_size: parsed.page_size }), None)
                 }
@@ -892,7 +1135,7 @@ impl DocumentParseHandler {
             }
             {
                 snapshot.pages.insert(page.page_index, self.seal_bytes(&bytes, "document-page-checkpoint", 2)?);
-                let observed = self.observe(operation, attempt, &snapshot, None, EffectStatus::Unknown)?;
+                let observed = self.observe_progress(operation, attempt, &mut snapshot)?;
                 if observed.outcome_conflict || observed.state == OperationState::Resolved { return Ok(observed); }
             }
             tokio::task::yield_now().await;
@@ -981,14 +1224,18 @@ impl DocumentParseHandler {
         ensure!(frozen_bytes.len() as u64 <= MAX_FROZEN_INPUT_BYTES,
             "encoded document frozen input exceeds its reader bound before operation admission");
         let arm_local = || self.arm_bytes(&invocation, &frozen_bytes, 2, serde_json::to_value(&frozen.provider)?, false);
-        if self.store().find_external_operation(invocation.operation_id)?.is_some() {
-            let (operation, attempt, _) = arm_local()?;
+        if let Some(operation) = self.store().find_external_operation(invocation.operation_id)? {
+            ensure!(operation.task_id == invocation.task.task_id
+                && self.read(&operation.final_input_ref, MAX_FROZEN_INPUT_BYTES)? == frozen_bytes,
+                "document replay input differs from the original frozen request");
+            let attempt = self.store().external_operation_attempt(operation.operation_id)?;
             return self.recover(&invocation.task, operation, attempt).await;
         }
         if let Some((original, prior)) = self.cached(&frozen, invocation.operation_id)? {
             let (operation, attempt, fresh) = arm_local()?;
             if !fresh { return self.recover(&invocation.task, operation, attempt).await; }
             let mut snapshot = Snapshot::new(&operation, &attempt, &frozen.provider);
+            snapshot.source_reads = prior.source_reads;
             snapshot.provider_task_id = prior.provider_task_id;
             snapshot.accepted_at = prior.accepted_at;
             snapshot.raw_output = prior.raw_output;
@@ -1000,7 +1247,7 @@ impl DocumentParseHandler {
             snapshot.reason = prior.reason;
             if let Some(raw) = &snapshot.raw_output {
                 let document = OxrDocument::from_response(self.read(raw, MAX_RESPONSE_BYTES)?)?;
-                return self.result(&operation, &attempt, &frozen, snapshot, document).await;
+                return self.result(&operation, &attempt, &frozen, snapshot, document, None).await;
             }
             return self.observe(&operation, &attempt, &snapshot,
                 (snapshot.state == ParseState::Failed).then_some(OperationOutcome::Failed),
@@ -1094,13 +1341,13 @@ impl DocumentParseHandler {
         let submitted = self.observing(operation.task_id, client.submit_document_owned(
             frozen.request.source_name.as_deref().context("document frozen request has no source name")?, bytes)).await?;
         match submitted {
-            Some(Ok(OxrSubmission::Complete(document))) => self.result(&operation, &attempt, &frozen, snapshot, document).await,
+            Some(Ok(OxrSubmission::Complete(document))) => self.result(&operation, &attempt, &frozen, snapshot, document, Some(OxrResponseSource::Sync)).await,
             Some(Ok(OxrSubmission::Accepted { task_id, response })) => {
                 snapshot.provider_task_id = Some(task_id.clone());
                 snapshot.accepted_at = Some(chrono::Utc::now());
                 {
                     snapshot.raw_observation = Some(Box::new(self.response_observation(&operation, &attempt, &frozen, &snapshot, &response)?));
-                    self.observe(&operation, &attempt, &snapshot, None, EffectStatus::Unknown)?;
+                    self.observe_progress(&operation, &attempt, &mut snapshot)?;
                 }
                 self.poll(&operation, &attempt, &frozen, snapshot, &task_id, false).await
             }
@@ -1138,7 +1385,7 @@ impl DocumentParseHandler {
         let mut pending_snapshot = snapshot.clone();
         let mut observe_response = |observation: &OxrResponseObservation| -> Result<()> {
             pending_snapshot.raw_observation = Some(Box::new(self.response_observation(operation, attempt, frozen, &pending_snapshot, observation)?));
-            self.observe(operation, attempt, &pending_snapshot, None, EffectStatus::Unknown)?;
+            self.observe_progress(operation, attempt, &mut pending_snapshot)?;
             Ok(())
         };
         let outcome = if let Some(deadline) = deadline.filter(|deadline| *deadline > chrono::Utc::now()) {
@@ -1152,9 +1399,9 @@ impl DocumentParseHandler {
                     observation: None,
                 })))
         };
-        snapshot.raw_observation = pending_snapshot.raw_observation;
+        snapshot = pending_snapshot;
         match outcome {
-            Some(Ok(document)) => self.result(operation, attempt, frozen, snapshot, document).await,
+            Some(Ok(document)) => self.result(operation, attempt, frozen, snapshot, document, Some(OxrResponseSource::AsyncCheck)).await,
             Some(Err(error)) => self.failure(operation, attempt, frozen, snapshot, error),
             None => {
                 snapshot.reason = Some("local poll observer stopped; upstream has no confirmed cancellation and capacity remains reserved".into());
@@ -1168,9 +1415,21 @@ impl DocumentParseHandler {
         if operation.operation_name == PARSE
             && let Some(SavedSnapshot::Current(mut snapshot)) = self.saved_snapshot(&operation, &attempt)?
             && let Some(source) = snapshot.source_operation
-            && self.store().external_operation(source)?.outcome_conflict {
+            && snapshot.source_reads.iter().any(|read| read.operation.operation_id == source && read.operation.outcome_conflict) {
             snapshot.reason = Some("original source has conflicting evidence; successful consumer settlement is forbidden".into());
             return self.observe(&operation, &attempt, &snapshot, None, EffectStatus::Unknown);
+        }
+        if operation.state == OperationState::Resolved && operation.operation_name == PARSE
+            && let Some(SavedSnapshot::Current(snapshot)) = self.saved_snapshot(&operation, &attempt)?
+            && snapshot.source_operation.is_some() {
+            let own_receipt = snapshot.source_reads.iter()
+                .find(|read| read.operation.operation_id == operation.operation_id
+                    && read.attempt.attempt_id == attempt.attempt_id)
+                .and_then(|read| read.receipts.iter().find(|receipt| Some(receipt.receipt_id) == attempt.final_receipt_id))
+                .context("document replay has no decoded own receipt")?;
+            return self.store().validate_external_evidence_replay(&operation, &attempt,
+                own_receipt, &snapshot.source_reads, &[])?
+                .context("document source changed; retry requires reread and redecode");
         }
         if operation.state == OperationState::Resolved || operation.outcome_conflict { return Ok(operation); }
         let frozen = match self.saved_frozen(&operation)? {
@@ -1194,7 +1453,10 @@ impl DocumentParseHandler {
             return self.observe(&operation, &attempt, &snapshot, None, EffectStatus::Unknown);
         }
         if let Some(original) = snapshot.source_operation {
-            let original_operation = self.store().external_operation(original)?;
+            let source_read = snapshot.source_reads.iter().find(|read| read.operation.operation_id == original)
+                .context("document source requires reread and redecode")?;
+            let original_operation = source_read.operation.clone();
+            let original_attempt = source_read.attempt.clone();
             if original_operation.outcome_conflict {
                 snapshot.reason = Some("original source has conflicting evidence; no upload or successful projection is permitted".into());
                 return self.observe(&operation, &attempt, &snapshot, None, EffectStatus::Unknown);
@@ -1204,9 +1466,15 @@ impl DocumentParseHandler {
             };
             ensure!(Self::document_key(&original_frozen)? == Self::document_key(&frozen)? && original_frozen.provider == frozen.provider,
                 "document cache source changed");
-            let original_attempt = self.store().external_operation_attempt(original)?;
-            if let Some(prior) = self.latest(&original_operation, &original_attempt)? {
-                snapshot.raw_output = prior.raw_output; snapshot.raw_observation = prior.raw_observation; snapshot.pages.extend(prior.pages);
+            let prior = self.latest(&original_operation, &original_attempt)?;
+            snapshot.raw_output = None;
+            snapshot.raw_observation = None;
+            snapshot.pages.clear();
+            if let Some(prior) = prior {
+                snapshot.source_reads.extend(prior.source_reads);
+                snapshot.provider_task_id = prior.provider_task_id;
+                snapshot.accepted_at = prior.accepted_at;
+                snapshot.raw_output = prior.raw_output; snapshot.raw_observation = prior.raw_observation; snapshot.pages = prior.pages;
                 snapshot.remote_finished = prior.remote_finished;
                 if prior.state == ParseState::Failed && snapshot.raw_output.is_none() {
                     snapshot.state = ParseState::Failed;
@@ -1217,7 +1485,7 @@ impl DocumentParseHandler {
         }
         if let Some(raw) = &snapshot.raw_output {
             let document = OxrDocument::from_response(self.read(raw, MAX_RESPONSE_BYTES)?)?;
-            return self.result(&operation, &attempt, &frozen, snapshot, document).await;
+            return self.result(&operation, &attempt, &frozen, snapshot, document, None).await;
         }
         if snapshot.source_operation.is_none()
             && let Some(task_id) = snapshot.provider_task_id.clone() {
@@ -1229,6 +1497,12 @@ impl DocumentParseHandler {
 
     fn main_receipt(&self, operation: &OperationRecord, attempt: &AttemptRecord,
         binding: &shenko_document::legacy_main::AttemptBinding,
+    ) -> Result<Option<shenko_document::legacy_main::AttemptReceipt>> {
+        self.main_receipt_read(operation, attempt, binding, &mut Vec::new())
+    }
+
+    fn main_receipt_read(&self, operation: &OperationRecord, attempt: &AttemptRecord,
+        binding: &shenko_document::legacy_main::AttemptBinding, receipts: &mut Vec<EvidenceReceipt>,
     ) -> Result<Option<shenko_document::legacy_main::AttemptReceipt>> {
         use shenko_document::legacy_main::{AttemptReceipt, OxrBodyState};
         let mut result: Option<AttemptReceipt> = None;
@@ -1248,6 +1522,7 @@ impl DocumentParseHandler {
             ensure!(observed.receipt.raw_output_ref == expected_raw
                 && observed.response.as_ref().and_then(|response| response.body.as_ref()).is_none_or(|body| body == &evidence.raw_ref),
                 "historical main original response/provenance mismatch");
+            receipts.push(evidence);
             let incoming = observed.receipt;
             if let Some(previous) = &result {
                 ensure!(!matches!((&previous.task, &incoming.task), (Some(old), Some(new)) if old != new),
@@ -1301,7 +1576,16 @@ impl DocumentParseHandler {
         for _ in 0..32 {
             let current = self.store().external_operation(operation.operation_id)?;
             ensure!(current.checkpoint_scope_ref == operation.checkpoint_scope_ref, "historical main attempt binding changed");
-            let previous = if current.outcome_conflict { None } else { self.main_receipt(&current, attempt, binding)? };
+            let current_attempt = self.store().external_operation_attempt(operation.operation_id)?;
+            ensure!(current_attempt.attempt_id == attempt.attempt_id, "historical main original attempt changed");
+            let mut source_read = ExternalEvidenceSource { operation: current.clone(), attempt: current_attempt.clone(),
+                receipts: Vec::new() };
+            let previous = if current.outcome_conflict {
+                source_read.receipts = self.store().external_operation_evidence(current.operation_id)?
+                    .into_iter().filter(|evidence| evidence.source_id == "document.oxr.transport.v1").collect();
+                None
+            } else {
+                self.main_receipt_read(&current, &current_attempt, binding, &mut source_read.receipts)? };
             let conflict = current.outcome_conflict || previous.as_ref().is_some_and(|previous| {
                 matches!((&previous.task, &receipt.task), (Some(old), Some(new)) if old != new)
                     || (previous.terminal() && receipt.terminal() && previous.outcome != receipt.outcome)
@@ -1309,7 +1593,9 @@ impl DocumentParseHandler {
             if let Some(committed) = self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id,
                 evidence.clone(), None, EffectStatus::Unknown, ExternalEvidenceFold {
                     expected_revision: current.record_revision, terminal_content_conflict: conflict,
-                    source_operation_revision: None,
+                    source_operation: None,
+                    source_reads: std::slice::from_ref(&source_read),
+                    receipt_scopes: &[ExternalReceiptScope { operation_id: operation.operation_id, source_id: "document.oxr.transport.v1" }],
                 })? {
                 ensure!(!committed.outcome_conflict, "historical main terminal receipt conflict retained");
                 return Ok(match previous {
@@ -1340,11 +1626,7 @@ impl DocumentParseHandler {
         if original_receipt.as_ref().is_none_or(|receipt| !receipt.terminal() && receipt.task.is_none()) {
             // Armed + None is not proof of no send in the predecessor. Publish
             // local uncertainty without fabricating a provider observation.
-            return self.finish_main(operation, attempt, &frozen, &binding, &AttemptReceipt {
-                task: None, outcome: Some(Err(MainError::OutcomeUnknown(
-                    "original main armed upload has no authenticated task handle; Unknown retained without another upload or check".into()))),
-                raw_output_ref: None,
-            });
+            return self.finish_main(operation, attempt, &frozen, &binding, original_receipt.as_ref());
         }
         let request = &frozen.input.request;
         ensure!(self.current_installation()? && !binding.account_identity.trim().is_empty()
@@ -1364,7 +1646,7 @@ impl DocumentParseHandler {
             // The original reader already sealed this typed terminal outcome.
             // Project it with its original binding and raw-output digest; no
             // current credential, wire admission or response remapping is needed.
-            return self.finish_main(operation, attempt, &frozen, &binding, receipt);
+            return self.finish_main(operation, attempt, &frozen, &binding, Some(receipt));
         }
         let admission = self.profile.legacy_main.as_ref().context(
             "original main account/config/mapper is not explicitly admitted; historical reads and Unknown debt are retained")?;
@@ -1412,7 +1694,7 @@ impl DocumentParseHandler {
                     AttemptReceipt { task: Some(task), outcome: Some(outcome), raw_output_ref: None }, None)?,
             };
         }
-        self.finish_main(operation, attempt, &frozen, &binding, &receipt)
+        self.finish_main(operation, attempt, &frozen, &binding, Some(&receipt))
     }
 
     fn validate_main_identity(&self, operation: &OperationRecord) -> Result<()> {
@@ -1470,13 +1752,30 @@ impl DocumentParseHandler {
     }
 
     fn finish_main(&self, operation: &OperationRecord, attempt: &AttemptRecord, frozen: &MainFrozenParseV1,
-        binding: &shenko_document::legacy_main::AttemptBinding, receipt: &shenko_document::legacy_main::AttemptReceipt,
+        binding: &shenko_document::legacy_main::AttemptBinding, observed: Option<&shenko_document::legacy_main::AttemptReceipt>,
     ) -> Result<OperationRecord> {
+        let current = self.store().external_operation(operation.operation_id)?;
+        if current.state == OperationState::Resolved || current.outcome_conflict { return Ok(current); }
+        let current_attempt = self.store().external_operation_attempt(operation.operation_id)?;
+        ensure!(current_attempt.attempt_id == attempt.attempt_id
+            && current.final_input_ref == operation.final_input_ref
+            && current.checkpoint_scope_ref == operation.checkpoint_scope_ref,
+            "historical main original frozen input or attempt changed");
+        let mut source_read = ExternalEvidenceSource { operation: current.clone(), attempt: current_attempt.clone(),
+            receipts: Vec::new() };
+        let decoded = self.main_receipt_read(&current, &current_attempt, binding, &mut source_read.receipts)?;
+        ensure!(decoded.as_ref().map(serde_json::to_value).transpose()? == observed.map(serde_json::to_value).transpose()?,
+            "historical main source changed; retry requires reread and redecode");
+        // This is a local conclusion from the exact reread, never a transport
+        // observation. Store binds even an empty transport inventory at E1.
+        let local_unknown = decoded.as_ref().is_none_or(|receipt| !receipt.terminal() && receipt.task.is_none());
+        let outcome = decoded.as_ref().and_then(|receipt| receipt.outcome.as_ref());
+        let raw_output_ref = decoded.as_ref().and_then(|receipt| receipt.raw_output_ref.clone());
         let mut checkpoints = Vec::new();
         let mut document_failure = None;
         let mut document_unknown_outcome = None;
         let mut state = ParseState::Complete;
-        match &receipt.outcome {
+        match outcome {
             Some(Ok(document)) => {
                 ensure!(document.pages.len() <= MAX_PAGES, "historical main document exceeds page budget");
                 let mut selected: Vec<PageRef> = if frozen.input.request.pages.is_empty() {
@@ -1491,7 +1790,7 @@ impl DocumentParseHandler {
                     let result = parsed.map(|parsed| PageResult { page, source_digest: request.source_digest.clone(),
                         blocks: parsed.blocks.clone(), provenance: shenko_document::PageProvenance { provider_id:"oxr".into(),
                             code_version:request.closure_id.clone(), model_version:Some(binding.model_identity.clone()),
-                            params_digest:Some(binding.params_digest.clone()), raw_output_ref:receipt.raw_output_ref.clone() },
+                            params_digest:Some(binding.params_digest.clone()), raw_output_ref:raw_output_ref.clone() },
                         coordinates_restored:parsed.page_size.is_some(), page_size:parsed.page_size });
                     let failure = parsed.is_none().then(|| format!("upstream returned no page {} (the document has {} page(s))",
                         page.page_index, document.page_count.unwrap_or(document.pages.len() as u32)));
@@ -1502,7 +1801,9 @@ impl DocumentParseHandler {
             Some(Err(error)) if !error.outcome_is_unknown() => document_failure = Some(format!("document parse failed: {error}")),
             error => {
                 state = ParseState::Running;
-                document_unknown_outcome = Some(match error { Some(Err(error)) => error.to_string(), _ => "original task is pending".into() });
+                document_unknown_outcome = Some(if local_unknown {
+                    "original main armed upload has no authenticated task handle; Unknown retained without another upload or check".into()
+                } else { match error { Some(Err(error)) => error.to_string(), _ => "original task is pending".into() } });
             }
         }
         let failed = document_failure.is_some() || checkpoints.iter().any(|page| page.failure.is_some());
@@ -1525,17 +1826,14 @@ impl DocumentParseHandler {
                 "document_failure":document_failure,"document_unknown_outcome":document_unknown_outcome}), "document-parse-result", 1)?
         };
         let evidence = self.main_evidence(operation, attempt, "document.parse.result.v1", raw, normalized);
-        for _ in 0..32 {
-            let current = self.store().external_operation(operation.operation_id)?;
-            if current.state == OperationState::Resolved || current.outcome_conflict { return Ok(current); }
-            self.main_receipt(&current, attempt, binding)?;
-            let outcome = (state != ParseState::Running).then_some(if failed { OperationOutcome::Failed } else { OperationOutcome::Succeeded });
-            if let Some(committed) = self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id,
-                evidence.clone(), outcome, if outcome.is_some() { EffectStatus::Complete } else { EffectStatus::Unknown },
-                ExternalEvidenceFold { expected_revision:current.record_revision, terminal_content_conflict:false,
-                    source_operation_revision:None })? { return Ok(committed); }
-        }
-        anyhow::bail!("historical main result head kept changing; original attempt remains reconcilable")
+        let outcome = (state != ParseState::Running).then_some(if failed { OperationOutcome::Failed } else { OperationOutcome::Succeeded });
+        self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id,
+            evidence, outcome, if outcome.is_some() { EffectStatus::Complete } else { EffectStatus::Unknown },
+            ExternalEvidenceFold { expected_revision:current.record_revision, terminal_content_conflict:false,
+                source_operation:None, source_reads:std::slice::from_ref(&source_read),
+                receipt_scopes: &[ExternalReceiptScope { operation_id: operation.operation_id, source_id: "document.oxr.transport.v1" }],
+            })?
+            .context("historical main source changed; retry requires reread and redecode")
     }
 
     fn recover_legacy(&self, operation: &OperationRecord, attempt: &AttemptRecord,
@@ -1554,7 +1852,10 @@ impl DocumentParseHandler {
         // Append a new v1 observation using the exact old field encoding;
         // original snapshots, frozen inputs, refs, IDs and page keys stay intact.
         snapshot.reason = Some("original OXR mapper v1/code binding is not active; saved raw/page evidence remains readable, and the original handle/debt is retained without another upload".into());
-        self.observe_snapshot(operation, attempt, &serde_json::to_vec(&snapshot)?, 1, None, operation.effect_status)
+        self.observe_snapshot(operation, attempt, SnapshotObservation {
+            bytes: &serde_json::to_vec(&snapshot)?, schema_version: 1,
+            outcome: None, effect: operation.effect_status, source_reads: &snapshot.source_reads,
+        })
     }
 
     async fn read_page(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -1565,6 +1866,16 @@ impl DocumentParseHandler {
         fn read_limit() -> usize { 64 * 1024 }
         let input: Input = serde_json::from_value(std::mem::take(&mut invocation.input))?;
         ensure!((1..=64 * 1024).contains(&input.limit), "document page read limit must be 1..=65536");
+        if let Some(operation) = self.store().find_external_operation(invocation.operation_id)? {
+            ensure!(operation.task_id == invocation.task.task_id && operation.operation_name == READ,
+                "document reader replay operation mismatch");
+            let frozen: FrozenPageRead = serde_json::from_slice(&self.read(&operation.final_input_ref, MAX_FROZEN_INPUT_BYTES)?)?;
+            ensure!(frozen.operation_id == input.operation_id && frozen.page_index == input.page_index
+                && frozen.offset == input.offset && frozen.limit == input.limit,
+                "document reader replay input differs from the original page request");
+            let attempt = self.store().external_operation_attempt(operation.operation_id)?;
+            return self.recover_read(operation, attempt);
+        }
         let source = self.store().external_operation(input.operation_id)?;
         let source_task = self.store().external_task(source.task_id)?;
         ensure!(matches!(source.operation_name.as_str(), PARSE | MAIN_OPERATION) && source_task.agent_id == invocation.task.agent_id,
@@ -1581,7 +1892,7 @@ impl DocumentParseHandler {
     }
 
     fn recover_read(&self, operation: OperationRecord, attempt: AttemptRecord) -> Result<OperationRecord> {
-        if operation.state == OperationState::Resolved || operation.outcome_conflict { return Ok(operation); }
+        if operation.outcome_conflict { return Ok(operation); }
         ensure!(operation.input_digest == operation.final_input_ref.digest, "document reader frozen-input identity mismatch");
         let frozen: FrozenPageRead = serde_json::from_slice(&self.read(&operation.final_input_ref, MAX_FROZEN_INPUT_BYTES)?)?;
         self.project_read(&operation, &attempt, &frozen)
@@ -1596,7 +1907,13 @@ impl DocumentParseHandler {
             && matches!(source.operation_name.as_str(), PARSE | MAIN_OPERATION), "document reader source identity mismatch");
         let source_attempt = self.store().external_operation_attempt(source.operation_id)?;
         let snapshot = self.saved_snapshot(&source, &source_attempt)?.context("document source has no saved checkpoint")?;
+        ensure!(snapshot.source_reads().iter().all(|read| !read.operation.outcome_conflict),
+            "document original source has conflicting evidence; saved page is not a successful result");
         ensure!(snapshot.pages().get(&input.page_index) == Some(&input.checkpoint), "document reader checkpoint is not the original page");
+        let scopes: Vec<_> = snapshot.source_reads().iter()
+            .filter(|read| read.operation.operation_name == MAIN_OPERATION)
+            .map(|read| ExternalReceiptScope { operation_id: read.operation.operation_id,
+                source_id: "document.parse.result.v1" }).collect();
         let object = &input.checkpoint;
         let bytes = self.read(object, MAX_CHECKPOINT_BYTES)?;
         let text = std::str::from_utf8(&bytes)?;
@@ -1607,6 +1924,36 @@ impl DocumentParseHandler {
         let result = json!({"schema_version":1,"operation_id":input.operation_id,"page_index":input.page_index,
             "checkpoint":object,"offset":input.offset,"bytes":bytes.len(),"content":&text[input.offset..end],
             "next_offset":(end < text.len()).then_some(end),"external_content_is_instructions":false});
+        if operation.state == OperationState::Resolved {
+            let receipt = self.store().external_evidence(attempt.final_receipt_id
+                .context("document page replay has no settled receipt")?)?;
+            ensure!(operation.operation_name == READ && operation.outcome == Some(OperationOutcome::Succeeded)
+                && operation.effect_status == EffectStatus::None
+                && receipt.record_schema_version == 1
+                && Some(receipt.receipt_id) == attempt.final_receipt_id
+                && receipt.operation_id == Some(operation.operation_id) && receipt.attempt_id == Some(attempt.attempt_id)
+                && receipt.source_id == READ && receipt.source_instance_id == attempt.node_id.to_string()
+                && receipt.source_event_key.is_none() && receipt.producer_epoch == Some(attempt.epoch.0)
+                && receipt.producer_schema_version.as_deref() == Some("1")
+                && receipt.decoder_ref.as_ref() == Some(&operation.contract_ref.receipt_reader_ref)
+                && receipt.decode_status == DecodeStatus::Decoded && receipt.observation_level.is_none()
+                && receipt.normalized_ref.as_ref() == Some(&receipt.raw_ref),
+                "document page replay receipt identity/decoder mismatch");
+            let raw = &receipt.raw_ref;
+            ensure!(raw.media_type == "application/json" && raw.store_namespace == "document-parse"
+                && raw.codec.name == "document-page-read" && raw.codec.major == 1
+                && raw.codec.digest == Digest::blake3(b"document-page-read"),
+                "document page replay object type mismatch");
+            let expected = serde_json::to_vec(&result)?;
+            // The bounded read authenticates the saved original bytes, including
+            // a missing/truncated CAS object. No sealing occurs on replay.
+            let saved = self.read(raw, MAX_CHECKPOINT_BYTES)?;
+            ensure!(saved == expected,
+                "document page replay differs from the original frozen-page projection");
+            return self.store().validate_external_evidence_replay(operation, attempt, &receipt,
+                snapshot.source_reads(), &scopes)?
+                .context("document source or settled page changed; retry requires reread and redecode");
+        }
         let raw = self.seal(&result, "document-page-read", 1)?;
         self.store().record_external_evidence_if_current(operation.operation_id, attempt.attempt_id, EvidenceReceipt {
             record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(operation.operation_id), attempt_id: Some(attempt.attempt_id),
@@ -1616,8 +1963,10 @@ impl DocumentParseHandler {
             observation_level: None, normalized_ref: Some(raw), observed_at: Some(chrono::Utc::now()), received_commit: operation.prepared_commit,
         }, Some(OperationOutcome::Succeeded), EffectStatus::None, ExternalEvidenceFold {
             expected_revision: operation.record_revision, terminal_content_conflict: false,
-            source_operation_revision: Some((source.operation_id, source.record_revision)),
-        })?.context("document source or page operation changed before result publication; reconcile the original read")
+            source_operation: Some(&source),
+            source_reads: snapshot.source_reads(),
+            receipt_scopes: &scopes,
+        })?.context("document source or page operation changed; retry requires reread and redecode of the original page")
     }
 }
 

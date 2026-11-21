@@ -354,6 +354,33 @@ mod document_recovery {
         let cached = fixture.handler.execute(fixture.claim(cached_task, input)).await.unwrap();
         assert_eq!(cached.outcome, Some(OperationOutcome::Succeeded));
         assert_eq!(peer.state.uploads.load(Ordering::SeqCst), 1);
+        // This real alias has completed E1 through execute(), but the native
+        // service has not yet been driven to T2. Replay must preserve that
+        // original result rather than append evidence before settlement.
+        assert!(fixture.store.native_task_result(cached_task).unwrap().is_none());
+        let cached_owner = fixture.store.external_task(cached_task).unwrap();
+        let before_t2 = [resolved.operation_id, cached.operation_id].into_iter().map(|operation_id| (
+            operation_id,
+            serde_json::to_value(fixture.store.external_operation(operation_id).unwrap()).unwrap(),
+            serde_json::to_value(fixture.store.external_operation_attempts(operation_id).unwrap()).unwrap(),
+            fixture.store.external_operation_evidence(operation_id).unwrap(),
+        )).collect::<Vec<_>>();
+        assert_eq!(before_t2[0].1, serde_json::to_value(&resolved).unwrap());
+        assert_eq!(before_t2[1].1, serde_json::to_value(&cached).unwrap());
+        let uploads_before_t2 = peer.state.uploads.load(Ordering::SeqCst);
+        let checks_before_t2 = peer.state.checks.load(Ordering::SeqCst);
+        let handles_before_t2 = peer.checked_tasks();
+        let replayed_alias = fixture.handler.reconcile(&cached_owner, cached.operation_id).await.unwrap();
+        assert_eq!(serde_json::to_value(&replayed_alias).unwrap(), before_t2[1].1);
+        for (operation_id, operation, attempts, receipts) in &before_t2 {
+            assert_eq!(serde_json::to_value(fixture.store.external_operation(*operation_id).unwrap()).unwrap(), *operation);
+            assert_eq!(serde_json::to_value(fixture.store.external_operation_attempts(*operation_id).unwrap()).unwrap(), *attempts);
+            assert_eq!(fixture.store.external_operation_evidence(*operation_id).unwrap(), *receipts);
+        }
+        assert!(fixture.store.native_task_result(cached_task).unwrap().is_none(), "reconciliation must not invent T2");
+        assert_eq!(peer.state.uploads.load(Ordering::SeqCst), uploads_before_t2);
+        assert_eq!(peer.state.checks.load(Ordering::SeqCst), checks_before_t2);
+        assert_eq!(peer.checked_tasks(), handles_before_t2);
         let read_task = EntityId::new();
         {
             commit_native_fixture_step(&fixture.store, &format!("[delegate:document.page.read:1] {}",
@@ -367,6 +394,50 @@ mod document_recovery {
         assert!(value["content"].as_str().unwrap().contains(&fixture.source.digest.0));
         assert!(value["content"].as_str().unwrap().contains("transient_unretained"));
         assert_eq!(peer.checked_tasks(), vec!["original-1".to_owned(), "original-1".to_owned()], "cached reads never query another handle");
+        let read_operation = fixture.store.external_operations_after("document.page.read", None, 256).unwrap()
+            .into_iter().find(|operation| operation.task_id == read_task).unwrap();
+        assert_eq!(read_operation.outcome, Some(OperationOutcome::Succeeded));
+        let read_owner = fixture.store.external_task(read_task).unwrap();
+        // Capture the original A, cached alias B and settled page C before
+        // either replay. Compare every serialized operation/attempt field;
+        // these records deliberately do not require a PartialEq impl.
+        let retained = [resolved.operation_id, cached.operation_id, read_operation.operation_id]
+            .into_iter().map(|operation_id| (
+                operation_id,
+                serde_json::to_value(fixture.store.external_operation(operation_id).unwrap()).unwrap(),
+                serde_json::to_value(fixture.store.external_operation_attempts(operation_id).unwrap()).unwrap(),
+                fixture.store.external_operation_evidence(operation_id).unwrap(),
+            )).collect::<Vec<_>>();
+        assert_eq!(retained[0].1, serde_json::to_value(&resolved).unwrap());
+        assert_eq!(retained[1].1, serde_json::to_value(&cached).unwrap());
+        assert_eq!(retained[2].1, serde_json::to_value(&read_operation).unwrap());
+        let uploads_before_replay = peer.state.uploads.load(Ordering::SeqCst);
+        let checks_before_replay = peer.state.checks.load(Ordering::SeqCst);
+        let handles_before_replay = peer.checked_tasks();
+        // Use the same installed handler factories as document::Generation;
+        // resolved recovery must validate custody without publishing a fact,
+        // including when this Store can no longer accept any E1 writes.
+        let reader = fixture.handler.page_reader();
+        for writer_closed in [false, true] {
+            if writer_closed { fixture.store.close_external_writer(); }
+            let replayed_alias = fixture.handler.reconcile(&cached_owner, cached.operation_id).await.unwrap();
+            assert_eq!(serde_json::to_value(&replayed_alias).unwrap(), retained[1].1,
+                "alias recovery must return the exact settled operation");
+            let replayed_page = reader.reconcile(&read_owner, read_operation.operation_id).await.unwrap();
+            assert_eq!(serde_json::to_value(&replayed_page).unwrap(), retained[2].1,
+                "page recovery must return the exact settled operation");
+            for (operation_id, operation, attempts, receipts) in &retained {
+                assert_eq!(serde_json::to_value(fixture.store.external_operation(*operation_id).unwrap()).unwrap(), *operation,
+                    "resolved recovery must preserve every original operation field");
+                assert_eq!(serde_json::to_value(fixture.store.external_operation_attempts(*operation_id).unwrap()).unwrap(), *attempts,
+                    "resolved recovery must preserve every original attempt field");
+                assert_eq!(fixture.store.external_operation_evidence(*operation_id).unwrap(), *receipts,
+                    "resolved recovery must preserve the complete original receipt history");
+            }
+            assert_eq!(peer.state.uploads.load(Ordering::SeqCst), uploads_before_replay);
+            assert_eq!(peer.state.checks.load(Ordering::SeqCst), checks_before_replay);
+            assert_eq!(peer.checked_tasks(), handles_before_replay);
+        }
         fixture.close().await; peer.finish().await;
     }
 
@@ -709,7 +780,11 @@ mod document_recovery {
                     }, Some(OperationOutcome::Failed), EffectStatus::None).unwrap();
                 None
             } else { None };
+            let original_contract = operation.contract_ref.clone();
+            let original_resources = operation.resource_bindings_ref.clone();
+            let original_checkpoint_scope = operation.checkpoint_scope_ref.clone();
             let original_input = operation.final_input_ref.clone();
+            let original_source_bytes = fixture.store.cas.read_object(&fixture.source.digest).unwrap();
             let original_implementation = fixture.store.external_task(task_id).unwrap().implementation_ref;
             assert_eq!(original_implementation, descriptor.implementation_ref);
             let original_evidence = fixture.store.external_operation_evidence(operation.operation_id).unwrap();
@@ -838,6 +913,11 @@ mod document_recovery {
                 let read_op = fixture.store.external_operations_after("document.page.read", None, 256).unwrap()
                     .into_iter().find(|item| item.task_id == read).unwrap();
                 assert_eq!(read_op.outcome, Some(OperationOutcome::Succeeded));
+                let read_result = fixture.store.native_task_result(read).unwrap().unwrap();
+                assert_eq!(read_result.outcome, TaskOutcome::Succeeded);
+                let page = read_result.result.unwrap();
+                assert!(page["content"].as_str().unwrap().contains("original main mapper page"));
+                assert!(page["content"].as_str().unwrap().contains(&fixture.source.digest.0));
                 assert_eq!(peer.state.checks.load(Ordering::SeqCst),before_checks,"saved page reads must also stay offline");
             } else {
                 if accepted {
@@ -871,7 +951,13 @@ mod document_recovery {
             }
             assert_eq!(peer.state.uploads.load(Ordering::SeqCst), before_uploads + usize::from(no_send),
                 "only the new operation in the proven no-dispatch case may upload");
-            assert_eq!(fixture.store.external_operation(operation.operation_id).unwrap().final_input_ref,original_input);
+            let retained_operation = fixture.store.external_operation(operation.operation_id).unwrap();
+            assert_eq!(serde_json::to_value(&retained_operation.contract_ref).unwrap(),
+                serde_json::to_value(&original_contract).unwrap());
+            assert_eq!(retained_operation.resource_bindings_ref,original_resources);
+            assert_eq!(retained_operation.checkpoint_scope_ref,original_checkpoint_scope);
+            assert_eq!(retained_operation.final_input_ref,original_input);
+            assert_eq!(fixture.store.cas.read_object(&fixture.source.digest).unwrap(), original_source_bytes);
             assert_eq!(fixture.store.external_task(task_id).unwrap().implementation_ref,original_implementation);
             assert_eq!(fixture.store.external_operation_attempt(operation.operation_id).unwrap().attempt_id,attempt_id);
             assert_eq!(fixture.store.external_operation_attempts(operation.operation_id).unwrap().len(),1);
@@ -880,9 +966,77 @@ mod document_recovery {
         peer.finish().await;
     }
 
-    #[tokio::test]
-    async fn cancellation_retains_remote_capacity_while_unrelated_child_progresses() {
-        let peer = Peer::new(0).await; let fixture = Fixture::fresh(&peer, "owned-fixture").await;
+    #[test]
+    fn cancellation_retains_remote_capacity_while_unrelated_child_progresses() {
+        // Keep synchronous fixture publications off the native I/O workers.
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2).thread_name("oxr-capacity-native")
+            .enable_all().build().unwrap();
+        runtime.block_on(capacity_fixture_with_owned_native_runtime());
+    }
+
+    async fn capacity_fixture_with_owned_native_runtime() {
+        // Keep the actual peer off the client/Store executor: synchronous
+        // publications must not prevent its accept loop or connections running.
+        struct IsolatedPeer {
+            peer: Option<Peer>,
+            retire: Option<tokio::sync::oneshot::Sender<Peer>>,
+            worker: Option<std::thread::JoinHandle<()>>,
+        }
+        impl IsolatedPeer {
+            fn new(mode: usize) -> Self {
+                let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+                let (retire_tx, retire_rx) = tokio::sync::oneshot::channel::<Peer>();
+                let worker = std::thread::Builder::new().name("oxr-capacity-peer".into()).spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+                    runtime.block_on(async move {
+                        let peer = Peer::new(mode).await;
+                        if ready_tx.send(peer).is_err() { return; }
+                        if let Ok(peer) = retire_rx.await {
+                            // Cancel, abort and drain every owned connection
+                            // before shutting down this dedicated runtime.
+                            peer.finish().await;
+                        }
+                    });
+                }).unwrap();
+                // Install the owner before waiting, so startup failure also
+                // closes the handoff and joins the dedicated runtime thread.
+                let mut owner = Self { peer: None, retire: Some(retire_tx), worker: Some(worker) };
+                owner.peer = Some(ready_rx.recv_timeout(Duration::from_secs(10))
+                    .expect("isolated HTTP peer must start within 10 seconds"));
+                owner
+            }
+            fn shutdown(&mut self) -> std::thread::Result<()> {
+                if let Some(peer) = self.peer.take() {
+                    peer.stop.cancel();
+                    if let Some(retire) = self.retire.take() {
+                        // A failed send means the peer thread already exited;
+                        // joining below retains its original panic on finish.
+                        let _ = retire.send(peer);
+                    }
+                }
+                drop(self.retire.take());
+                match self.worker.take() {
+                    Some(worker) => worker.join(),
+                    None => Ok(()),
+                }
+            }
+            async fn finish(mut self) {
+                self.shutdown().expect("isolated HTTP peer thread panicked");
+            }
+        }
+        impl std::ops::Deref for IsolatedPeer {
+            type Target = Peer;
+            fn deref(&self) -> &Peer { self.peer.as_ref().unwrap() }
+        }
+        impl Drop for IsolatedPeer {
+            fn drop(&mut self) {
+                // Always cancel and join, including assertion unwinding; do
+                // not turn a peer panic into a second panic during teardown.
+                let _ = self.shutdown();
+            }
+        }
+        let peer = IsolatedPeer::new(0); let fixture = Fixture::fresh(&peer, "owned-fixture").await;
         fixture.supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin,
             Arc::new(shenko_exec_host::HostPrintfHandler::new(fixture.store.clone())) as Arc<dyn NativeTaskHandler>).await.unwrap();
         let first = EntityId::new(); let one = fixture.input(&fixture.source, &[]);
@@ -978,7 +1132,13 @@ mod document_recovery {
         drive_native_until(&fixture.service, || Ok(fixture.store.native_task_result(short)?.is_some()
             && peer.state.checks.load(Ordering::SeqCst) > original_checks
             && fixture.store.external_operation_evidence(operation_id)?.len() > original_receipts
-            && fixture.request_snapshot(operation_id)["raw_observation"]["http_status"] == 401)).await.unwrap();
+            && fixture.request_snapshot(operation_id)["raw_observation"]["http_status"] == 401)).await.unwrap_or_else(|error| {
+                panic!("full-queue progress conjunct missing: {error}; short_outcome={:?}; checks={}/>{original_checks}; receipts={:?}/>{original_receipts}; last_http_status={}",
+                    fixture.store.native_task_result(short).map(|result| result.map(|result| result.outcome)),
+                    peer.state.checks.load(Ordering::SeqCst),
+                    fixture.store.external_operation_evidence(operation_id).map(|receipts| receipts.len()),
+                    fixture.request_snapshot(operation_id)["raw_observation"]["http_status"]);
+            });
         assert_eq!(fixture.store.native_task_result(short).unwrap().unwrap().outcome, TaskOutcome::Succeeded);
         let queued_operations: Vec<_> = waiting.iter().map(|id| {
             let task = fixture.store.external_task(*id).unwrap();
