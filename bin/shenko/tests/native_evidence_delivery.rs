@@ -1101,7 +1101,7 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     forged_envelope.fact_ref = forged_fact_ref;
     forged_envelope.predecessor_roots.retain(|reference| reference != first_unknown_ref);
     forged_envelope.predecessor_roots.push(definite_ref.clone());
-    forged_envelope.predecessor_roots.sort_by_key(NativeEvidenceObjectIdentity::from);
+    forged_envelope.predecessor_roots.sort_by_key(|reference| NativeEvidenceObjectIdentity::from(reference));
     let forged_ref = source.cas.seal_object(&serde_json::to_vec(&forged_envelope)?,
         "application/json", "commit-authority", NATIVE_EVIDENCE_CODEC, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR)?.object;
     let mut forged_item = successor_item.clone();
