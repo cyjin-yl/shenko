@@ -47,10 +47,11 @@ const CODEC: &str = "store-s1-transition";
 mod physical;
 #[path = "control_transition_native_reads.rs"]
 mod native_reads;
-pub(crate) use native_reads::NativeReadSelector;
+pub(crate) use native_reads::{NativeAncestry, NativeReadSelector};
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const NATIVE_SUBJECT_READ_SCHEMA: u32 = 3;
 pub(crate) const NATIVE_OPERATION_READ_SCHEMA: u32 = 4;
+pub(crate) const NATIVE_ANCESTRY_READ_SCHEMA: u32 = 5;
 // Account all retained before/after rows and duplicated change cells together,
 // before the eventual sealed JSON size is known. Untouched tables are not
 // scanned. S1 complete-read ranges stream borrowed values into fixed digests.
@@ -136,7 +137,7 @@ pub(crate) struct TableTransition {
     /// unrelated historical rows. Native v1 witnesses are unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_range: Option<RangeImage>,
-    /// Version 4 direct native readers name their bounded operation predicate.
+    /// Version 4/5 native readers name their bounded operation/owner predicate.
     /// This never carries SQL and must exactly match the action's typed plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_selector: Option<NativeReadSelector>,
@@ -181,7 +182,7 @@ pub(crate) struct PreparedTransition {
 
 impl RowTransition {
     fn validate_capture_shape(&self) -> Result<(), ShenkoError> {
-        if self.schema_version != NATIVE_OPERATION_READ_SCHEMA
+        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
             && self.tables.iter().any(|table| table.read_selector.is_some())
         {
             return Err(invalid("older row schema cannot carry native read selectors"));
@@ -197,6 +198,9 @@ impl RowTransition {
                 && matches!(self.tables.iter().filter(|table| table.before.table.name == "subject_steps")
                     .collect::<Vec<_>>().as_slice(), [table] if !table.complete_read
                         && table.changes.is_empty() && table.before.rows.len() == 1) => Ok(()),
+            NATIVE_ANCESTRY_READ_SCHEMA if self.tables.iter().all(|table|
+                table.read_range.is_none() && table.read_selector.as_ref().is_none_or(|selector|
+                    !table.complete_read && selector.table_name() == table.before.table.name)) => Ok(()),
             _ => Err(invalid("unsupported row capture schema or read witness")),
         }
     }
@@ -206,7 +210,7 @@ impl RowTransition {
     /// set of ad-hoc point selectors is a supported action format.
     pub(crate) fn validate_native_read_selectors(&self, expected: &[NativeReadSelector]) -> Result<(), ShenkoError> {
         let actual = self.tables.iter().filter_map(|table| table.read_selector.as_ref()).collect::<Vec<_>>();
-        if self.schema_version != NATIVE_OPERATION_READ_SCHEMA {
+        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA) {
             return if actual.is_empty() { Ok(()) } else { Err(invalid("legacy native read selector")) };
         }
         if actual.len() != expected.len() || expected.is_empty()
@@ -229,7 +233,7 @@ impl RowTransition {
         });
         let _preconditions = crate::timing::Phase::new("materialize.preconditions");
         self.validate_capture_shape()?;
-        if matches!(self.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) {
+        if matches!(self.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA) {
             // The source evaluation calls read_subject even though it uses
             // only the returned head. Retain its successor existence, parent,
             // branch, epoch, generation and paused-boundary checks on every
@@ -237,7 +241,9 @@ impl RowTransition {
             // not dependencies of the separately proven native delegation.
             let (head, _) = crate::store::read_subject(tx, self.original_head.agent_id)?;
             if serde_json::to_value(&head)? != serde_json::to_value(&self.original_head)? {
-                return Err(conflict("direct native subject predecessor differs"));
+                return Err(conflict(if self.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+                    "native subject predecessor differs"
+                } else { "direct native subject predecessor differs" }));
             }
         }
         let actual_layouts = layouts(tx)?;
@@ -1030,6 +1036,12 @@ fn reserve_change(changes: &mut Vec<Change>, remaining: &mut usize) -> Result<()
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum NativeReads<'a> {
+    Direct { creator: &'a SubjectStep, selectors: &'a [NativeReadSelector] },
+    Ancestry(&'a [NativeReadSelector]),
+}
+
 fn input_digest(
     step: &SubjectStep,
     head: &SubjectBranchHead,
@@ -1064,7 +1076,20 @@ impl Store {
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        self.capture_row_transition_inner(tx, input, false, Some(task), Some((creator, selectors)), evaluate)
+        self.capture_row_transition_inner(tx, input, false, Some(task),
+            Some(NativeReads::Direct { creator, selectors }), evaluate)
+    }
+
+    /// General native execution keeps its full bounded owner chain and all
+    /// authoring-step reads. This is a separate format from the direct S1
+    /// birth/claim/E1 proof and does not grant a receiver execution permission.
+    pub(crate) fn capture_native_ancestry_transition<T>(
+        &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>, selectors: &[NativeReadSelector],
+        evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
+            -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+    ) -> Result<(RowTransition, T), ShenkoError> {
+        self.capture_row_transition_inner(tx, input, false, None,
+            Some(NativeReads::Ancestry(selectors)), evaluate)
     }
 
     /// S1 v2 freezes the same conservative complete read ranges as streamed
@@ -1081,12 +1106,18 @@ impl Store {
     /// in this callback; generated IDs/time and the real write bytes are frozen.
     fn capture_row_transition_inner<T>(
         &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>, summarize_reads: bool,
-        direct_task: Option<&TaskRecord>, direct_reads: Option<(&SubjectStep, &[NativeReadSelector])>,
+        direct_task: Option<&TaskRecord>, native_reads: Option<NativeReads<'_>>,
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        let direct_creator = direct_reads.map(|(creator, _)| creator);
-        let selectors = direct_reads.map_or(&[][..], |(_, selectors)| selectors);
+        let direct_creator = match native_reads {
+            Some(NativeReads::Direct { creator, .. }) => Some(creator),
+            _ => None,
+        };
+        let selectors = match native_reads {
+            Some(NativeReads::Direct { selectors, .. } | NativeReads::Ancestry(selectors)) => selectors,
+            None => &[][..],
+        };
         let selected = selectors.iter().map(|selector| (selector.table_name(), selector)).collect::<BTreeMap<_, _>>();
         if selected.len() != selectors.len() {
             return Err(invalid("repeated native selector table"));
@@ -1233,7 +1264,8 @@ impl Store {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() });
         }
         let transition = RowTransition {
-            schema_version: if !selectors.is_empty() { NATIVE_OPERATION_READ_SCHEMA }
+            schema_version: if matches!(native_reads, Some(NativeReads::Ancestry(_))) { NATIVE_ANCESTRY_READ_SCHEMA }
+                else if !selectors.is_empty() { NATIVE_OPERATION_READ_SCHEMA }
                 else if direct_creator.is_some() { NATIVE_SUBJECT_READ_SCHEMA }
                 else if summarize_reads { 2 } else { 1 },
             action_id: input.action_id, input_digest: input.input_digest,

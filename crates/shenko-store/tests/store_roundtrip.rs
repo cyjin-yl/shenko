@@ -4184,12 +4184,53 @@ fn canonical_native_arming_keeps_original_intent_without_reissuing_execution() -
 fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart() -> Result<()> {
     use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::{AlreadyCommitted, Won}}, cognition::CognitionImportOptions};
     use shenko_types::{authority::CommitAuthorityGrant, commit::CommitRef, evidence::*, ids::EntityId, object::ObjectRef, operation::*, task::DispatchEligibility};
-    let fixture = NativeT2Fixture::new(false)?;
-    let ctx = &fixture.parent.invocation;
+    let fixture = NativeT2Fixture::new(true)?;
+    let ctx = &fixture.child.as_ref().context("descendant dispatch claim")?.invocation;
+    let sibling = recovery_task(&fixture.store, fixture.agent, 3, false);
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(sibling.clone());
+    fixture.store.commit(batch)?;
+    let sibling = fixture.store.claim_native_task(sibling.task_id, sibling.implementation_ref, false)?
+        .context("independent dispatch observation")?;
+    let independent = arm_dispatch_probe(&fixture.store, &sibling.invocation, "independent-queued-operation");
+    let independent_attempt = fixture.store.external_attempt(independent.1)?;
+    let raw = fixture.store.cas.seal_object(b"independent observation ended without an effect proof",
+        "text/plain", "dispatch-test", "text", 1)?.object;
+    let receipt = EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(independent.0), attempt_id: Some(independent.1),
+        source_id: "independent-dispatch-observer".into(), source_instance_id: "fixture".into(),
+        source_event_key: Some("independent-after-dispatch-choice".into()), producer_epoch: Some(independent_attempt.epoch.0),
+        producer_schema_version: Some("1".into()), raw_ref: raw, decoder_ref: Some(independent_attempt.implementation_ref),
+        decode_status: DecodeStatus::Decoded, observation_level: None, normalized_ref: None,
+        observed_at: Some(chrono::Utc::now()), received_commit: independent_attempt.armed_commit,
+    };
+    let receipt_id = receipt.receipt_id;
     let first = arm_dispatch_probe(&fixture.store, ctx, "fresh-model-step");
     let first_attempt = fixture.store.external_attempt(first.1)?;
     let first_operation = fixture.store.external_operation(first.0)?;
+    // One real concurrent window advances S0, a separate task's cancellation,
+    // and its late Unknown E1 after this dispatch is chosen. The target still
+    // depends on its complete parent ancestry, not every task/attempt row.
+    let progressing = Arc::clone(&fixture.store);
+    let agent = fixture.agent;
+    fixture.state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        recorded_result(&progressing, &head, successor)?;
+        progressing.request_native_cancellation(sibling.task.task_id, EntityId::new(), EntityId::new(),
+            "independent task stopped", shenko_types::task::AbortScope::Task)?;
+        progressing.record_external_evidence(independent.0, independent.1, receipt, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, Won);
+    assert!(fixture.state.lock().before_materialize.is_none());
+    assert_eq!(fixture.store.external_attempt(independent.1)?.final_receipt_id, Some(receipt_id));
+    assert_eq!(fixture.store.external_operation(independent.0)?.effect_status, EffectStatus::Unknown);
+    assert_eq!(fixture.store.load_subject(fixture.agent)?.1.state, shenko_types::subject::SubjectStepState::ResultRecorded);
+    let first_grant = fixture.state.lock().grants.get(&format!("attempt/{}/dispatch", first.1))
+        .cloned().context("original dispatch choice")?;
+    let ancestor = fixture.store.external_task(fixture.parent.task.task_id)?;
+    assert_eq!(first_grant.admission.required_unconsumed,
+        vec![format!("task/{}/revision/{}", ancestor.task_id, ancestor.record_revision.0)]);
     assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, AlreadyCommitted);
     assert_eq!(serde_json::to_value(fixture.store.external_attempt(first.1)?)?, serde_json::to_value(first_attempt)?);
     assert_eq!(serde_json::to_value(fixture.store.external_operation(first.0)?)?, serde_json::to_value(first_operation)?);
@@ -4247,7 +4288,9 @@ fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_r
     let mut substituted: serde_json::Value = serde_json::from_str(data.as_str().context("task JSON")?)?;
     substituted["memos"][NATIVE_DISPATCH]["attempts"][ids.1.to_string()]["commit"]["ledger_id"] = serde_json::to_value(EntityId::new())?;
     *data = serde_json::to_value(serde_json::to_string(&substituted)?)?;
-    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-dispatch-transition", 1)?.object;
+    assert_eq!(reference.codec.major, 2);
+    assert_eq!(transition["rows"]["schema_version"], 5);
+    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-dispatch-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
     let mut fault: CommitAuthorityGrant = grant.clone();
     fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
