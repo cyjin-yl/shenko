@@ -4378,7 +4378,7 @@ fn canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_
     let logical_commit: shenko_types::commit::CommitRef = serde_json::from_value(original["rows"]["result_commit"].clone())?;
     let mut substituted = original;
     substituted["result"]["invocation_id"] = serde_json::to_value(EntityId::new())?;
-    let changed = fixture.store.cas.seal_object(&serde_json::to_vec(&substituted)?, "application/json", "commit-authority", "store-native-t2-transition", 1)?.object;
+    let changed = fixture.store.cas.seal_object(&serde_json::to_vec(&substituted)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(changed)?;
     let mut fault: CommitAuthorityGrant = grant.clone();
     fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
@@ -4419,18 +4419,43 @@ fn canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_
 #[test]
 fn canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results() -> Result<()> {
     use shenko_store::ControlRecoveryOutcome;
-    use shenko_types::task::TaskState;
+    use shenko_types::{evidence::EvidenceReceipt, ids::EntityId,
+        operation::{EffectStatus, OperationOutcome}, subject::SubjectStepState, task::TaskState};
     let fixture = NativeT2Fixture::new(true)?;
     let child = fixture.child.as_ref().context("ordinary child")?;
     let (parent_operation, parent_evidence) = native_t2_evidence(&fixture.store, &fixture.parent)?;
-    let (child_operation, _) = native_t2_evidence(&fixture.store, child)?;
+    let (child_operation, child_evidence) = native_t2_evidence(&fixture.store, child)?;
     fixture.state.lock().lose_reply = true;
     let error = fixture.store.complete_native_task(&fixture.parent, &parent_operation).err().context("chosen Completing reply should be lost")?;
     assert!(error.to_string().contains("fixture lost chosen T2 reply"), "{error:#}");
     let completing = fixture.chosen()?;
     let objects = fixture.store.admission_objects(&completing.admission.payload_ref)?;
     assert!(fixture.store.native_task_result(fixture.parent.task.task_id)?.is_none());
+    // The selected generic T2 depends on its own E1 and on the ordinary
+    // child's task state, not that child's operation/receipt progress or the
+    // main step's S0 state. Interleave both through real Store writes while
+    // keeping that child unfinished. The original Completing must still win.
+    let progressing = Arc::clone(&fixture.store);
+    let agent = fixture.agent;
+    let receipt = EvidenceReceipt {
+        receipt_id: EntityId::new(), source_event_key: Some("second-independent-child-observation".into()),
+        observed_at: Some(chrono::Utc::now()), ..child_evidence.clone()
+    };
+    let receipt_id = receipt.receipt_id;
+    let child_attempt_id = child_evidence.attempt_id.context("child original attempt")?;
+    fixture.state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        assert_eq!(successor.state, SubjectStepState::Planned);
+        recorded_result(&progressing, &head, successor)?;
+        progressing.record_external_evidence(child_operation.operation_id, child_attempt_id,
+            receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+        Ok(())
+    }));
     assert_eq!(fixture.store.recover_control_admission(&completing, &objects, true)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert!(fixture.state.lock().before_materialize.is_none());
+    assert_eq!(fixture.store.load_subject(agent)?.1.state, SubjectStepState::ResultRecorded);
+    assert_eq!(fixture.store.external_attempt(child_attempt_id)?.final_receipt_id, Some(receipt_id));
+    let child_operation = fixture.store.external_operation(child_operation.operation_id)?;
     let parent = fixture.store.external_task(fixture.parent.task.task_id)?;
     assert!(matches!(parent.state, TaskState::Completing { .. }));
     assert!(fixture.store.native_task_result(parent.task_id)?.is_none());
