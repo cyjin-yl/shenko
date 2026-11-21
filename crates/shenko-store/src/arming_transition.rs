@@ -30,7 +30,7 @@ use crate::{
         NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
+        Cell, MAX_IMAGE_BYTES, NATIVE_SUBJECT_READ_SCHEMA, PreparedTransition, RowTransition, RowTransitionInput,
         TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
@@ -343,7 +343,8 @@ impl ArmTransition {
             ));
         }
         let position = plan.position();
-        if rows.schema_version != 1
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA)
+            || (rows.schema_version == NATIVE_SUBJECT_READ_SCHEMA && self.canonical_claim.is_none())
             || rows.action_id != admission.action_id
             || rows.action_id
                 != EntityId::derived("commit-admission-action-v1", position.as_bytes())
@@ -611,16 +612,23 @@ impl Store {
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok((prepared, false)); }
             // Local dispatcher/authority checks above do not become canonical
             // facts. The captured transaction contains shared state only.
-            let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
-                canonical_claim.as_ref().map(|_| &plan.task),
-                |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at))?;
+            let input = RowTransitionInput { action_id, input_digest: input_digest.clone(), head };
+            let evaluate = |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at);
+            let (mut rows, ()) = if canonical_claim.is_some() {
+                let [creator] = position.expected_steps.as_slice() else {
+                    return Err(invalid("direct T1 requires its original creator"));
+                };
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, evaluate)?
+            } else {
+                self.capture_row_transition(&tx, input, None, evaluate)?
+            };
             if canonical_claim.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = ArmTransition { rows, plan: plan.clone(), canonical_claim: canonical_claim.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("T1 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if canonical_claim.is_some() { 2 } else { 1 })?.object;
+                if canonical_claim.is_some() { 3 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -708,7 +716,7 @@ impl Store {
     }
 
     fn read_arm_transition(&self, reference: &ObjectRef) -> Result<ArmTransition, ShenkoError> {
-        if !matches!(reference.codec.major, 1 | 2) {
+        if !matches!(reference.codec.major, 1..=3) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -717,7 +725,9 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: ArmTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if (reference.codec.major == 2) != transition.canonical_claim.is_some() {
+        if (reference.codec.major >= 2) != transition.canonical_claim.is_some()
+            || transition.rows.schema_version != if reference.codec.major == 3 { NATIVE_SUBJECT_READ_SCHEMA } else { 1 }
+        {
             return Err(invalid(
                 "T1 reader version differs from its task dependency proof",
             ));

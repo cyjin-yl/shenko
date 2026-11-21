@@ -1,5 +1,12 @@
 # Canonical native operation arming
 
+Current reader update (2026-11-22): the direct claim-proven paired path now
+writes codec 3 with the
+[creator-key and current-successor witness](canonical-capture-budget.md#direct-native-subject-witness-2026-11-22).
+Ordinary arming still writes codec 1; retained codec 1 and 2 keep their original
+subject-step witnesses. The original arming design and verification record
+below retain their stated scope and execution-permit rules.
+
 ## Scope and reason
 
 The two existing Store T1 entry points return `None` only to the caller that

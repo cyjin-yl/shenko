@@ -85,7 +85,7 @@ remain historical evidence in the copy.
 
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 
-`ARCHIVE_SCHEMA` is 7. Readers recognize framing versions 2–7 and apply the
+`ARCHIVE_SCHEMA` is 10. Readers recognize exactly versions 2–7 and 10 and apply the
 original version's format and fact ownership before reporting recovery. Two
 historical writers independently used 7: one declares both `dialogue_endpoints`
 and `dialogue_messages`, the other both `subject_branch_forks` and
@@ -101,6 +101,17 @@ evidence originals and cognitive-root recovery are 9. Neither later version is
 enabled by this format prerequisite. Table ownership, original CAS/source
 bindings, complete conflict units and publication custody must travel with their
 writer version; physical table existence alone supplies none of that admission.
+
+Schema 10 retains the complete fork/history family and excludes dialogue facts.
+It declares the direct native creator-key/successor-predicate readers: claim
+codec 2, paired arm codec 3 and childless original T2 codec 3. All new exports
+use 10, including snapshots without those objects. A schema-7 reader therefore
+refuses the manifest before CAS payload callbacks, SQL facts or files are
+published; this writer offers no version-label downgrade. Old archives 2–7 and
+their native transition codecs retain their original interpretation. Versions
+8 and 9 remain unsupported; 10 does not enable either reserved contract.
+This archive boundary is distinct from raw Node control-object transport and
+does not establish mixed-version Node consensus acceptance or full rollback.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The

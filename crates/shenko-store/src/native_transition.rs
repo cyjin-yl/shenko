@@ -30,7 +30,7 @@ use crate::{
         NATIVE_RECOVERY, NATIVE_RESULT_ID, NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
+        Cell, MAX_IMAGE_BYTES, NATIVE_SUBJECT_READ_SCHEMA, PreparedTransition, RowTransition, RowTransitionInput,
         TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
@@ -326,7 +326,8 @@ impl NativeT2Transition {
             ));
         }
         let key = plan.phase.position(&plan.task);
-        if rows.schema_version != 1
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA)
+            || (rows.schema_version == NATIVE_SUBJECT_READ_SCHEMA && self.evidence_fact.is_none())
             || rows.action_id != admission.action_id
             || rows.action_id != EntityId::derived("commit-admission-action-v1", key.as_bytes())
             || rows.input_digest != plan.input_digest(head)?
@@ -642,16 +643,23 @@ impl Store {
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
             // The local execution guard is checked in this transaction, outside
             // the shared read set. A follower never copies dispatcher ownership.
-            let (mut rows, result) = self.capture_row_transition(&tx, RowTransitionInput {
-                action_id, input_digest: input_digest.clone(), head,
-            }, evidence_fact.as_ref().map(|_| &plan.task), |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
+            let input = RowTransitionInput { action_id, input_digest: input_digest.clone(), head };
+            let evaluate = |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at);
+            let (mut rows, result) = if evidence_fact.is_some() {
+                let [creator] = position.expected_steps.as_slice() else {
+                    return Err(invalid("direct T2 requires its original creator"));
+                };
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, evaluate)?
+            } else {
+                self.capture_row_transition(&tx, input, None, evaluate)?
+            };
             if evidence_fact.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = NativeT2Transition { rows, plan: plan.clone(), result, evidence_fact: evidence_fact.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("native T2 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if evidence_fact.is_some() { 2 } else { 1 })?.object;
+                if evidence_fact.is_some() { 3 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -754,7 +762,7 @@ impl Store {
         &self,
         reference: &ObjectRef,
     ) -> Result<NativeT2Transition, ShenkoError> {
-        if !matches!(reference.codec.major, 1 | 2) {
+        if !matches!(reference.codec.major, 1..=3) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -763,7 +771,9 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: NativeT2Transition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if (reference.codec.major == 2) != transition.evidence_fact.is_some() {
+        if (reference.codec.major >= 2) != transition.evidence_fact.is_some()
+            || transition.rows.schema_version != if reference.codec.major == 3 { NATIVE_SUBJECT_READ_SCHEMA } else { 1 }
+        {
             return Err(invalid(
                 "T2 reader version differs from its original E1 proof",
             ));

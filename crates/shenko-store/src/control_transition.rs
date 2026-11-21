@@ -4,6 +4,8 @@
 //! authorizer records every table read by that evaluation and preupdate hooks
 //! record actual writes. S1 v2 freezes whole-range digests and exact changed
 //! rows; native v1 retains its complete witnesses for independent validation.
+//! Direct native v3 rows bind the immutable creator by key and recheck the
+//! current successor's structural binding, without freezing its S0 progress.
 //! Seal the generated write bytes
 //! (including random IDs and clock-dependent outcomes) before quorum admission.
 //! Applying those bytes performs only SQLite writes, never a provider call.
@@ -44,6 +46,7 @@ const CODEC: &str = "store-s1-transition";
 #[path = "control_transition_capture.rs"]
 mod physical;
 pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const NATIVE_SUBJECT_READ_SCHEMA: u32 = 3;
 // Account all retained before/after rows and duplicated change cells together,
 // before the eventual sealed JSON size is known. Untouched tables are not
 // scanned. S1 complete-read ranges stream borrowed values into fixed digests.
@@ -174,6 +177,10 @@ impl RowTransition {
             1 if self.tables.iter().all(|table| table.read_range.is_none()) => Ok(()),
             2 if self.tables.iter().all(|table| table.complete_read == table.read_range.is_some()
                 && table.before.rows.keys().all(|key| table.changes.iter().any(|change| &change.key == key))) => Ok(()),
+            NATIVE_SUBJECT_READ_SCHEMA if self.tables.iter().all(|table| table.read_range.is_none())
+                && matches!(self.tables.iter().filter(|table| table.before.table.name == "subject_steps")
+                    .collect::<Vec<_>>().as_slice(), [table] if !table.complete_read
+                        && table.changes.is_empty() && table.before.rows.len() == 1) => Ok(()),
             _ => Err(invalid("unsupported row capture schema or read witness")),
         }
     }
@@ -190,6 +197,17 @@ impl RowTransition {
         });
         let _preconditions = crate::timing::Phase::new("materialize.preconditions");
         self.validate_capture_shape()?;
+        if self.schema_version == NATIVE_SUBJECT_READ_SCHEMA {
+            // The source evaluation calls read_subject even though it uses
+            // only the returned head. Retain its successor existence, parent,
+            // branch, epoch, generation and paused-boundary checks on every
+            // receiver, in this same transaction. S0 state/input changes are
+            // not dependencies of the separately proven native delegation.
+            let (head, _) = crate::store::read_subject(tx, self.original_head.agent_id)?;
+            if serde_json::to_value(&head)? != serde_json::to_value(&self.original_head)? {
+                return Err(conflict("direct native subject predecessor differs"));
+            }
+        }
         let actual_layouts = layouts(tx)?;
         let mut seen = BTreeSet::new();
         for table in &self.tables {
@@ -198,7 +216,7 @@ impl RowTransition {
                 return Err(invalid("duplicate transition table"));
             }
             if actual_layouts.get(&expected.table.name) != Some(&expected.table)
-                || current_image(tx, table)? != *expected
+                || current_image(tx, table, self.schema_version)? != *expected
             {
                 return Err(conflict(format!(
                     "predecessor/schema differs for {}",
@@ -233,7 +251,7 @@ impl RowTransition {
                     expected.rows.remove(&change.key);
                 }
             }
-            if current_image(tx, table)? != expected
+            if current_image(tx, table, self.schema_version)? != expected
                 || match &table.read_range { Some(range) => range_digest(tx, &expected.table)? != range.after, None => false } {
                 return Err(invalid(format!("applied writes differ from frozen result for {}", expected.table.name)));
             }
@@ -713,6 +731,7 @@ fn image_with_budget(
 #[derive(Default)]
 struct Accesses {
     reads: BTreeSet<String>,
+    indirect_reads: BTreeSet<String>,
     writes: BTreeSet<String>,
     refusal: Option<&'static str>,
 }
@@ -765,6 +784,9 @@ fn observe(
                 });
                 if !verified_trigger_own_table {
                     accesses.reads.insert(table_name.to_owned());
+                    if context.accessor.is_some() {
+                        accesses.indirect_reads.insert(table_name.to_owned());
+                    }
                 }
             }
             AuthAction::Insert { table_name }
@@ -998,7 +1020,19 @@ impl Store {
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        self.capture_row_transition_inner(tx, input, false, direct_task, evaluate)
+        self.capture_row_transition_inner(tx, input, false, direct_task, None, evaluate)
+    }
+
+    /// Only the direct-root native readers with an independently verified S1
+    /// birth/claim/E1 proof may use this witness. The callback still checks the
+    /// full subject binding; the typed reader must verify the creator exactly.
+    pub(crate) fn capture_direct_native_transition<T>(
+        &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>,
+        task: &TaskRecord, creator: &SubjectStep,
+        evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
+            -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
+    ) -> Result<(RowTransition, T), ShenkoError> {
+        self.capture_row_transition_inner(tx, input, false, Some(task), Some(creator), evaluate)
     }
 
     /// S1 v2 freezes the same conservative complete read ranges as streamed
@@ -1008,14 +1042,14 @@ impl Store {
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
-        self.capture_row_transition_inner(tx, input, true, None, evaluate)
+        self.capture_row_transition_inner(tx, input, true, None, None, evaluate)
     }
 
     /// Evaluate exactly once in a rollback savepoint. No provider call belongs
     /// in this callback; generated IDs/time and the real write bytes are frozen.
     fn capture_row_transition_inner<T>(
         &self, tx: &Transaction<'_>, input: RowTransitionInput<'_>, summarize_reads: bool,
-        direct_task: Option<&TaskRecord>,
+        direct_task: Option<&TaskRecord>, direct_creator: Option<&SubjectStep>,
         evaluate: impl FnOnce(CommitRef, chrono::DateTime<chrono::Utc>)
             -> Result<(Vec<UpdatedEntity>, T), ShenkoError>,
     ) -> Result<(RowTransition, T), ShenkoError> {
@@ -1055,6 +1089,9 @@ impl Store {
                 return Err(conflict("transition changed a schema or table layout"));
             }
             if let Some(error) = physical.refusal.take() { return Err(error); }
+            if direct_creator.is_some() && accesses.indirect_reads.contains("subject_steps") {
+                return Err(conflict("direct native subject witness cannot narrow a trigger or view read"));
+            }
             // Actual writes are independently observed at execution time,
             // including a cached statement or an observer removed by a helper.
             // Unrelated retained tables are never scanned to discover writes.
@@ -1074,8 +1111,14 @@ impl Store {
                 };
                 if table.key.is_empty() { return Err(conflict(format!("transition touched unkeyed table {name}"))); }
                 let full_witness = !summarize_reads && accesses.reads.contains(name)
-                    && !(name == "tasks" && direct_task.is_some());
-                let postimage = if !full_witness {
+                    && !(name == "tasks" && direct_task.is_some())
+                    && !(name == "subject_steps" && direct_creator.is_some());
+                let postimage = if let Some(creator) = direct_creator.filter(|_| name == "subject_steps") {
+                    if accesses.writes.contains(name) || physical.tables.contains(name) {
+                        return Err(invalid("direct native action may not write subject steps"));
+                    }
+                    subject_step_image(tx, table, creator.step_id, &mut remaining)?
+                } else if !full_witness {
                     if summarize_reads && accesses.reads.contains(name) {
                         range_after.insert(name.clone(), range_digest(tx, table)?);
                     }
@@ -1101,14 +1144,18 @@ impl Store {
         let mut transitions = Vec::new();
         for (name, after) in after {
             let complete_read = accesses.reads.contains(&name)
-                && !(name == "tasks" && direct_task.is_some());
+                && !(name == "tasks" && direct_task.is_some())
+                && !(name == "subject_steps" && direct_creator.is_some());
             let full_witness = !summarize_reads && complete_read;
-            let mut original = if !full_witness {
+            let creator = direct_creator.filter(|_| name == "subject_steps");
+            let mut original = if let Some(creator) = creator {
+                subject_step_image(tx, &tables[&name], creator.step_id, &mut remaining)?
+            } else if !full_witness {
                 Image { table: tables[&name].clone(), rows: physical.rows.remove(&name)
                     .unwrap_or_default().into_iter().filter_map(|(key, row)| row.before.map(|row| (key, row))).collect() }
             } else { image_with_budget(tx, &tables[&name], &mut remaining)? };
             let changes = row_changes(&original, after, &mut remaining)?;
-            if summarize_reads || !complete_read {
+            if summarize_reads || (!complete_read && creator.is_none()) {
                 original.rows.retain(|key, _| changes.iter().any(|change| &change.key == key));
             }
             let read_range = if summarize_reads && complete_read {
@@ -1129,12 +1176,16 @@ impl Store {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: missing.len() });
         }
         let transition = RowTransition {
-            schema_version: if summarize_reads { 2 } else { 1 },
+            schema_version: if direct_creator.is_some() { NATIVE_SUBJECT_READ_SCHEMA }
+                else if summarize_reads { 2 } else { 1 },
             action_id: input.action_id, input_digest: input.input_digest,
             source_ledger_id: self.ledger.ledger_id(), original_head: input.head.clone(),
             result_commit, created_at, updated, object_roots, tables: transitions,
         };
         transition.validate_capture_shape()?;
+        if let Some(creator) = direct_creator {
+            crate::native_facts::validate_subject_read(&transition, creator)?;
+        }
         Ok((transition, result))
     }
 
@@ -1488,14 +1539,31 @@ pub(crate) fn prepared_transition_at(
     .transpose()
 }
 
-fn current_image(conn: &Connection, transition: &TableTransition) -> Result<Image, ShenkoError> {
+fn current_image(conn: &Connection, transition: &TableTransition, schema: u32) -> Result<Image, ShenkoError> {
     if transition.complete_read && transition.read_range.is_none() {
         return image(conn, &transition.before.table);
     }
     let mut remaining = MAX_CAPTURE_BYTES;
+    if schema == NATIVE_SUBJECT_READ_SCHEMA && transition.before.table.name == "subject_steps" {
+        return image_for_keys_with_budget(conn, &transition.before.table,
+            transition.before.rows.values().map(Vec::as_slice), &mut remaining);
+    }
     image_for_keys_with_budget(conn, &transition.before.table,
         transition.changes.iter().filter_map(|change|
             change.before.as_deref().or(change.after.as_deref())), &mut remaining)
+}
+
+fn subject_step_image(
+    conn: &Connection, table: &Table, step_id: EntityId, remaining: &mut usize,
+) -> Result<Image, ShenkoError> {
+    let index = table.columns.iter().position(|name| name == "step_id")
+        .ok_or_else(|| invalid("subject step witness has no identity column"))?;
+    if table.key != [index] {
+        return Err(invalid("subject step witness has an unsupported primary key"));
+    }
+    let mut key = vec![Cell::Null; table.columns.len()];
+    key[index] = Cell::Text(step_id.to_string());
+    image_for_keys_with_budget(conn, table, [key.as_slice()], remaining)
 }
 
 /// Read only named primary keys for partial witnesses. Unlike selecting the
