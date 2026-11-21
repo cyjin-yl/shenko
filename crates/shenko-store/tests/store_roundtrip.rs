@@ -3993,7 +3993,10 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     assert_eq!(debts.len(), 1);
     assert_eq!(debts[0].receipt_id, late_id);
     assert_eq!(debts[0].received_commit, retained.received_commit);
-    assert!(debts[0].reason.contains("anchored E1 predecessor closure is missing or corrupt"), "{debts:#?}");
+    // The original T1 reader verifies its complete closure before the new
+    // anchored E1 seal can run; preserve that earlier typed failure as debt.
+    assert_eq!(debts[0].reason,
+        shenko_types::error::ShenkoError::ObjectClosureIncomplete { missing_count: 1 }.to_string());
     reopened.validate_native_evidence_predecessor(&delayed_arm.admission.payload_ref)?;
     let refused = reopened.complete_native_task(&delayed, &late);
     assert!(matches!(&refused, Err(error) if error.to_string().contains("retained seal debt")), "{refused:#?}");
