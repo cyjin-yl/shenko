@@ -3143,12 +3143,17 @@ struct NativeT2Fixture {
     agent: shenko_types::ids::EntityId,
     parent: shenko_store::NativeTaskClaim,
     child: Option<shenko_store::NativeTaskClaim>,
+    sibling: Option<shenko_store::NativeTaskClaim>,
     state: Arc<parking_lot::Mutex<NativeT2AuthorityState>>,
     stamp: shenko_types::authority::CommitAuthorityStamp,
 }
 
 impl NativeT2Fixture {
     fn new(with_child: bool) -> Result<Self> {
+        Self::with_tasks(with_child, false)
+    }
+
+    fn with_tasks(with_child: bool, with_sibling: bool) -> Result<Self> {
         use shenko_types::{authority::CommitAuthorityStamp, ids::EntityId, object::Digest, task::TaskOwner};
         let (dir, store, agent) = initialized_subject();
         let mut parent = recovery_task(&store, agent, 1, false);
@@ -3161,6 +3166,13 @@ impl NativeT2Fixture {
             child.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
             batch.task_upserts.push(child.clone());
             Some(child)
+        } else { None };
+        // Bootstrap all requested tasks before authority is attached. Once
+        // bound, a bare WriteBatch cannot admit a new independently owned task.
+        let sibling = if with_sibling {
+            let sibling = recovery_task(&store, agent, 3, false);
+            batch.task_upserts.push(sibling.clone());
+            Some(sibling)
         } else { None };
         store.commit(batch)?;
         let head = store.load_subject(agent)?.0;
@@ -3175,7 +3187,9 @@ impl NativeT2Fixture {
         let parent = store.claim_native_task(parent.task_id, parent.implementation_ref, false)?.context("parent claim")?;
         let child = child.map(|child| store.claim_native_task(child.task_id, child.implementation_ref, false))
             .transpose()?.flatten();
-        Ok(Self { dir, store, agent, parent, child, state, stamp })
+        let sibling = sibling.map(|sibling| store.claim_native_task(sibling.task_id, sibling.implementation_ref, false))
+            .transpose()?.flatten();
+        Ok(Self { dir, store, agent, parent, child, sibling, state, stamp })
     }
 
     fn reopen(&self) -> Result<Arc<Store>> {
@@ -4181,14 +4195,10 @@ fn canonical_native_arming_keeps_original_intent_without_reissuing_execution() -
 fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart() -> Result<()> {
     use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::{AlreadyCommitted, Won}}, cognition::CognitionImportOptions};
     use shenko_types::{authority::CommitAuthorityGrant, commit::CommitRef, evidence::*, ids::EntityId, object::ObjectRef, operation::*, task::DispatchEligibility};
-    let fixture = NativeT2Fixture::new(true)?;
+    let fixture = NativeT2Fixture::with_tasks(true, true)?;
     let ctx = &fixture.child.as_ref().context("descendant dispatch claim")?.invocation;
-    let sibling = recovery_task(&fixture.store, fixture.agent, 3, false);
-    let mut batch = WriteBatch::new();
-    batch.task_upserts.push(sibling.clone());
-    fixture.store.commit(batch)?;
-    let sibling = fixture.store.claim_native_task(sibling.task_id, sibling.implementation_ref, false)?
-        .context("independent dispatch observation")?;
+    let sibling = fixture.sibling.as_ref().context("independent dispatch observation")?;
+    let sibling_task_id = sibling.task.task_id;
     let independent = arm_dispatch_probe(&fixture.store, &sibling.invocation, "independent-queued-operation");
     let independent_attempt = fixture.store.external_attempt(independent.1)?;
     let raw = fixture.store.cas.seal_object(b"independent observation ended without an effect proof",
@@ -4213,7 +4223,7 @@ fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_r
     fixture.state.lock().before_materialize = Some(Box::new(move || {
         let (head, successor) = progressing.load_subject(agent)?;
         recorded_result(&progressing, &head, successor)?;
-        progressing.request_native_cancellation(sibling.task.task_id, EntityId::new(), EntityId::new(),
+        progressing.request_native_cancellation(sibling_task_id, EntityId::new(), EntityId::new(),
             "independent task stopped", shenko_types::task::AbortScope::Task)?;
         progressing.record_external_evidence(independent.0, independent.1, receipt, None, EffectStatus::Unknown)?;
         Ok(())
