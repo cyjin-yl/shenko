@@ -8,7 +8,7 @@
 use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
-use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, select_subject_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -86,9 +86,9 @@ struct FrozenStepInput {
     attention: Option<AttentionPolicy>,
 }
 
-/// The resolved provider identity frozen with the request. Every field is
-/// read from the binding itself, so an open profile binding reports its own
-/// account, profile and transport revision instead of a re-derived guess.
+/// The resolved provider identity frozen with the request. Binding fields
+/// come from the binding itself; optional quota evidence identifies the
+/// pre-seal policy decision without changing an older seal's interpretation.
 #[derive(serde::Serialize, serde::Deserialize)]
 struct ProviderSelection {
     schema_version: u32,
@@ -99,6 +99,10 @@ struct ProviderSelection {
     credential_fingerprint: Option<String>,
     resource_domain_id: Option<String>,
     serializer_revision: Option<u32>,
+    /// Selection evidence for fresh subject S0. Historical seals retain
+    /// their original binding and have no pre-seal quota decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quota: Option<FrozenQuotaSelection>,
 }
 
 /// Freeze the resolved provider selection. An absent broker yields an empty
@@ -117,6 +121,7 @@ fn provider_selection(
  credential_fingerprint: None,
             resource_domain_id: None,
  serializer_revision: None,
+            quota: None,
         };
     };
     let json = serde_json::to_value(binding).unwrap_or(serde_json::Value::Null);
@@ -138,6 +143,7 @@ fn provider_selection(
             .get("serializer_revision")
             .and_then(|value| value.as_u64())
             .map(|value| value as u32),
+        quota: None,
 }
 }
 
@@ -199,6 +205,14 @@ fn frozen_input(
         input.provider_binding.as_ref() != Some(&capabilities.binding))
     {
         return Err(ShenkoError::conflict("recovery_blocked: frozen context capabilities/provider binding mismatch"));
+    }
+    if let Some(selection) = &input.provider_selection.quota
+        && (selection.policy_id == EntityId::nil() || selection.decision_id == EntityId::nil()
+            || selection.profile_id.trim().is_empty()
+            || input.provider_selection.binding != input.provider_binding
+            || input.payload.max_tokens != Some(u64::from(input.context.reserved_output_tokens)))
+    {
+        return Err(ShenkoError::conflict("recovery_blocked: pre-seal quota selection differs from the frozen request"));
     }
     Ok(input)
 }
@@ -483,6 +497,14 @@ fn retry_continuation(
 
 pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4096;
 
+/// A fresh S0's model view. The configured broker remains the registry and
+/// recovery owner; context preparation reads the selected binding and only
+/// capabilities observed for that exact binding.
+struct PreparedSubjectModel {
+    broker: shenko_broker::broker::BrokerHandle,
+    capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
+}
+
 pub struct SubjectLoopState {
     pub agent_id: EntityId,
     pub head: SubjectBranchHead,
@@ -503,6 +525,7 @@ pub struct SubjectLoopState {
     pub(super) previous_estimated_input_tokens: Option<u32>,
     pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
+    prepared_model: Option<PreparedSubjectModel>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
     pub(super) context_preparer: Option<ContextPreparer>,
     pub(super) context_history_cache: Arc<shenko_context_policy::HistoryProjectionCache>,
@@ -614,6 +637,7 @@ impl SubjectLoopState {
             semantic_wait_receipt,
             store,
             broker: None,
+            prepared_model: None,
             hooks: None,
             max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
             previous_input_tokens,
@@ -663,7 +687,22 @@ impl SubjectLoopState {
 
     pub fn with_broker(mut self, broker: shenko_broker::broker::BrokerHandle) -> Self {
         self.broker = Some(broker);
+        self.prepared_model = None;
         self
+    }
+
+    pub(super) fn context_binding(&self) -> Option<&shenko_broker::request::ProviderBinding> {
+        self.prepared_model.as_ref().map(|model| model.broker.binding())
+            .or_else(|| self.broker.as_ref().map(|broker| broker.binding()))
+    }
+
+    pub(super) fn context_model_capabilities(&self)
+        -> &Option<Arc<shenko_broker::request::ProviderCapabilities>>
+    {
+        match &self.prepared_model {
+            Some(model) => &model.capabilities,
+            None => &self.model_capabilities,
+        }
     }
 
     /// Initialize the real model/prompt binding before preparing a context
@@ -674,6 +713,7 @@ impl SubjectLoopState {
 
     pub fn with_model_capabilities(mut self, capabilities: Option<shenko_broker::request::ProviderCapabilities>) -> Self {
         self.model_capabilities = capabilities.map(Arc::new);
+        self.prepared_model = None;
         self
     }
 
@@ -1503,14 +1543,51 @@ async fn execute_step(
         let hook_graph_ref = seal_hook_graph(&store, seq, hooks_ref.as_ref())?;
         // The provider selection is resolved BEFORE the seal: the request
         // states the exact account/profile/model it will use, and the
-        // dispatch still compares the sealed binding with the live broker
-        // binding, so a post-seal change is refused instead of applied.
-        let input_binding = state.broker.as_ref().map(|broker| broker.binding().clone());
+        // dispatch resolves this exact installed binding, so a post-seal
+        // replacement transport is refused instead of applied.
+        let Some(route) = select_subject_quota_route(
+            &store, state.broker.as_ref(), cancel, &state.quota_strategies, state.agent_id,
+        ).await? else {
+            return Ok(None);
+        };
+        if let Some(selected) = route.broker {
+            let capabilities = if let Some(model) = &state.prepared_model
+                && model.broker.binding() == selected.binding()
+            {
+                model.capabilities.clone()
+            } else if state.model_capabilities.as_ref()
+                .is_some_and(|caps| &caps.binding == selected.binding())
+            {
+                state.model_capabilities.clone()
+            } else {
+                let probe = tokio::select! {
+                    _ = cancel.cancelled() => return Ok(None),
+                    probe = selected.probe_binding() => probe.map_err(|error|
+                        ShenkoError::conflict(format!("selected model metadata failed: {error:#}")))?,
+                };
+                if probe.binding != *selected.binding()
+                    || probe.usability != shenko_broker::health::BindingUsability::Available
+                {
+                    return Err(ShenkoError::conflict(format!(
+                        "selected model capabilities are not established: {}", probe.reason,
+                    )));
+                }
+                Some(Arc::new(probe.capabilities.ok_or_else(||
+                    ShenkoError::conflict("selected model metadata omitted its exact capabilities"))?))
+            };
+            state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities });
+        } else {
+            // No policy preserves the configured context path. A previously
+            // selected model is not an implicit new default.
+            state.prepared_model = None;
+        }
+        let input_binding = state.context_binding().cloned();
         let child_provider_bindings = state.broker.as_ref()
             .map(|broker| broker.installed_bindings()).unwrap_or_default();
         crate::model_child::validate_child_provider_bindings(&child_provider_bindings)
             .map_err(|error| ShenkoError::conflict(format!("invalid installed child routes: {error}")))?;
-        let input_provider_selection = provider_selection(input_binding.as_ref());
+        let mut input_provider_selection = provider_selection(input_binding.as_ref());
+        input_provider_selection.quota = route.selection;
         // Durable obligations and the attention decision travel with the
         // request: a commitment the subject already took is part of what it
         // is thinking about, not a note in a later prompt.
@@ -1710,16 +1787,31 @@ async fn execute_step(
         if cancel.is_cancelled() {
             return Ok(None);
         }
-        let broker = state
+        let configured_broker = state
             .broker
             .as_ref()
             .ok_or_else(|| ShenkoError::other("no broker; frozen preparation remains resumable"))?;
-        if input.provider_binding.as_ref() != Some(broker.binding()) {
-            return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+        let binding = input.provider_binding.as_ref().ok_or_else(|| ShenkoError::Protocol(
+            shenko_types::error::ProtocolError::new(
                 "MODEL_PROVIDER_BINDING_MISMATCH", shenko_types::error::ErrorScope::Request,
                 shenko_types::error::RetryStrategy::NewRevision,
-            ).with_details(serde_json::json!({"reason":"explicit S0 migration/reconciliation required; request not dispatched"}))));
-        }
+            ).with_details(serde_json::json!({"reason":"S0 provider binding missing; request not dispatched"}))))?;
+        // Resolve this exact seal, including on reopen with another configured
+        // default. Selection and capability discovery run only for Planned S0;
+        // an original request is never routed through the current policy.
+        let selected_broker;
+        let broker = if configured_broker.binding() == binding {
+            configured_broker
+        } else {
+            selected_broker = configured_broker.for_binding(binding).map_err(|error|
+                ShenkoError::Protocol(ProtocolError::new(
+                    "MODEL_PROVIDER_BINDING_MISMATCH", ErrorScope::Request, RetryStrategy::NewRevision,
+                ).with_details(serde_json::json!({
+                    "reason": "the installed runtime cannot honour the original S0 binding; no dispatch",
+                    "binding_error": format!("{error:#}"),
+                }))))?;
+            &selected_broker
+        };
         // A retry is a NEW attempt. The previous request identity is never
         // reused, so a spent, rejected or unknown request can never be
         // re-sent under its own name. The first attempt of a step uses the
@@ -1728,14 +1820,14 @@ async fn execute_step(
             SubjectStepState::RetryPending => EntityId::new(),
             _ => step.active_request_id.unwrap_or(input.request_id),
         };
-        let claimed_send = match quota_dispatch_gate(
+        let claimed_send = match subject_quota_dispatch_gate(
             &store,
             broker,
             request_id,
             cancel,
             &state.quota_strategies,
-            None,
-            Some(state.agent_id),
+            state.agent_id,
+            input.provider_selection.quota.as_ref(),
         )
         .await
         {

@@ -1104,12 +1104,12 @@ pub(super) fn project_payload_stable(
 /// configuration change still invalidates their window through the usual rebind.
 pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, ShenkoError> {
     let registry = &state.context_registry;
-    let binding = state.broker.as_ref().map(|broker| broker.binding());
-    if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
+    let binding = state.context_binding();
+    if state.context_model_capabilities().as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
         return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
     }
     let profile_digest = Digest::blake3(&serde_json::to_vec(&(
-        binding, &state.model_capabilities, &stable_system_prompt(state), state.max_tokens,
+        binding, state.context_model_capabilities(), &stable_system_prompt(state), state.max_tokens,
         "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
     ))?);
     let current_generation = registry.ledger().model_generation().map_err(storage)?;
@@ -1760,7 +1760,7 @@ pub(super) fn prepare_context(
     // evidence for the model, not an automatic semantic-wait exit.
     state.semantic_wait = state.store.observe_semantic_wait(&state.head)?;
     if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
-        let binding = serde_json::to_value(state.broker.as_ref().map(|broker| broker.binding()))?;
+        let binding = serde_json::to_value(state.context_binding())?;
         let digest = Digest::blake3(&serde_json::to_vec(&binding)?);
         if digest != wait.model_binding_digest {
             return Err(ShenkoError::conflict(
@@ -1825,7 +1825,7 @@ pub(super) fn prepare_context(
     // Leave three quarters of the remaining known input budget to raw input,
     // recovery controls and working history. The normal final budget check
     // still accounts for the whole payload, including this frontier.
-    let frontier_tokens = state.model_capabilities.as_deref()
+    let frontier_tokens = state.context_model_capabilities().as_deref()
         .and_then(|capabilities| u32::try_from(state.max_tokens).ok()
             .and_then(|reserved| input_model_caps(capabilities, reserved)))
         .map(|caps| caps.max_context.saturating_sub(estimate_tokens(&system_prompt)) / 4);
@@ -1841,7 +1841,7 @@ pub(super) fn prepare_context(
     let obligations = frontier.obligations;
     system_prompt.push_str(&obligation_text);
     let registry = Arc::clone(&state.context_registry);
-    let binding = state.broker.as_ref().map(|broker| broker.binding());
+    let binding = state.context_binding();
     let profile_digest = bind_context_profile(state)?;
     let model_generation = registry.ledger().model_generation().map_err(storage)?;
     let scope_id = EntityId(state.head.branch_id.0);
@@ -1850,7 +1850,7 @@ pub(super) fn prepare_context(
     let history = BoundedHistory { leaf: source.leaf_seq().map_err(storage)?, history: &source };
     let reserved_output_tokens = u32::try_from(state.max_tokens)
         .map_err(|_| ShenkoError::conflict("output reservation exceeds token budget type"))?;
-    let caps = state.model_capabilities.as_deref()
+    let caps = state.context_model_capabilities().as_deref()
         .and_then(|caps| input_model_caps(caps, reserved_output_tokens));
     if caps.as_ref().is_some_and(|caps| caps.max_context == 0) {
         return Err(ShenkoError::conflict("output reservation leaves no input context"));
@@ -1961,7 +1961,7 @@ pub(super) fn prepare_context(
             source: SubjectContextRef { scope_id, source_commit_seq,
                 leaf_seq: history.leaf, input_raw_event_ids,
                 window_id: window.id, window_generation: window.generation, model_generation },
-            profile_digest, capabilities: state.model_capabilities.clone(),
+            profile_digest, capabilities: state.context_model_capabilities().clone(),
             observed_input_tokens,
             estimated_input_tokens,
             budget_input_tokens: Some(selected_budget_input_tokens),
