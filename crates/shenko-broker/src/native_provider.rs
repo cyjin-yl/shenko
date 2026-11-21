@@ -59,9 +59,18 @@ impl NativeBackendProvider {
 
     /// Validate the sealed binding against this runtime's profile.
     fn validate_binding(&self, request: &InferenceRequest) -> Result<()> {
-        let ProviderBinding::Profile { profile } = &request.provider_binding else {
+        let ProviderBinding::Profile { profile, prepared } = &request.provider_binding else {
             return Err(anyhow!("MODEL_PROVIDER_BINDING_MISMATCH: native runtime received a foreign binding"));
         };
+        // This runtime executes a compiled-in transport profile. A binding that
+        // names a prepared implementation generation belongs to that prepared
+        // adapter; serving it here would run different bytes under identical
+        // transport metadata.
+        if prepared.is_some() {
+            return Err(anyhow!(
+                "MODEL_PROVIDER_BINDING_MISMATCH: the sealed binding names a prepared implementation generation"
+            ));
+        }
         if !self.profile.matches_except_model(profile) {
             return Err(anyhow!(
                 "MODEL_PROVIDER_BINDING_MISMATCH: the sealed profile differs from the installed runtime"
