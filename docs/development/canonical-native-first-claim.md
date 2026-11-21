@@ -1,5 +1,12 @@
 # Canonical first claim of an S1 native delegation
 
+Current reader update (2026-11-22): new claims use codec 2 with the
+[creator-key and current-successor witness](canonical-capture-budget.md#direct-native-subject-witness-2026-11-22).
+The version-1 design and its original verification record below remain valid
+for retained version-1 bytes; their complete step-table witness is not rewritten.
+The new reader preserves the same birth proof, exact Running result, authority
+and one-live-permit rules. New archives declare schema 10.
+
 ## Exact scope
 
 This increment supplies `native.claim` with a typed frozen transition only for

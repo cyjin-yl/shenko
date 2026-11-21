@@ -716,7 +716,8 @@ async fn partition_settle_body(
         origin["bytes"].as_u64() == Some(partition_env(EXPECT_BYTES_ENV).parse()?),
         "the origin archive size is not the one the orchestrator recorded"
     );
-    anyhow::ensure!(origin["schema"] == serde_json::json!(7), "the origin archive is not schema 7");
+    anyhow::ensure!(origin["schema"] == serde_json::json!(shenko_store::cognition_archive::ARCHIVE_SCHEMA),
+        "the origin archive does not use the current writer format");
     let store = partition_open(&store_dir);
     // The fork must hold the committed origin obligation verbatim: compare the
     // local row with the row the origin archive declares.
@@ -1550,7 +1551,7 @@ async fn partition_orchestrate(run: &mut PartitionRun) -> anyhow::Result<()> {
     run.check(
         "origin_commits_one_open_obligation",
         origin_projection["state"] == serde_json::json!("open")
-            && origin_export["identity"]["schema"] == serde_json::json!(7)
+            && origin_export["identity"]["schema"] == serde_json::json!(shenko_store::cognition_archive::ARCHIVE_SCHEMA)
             && origin_export["receipt"]["complete"] == serde_json::json!(true),
         serde_json::json!({ "obligation": origin_projection, "archive": origin_export["identity"] }),
     );
@@ -1655,8 +1656,8 @@ async fn partition_orchestrate(run: &mut PartitionRun) -> anyhow::Result<()> {
     );
     for (name, receipt) in [("peer-a", &a), ("peer-b", &b)] {
         run.check(
-            &format!("{name}_archive_is_genuine_schema7"),
-            receipt["archive"]["identity"]["schema"] == serde_json::json!(7)
+            &format!("{name}_archive_is_genuine_current_format"),
+            receipt["archive"]["identity"]["schema"] == serde_json::json!(shenko_store::cognition_archive::ARCHIVE_SCHEMA)
                 && receipt["archive"]["receipt"]["complete"] == serde_json::json!(true)
                 && receipt["archive"]["identity"]["row_counts"]["subject_obligations"] == serde_json::json!(1),
             receipt["archive"]["identity"].clone(),

@@ -3285,6 +3285,20 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert!(imported.control_admission_applied(&birth.admission)?);
     assert!(!imported.control_admission_applied_here(&birth.admission)?);
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"native claim implementation"), registry_revision: 1 };
+    // A trigger can introduce a different step predicate. The direct-reader
+    // proof does not cover it, so refuse before preparing or choosing a claim.
+    let injected = rusqlite::Connection::open(dir.join("head.db"))?;
+    injected.execute_batch("CREATE TRIGGER claim_subject_dependency AFTER UPDATE ON tasks BEGIN
+        SELECT data FROM subject_steps; END;")?;
+    let grants_before = serde_json::to_value(&state.lock().grants)?;
+    let refused = source.claim_native_task(fresh_id, implementation.clone(), false);
+    injected.execute_batch("DROP TRIGGER claim_subject_dependency")?;
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("cannot narrow a trigger or view read")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(&state.lock().grants)?, grants_before);
+    assert_eq!(serde_json::to_value(source.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+    let claim_action = EntityId::derived("commit-admission-action-v1", format!("task/{fresh_id}/claim/0").as_bytes());
+    assert_eq!(injected.query_row("SELECT count(*) FROM control_prepared_transitions WHERE action_id=?1",
+        [claim_action.to_string()], |row| row.get::<_, i64>(0))?, 0);
     let fresh = source.claim_native_task(fresh_id, implementation.clone(), false)?.context("one current claim permit")?;
     let claim_grant = chosen()?;
     let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
@@ -3292,6 +3306,8 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert_eq!(envelope["action"]["kind"], "native.claim");
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+    assert_eq!(reference.codec.major, 2);
+    assert_eq!(transition["rows"]["schema_version"], 3);
     assert_eq!(transition["plan"]["task"], serde_json::to_value(&pending)?);
     assert_eq!(transition["plan"]["birth"]["admission"], serde_json::to_value(&birth.admission)?);
     assert_eq!(transition["plan"]["invocation"], serde_json::to_value(&fresh.invocation)?);
@@ -3306,6 +3322,42 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     let watermark = source.current_commit_seq()?;
     assert!(source.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
     assert_eq!(source.current_commit_seq()?, watermark);
+    // Corrupt only after recover_control_admission's initial subject read,
+    // at the retained grant's acquisition boundary. Each learned application
+    // must independently check the successor predicate and immutable creator;
+    // passing only the source capture or the recovery preflight is insufficient.
+    let follower_db = dir.join("claim-follower.db");
+    let connection = rusqlite::Connection::open(&follower_db)?;
+    let successor = follower.load_subject(agent)?.0.next_step_id;
+    for fault in ["missing-successor", "wrong-successor-binding", "changed-creator"] {
+        let id = if fault == "changed-creator" { step.step_id } else { successor };
+        let original: (String, i64, String, i64, String, i64) = connection.query_row(
+            "SELECT branch_id,step_no,state,record_revision,data,updated_commit_seq FROM subject_steps WHERE step_id=?1",
+            [id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)))?;
+        let db = follower_db.clone();
+        state.lock().before_materialize = Some(Box::new(move || {
+            let connection = rusqlite::Connection::open(db)?;
+            if fault == "missing-successor" {
+                assert_eq!(connection.execute("DELETE FROM subject_steps WHERE step_id=?1", [id.to_string()])?, 1);
+            } else {
+                let data: String = connection.query_row("SELECT data FROM subject_steps WHERE step_id=?1",
+                    [id.to_string()], |row| row.get(0))?;
+                let mut current: shenko_types::subject::SubjectStep = serde_json::from_str(&data)?;
+                if fault == "changed-creator" { current.record_revision.0 += 1; }
+                else { current.step_no += 1; }
+                assert_eq!(connection.execute("UPDATE subject_steps SET data=?1 WHERE step_id=?2",
+                    rusqlite::params![serde_json::to_string(&current)?, id.to_string()])?, 1);
+            }
+            Ok(())
+        }));
+        let refused = follower.recover_control_admission(&claim_grant, &claim_objects, false);
+        assert!(state.lock().before_materialize.is_none(), "{fault}: application boundary was not reached");
+        connection.execute("INSERT OR REPLACE INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq)
+            VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![id.to_string(), original.0, original.1, original.2, original.3, original.4, original.5])?;
+        assert!(matches!(&refused, Ok(ControlRecoveryOutcome::ReconciliationRequired)), "{fault}: {refused:?}");
+        assert!(!follower.control_admission_applied_here(&claim_grant.admission)?);
+        assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+    }
     assert_eq!(follower.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
     assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&fresh.task)?);
     assert_eq!(serde_json::to_value(follower.external_task(head.subject_root_task_id)?)?, serde_json::to_value(&parked_root)?);
@@ -3344,7 +3396,7 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     transition["rows"]["tables"].as_array_mut().context("lost claim tables")?
         .retain(|table| table["before"]["table"]["name"] != "operations");
     let fault_ref = source.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json",
-        "commit-authority", "store-native-claim-transition", 1)?.object;
+        "commit-authority", "store-native-claim-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(fault_ref)?;
     let mut fault = lost.clone();
     fault.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json",
@@ -3491,6 +3543,12 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
         assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
+        assert_eq!(frozen["rows"]["schema_version"], 3);
+        let creator = frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
+            .find(|table| table["before"]["table"]["name"] == "subject_steps").context("creator point witness")?;
+        assert_eq!(creator["complete_read"], false);
+        assert_eq!(creator["before"]["rows"].as_object().context("creator rows")?.len(), 1);
+        assert!(creator["changes"].as_array().context("creator writes")?.is_empty());
         let conn = rusqlite::Connection::open(dir.join("head.db"))?;
         let materialized: serde_json::Value = serde_json::from_str(&conn.query_row(
             "SELECT data FROM control_materializations WHERE action_id=?1",
@@ -3507,8 +3565,24 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         Ok(())
     };
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
+    // Reproduce the real interleaving: capture the claim while the successor
+    // is Planned, then advance that same step through real S0/result Store
+    // writes after choose and before materialization. The head and committed
+    // creator remain unchanged. Followers deliberately retain Planned across
+    // claim, paired arm and T2, so all three learned readers face different
+    // successor progress without receiving another execution permit.
+    let progressing = Arc::clone(&source);
+    state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        assert_eq!(successor.state, shenko_types::subject::SubjectStepState::Planned);
+        recorded_result(&progressing, &head, successor)?;
+        Ok(())
+    }));
     let claim_started = std::time::Instant::now();
     let claim = source.claim_native_task(task_id, implementation.clone(), false)?.context("fresh source claim")?;
+    assert!(state.lock().before_materialize.is_none());
+    assert_eq!(source.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::ResultRecorded);
+    assert_eq!(receiver.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::Planned);
     let claim_grant = chosen()?;
     capacity_receipt(&source, &claim_grant, "native.claim", claim_started.elapsed())?;
     let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
@@ -3532,7 +3606,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let arm_objects = source.admission_objects(&arm.admission.payload_ref)?;
     let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&arm.admission.payload_ref.digest)?)?;
     let arm_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(arm_ref.codec.major, 2);
+    assert_eq!(arm_ref.codec.major, 3);
     for replica in [&receiver, &blocked] {
         assert_eq!(replica.recover_control_admission(&arm, &arm_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
         assert!(replica.arm_native_operation_for_dispatch(&ctx, &mut operation.clone(), &mut attempt.clone())?.is_some());
@@ -3593,7 +3667,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let objects = source.admission_objects(&t2.admission.payload_ref)?;
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&t2.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(reference.codec.major, 2);
+    assert_eq!(reference.codec.major, 3);
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
     let expected_result: shenko_types::task::TaskResult = serde_json::from_value(transition["result"].clone())?;
     assert!(source.native_task_result(task_id)?.is_none());
@@ -3603,7 +3677,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // route to the old generic T2 or a receipt whose provenance was rebuilt.
     let mut malformed = transition.clone();
     malformed["evidence_fact"]["codec"]["major"] = 99.into();
-    let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", 2)?.object;
+    let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
     let mut bad = t2.clone();
     bad.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
@@ -3700,7 +3774,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let delayed_arm = chosen()?;
     let envelope: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&delayed_arm.admission.payload_ref.digest)?)?;
     let delayed_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(delayed_ref.codec.major, 2);
+    assert_eq!(delayed_ref.codec.major, 3);
     let original_path = reopened.cas.verified_object_path(&delayed_ref)?;
     let saved_path = dir.join("temporarily-unavailable-arm");
     std::fs::rename(&original_path, &saved_path)?;

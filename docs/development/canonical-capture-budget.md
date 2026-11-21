@@ -47,7 +47,7 @@ decodable, but a digest lacking this dependency is conservatively refused at
 materialization and retained through the existing reconciliation path. Missing
 original schema evidence is not fabricated by rewriting the sealed transition.
 
-Native claim/arm/dispatch/T2 retain their existing typed witness versions:
+Native claim/arm/dispatch/T2 retain their versioned typed witnesses:
 their independent validators use full read rows to verify operation absence and
 unfinished-child ranges. Write-only tables now retain actual touched keys from
 the start. Direct first-claim, claim-proven T1 and childless E1-proven T2 already
@@ -57,6 +57,43 @@ is checked again, and the existing ancestry, claim-birth and E1 validators still
 run before admission. No full read range is replaced with an unproven digest.
 The row-engine journey retains a 129 MiB write-only history and a 66 MiB unrelated
 task while capturing and applying the small native-v1 delta.
+
+### Direct native subject witness (2026-11-22)
+
+The real protocol observations found three selected `native.claim` actions at
+Node control index 7 with durable acceptance and no Store materialization. The
+frozen complete `subject_steps` image conflicted with the next main step's S0
+progress, and recovering the same selected value retained that conflict. The
+absence of an operation or attempt did not make those actions safe to retry.
+
+New direct first claims use claim codec 2. Their existing proof-bearing paired
+T1 and childless original T2 use codec 3. These readers bind row schema 3;
+old claim 1, arm/T2 1–2 and ordinary dispatch retain their original row schema 1
+semantics. Only the independently verified S1/claim/E1 chain can use the new
+subject witness. Its `subject_steps` image contains exactly the immutable
+creator's full row, fetched by primary key before and after the single source
+evaluation. It cannot carry a step write. An observed trigger or view read of
+`subject_steps` is outside this closed proof and refuses capture before any
+preparation or choice instead of discarding that additional dependency.
+
+The source still calls `read_subject`. In the final IMMEDIATE transaction,
+every new-version application calls it again and compares the complete head:
+the current successor must exist and match its branch, step number, parent,
+controller epoch and software generation; paused-boundary checks also remain.
+Only that successor's unrelated state, request and input progress may differ.
+The separately proven creator stays an exact row dependency. Prepared and
+learned applications perform the same checks and never issue a new worker or
+execution permit. No chosen bytes, source identities, E1 or Unknown outcomes
+are rewritten, and this change introduces no retry.
+
+New archives use [schema 10](../specs/durable-state.md)
+so older schema-7 readers refuse before payload publication. Current readers
+retain the old archive and transition versions; raw Node object transport is
+a separate compatibility boundary. The existing first-claim and 129 MiB chain
+regressions now include post-choice real S0 progress, different successor
+progress on receivers, and post-preflight missing/badly bound successor and
+changed-creator refusals. These are controlled Store/authority fixtures;
+execution and fresh real-model journey evidence must be reported separately.
 
 ### Remaining issue #316 boundaries
 
@@ -70,9 +107,9 @@ The native full witnesses remain history-dependent at these concrete paths:
 
 | Path | Still retained complete read dependencies | Consequence |
 | --- | --- | --- |
-| `claim_transition::evaluate_claim` | `subject_steps` (the current successor and creator are point reads) and `operations` (original-operation absence) | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Historical steps/operations can refuse a small new claim. |
-| `arming_transition::evaluate_arm` | `operations` (ID or task/logical-key absence), `attempts` (ID or operation absence), `subject_intents` (publication absence), and subject reads | The independent `validate_absence` examines these complete witnesses. Ordinary/non-direct ancestry still retains the `tasks` table. |
-| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 narrows only `tasks`. |
+| `claim_transition::evaluate_claim` | `operations` (original-operation absence) and subject heads | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
+| `arming_transition::evaluate_arm` | `operations` (ID or task/logical-key absence), `attempts` (ID or operation absence), `subject_intents` (publication absence), and subject heads | The independent `validate_absence` examines these complete witnesses. Ordinary/non-direct ancestry still retains `tasks` and `subject_steps`; only the new direct paired path has the creator-key/successor predicate. |
+| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. New direct E1-proven T2 narrows `tasks` and its creator read, while retaining current-successor validation. |
 
 All canonical actions also call
 `control_predecessor::prepare_control_predecessor_inner`, which takes a full

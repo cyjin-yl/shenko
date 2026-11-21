@@ -267,6 +267,9 @@ pub struct NativeT2AuthorityState {
     pub last: String,
     pub lose_reply: bool,
     pub fail_before_choose: bool,
+    /// Interleave after the retained choice, immediately before materializing
+    /// it. Release the fixture lock before entering the real Store or SQLite.
+    pub before_materialize: Option<Box<dyn FnOnce() -> Result<()> + Send>>,
 }
 
 pub struct NativeT2Authority {
@@ -330,10 +333,9 @@ impl shenko_types::authority::CommitAuthorityProvider for NativeT2Authority {
         Box<dyn shenko_types::authority::CommitAuthorityGuard>,
         shenko_types::error::ShenkoError,
     > {
+        let mut state = self.state.lock();
         if let Some(grant) = grant
-            && self
-                .state
-                .lock()
+            && state
                 .grants
                 .get(&grant.admission.conflict_key)
                 .is_none_or(|original| {
@@ -343,6 +345,11 @@ impl shenko_types::authority::CommitAuthorityProvider for NativeT2Authority {
             return Err(shenko_types::error::ShenkoError::conflict(
                 "fixture has no matching chosen T2",
             ));
+        }
+        let interleave = grant.and_then(|_| state.before_materialize.take());
+        drop(state);
+        if let Some(interleave) = interleave {
+            interleave().map_err(|error| shenko_types::error::ShenkoError::other(error.to_string()))?;
         }
         Ok(Box::new(CanonicalGuard(self.stamp.clone())))
     }

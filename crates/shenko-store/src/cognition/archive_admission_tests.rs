@@ -499,7 +499,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         memory_root: Some(memory), include_git_history: false, ..Default::default()
     };
     let native = source.export_cognition(&options)?;
-    assert_eq!(native.manifest.schema, 7, "this producer is the authentic fork/history native7");
+    assert_eq!(native.manifest.schema, 10, "the current fork/history producer declares its native readers");
     for class in ["subject_branch_forks", "subject_head_history"] {
         assert!(native.manifest.fact_classes.iter().any(|declared| declared == class));
     }
@@ -509,14 +509,24 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     let mut native_archive = Vec::new();
     assert!(native.write_archive(&mut native_archive)?.complete);
 
-    for case in ["partial-family", "absent-family", "mixed-native-seven", "older-format"] {
+    for case in ["partial-family", "absent-family", "mixed-native-seven", "older-format",
+        "current-partial-family", "reserved-eight", "reserved-nine"] {
         // Only the negative inputs are mutated. The positive archive above is
         // the original Store producer output, with its original version intact.
         let mut malformed = source.export_cognition(&options)?;
         let expected = if case == "older-format" {
             malformed.manifest.schema = 6;
             "historical archive cannot claim later dialogue or fork/history membership"
+        } else if case == "current-partial-family" {
+            malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
+            "schema-10 archive requires fork/history membership"
+        } else if matches!(case, "reserved-eight" | "reserved-nine") {
+            malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
+            "unsupported cognition archive schema"
         } else {
+            // Explicit legacy-format negative fixtures still exercise the
+            // native7 rule. They are not relabelled current producer output.
+            malformed.manifest.schema = 7;
             match case {
                 "partial-family" => malformed.manifest.fact_classes.retain(|class|
                     class != "subject_head_history"),
@@ -573,7 +583,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             .collect::<std::io::Result<Vec<_>>>()?, vec![std::ffi::OsString::from("local.txt")]);
     }
 
-    // The unmodified native7 producer still imports, reopens and re-exports
+    // The unmodified current producer still imports, reopens and re-exports
     // through the real Store owner with the original bytes and event intact.
     let receiver_dir = root.join("native-positive");
     fs::create_dir(&receiver_dir)?;
@@ -596,8 +606,26 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     let relay = reopened.export_cognition(&CognitionSnapshotOptions {
         memory_root: Some(receiver_memory), include_git_history: false, ..Default::default()
     })?;
-    assert_eq!(relay.manifest.schema, 7);
+    assert_eq!(relay.manifest.schema, 10);
     assert!(relay.manifest.blocking_gaps().is_empty());
     assert!(relay.manifest.objects.iter().any(|declared| declared.digest == object.digest));
+    // This fixture contains only facts representable by the legacy native7
+    // fork/history format. Current readers retain that explicit older format;
+    // it is not a current-writer downgrade or a compatibility export path.
+    let mut legacy = source.export_cognition(&options)?;
+    legacy.manifest.schema = 7;
+    legacy.manifest.fingerprint = fingerprint_of_manifest(&legacy.manifest);
+    let mut legacy_archive = Vec::new();
+    legacy.write_archive(&mut legacy_archive)?;
+    let legacy_receiver = Store::open(root.join("legacy-receiver.db"), root.join("legacy-cas"))?;
+    let legacy_memory = root.join("legacy-memory");
+    fs::create_dir(&legacy_memory)?;
+    let imported = legacy_receiver.import_cognition_archive(&legacy_archive[..], &CognitionImportOptions {
+        memory_root: Some(legacy_memory.clone()), ..Default::default()
+    })?;
+    assert!(imported.ack(EntityId::new()).verified);
+    assert_eq!(legacy_receiver.cas.read_object(&object.digest)?.as_slice(), bytes);
+    assert_eq!(legacy_receiver.session_events_range(session, 0, i64::MAX)?[0].data, data);
+    assert_eq!(fs::read(legacy_memory.join("remote.txt"))?, b"original remote file");
     Ok(())
 }
