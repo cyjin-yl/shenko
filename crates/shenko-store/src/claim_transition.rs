@@ -34,8 +34,8 @@ use crate::{
         NATIVE_RESULT_ID, native_claim_ids,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, NATIVE_SUBJECT_READ_SCHEMA, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA,
+        NativeReadSelector, PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::CanonicalFact,
     store::storage_error,
@@ -297,6 +297,10 @@ fn unique_table<'a>(
 }
 
 impl ClaimTransition {
+    fn read_selectors(&self) -> [NativeReadSelector; 1] {
+        [NativeReadSelector::OriginalOperation { operation_id: native_claim_ids(&self.plan.task).0 }]
+    }
+
     fn original(
         &self,
         name: &str,
@@ -327,8 +331,9 @@ impl ClaimTransition {
         let plan = &self.plan;
         let head = &rows.original_head;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&self.read_selectors())?;
         let position = plan.position();
-        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA)
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
             || admission.schema_version != 1
             || rows.action_id != admission.action_id
             || rows.action_id
@@ -351,13 +356,17 @@ impl ClaimTransition {
             return Err(invalid("claim admission or invocation identity differs"));
         }
         self.original("subject_branch_heads", "agent_id", head.agent_id, head)?;
-        if rows.schema_version == NATIVE_SUBJECT_READ_SCHEMA {
+        if matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) {
             crate::native_facts::validate_subject_read(rows, &plan.creator)?;
         } else {
             self.original("subject_steps", "step_id", plan.creator.step_id, &plan.creator)?;
         }
         let operations = unique_table(rows, "operations")?;
-        if !operations.complete_read {
+        if rows.schema_version == NATIVE_OPERATION_READ_SCHEMA {
+            if operations.complete_read || !operations.before.rows.is_empty() {
+                return Err(invalid("first claim original operation predicate is not absent"));
+            }
+        } else if !operations.complete_read {
             return Err(invalid("operation absence is not frozen"));
         }
         let operation_id = native_claim_ids(&plan.task).0;
@@ -837,7 +846,9 @@ impl Store {
             }
             let (mut rows, ()) = self.capture_direct_native_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, &plan.task, &plan.creator, &[], |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
+            }, &plan.task, &plan.creator,
+                &[NativeReadSelector::OriginalOperation { operation_id: native_claim_ids(&plan.task).0 }],
+                |commit, created_at| self.evaluate_claim(&tx, head, &plan, commit, created_at))?;
             // Only this independently validated direct-root action may reduce
             // its task read range. Generic RowTransition behavior is unchanged.
             let table = rows.tables.iter_mut().find(|table| table.before.table.name == "tasks")
@@ -850,7 +861,7 @@ impl Store {
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("claim exceeds the 64 MiB admission budget")); }
-            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 2)?.object;
+            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 3)?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -923,7 +934,7 @@ impl Store {
 
     fn read_claim_transition(&self, reference: &ObjectRef) -> Result<ClaimTransition, ShenkoError> {
         if reference.codec.name != CODEC
-            || !matches!(reference.codec.major, 1 | 2)
+            || !matches!(reference.codec.major, 1..=3)
             || reference.codec.digest != Digest::blake3(CODEC.as_bytes())
             || reference.store_namespace != "commit-authority"
             || reference.media_type != "application/json"
@@ -936,7 +947,11 @@ impl Store {
             return Err(invalid("claim transition content differs"));
         }
         let transition: ClaimTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if transition.rows.schema_version != if reference.codec.major == 2 { NATIVE_SUBJECT_READ_SCHEMA } else { 1 } {
+        if transition.rows.schema_version != match reference.codec.major {
+            3 => NATIVE_OPERATION_READ_SCHEMA,
+            2 => NATIVE_SUBJECT_READ_SCHEMA,
+            _ => 1,
+        } {
             return Err(invalid("claim reader version differs from its subject witness"));
         }
         self.verify_transition_objects(&transition.rows)?;

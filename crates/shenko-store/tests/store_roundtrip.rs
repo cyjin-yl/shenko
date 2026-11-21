@@ -3307,8 +3307,8 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert_eq!(envelope["action"]["kind"], "native.claim");
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
-    assert_eq!(reference.codec.major, 2);
-    assert_eq!(transition["rows"]["schema_version"], 3);
+    assert_eq!(reference.codec.major, 3);
+    assert_eq!(transition["rows"]["schema_version"], 4);
     assert_eq!(transition["plan"]["task"], serde_json::to_value(&pending)?);
     assert_eq!(transition["plan"]["birth"]["admission"], serde_json::to_value(&birth.admission)?);
     assert_eq!(transition["plan"]["invocation"], serde_json::to_value(&fresh.invocation)?);
@@ -3549,7 +3549,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
         assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
-        assert_eq!(frozen["rows"]["schema_version"], if phase == "native.claim" { 3 } else { 4 });
+        assert_eq!(frozen["rows"]["schema_version"], 4);
         let creator = frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .find(|table| table["before"]["table"]["name"] == "subject_steps").context("creator point witness")?;
         assert_eq!(creator["complete_read"], false);
@@ -3572,7 +3572,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     };
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
     // A separate real Store operation can receive E1 while the target's
-    // chosen T1/T2 is waiting to materialize. Its unknown observation grants
+    // chosen claim/T1 is waiting to materialize. Its unknown observation grants
     // no success and no local effect, and remains outside the target witness.
     let independent = source.claim_native_task(independent_id, implementation.clone(), false)?.context("independent source claim")?;
     let (independent_ctx, mut independent_op, mut independent_attempt) = draft_dispatch_operation(
@@ -3584,7 +3584,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         record_schema_version: 1, receipt_id: EntityId::new(),
         operation_id: Some(independent_op.operation_id), attempt_id: Some(independent_attempt.attempt_id),
         source_id: "independent-native-chain-observation".into(), source_instance_id: "fixture-observer".into(),
-        source_event_key: Some("independent-before-target-arm".into()), producer_epoch: Some(independent_attempt.epoch.0),
+        source_event_key: Some("independent-before-target-claim".into()), producer_epoch: Some(independent_attempt.epoch.0),
         producer_schema_version: Some("1".into()), raw_ref: independent_raw, decoder_ref: Some(independent_attempt.implementation_ref.clone()),
         decode_status: DecodeStatus::Decoded, observation_level: None,
         normalized_ref: None, observed_at: Some(chrono::Utc::now()), received_commit: independent_attempt.armed_commit,
@@ -3596,15 +3596,20 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // claim, paired arm and T2, so all three learned readers face different
     // successor progress without receiving another execution permit.
     let progressing = Arc::clone(&source);
+    let observation = independent_receipt.clone();
     state.lock().before_materialize = Some(Box::new(move || {
         let (head, successor) = progressing.load_subject(agent)?;
         assert_eq!(successor.state, shenko_types::subject::SubjectStepState::Planned);
         recorded_result(&progressing, &head, successor)?;
+        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
+            observation, None, EffectStatus::Unknown)?;
         Ok(())
     }));
     let claim_started = std::time::Instant::now();
     let claim = source.claim_native_task(task_id, implementation.clone(), false)?.context("fresh source claim")?;
     assert!(state.lock().before_materialize.is_none());
+    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(independent_receipt.receipt_id));
+    assert_eq!(source.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     assert_eq!(source.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::ResultRecorded);
     assert_eq!(receiver.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::Planned);
     let claim_grant = chosen()?;
@@ -3629,7 +3634,11 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     assert_eq!(injected.query_row("SELECT count(*) FROM operations WHERE operation_id=?1",
         [operation.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
     let progressing = Arc::clone(&source);
-    let observation = independent_receipt.clone();
+    let observation = EvidenceReceipt {
+        receipt_id: EntityId::new(), source_event_key: Some("independent-before-target-arm".into()),
+        observed_at: Some(chrono::Utc::now()), ..independent_receipt.clone()
+    };
+    let arm_receipt_id = observation.receipt_id;
     state.lock().before_materialize = Some(Box::new(move || {
         progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
             observation, None, EffectStatus::Unknown)?;
@@ -3639,7 +3648,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let permit = source.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?;
     assert!(permit.is_none());
     assert!(state.lock().before_materialize.is_none());
-    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(independent_receipt.receipt_id));
+    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(arm_receipt_id));
     assert_eq!(source.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     if permit.is_none() {
         let mut effect = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("effect.log"))?;
@@ -3819,21 +3828,9 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // application. Both retain the original result and refuse another effect.
     let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
     reopened.attach_commit_authority(Arc::new(NativeT2Authority { source: "native-chain-source", stamp: Some(stamp), state: Arc::clone(&state) }))?;
-    let independent_late = EvidenceReceipt {
-        receipt_id: EntityId::new(), source_event_key: Some("independent-before-target-t2".into()),
-        observed_at: Some(chrono::Utc::now()), ..independent_receipt.clone()
-    };
-    let late_id = independent_late.receipt_id;
-    let progressing = Arc::clone(&source);
-    state.lock().before_materialize = Some(Box::new(move || {
-        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
-            independent_late, None, EffectStatus::Unknown)?;
-        Ok(())
-    }));
     let recovery_started = std::time::Instant::now();
     let recovered = reopened.resume_prepared_step_commits(agent)?;
-    assert!(state.lock().before_materialize.is_none());
-    assert_eq!(reopened.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(late_id));
+    assert_eq!(reopened.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(arm_receipt_id));
     assert_eq!(reopened.external_operation_evidence(independent_op.operation_id)?.len(), 2);
     assert_eq!(reopened.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     assert_eq!(recovered.applied, 1);
