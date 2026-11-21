@@ -1,0 +1,17 @@
+{
+  "head_sha": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "branch": "feat/daily-readiness-20261122",
+  "workflow_id": 418606073,
+  "requested_at": "2026-11-21T22:02:33.825578+00:00",
+  "command": [
+    "gh",
+    "workflow",
+    "run",
+    "nightly.yml",
+    "--repo",
+    "cyjin-yl/shenko",
+    "--ref",
+    "feat/daily-readiness-20261122"
+  ],
+  "dispatch_attempts": 1
+}
