@@ -405,6 +405,61 @@ parent/child 相同的输入，产品准入规则和派发/恢复断言均未放
 于 22:01:08–22:01:35 UTC 完成，dispatch 通过（23.56 秒）。此前 15 项 `5f` 成功与一项
 `b4` first-claim 成功单独列为复用证据；产品路径字节与 `5f` 相同，first-claim 函数正文与
 `b4` 相同。因此该组 17 项定向覆盖已补齐，但不能写成 `0c` 当次重新执行了全部 17 项。
-门禁据此开始 release 构建，构建完成与实际模型旅程仍需各自独立回执。
+门禁据此开始 release 构建；构建与后面的实际模型旅程各自保留独立回执。
+
+### `0c6b013e` 的三次真实浏览器旅程：仍为 0/3
+
+该候选的 [release manifest](daily-readiness-20261122/final-0c6b013e/release-manifest.json)
+记录 22:01:35–22:09:19 UTC 的实际成功构建。二进制为 90,162,848 字节，SHA256 为
+`8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1`。
+[原 batch 回执](daily-readiness-20261122/final-0c6b013e/batch-summary.json)
+记录 22:10:15–22:16:47 UTC 三次尝试全部完成观察、全部失败，未尝试数为零；
+wrapper 于 22:16:50 UTC 结束。三个原进程均退出 1，owned 进程组已回收，不能算干净关闭。
+观察器、任务输入规则、模型预算和部署模型均未为这次重跑调整。
+
+[逐次汇总](daily-readiness-20261122/final-0c6b013e/compact.json)和
+[原始字节索引](daily-readiness-20261122/final-0c6b013e/index.json)保留 89 份原件、原退出码和分母。
+三次观察分别持续 112.228、104.311、174.177 秒。独立 sampler 和模型后验身份核验均退出 0，
+服务 PID、start ticks、boot ID、命令行及三份活动配置哈希在整个批次前后一致。
+本次只人工确认了 attempt-001 的 first-submitted 截图中文可读；这不等于完整 UI 旅程成功。
+
+[三份结束后只读容量审计](daily-readiness-20261122/final-0c6b013e-native-e1-capacity.json)
+证明每份原 printf 观察都有成功的原 operation、attempt 与 E1，精确 marker、exit code 0
+和 postcondition 仍保留；但三份均没有 T2 task result，也没有 native evidence materialization。
+各自的原 seal debt 都明确写着 `CAS closure byte budget exceeded`。
+真实 paired T1 都引用同一个 90,162,848 字节的注册实现，超过旧 E1 全闭包的
+67,108,864 字节上限 23,053,984 字节。这是证据封装容量拒绝，不能改写为 printf 未执行或磁盘 IO 失败。
+三个 model child 的原请求均以 Unknown 保留，未完成最终结果、暂停重启或下一条消息验收。
+
+另一个原 dispatcher 错误是 `subject predecessor changed before snapshot capture`。
+它需要单独处理新动作准备与主 S1 推进的交错，不能用容量错误代替它的归因。
+原错误没有携带 action ID；结束后的原 chosen/materialization 清单能约束推断，不能伪装成失败瞬间调用栈。
+
+[本次完整计时](daily-readiness-20261122/final-0c6b013e/timing.json)
+保留三次日志共 1,180 个 scope，全部配对，无丢失或无效记录；scope 退出仍包括失败路径。
+常规 [CI 44954542873](https://github.com/cyjin-yl/shenko/actions/runs/44954542873) 的六项检查及
+完整 [Nightly 44954638293](https://github.com/cyjin-yl/shenko/actions/runs/44954638293) 的两个 job
+随后均自然通过。它们不把这份真实旅程的 0/3 改成成功。
+
+### 保留停止观察失败及最小修复的实际回执
+
+较早 `5f1e426a` 的[完整 CI/Nightly 原件](daily-readiness-20261122/ci-nightly-5f1e426a/summary.json)
+除两份已定位的 fixture 失败外，还保留 Nightly 的第三个失败：原 start-boundary 在三秒内未观察到
+请求取消。其最后清理产生的 EOF 不能倒填为屏障内取消；原记录不足以把该次超时唯一归因给 Store 锁。
+
+独立源码检查发现，Node 已确定没有 authority stamp 时，旧 acquire 路径仍先读取可能被阻塞的
+Store binding。`be9cfe1b` 让这一已知失权先触发 recovery cancellation；有 stamp 时的原
+binding/incarnation 校验不变，也没有放宽三秒条件或把 Unknown 转为成功。
+[实际 be9 回执](daily-readiness-20261122/scoped-be9cfe1b/summary.json)
+保留单元测试因 E0282 未编译、零实际执行，以及原 start-boundary 测试通过（73.29 秒）。
+[原事件顺序](daily-readiness-20261122/scoped-be9cfe1b/start-boundary/recovery-stop-order.json)
+在 authority 改变后观察到原请求取消，之后才发送 SIGINT、观察 host stop、释放 writer 和看到 EOF。
+
+`8f14a704` 仅补测试通道的 `()` 类型注解，产品字节与 be9 一致。
+一次 [transport preflight 失败](daily-readiness-20261122/scoped-8f14a704-preflight/summary.json)
+发生在源码准入和 cargo 之前，实际测试数为零；修正观察器换行解码后，
+[唯一单元测试实际通过](daily-readiness-20261122/scoped-8f14a704-r2/summary.json)：
+1 passed / 0 failed，执行 12.79 秒，原进程和外层 wrapper 均退出 0。
+be9 的进程成功明确列为复用，未重复运行、未重复计数；这些回执不证明远端模型进程已停止。
 
 固定产品候选仍需取得完整成功浏览器回执和重复运行结果；本记录尚不宣称首条完整真实任务已收口。
