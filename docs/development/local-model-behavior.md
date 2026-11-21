@@ -118,7 +118,7 @@ python3 scripts/real_protocol_observation.py \
   --model-url http://10.10.10.11:8000 \
   --model swift-qwen3.8-27b-nvfp4 \
   --evidence-dir /absolute/path/to/new-before-or-after-directory \
-  --timeout 900 --timing
+  --timeout 900 --startup-timeout 300 --timing
 ```
 
 每个安装通过实际 CLI `--pause-at-start` 启动，确认未派发模型请求，通过真实 WebSocket
@@ -126,6 +126,12 @@ python3 scripts/real_protocol_observation.py \
 它自己的 step 已 committed 或 retired；不会等待纠错、child 完成或最终回答。原始
 installation、模型结果和 wire、第一次/最终 ledger、全部 CAS、文件哈希及 owned runtime
 关闭回执都保留。关闭引起的后续 Unknown 和任何失败留在尾部事实中。
+
+`--startup-timeout` 是独立的启动观测边界，接受正整数，默认仍为 60 秒。本次前后两组
+统一使用同一份新 driver 和显式 300 秒边界，before/after 二进制不因驱动变化而改变。
+manifest 与批次摘要记录配置；每个安装的 `first.startup.json` 保留实际耗时、是否就绪与
+原始失败，耗时不包含随后 owned cleanup。扩长观测窗口不代表启动延迟得到修复，
+也不改变请求预算、协议/耐久成功条件或清理判据；此前未就绪的失败尝试仍保留。
 
 报告的三个指标分别是：原始输入进入首个 seal；首结果完成并实际提交 S1、没有 R0；
 该 S1 恰好接纳各一个 `model.child` 与 `host.printf`，child 绑定指定模型/endpoint，原生

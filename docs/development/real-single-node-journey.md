@@ -60,7 +60,14 @@ python scripts/real_single_node_journey.py \
 `--model-url` is the provider's base URL without `/v1`: the real
 `LocalModelProvider` appends `/v1/models` and `/v1/chat/completions` itself.
 The evidence directory must not already exist. Each phase has a bounded
-observation interval. A failure exits nonzero and keeps its original runtime
+observation interval. `--startup-timeout` separately sets the positive integer
+number of seconds to observe a bound subject after each runtime spawn (default:
+60). The manifest and batch summary record this setting; `first.startup.json`
+and `restart.startup.json` retain actual elapsed startup time and whether the
+subject became ready, including failed or cancelled starts. Elapsed startup
+time ends before owned cleanup. A longer observation window is not a startup
+latency fix; keep the measured delay and compare candidates using the same
+explicit boundary. A failure exits nonzero and keeps its original runtime
 logs, input, WebSocket frames, read-only ledger snapshots and CAS. The
 public control commands and responses are retained in `runtime-controls.jsonl`;
 the paused and accepted snapshots show whether any request was admitted before

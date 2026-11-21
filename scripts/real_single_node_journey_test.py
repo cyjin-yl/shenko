@@ -100,12 +100,14 @@ class JourneyEvidenceTests(unittest.TestCase):
             binary = root / "binary"
             binary.write_bytes(b"synthetic identity only")
             args = argparse.Namespace(binary=binary, evidence_dir=root / "batch", repeat=3,
-                                      source_revision="a" * 40, model="test-model", model_url="http://unused")
+                                      source_revision="a" * 40, model="test-model", model_url="http://unused",
+                                      startup_timeout=60)
             with patch.object(journey, "run", fake_run), patch.object(journey, "get_json", return_value={
                 "data": [{"id": "test-model", "max_model_len": 32768}]
             }), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(asyncio.run(journey.repeat(args)), 1)
             report = json.loads((args.evidence_dir / "batch-summary.json").read_text())
+            self.assertEqual(report["startup_timeout_seconds"], 60)
             self.assertEqual((report["passed_runs"], report["failed_runs"], report["unattempted_runs"]), (2, 1, 0))
             self.assertEqual(report["success_rate"], 2 / 3)
             self.assertEqual(len(report["runs"]), 3)

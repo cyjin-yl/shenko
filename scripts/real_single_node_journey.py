@@ -40,11 +40,11 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def get_json(url):
+def get_json(url, timeout=5):
     # The model and UI are explicit endpoints; local evidence must not depend
     # on a shell's HTTP proxy rewriting loopback requests.
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(url, timeout=5) as response:
+    with opener.open(url, timeout=timeout) as response:
         return json.load(response)
 
 
@@ -254,31 +254,54 @@ async def collect(ws, process, data_dir, log_path, timeout, predicate):
 
 
 async def start(args, phase, data_dir, pause_request_id=None, *, on_interrupt=None):
+    started = time.monotonic()
+    startup = {"schema_version": 1, "phase": phase,
+               "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+               "startup_timeout_seconds": args.startup_timeout, "ready": False}
+    startup_path = args.evidence_dir / f"{phase}.startup.json"
     environment = os.environ.copy()
     environment.update(SHENKO_USE_LOCAL_MODEL="1", SHENKO_LOCAL_MODEL_URL=args.model_url,
                        SHENKO_LOCAL_MODEL=args.model,
                        SHENKO_LOG="info,shenko_timing=debug" if args.timing else "info")
-    log = (args.evidence_dir / f"{phase}.runtime.log").open("w")
     command = [str(args.binary), "--data-dir", str(data_dir), "start", "--port", str(args.port)]
     if pause_request_id is not None:
         command.extend(["--pause-at-start", pause_request_id])
-    process = None
+    process = log = None
     try:
+        log = (args.evidence_dir / f"{phase}.runtime.log").open("w")
         process = spawn_owned_runtime(command, env=environment, stdout=log, stderr=subprocess.STDOUT)
-        deadline = time.monotonic() + 60
+        startup["pid"] = process.pid
+        deadline = started + args.startup_timeout
         while time.monotonic() < deadline:
             if process.poll() is not None:
                 raise RuntimeError(f"Shenko startup exited {process.returncode}; see {phase}.runtime.log")
             try:
-                status = get_json(f"http://127.0.0.1:{args.port}/api/self")
-                if status.get("subject_id"):
-                    save(args.evidence_dir / f"{phase}.self.json", status)
-                    return process, log, status["subject_id"]
+                status = get_json(f"http://127.0.0.1:{args.port}/api/self",
+                                  timeout=min(5, max(0.001, deadline - time.monotonic())))
             except (OSError, ValueError):
-                pass
+                status = {}
+            if time.monotonic() >= deadline:
+                break
+            if status.get("subject_id"):
+                startup.update(ready=True, subject_id=status["subject_id"],
+                               elapsed_seconds=time.monotonic() - started)
+                save(args.evidence_dir / f"{phase}.self.json", status)
+                save(startup_path, startup)
+                return process, log, status["subject_id"]
             await asyncio.sleep(0.2)
-        raise TimeoutError("Shenko did not expose a bound subject within 60 seconds")
+        raise TimeoutError(f"Shenko did not expose a bound subject within {args.startup_timeout} seconds")
     except BaseException as error:
+        # Freeze startup time before owned cleanup. Retention failure must not
+        # replace the original timeout, exit, cancellation or startup error.
+        startup.setdefault("elapsed_seconds", time.monotonic() - started)
+        startup["error"] = {"type": type(error).__name__, "message": str(error)}
+        error.shenko_startup = startup
+        try:
+            save(startup_path, startup)
+        except BaseException as retention_error:
+            error.add_note(f"startup observation could not be saved: {retention_error}; {startup}")
+            if not isinstance(retention_error, Exception) and on_interrupt is not None:
+                on_interrupt(retention_error)
         if process is not None:
             stopped = await stop(process, log, on_interrupt=on_interrupt)
             error.shenko_startup_shutdown = stopped
@@ -286,7 +309,7 @@ async def start(args, phase, data_dir, pause_request_id=None, *, on_interrupt=No
                 save(args.evidence_dir / f"{phase}.startup-shutdown.json", stopped)
             except Exception as retention_error:
                 error.add_note(f"startup shutdown receipt could not be saved: {retention_error}; {stopped}")
-        else:
+        elif log is not None:
             try:
                 log.close()
             except Exception as close_error:
@@ -586,6 +609,7 @@ async def run(args):
         "driver_sha256": sha256(Path(__file__)),
         "websockets_version": websockets.__version__, "marker": marker, "resume_marker": resume_marker,
         "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
+        "startup_timeout_seconds": args.startup_timeout,
         "phase_timeout_seconds": args.timeout,
         "observer_websocket": observer_websocket_options(args.timeout),
         "request_path_timing": args.timing,
@@ -736,6 +760,8 @@ async def run(args):
         summary["passed"] = all(summary["checks"].values()) and not summary["errors"]
     except BaseException as error:
         record_failure("journey", error)
+        if hasattr(error, "shenko_startup"):
+            summary["startup"] = error.shenko_startup
         if hasattr(error, "shenko_startup_shutdown"):
             summary["startup_shutdown"] = error.shenko_startup_shutdown
         try:
@@ -812,6 +838,7 @@ async def repeat(args):
     """
     args.evidence_dir.mkdir(parents=True, exist_ok=False)
     report = {"schema_version": 1, "source_revision": args.source_revision,
+              "startup_timeout_seconds": args.startup_timeout,
               "requested_runs": args.repeat, "runs": [], "passed": False,
               "errors": [], "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
 
@@ -893,13 +920,15 @@ def main():
     parser.add_argument("--browser", action="store_true",
                         help="Use the actual UI composer and observe one Chromium page across the same CLI restart")
     parser.add_argument("--timeout", type=int, default=300)
+    parser.add_argument("--startup-timeout", type=int, default=60,
+                        help="Seconds to observe a bound subject after each spawn (default: 60)")
     parser.add_argument("--repeat", type=int, default=1,
                         help="Run complete journeys sequentially; retain every attempt and its success-rate denominator")
     parser.add_argument("--timing", action="store_true",
                         help="Enable only the structured shenko_timing debug target alongside normal info logs")
     args = parser.parse_args()
-    if args.repeat < 1 or args.timeout < 1:
-        parser.error("--repeat and --timeout must be positive")
+    if args.repeat < 1 or args.timeout < 1 or args.startup_timeout < 1:
+        parser.error("--repeat, --timeout and --startup-timeout must be positive")
     args.binary = args.binary.resolve()
     args.evidence_dir = args.evidence_dir.resolve()
     raise SystemExit(asyncio.run(repeat(args) if args.repeat > 1 else run(args)))

@@ -154,6 +154,7 @@ async def observe(args, case, models):
             "driver_sha256": journey.sha256(Path(__file__)), "journey_helper_sha256": journey.sha256(Path(journey.__file__)),
             "model": args.model, "model_url": args.model_url, "websockets_version": websockets.__version__,
             "configured_local_request_timeout_ms": os.environ.get("SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS"),
+            "startup_timeout_seconds": args.startup_timeout,
             "phase_timeout_seconds": args.timeout, "observer_socket": journey.observer_websocket_options(args.timeout),
             "request_path_timing": args.timing, "startup_boundary": boundary})
         journey.save(args.evidence_dir / "models.json", models)
@@ -189,6 +190,8 @@ async def observe(args, case, models):
             raise ValueError("sealed/effective provider, 4096-token budget or native options differ from the frozen comparison")
     except BaseException as error:
         failed("observation", error)
+        if hasattr(error, "shenko_startup"):
+            summary["startup"] = error.shenko_startup
         if hasattr(error, "shenko_startup_shutdown"):
             summary["startup_shutdown"] = error.shenko_startup_shutdown
             summary["cleanup_complete"] = error.shenko_startup_shutdown["group_cleanup"]["complete"]
@@ -251,6 +254,7 @@ async def batch(args):
     encoded_cases = json.dumps(case_table, ensure_ascii=False, sort_keys=True).encode()
     journey.save(args.evidence_dir / "cases.json", case_table)
     report = {"schema_version": 1, "scope": SCOPE, "source_revision": args.source_revision,
+        "startup_timeout_seconds": args.startup_timeout,
         "binary_sha256": journey.sha256(args.binary), "canonical_case_table_sha256": digest(encoded_cases),
         "cases_file_sha256": journey.sha256(args.evidence_dir / "cases.json"),
         "requested_runs": len(CASES), "runs": [], "errors": [], "model": args.model,
@@ -344,10 +348,12 @@ def main():
     parser.add_argument("--evidence-dir", required=True, type=Path)
     parser.add_argument("--port", type=int, default=17861)
     parser.add_argument("--timeout", type=int, default=900)
+    parser.add_argument("--startup-timeout", type=int, default=60,
+                        help="Seconds to observe a bound subject after each spawn (default: 60)")
     parser.add_argument("--timing", action="store_true")
     args = parser.parse_args()
-    if args.timeout < 1:
-        parser.error("--timeout must be positive")
+    if args.timeout < 1 or args.startup_timeout < 1:
+        parser.error("--timeout and --startup-timeout must be positive")
     args.binary = args.binary.resolve()
     args.evidence_dir = args.evidence_dir.resolve()
     raise SystemExit(asyncio.run(batch(args)))
