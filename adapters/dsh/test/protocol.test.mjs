@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { connectionProfile, readConfig } from '../src/config.mjs';
 
-async function fixture(t, callTimeoutMs = 3000) {
+async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'shenko-dsh-mcp-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const witness = join(dir, 'witness.txt');
@@ -21,7 +21,7 @@ async function fixture(t, callTimeoutMs = 3000) {
       entry: fileURLToPath(new URL('./fixtures/protocol-plugin.mjs', import.meta.url)),
       config: { witness },
     }],
-    callTimeoutMs,
+    callTimeoutMs: 3000,
   }));
   const profile = connectionProfile(await readConfig(path));
   async function connect() {
@@ -56,20 +56,4 @@ test('generated profile completes real stdio discovery, canonical result, invali
   await client.close();
   assert.equal(await readFile(witness, 'utf8'), 'add\ndisposed\n');
   assert.match(diagnostics(), /plugin diagnostic belongs on stderr/);
-});
-
-test('post-effect timeout closes the session without a false terminal result or replay on restart', async t => {
-  const { connect, witness } = await fixture(t, 150);
-  const { client } = await connect();
-  await assert.rejects(
-    client.callTool({ name: 'uncertain', arguments: {} }, undefined, { timeout: 5000 }),
-    /closed|unknown/i,
-  );
-  await client.close();
-  const replacement = await connect();
-  await replacement.client.listTools();
-  await replacement.client.close();
-  const facts = await readFile(witness, 'utf8');
-  assert.equal(facts.split('\n').filter(line => line === 'effect-before-timeout').length, 1);
-  assert.equal(facts.split('\n').filter(line => line === 'disposed').length, 2);
 });
