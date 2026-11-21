@@ -1,0 +1,82 @@
+Scope: all 62 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +557
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 557, reused 0, downloaded 0, added 0
+Progress: resolved 557, reused 0, downloaded 134, added 0
+Progress: resolved 557, reused 0, downloaded 243, added 0
+Progress: resolved 557, reused 0, downloaded 310, added 2
+Progress: resolved 557, reused 0, downloaded 323, added 2
+Progress: resolved 557, reused 0, downloaded 355, added 6
+Progress: resolved 557, reused 0, downloaded 379, added 10
+Progress: resolved 557, reused 0, downloaded 427, added 30
+Progress: resolved 557, reused 0, downloaded 434, added 30
+Progress: resolved 557, reused 0, downloaded 485, added 38
+Progress: resolved 557, reused 0, downloaded 521, added 46
+Progress: resolved 557, reused 0, downloaded 532, added 165
+Progress: resolved 557, reused 0, downloaded 538, added 165
+Progress: resolved 557, reused 0, downloaded 538, added 166
+Progress: resolved 557, reused 0, downloaded 538, added 217
+Progress: resolved 557, reused 0, downloaded 541, added 217
+Progress: resolved 557, reused 0, downloaded 546, added 217
+Progress: resolved 557, reused 0, downloaded 547, added 230
+Progress: resolved 557, reused 0, downloaded 547, added 231
+Progress: resolved 557, reused 0, downloaded 549, added 279
+Progress: resolved 557, reused 0, downloaded 549, added 280
+Progress: resolved 557, reused 0, downloaded 549, added 323
+Progress: resolved 557, reused 0, downloaded 549, added 325
+Progress: resolved 557, reused 0, downloaded 549, added 337
+Progress: resolved 557, reused 0, downloaded 549, added 338
+Progress: resolved 557, reused 0, downloaded 550, added 361
+Progress: resolved 557, reused 0, downloaded 554, added 370
+Progress: resolved 557, reused 0, downloaded 557, added 373
+Progress: resolved 557, reused 0, downloaded 557, added 375
+Progress: resolved 557, reused 0, downloaded 557, added 390
+Progress: resolved 557, reused 0, downloaded 557, added 399
+Progress: resolved 557, reused 0, downloaded 557, added 405
+Progress: resolved 557, reused 0, downloaded 557, added 407
+Progress: resolved 557, reused 0, downloaded 557, added 429
+Progress: resolved 557, reused 0, downloaded 557, added 434
+Progress: resolved 557, reused 0, downloaded 557, added 435
+Progress: resolved 557, reused 0, downloaded 557, added 452
+Progress: resolved 557, reused 0, downloaded 557, added 453
+Progress: resolved 557, reused 0, downloaded 557, added 499
+Progress: resolved 557, reused 0, downloaded 557, added 505
+Progress: resolved 557, reused 0, downloaded 557, added 506
+Progress: resolved 557, reused 0, downloaded 557, added 541
+Progress: resolved 557, reused 0, downloaded 557, added 542
+Progress: resolved 557, reused 0, downloaded 557, added 545
+Progress: resolved 557, reused 0, downloaded 557, added 546
+Progress: resolved 557, reused 0, downloaded 557, added 547
+Progress: resolved 557, reused 0, downloaded 557, added 548
+Progress: resolved 557, reused 0, downloaded 557, added 549
+Progress: resolved 557, reused 0, downloaded 557, added 550
+Progress: resolved 557, reused 0, downloaded 557, added 551
+Progress: resolved 557, reused 0, downloaded 557, added 553
+Progress: resolved 557, reused 0, downloaded 557, added 554
+Progress: resolved 557, reused 0, downloaded 557, added 555
+Progress: resolved 557, reused 0, downloaded 557, added 556
+Progress: resolved 557, reused 0, downloaded 557, added 557
+Progress: resolved 557, reused 0, downloaded 557, added 557, done
+.../esbuild@0.25.12/node_modules/esbuild postinstall$ node install.js
+.../sharp@0.34.5/node_modules/sharp install$ node install/check.js || npm run build
+.../esbuild@0.21.5/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.27.4/node_modules/esbuild postinstall$ node install.js
+.../esbuild@0.25.12/node_modules/esbuild postinstall: Done
+.../sharp@0.34.5/node_modules/sharp install: Done
+.../esbuild@0.21.5/node_modules/esbuild postinstall: Done
+.../esbuild@0.27.4/node_modules/esbuild postinstall: Done
+ EPERM  EPERM: operation not permitted, chmod '/tank/shared/projects/shenko/worktrees/proto-ui-web-pin-795b1b49/packages/cli/bin/proto-ui.js'
+
+pnpm: EPERM: operation not permitted, chmod '/tank/shared/projects/shenko/worktrees/proto-ui-web-pin-795b1b49/packages/cli/bin/proto-ui.js'
+    at async chmod (node:internal/fs/promises:1804:10)
+    at async linkBin (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:92011:9)
+    at async Promise.allSettled (index 0)
+    at async _linkBins (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:91854:23)
+    at async /var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:154941:15
+    at async Promise.all (index 50)
+    at async headlessInstall (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:154923:11)
+    at async tryFrozenInstall (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:163182:60)
+    at async _install (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:162976:37)
+    at async mutateModules (/var/idw-target/daily-readiness-node-v24.22.1/corepack/v1/pnpm/10.32.1/dist/pnpm.cjs:162874:23)

@@ -1,10 +1,11 @@
 # Nightly environment repair — 2026-11-22
 
-This change repairs the execution environment of the existing complete suites.
-It does not change Rust assertions, compiler expectations, the reviewed
-Proto-UI source pin, or the set of selected test files. A subsequent successful
-run must still be tied to its own candidate; this repair alone is not a green
-Nightly receipt or real-model daily-use acceptance.
+This record follows the environment repair and its executed candidate receipts.
+The initial repair changed no Rust assertion, compiler expectation, Proto-UI
+source pin or selected test file. Later fixture corrections and pin adoption
+are recorded separately below. Each successful run remains tied to its own
+candidate; an environment repair alone is not a green Nightly receipt or
+real-model daily-use acceptance.
 
 ## Observed baseline
 
@@ -182,3 +183,206 @@ the reported preceding test targets. At 17:33:39 UTC it received
 The log does not establish the cause of the external cancellation. This is
 neither a six-job green CI receipt nor a failed product assertion; the missing
 coverage still requires a completed run on the final candidate.
+
+## Fixed runtime candidate: `cb1d0632`
+
+[Nightly 44932176472](https://github.com/cyjin-yl/shenko/actions/runs/44932176472)
+checked out `cb1d06329fbea59ee3b1c80c4e91ebe396b4cde4`. This run completes the
+Rust coverage missing above, but its compiler job has a separately diagnosed
+upstream fixture failure. The complete Nightly is therefore not green.
+
+### Rust long suite: passed
+
+[Rust job 136930992996](https://github.com/cyjin-yl/shenko/actions/runs/44932176472/job/136930992996)
+passed the full workspace command and all three later explicit proofs. Its
+125 unit/integration targets and 33 doctest targets yield **1,239 passed,
+zero failed and 11 ignored** across 157 final libtest summaries, excluding
+nested child-process summaries. The remaining `cognition_self_learning`
+target explicitly skips without the reference model/binary configuration;
+this is still not real-model acceptance.
+
+The repaired semantic-wait fixture explicitly reports `ok`; the four original
+Node/artifact-directory failures also pass. The separate partition/recovery,
+native-helper lost-reply and native-helper identity-refusal proofs all pass.
+The [native evidence artifact](https://github.com/cyjin-yl/shenko/actions/runs/44932176472/artifacts/14719056648)
+has ID `14719056648` and zip SHA-256
+`b36e63fccba55f7958e21d0a7f2fc410ae1c66b9d46067ad4c8f105e1dd9a570`.
+
+### Compiler: real assertions ran; one fixture ordering failure
+
+[Compiler job 136930992702](https://github.com/cyjin-yl/shenko/actions/runs/44932176472/job/136930992702)
+reported **182 passing files, one failing file and two skipped files**, and
+**2,912 passing tests, one failing test and nine skipped tests**, in 560.65
+seconds. The real Chromium sandbox preflight passed again: UID 1001,
+Node `v24.22.1`, Playwright `1.58.2`, Chrome `157.0.8103.78`, namespace
+isolation and Seccomp-BPF including TSYNC enabled. The hosted image version
+was `20261116.133.1`; this changed image is recorded without assigning it the
+cause of the test failure.
+
+The sole failure is in the Happy DOM test
+`packages/compiler/test/scroll-reveal-consumers.test.ts`, ordinary
+`react-dom-source-v1`, rejecting an item from another surface, a sibling,
+self and another family. Its four `unavailable` assertions passed, then
+the after-`act` offset was 300 rather than 50. This test does not use Chromium.
+The [compiler evidence artifact](https://github.com/cyjin-yl/shenko/actions/runs/44932176472/artifacts/14718537069)
+has ID `14718537069` and zip SHA-256
+`f189d5cd6529f95eb571f6d946a3baa4d0bfc3d6f8597fee4401cabc6b4ff350`.
+
+An isolated checkout of the exact `f29738eb6a804ccfc58510cc5a5bd1692690716e`
+pin retained the original 28 tests and every assertion. The unmodified file
+passed twice. A traced, controlled ordering then reproduced the exact single
+failure: four rejected requests each synchronously preserved 50, after which
+a previously scheduled mounting end-follow frame called the actual emitted
+`applyScroll(to-end)` and wrote 300. Completing those mounting callbacks before
+injecting geometry passed all 28 tests, including the valid reveal's 50-to-70
+movement. The original CI lacked setter traces; this is a reproduced legal
+ordering with the same failure, not a replay of its original scheduler trace.
+
+[Upstream PR #1671](https://github.com/Proto-UI/Proto-UI/pull/1671) carries
+`795b1b4958333cf904547e484acb4de9d4b3ee80`, a direct child of the existing pin.
+It repairs only test mounting order and retains the 29 original `expect`
+expressions, matcher calls and expected values, the same 28 tests and enabled
+end-follow policy. Its
+[dated walkthrough](https://github.com/Proto-UI/Proto-UI/blob/795b1b4958333cf904547e484acb4de9d4b3ee80/internal/records/2026-11-22-compiler-scroll-fixture-order.md)
+and
+[machine evidence](https://github.com/Proto-UI/Proto-UI/blob/795b1b4958333cf904547e484acb4de9d4b3ee80/internal/records/evidence/2026-11-22-compiler-scroll-fixture-order.json)
+retain the diagnostic patch, complete React trace excerpts, source hashes and
+all seven local run receipts. The final formatted fixture passes 28/28.
+This does not convert the failed Nightly into a pass or substitute for a new
+complete compiler run at the adopted pin.
+
+### Regular CI after migration conservation repair: six jobs passed
+
+The earlier [CI 44932179743](https://github.com/cyjin-yl/shenko/actions/runs/44932179743)
+failed migration conservation because the original `SPEC:21.12` block had
+been edited. Three jobs passed; Rust and Clippy were cancelled after that
+candidate was superseded. The repair restored the original block verbatim
+and placed the current implementation note outside it, preserving the
+original checksum and migration gate.
+
+[CI 44932500777](https://github.com/cyjin-yl/shenko/actions/runs/44932500777)
+then completed all six jobs successfully for the documentation repair
+`2238f1040df9cac872aae9521819778b2b27a0b3`. Its actual PR merge checkout was
+`d51c2bb1df52a159694457dd8e1471ddde0a12c9`, distinct from the Nightly runtime
+checkout above. [Rust job 136932014015](https://github.com/cyjin-yl/shenko/actions/runs/44932500777/job/136932014015)
+also records 1,239 passed, zero failed and 11 ignored, plus the explicit
+unconfigured-model skip. Its
+[native fixture artifact](https://github.com/cyjin-yl/shenko/actions/runs/44932500777/artifacts/14718419309)
+has ID `14718419309` and zip SHA-256
+`46dd939059ddb714693f8fae942bf6aff652680c48e1b49a2a421079715e83f7`.
+These successful receipts belong to those exact source identities; later
+runtime or pin changes require their own checks.
+
+The later runtime candidate `9a7be2f88e4922b8b70ba13ec2078145129f5ce0`
+also completed all six jobs in
+[CI 44935471497](https://github.com/cyjin-yl/shenko/actions/runs/44935471497).
+Its actual merge checkout was `de6e96bf914003e7f85eceaa5a144b6a69de7bfd`.
+[Rust job 136941006687](https://github.com/cyjin-yl/shenko/actions/runs/44935471497/job/136941006687)
+again records 125 unit/integration targets, 33 doctest targets, 1,239 passed,
+zero failed and 11 ignored, with the same separate unconfigured-model skip.
+The [Rust evidence artifact](https://github.com/cyjin-yl/shenko/actions/runs/44935471497/artifacts/14720205594)
+has ID `14720205594` and zip SHA-256
+`351193bcb827a1a1f3c36ecc1baa53b52b1cc34a7838a546662f7b7642b4e0b5`.
+That run still uses the original `f29738eb6a80` compiler pin; it cannot certify
+the subsequent fixture-pin adoption or its complete Nightly.
+
+
+## Fixture-pin adoption: retained preparation attempts
+
+The adopted upstream candidate is the direct fixture-only child
+`795b1b4958333cf904547e484acb4de9d4b3ee80`; it does not bring in the unrelated
+production changes on current upstream `main`. The new frontend generation
+uses Shenko `9a7be2f88e4922b8b70ba13ec2078145129f5ce0` plus only the reviewed
+`upstream-pin.json` change. The original build manifest is not edited by hand.
+The producer and independent verifier each run the real 42-package public
+closure, frontend type check, existing tests and build in the project
+devcontainer. The successful execution below precedes adoption of its
+original generated manifest.
+
+Three preparation attempts failed before the public build and are retained:
+
+| Attempt | Actual failure | Preserved receipt | Resolution for the next attempt |
+| --- | --- | --- | --- |
+| 1 | Frozen upstream installation could not `chmod` the host-owned `packages/cli/bin/proto-ui.js`; container and host exited 255. | [Original logs and hashes](frontend-pin-795b1b49-20261122/attempt-1/integrity.json) | Make genuine private Git checkouts on the container's persistent writable volume, retaining exact source identities and input hashes. |
+| 2 | Git's linked-worktree upload-pack refused the host repository's resolved administrative Git directory as dubious ownership; both processes exited 128. No dependency install started. | [Original logs and hashes](frontend-pin-795b1b49-20261122/attempt-2/integrity.json) | Add only the two observed project administrative Git directories to this build process's `GIT_CONFIG` safe-directory list. |
+| 3 | The standalone upload-pack preflight passed, but clone's actual upload-pack child still refused the same directory; both processes exited 128 before dependency installation. | [Original logs and hashes](frontend-pin-795b1b49-20261122/attempt-3/integrity.json) | Pass each exact directory through `git -c safe.directory=…` inside the actual `--upload-pack` command. Real `--shared --no-checkout` clones of both sources then passed and retained their expected HEADs. |
+
+These preparation changes leave source ACLs, global Git configuration,
+product expectations and shared default tooling intact. The
+[process and actual-clone preflights](frontend-pin-795b1b49-20261122/preparation-checks.json)
+retain the observed results. After each failure, an actual
+container `/proc` scan for that attempt's unique paths found no remaining
+process, and the retained container exit file independently confirmed its
+termination. Each attempt uses the same shared build/model admission lock;
+the container never reacquires the host's already-held lock.
+
+At the 2026-11-21 19:14 UTC read, upstream
+[PR #1671](https://github.com/Proto-UI/Proto-UI/pull/1671) remained draft and
+open at this exact head. Its
+[CI 44936359906](https://github.com/Proto-UI/Proto-UI/actions/runs/44936359906)
+reported success for four configuration, plan and lockstep jobs, while all
+18 build/test/release-related jobs were skipped. That result is not complete
+compiler or browser coverage. The independent local source review and its
+28-test receipt also do not claim a published approval or a completed final
+Shenko Nightly.
+
+
+### Actual devcontainer generation and independent rebuild: passed
+
+Attempt 4 acquired the shared lock at **2026-11-21 19:32:45 UTC**. The actual
+producer passed at 19:34:24; the original `scripts/ci/web_assets.py prepare`
+and `check` completed their fresh independent checkout/rebuild at 19:36:09.
+Both container and host exited zero at 19:36:10. The
+[receipt index](frontend-pin-795b1b49-20261122/attempt-4/receipt-index.json),
+[original comparison](frontend-pin-795b1b49-20261122/attempt-4/rebuild/comparison.json),
+and [actual executed script](frontend-pin-795b1b49-20261122/attempt-4/container-build-web.sh)
+bind this result to source, inputs, commands and output bytes.
+
+The project devcontainer image is
+`sha256:28df77cc6beee4f88ee1f57922190dcb02414d78d284e8b0f91859e18728e565`.
+Both generations used Node `v24.22.1`, pnpm `10.32.1`, the unchanged locked
+upstream dependencies and exact commit `795b1b4958333cf904547e484acb4de9d4b3ee80`.
+The private Node installation left the shared container default untouched.
+
+| Check | Producer | Fresh independent rebuild |
+| --- | --- | --- |
+| Actual public dependency closure | 42 packages built | Same 42 packages built |
+| Frontend type check | Passed | Passed |
+| Existing frontend tests | 51 passed; zero failed, cancelled or skipped | 51 passed; zero failed, cancelled or skipped |
+| Static payloads | 12 complete files validated against generated manifest | Same membership and every payload byte identical |
+| Compiler and generated Prototype provenance | Actual compiler source, bundle, resolutions and generated files validated | Stable manifest and all compiler/Prototype digests match; `errors: []` |
+| Source conservation | All 53 frontend inputs and 13,502 tracked upstream inputs unchanged before/after | Same admitted input inventories; original checkout unchanged |
+
+The [source summary](frontend-pin-795b1b49-20261122/attempt-4/source-input-summary.json)
+retains the exact Shenko HEAD and pin-only diff. Its frontend inputs were
+also compared with the local adoption worktree before copying any output.
+All **12 served payloads are byte-for-byte identical to the preceding
+`f29738eb6a80` pin's generation**. The committed frontend changes are the pin
+and original generated provenance manifest; no payload or expected digest
+is edited to satisfy the check.
+
+The producer manifest copied verbatim into `crates/shenko-ui/src/static` has
+SHA-256 `f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157`.
+The [original independent manifest](frontend-pin-795b1b49-20261122/attempt-4/rebuilt-manifest.json)
+has SHA-256 `bbac4693f08acea079224112426625d7fb462d8e0ec5dd8c8c355f3a46d51ecd`;
+only the verifier's declared per-run timestamps, paths and receipt identity
+are allowed to differ. The actual producer public-build receipt has SHA-256
+`66af82f3017ef2856e15ab39f46274933bb483b063ee4b001df975d53adfedd1`, exactly
+as recorded by the generated manifest.
+
+The complete original archive, including all three full source-inventory
+snapshots, is retained at
+`/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r4/delivery.tar.gz`
+and on the persistent container volume at
+`/var/idw-target/daily-web-pin-795b1b49-r4/delivery.tar.gz`. It is 3,653,586
+bytes with SHA-256
+`a045c55dba49bd4efa2eea0d5d7ed0d720c4beee64e6b77ffe2cf9e9a1e6d77e`.
+Its 56 transferred chunks and reconstructed archive were independently
+hash-checked before adoption. The receipt index lists all 44 original file
+hashes; this repository retains the compact original logs, actual build
+receipts, comparison, scripts and manifest alongside it.
+
+This is complete frontend generation/rebuild evidence for the stated inputs.
+It does not certify a later Rust/runtime candidate, real-model task completion,
+clean stop or the complete compiler suite on the new pin. The subsequent
+CI and Nightly must retain their own checkout and artifact identities.

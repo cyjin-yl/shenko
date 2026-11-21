@@ -1,0 +1,73 @@
+{
+  "failed_attempt_2_process_check": {
+    "matching_processes": [],
+    "exit": "container_exit=128 time=2026-11-21T19:12:26Z\n",
+    "shenko_host_gitdir": "gitdir: /tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49\n",
+    "proto_host_gitdir": "gitdir: /tank/shared/projects/shenko/worktrees/proto-ui-scroll-fixture-20261122/.git/worktrees/proto-ui-web-pin-795b1b49\n"
+  },
+  "attempt_3_git_read_preflight": [
+    {
+      "gitdir": "/tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49",
+      "exit": 0,
+      "stdout_bytes": 43075,
+      "stdout_sha256": "9c13bebdebb5db9ad81c145947b1f8912edb21576ad1536b71f6313bad4a1313",
+      "stderr": ""
+    },
+    {
+      "gitdir": "/tank/shared/projects/shenko/worktrees/proto-ui-scroll-fixture-20261122/.git/worktrees/proto-ui-web-pin-795b1b49",
+      "exit": 0,
+      "stdout_bytes": 505,
+      "stdout_sha256": "600039a8d64bc6b8f950d5651a9420133df0d7ebcc49de5de7192a988c4c4015",
+      "stderr": ""
+    }
+  ],
+  "scope": "Read-only process and Git upload-pack preflight; no public package compilation or model request.",
+  "failed_attempt_3_process_check": {
+    "matching_processes": [],
+    "exit": "container_exit=128 time=2026-11-21T19:28:14Z\n"
+  },
+  "attempt_4_actual_clone_preflight": [
+    {
+      "command": [
+        "git",
+        "-c",
+        "safe.directory=/tank/shared/projects/shenko/worktrees/shenko-web-pin-795b1b49",
+        "-c",
+        "safe.directory=/tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49",
+        "clone",
+        "--shared",
+        "--no-checkout",
+        "--upload-pack=git -c safe.directory=/tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49 upload-pack",
+        "/tank/shared/projects/shenko/worktrees/shenko-web-pin-795b1b49",
+        "/var/idw-target/daily-web-pin-795b1b49-clone-preflight-r4/shenko"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "Cloning into '/var/idw-target/daily-web-pin-795b1b49-clone-preflight-r4/shenko'...\ndone.\n",
+      "expected_head": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+      "head": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+      "head_matches": true
+    },
+    {
+      "command": [
+        "git",
+        "-c",
+        "safe.directory=/tank/shared/projects/shenko/worktrees/proto-ui-web-pin-795b1b49",
+        "-c",
+        "safe.directory=/tank/shared/projects/shenko/worktrees/proto-ui-scroll-fixture-20261122/.git/worktrees/proto-ui-web-pin-795b1b49",
+        "clone",
+        "--shared",
+        "--no-checkout",
+        "--upload-pack=git -c safe.directory=/tank/shared/projects/shenko/worktrees/proto-ui-scroll-fixture-20261122/.git/worktrees/proto-ui-web-pin-795b1b49 upload-pack",
+        "/tank/shared/projects/shenko/worktrees/proto-ui-web-pin-795b1b49",
+        "/var/idw-target/daily-web-pin-795b1b49-clone-preflight-r4/proto-ui"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": "Cloning into '/var/idw-target/daily-web-pin-795b1b49-clone-preflight-r4/proto-ui'...\ndone.\n",
+      "expected_head": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+      "head": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+      "head_matches": true
+    }
+  ]
+}
