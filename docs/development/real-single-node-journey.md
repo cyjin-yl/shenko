@@ -631,6 +631,29 @@ explicit failed/unknown cleanup observation; the remaining owners and owned
 runtime are still closed. A browser error cannot skip the runtime shutdown,
 final ledger, CAS copy or attempt summary.
 
+An ordinary runtime SIGINT is also distinct from authority loss. The runtime
+records that explicit stop before revoking admission; a refusal belonging to
+that same Store writer is a typed `RuntimeAdmissionClosed`. Only that refusal
+paired with the subject's stop signal is an ordinary loop/dispatcher exit.
+Shared-token cancellation alone cannot supply this classification. Actual
+authority reconstruction, storage errors and unreadable retry state retain
+their errors and journals; chosen-but-unmaterialized actions and in-flight
+Unknown receipts keep their existing recovery paths. This changes no durable
+schema, historical error fact, request result or journey success criterion.
+
+The motivating observation is `protocol-before-r3/case-01`, using the release
+binary at `72fc70d3`: all three narrow first-request checks were true, then
+SIGINT at `2026-11-21T18:49:57.982802Z` was followed by step 2 reporting
+`runtime_authority_fenced` with reason `runtime admission is canceled`.
+The retained runtime-log SHA-256 is
+`a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102`;
+the final ledger SHA-256 is
+`6bfa903e151dd24545a64fd797c65b5ee39c247952e00b74c3009c1aea149edc`.
+Its parent exit 1 and `clean=false` remain failed evidence. The new stop
+classification requires its own regression and complete-journey receipts;
+it does not retroactively pass that observation or alter either frozen A/B
+binary.
+
 One driver regression exercises an actual parent exiting zero with a child that
 ignores SIGTERM. The child is removed by the bounded SIGKILL fallback, the parent
 exit remains zero, the cleanup is recorded as unclean, and an unrelated session

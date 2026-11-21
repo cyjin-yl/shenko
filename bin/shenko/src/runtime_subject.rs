@@ -65,6 +65,11 @@ pub(crate) async fn supervise(
                     Err(error) => Err(ShenkoError::other(format!("subject incarnation terminated: {error}"))),
                 }
             }
+            // Construction can also cross the owner's stop boundary. A
+            // running loop classifies its own closure, including secondary
+            // recovery errors, so never reinterpret its returned failure here.
+            Err(error) if cancel.is_cancelled()
+                && error.is_runtime_admission_closed_for(store.capabilities().incarnation) => return Ok(()),
             Err(error) => Err(error),
         };
         if cancel.is_cancelled() { return result; }
@@ -74,7 +79,8 @@ pub(crate) async fn supervise(
         };
         // Loss of persistence or authority belongs to installation recovery.
         // A model/request refusal belongs to this supervised incarnation.
-        if matches!(&error, ShenkoError::Storage(_) | ShenkoError::Io(_))
+        if matches!(&error, ShenkoError::Storage(_) | ShenkoError::Io(_)
+                | ShenkoError::RuntimeAdmissionClosed { .. })
             || matches!(&error, ShenkoError::Protocol(p) if p.scope == shenko_types::error::ErrorScope::Writer)
         {
             return Err(error);

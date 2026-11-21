@@ -136,12 +136,8 @@ pub async fn run_committed_dispatcher(
                     // refusal leaves the work durable for reopen; another
                     // authority conflict or a storage failure remains an error.
                     if subject_stopping.is_cancelled()
-                        && matches!(
-                            error.downcast_ref::<shenko_types::error::ShenkoError>(),
-                            Some(shenko_types::error::ShenkoError::Protocol(protocol))
-                                if protocol.code == "runtime_authority_fenced"
-                                    && protocol.details["reason"] == "runtime admission is canceled"
-                        )
+                        && error.downcast_ref::<shenko_types::error::ShenkoError>()
+                            .is_some_and(|error| error.is_runtime_admission_closed_for(store.capabilities().incarnation))
                     {
                         return Ok(());
                     }

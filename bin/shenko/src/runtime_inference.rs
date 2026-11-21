@@ -46,6 +46,7 @@ pub(crate) struct InferenceInstall<'a> {
     pub(crate) cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) model_health: &'a Arc<crate::runtime_model_health::RuntimeModelHealth>,
+    pub(crate) authority: &'a crate::runtime_authority::RuntimeAuthority,
 }
 
 /// `None` is an observed user stop during read-only metadata discovery. Runtime
@@ -53,7 +54,7 @@ pub(crate) struct InferenceInstall<'a> {
 pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<InferenceServices>> {
     let InferenceInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
-        cognition, installed, cancel, consumer_cancel, model_health,
+        cognition, installed, cancel, consumer_cancel, model_health, authority,
     } = input;
     let handoff_participants = &installed.handoff_participants;
     let self_knowledge = &installed.self_knowledge;
@@ -227,7 +228,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
                 info!(
                     "shutdown signal during model metadata discovery; inference was not admitted"
                 );
-                cancel.cancel();
+                authority.request_shutdown();
                 return Ok(None);
             }
             Some(result) => result,
