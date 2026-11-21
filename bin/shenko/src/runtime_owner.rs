@@ -89,15 +89,66 @@ mod tests {
     use super::*;
 
     #[test]
-    fn same_directory_inode_excludes_another_owner_without_creating_a_file() {
+    fn same_directory_inode_excludes_another_owner_without_creating_a_file() -> anyhow::Result<()> {
         let dir = std::env::temp_dir().join(format!("shenko-owner-{}", shenko_types::ids::EntityId::new()));
-        std::fs::create_dir(&dir).unwrap();
-        let owner = RuntimeOwner::try_acquire(&dir).unwrap();
+        std::fs::create_dir(&dir)?;
+        let owner = RuntimeOwner::try_acquire(&dir)?;
         assert!(RuntimeOwner::try_acquire(&dir).is_err());
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(&dir)?.count(), 0);
         drop(owner);
-        drop(RuntimeOwner::try_acquire(&dir).unwrap());
-        std::fs::remove_dir(dir).unwrap();
+        drop(RuntimeOwner::try_acquire(&dir)?);
+
+        // The two-second recovery window may expire before a real blocking
+        // worker. Both explicit host finish and an error's RAII path retain
+        // the directory owner until that same worker actually ends.
+        for explicit_finish in [true, false] {
+            let (entered, started) = std::sync::mpsc::channel();
+            let (release, waiting) = std::sync::mpsc::channel();
+            let (retired, retained) = std::sync::mpsc::channel();
+            let ended = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let worker_ended = ended.clone();
+            let path = dir.clone();
+            let joining = std::thread::spawn(move || -> anyhow::Result<()> {
+                let _owner = RuntimeOwner::try_acquire(&path)?;
+                let mut host = crate::runtime_host::RuntimeHost::new(false)?;
+                let runtime = tokio::runtime::Runtime::new()?;
+                drop(runtime.spawn_blocking(move || {
+                    let _ = entered.send(());
+                    if waiting.recv().is_ok() {
+                        worker_ended.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                }));
+                host.retire(runtime)?;
+                retired.send(host.stop.clone())?;
+                let result = Err(crate::runtime_authority::AuthorityRecoveryRequired(
+                    "original recovery failure while an owned worker remains".into()).into());
+                if explicit_finish { host.finish(result) } else { result }
+            });
+            let observed = (|| -> anyhow::Result<_> {
+                started.recv_timeout(std::time::Duration::from_secs(10))?;
+                let stop = retained.recv_timeout(std::time::Duration::from_secs(10))?;
+                stop.request();
+                Ok((stop.start_if_running(|| ()).is_none(), joining.is_finished(),
+                    ended.load(std::sync::atomic::Ordering::Acquire), RuntimeOwner::try_acquire(&dir).is_err()))
+            })();
+            // Release and join the original thread even if an observation
+            // failed. A failed assertion must not detach a test-owned worker.
+            let released = release.send(());
+            let outcome = joining.join().map_err(|_| anyhow::anyhow!("owned host test panicked"))?;
+            let (stopped, detached, prematurely_ended, owner_held) = observed?;
+            released?;
+            assert!(stopped, "a stopped host admitted replacement work");
+            assert!(!detached, "host detached the still-live blocking worker");
+            assert!(!prematurely_ended);
+            assert!(owner_held, "owner unlocked before its worker joined");
+            assert!(outcome.as_ref().err().is_some_and(|error|
+                error.is::<crate::runtime_authority::AuthorityRecoveryRequired>()),
+                "human stop erased the original recovery error");
+            assert!(ended.load(std::sync::atomic::Ordering::Acquire));
+            drop(RuntimeOwner::try_acquire(&dir)?);
+        }
+        std::fs::remove_dir(dir)?;
+        Ok(())
     }
 
 }

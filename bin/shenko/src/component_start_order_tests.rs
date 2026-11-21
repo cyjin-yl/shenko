@@ -38,6 +38,7 @@ async fn model_free_start_binds_node_before_owned_services_and_reopen() -> Resul
             let eligibility = Arc::new(parking_lot::RwLock::new(ModelEligibility::default()));
             let selection = establish_runtime(
                 &dir, &store, &cancel, runtime_id, &profile, Arc::clone(&eligibility),
+                std::future::pending(),
             ).await?;
             let heartbeat = match selection {
                 RuntimeSelection::RecoveryOnly { heartbeat, reason } => {
@@ -90,6 +91,17 @@ async fn model_free_start_binds_node_before_owned_services_and_reopen() -> Resul
                 }
             });
         }
+        // Stop still joins the actual selection worker. Only its explicit
+        // cancellation marker is ordinary; a real SQLite failure is retained
+        // with its type even when the caller has already requested stop.
+        join_stopped_selection(tokio::task::spawn_blocking(|| Err(SelectionCancelled.into()))).await?;
+        let failed = join_stopped_selection(tokio::task::spawn_blocking(|| {
+            let database = rusqlite::Connection::open_in_memory()?;
+            database.execute_batch("SELECT * FROM absent_selection_state")?;
+            anyhow::bail!("the invalid SQL unexpectedly succeeded")
+        })).await;
+        ensure!(failed.as_ref().err().is_some_and(|error| error.is::<rusqlite::Error>()),
+            "stopped selection hid a real storage error: {failed:?}");
         Ok(())
     }.await;
 

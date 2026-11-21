@@ -47,6 +47,7 @@ pub(crate) struct InferenceInstall<'a> {
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) model_health: &'a Arc<crate::runtime_model_health::RuntimeModelHealth>,
     pub(crate) authority: &'a crate::runtime_authority::RuntimeAuthority,
+    pub(crate) host_stop: &'a crate::runtime_host::HostStop,
 }
 
 /// `None` is an observed user stop during read-only metadata discovery. Runtime
@@ -54,7 +55,7 @@ pub(crate) struct InferenceInstall<'a> {
 pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<InferenceServices>> {
     let InferenceInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
-        cognition, installed, cancel, consumer_cancel, model_health, authority,
+        cognition, installed, cancel, consumer_cancel, model_health, authority, host_stop,
     } = input;
     let handoff_participants = &installed.handoff_participants;
     let self_knowledge = &installed.self_knowledge;
@@ -209,7 +210,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
     let discovered = {
         use std::{future::Future, task::Poll};
         let mut cancelled = Box::pin(cancel.cancelled());
-        let mut signal = Box::pin(tokio::signal::ctrl_c());
+        let mut signal = Box::pin(host_stop.wait());
         let mut discovery = Box::pin(broker.discover_capabilities());
         let outcome = std::future::poll_fn(|cx| {
             if cancelled.as_mut().poll(cx).is_ready() {
@@ -218,7 +219,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
                 )));
             }
             if let Poll::Ready(signal) = signal.as_mut().poll(cx) {
-                return Poll::Ready(signal.map(|()| None).map_err(anyhow::Error::from));
+                return Poll::Ready(signal.map(|()| None));
             }
             discovery.as_mut().poll(cx).map(|result| Ok(Some(result)))
         })
