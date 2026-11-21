@@ -28,7 +28,8 @@ pub(crate) struct FrozenQuotaSelection {
 }
 
 pub(crate) struct SubjectQuotaRoute {
-    /// None preserves the configured path when no policy is recorded.
+    /// None preserves the configured path: no policy selected an override,
+    /// or an active semantic wait already names that exact binding.
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub selection: Option<FrozenQuotaSelection>,
 }
