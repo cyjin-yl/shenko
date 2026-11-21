@@ -24,8 +24,6 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_TARGET_DIR: ${{ github.workspace }}/.ci/target/nightly
-      SHENKO_COMPAT_EVIDENCE_ROOT: ${{ github.workspace }}/.ci/evidence/compat
-      SHENKO_OBLIGATION_PARTITION_ROOT: ${{ github.workspace }}/.ci/evidence/partition
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,15 +52,10 @@ jobs:
             --sdk .ci/toolchains/wasi-sdk-34.0-x86_64-linux \
             --target-dir .ci/target/ssh-wasi \
             --output-dir .ci/evidence/ssh-wasi/build
+      - uses: ./.github/actions/native-fixtures
       - name: Run the full workspace feature suite and doctests
         # Continue through later targets and doctests; pipefail keeps failure.
         run: |
-          mkdir -p /run/sshd .ci/evidence
-          export SHENKO_SSH_WASI_ARTIFACT="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/build/shenko-ssh-wasi.wasm"
-          export SHENKO_SSH_WASI_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/ssh-wasi/openssh-journey.json"
-          export SHENKO_COMPONENT_PROCESS_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/component-process"
-          export SHENKO_NATIVE_E1_EVIDENCE="$GITHUB_WORKSPACE/.ci/evidence/native-e1"
-          export SHENKO_SOURCE_REVISION="$GITHUB_SHA"
           cargo test --workspace --all-features --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log
       # Existing ignored OS-process fixtures require explicit fresh roots or
       # fixed local helper execution. Provision them here; never add ignores to
@@ -100,20 +93,21 @@ jobs:
   compiler-full:
     name: nightly-compiler-full
     runs-on: ubuntu-24.04
-    container: node:24.22.1-bookworm
+    # The immutable upstream requires Chromium's real sandbox. Its browser
+    # journeys run as the hosted runner user; the root Node container cannot
+    # satisfy that contract. Keep Rust and the independent web rebuild in
+    # their existing containers instead of weakening browser isolation.
     timeout-minutes: 45
     env:
-      CHROME_PATH: /usr/bin/chromium
+      CHROME_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Trust the checked-out workspace in the container shell
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Install the pinned-source driver prerequisites
+      - name: Check the runner's browser prerequisites
         run: |
-          apt-get update
-          apt-get install --yes --no-install-recommends python3 chromium
+          test "$(id -u)" -ne 0
+          python3 --version
           "$CHROME_PATH" --version
       - name: Preserve the consumer and obtain its immutable upstream source
         run: python3 scripts/ci/web_assets.py prepare
@@ -131,6 +125,8 @@ jobs:
         env:
           HUSKY: '0'
         run: pnpm install --frozen-lockfile
+      - name: Verify the real sandbox before running browser suites
+        run: node scripts/ci/compiler_browser.mjs
       # The full compiler's reported failures are debt, not a passing curated
       # subset. No skips, diagnostic repinning or warning allowance is applied.
       # Serialize the heavyweight file workers on this runner. Keep every file

@@ -1,0 +1,52 @@
+name: Native test prerequisites
+description: Install the pinned DSH runtime and retain native fixture data in the job workspace.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+        cache-dependency-path: adapters/dsh/package-lock.json
+    - name: Install the DSH native integration prerequisites
+      shell: bash
+      run: npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
+    - name: Bind native fixtures to the persistent evidence directory
+      shell: bash
+      run: |
+        mkdir -p /run/sshd
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import shutil
+
+        root = Path(os.environ['GITHUB_WORKSPACE']).resolve() / '.ci/evidence'
+        node = shutil.which('node')
+        if node is None:
+            raise SystemExit('The native DSH fixture requires the installed Node executable')
+        directories = {
+            'SHENKO_COMPAT_EVIDENCE_ROOT': 'compat',
+            'SHENKO_OBLIGATION_PARTITION_ROOT': 'partition',
+            'SHENKO_COMPONENT_PROCESS_EVIDENCE': 'component-process',
+            'SHENKO_START_BOUNDARY_EVIDENCE': 'start-boundary',
+            'SHENKO_NATIVE_E1_EVIDENCE': 'native-e1',
+            'SHENKO_NATIVE_ARTIFACT_ROOT': 'native-artifacts',
+            'SHENKO_PTY_WRITE_EVIDENCE': 'pty-write',
+            'SHENKO_UPDATE_BUILD_EVIDENCE': 'update-build',
+        }
+        # Some process fixtures require a fresh, absent path and create it
+        # themselves. Only provision roots whose contracts require existence.
+        for name in ('native-artifacts', 'dsh'):
+            (root / name).mkdir(parents=True, exist_ok=True)
+        bindings = {key: str(root / name) for key, name in directories.items()}
+        bindings.update({
+            'SHENKO_SSH_WASI_ARTIFACT': str(root / 'ssh-wasi/build/shenko-ssh-wasi.wasm'),
+            'SHENKO_SSH_WASI_EVIDENCE': str(root / 'ssh-wasi/openssh-journey.json'),
+            'SHENKO_DSH_NODE': node,
+            'SHENKO_DSH_EVIDENCE': str(root / 'dsh/native-journey.json'),
+            'SHENKO_SOURCE_REVISION': os.environ['GITHUB_SHA'],
+        })
+        with open(os.environ['GITHUB_ENV'], 'a') as output:
+            for key, value in bindings.items():
+                output.write(f'{key}={value}\n')
+        PY
