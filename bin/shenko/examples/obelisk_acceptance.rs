@@ -87,7 +87,7 @@ struct Message {
 
 enum SelectedScenario {
     Synthetic { corpus: Vec<Message>, digest: Digest },
-    Local(FrozenScenario),
+    Local(Box<FrozenScenario>),
 }
 
 impl SelectedScenario {
@@ -168,7 +168,7 @@ fn open_retained_scenario(root: &Path, run: &Value) -> Result<SelectedScenario> 
         Some("local") => {
             let digest: Digest = serde_json::from_value(run["source_selection"]["snapshot_digest"].clone())
                 .context("local run lacks its original snapshot digest")?;
-            SelectedScenario::Local(FrozenScenario::open(&root.join("local-scenario"), &digest)?)
+            SelectedScenario::Local(Box::new(FrozenScenario::open(&root.join("local-scenario"), &digest)?))
         }
         None | Some("synthetic") => {
             let fixture = std::fs::read(root.join("fixture.json"))?;
@@ -754,16 +754,15 @@ fn retained_reader_admitted(arm: &Value, retrievals: &[Value], expected_kind: &s
         || preparation["source_facts_digest"] != json!(Digest::blake3(&serde_json::to_vec(source_facts)?)) {
         return Ok(false);
     }
-    if let Some(snapshot) = scenario.local() {
-        if binding["source_selection"] != scenario.binding()?
+    if let Some(snapshot) = scenario.local()
+        && (binding["source_selection"] != scenario.binding()?
             || preparation["source_selection"] != scenario.binding()?
             || arm["source_integrity"]["snapshot_digest"] != json!(snapshot.manifest_digest())
             || arm["source_integrity"]["validated"] != true
             || arm["source_integrity"]["original_snapshot_validated"] != true
             || arm["source_integrity"]["mounted_snapshot_validated"] != true
-            || !local_facts_bound(source_facts, snapshot)? {
-            return Ok(false);
-        }
+            || !local_facts_bound(source_facts, snapshot)?) {
+        return Ok(false);
     }
     let owned: Vec<_> = retrievals.iter().filter(|record| record["schema_version"] == 1
         && record["task_kind"] == expected_kind && record["authenticated"] == true
@@ -1521,7 +1520,7 @@ async fn run(local_input: Option<PathBuf>) -> Result<()> {
     );
     let scenario = match local_input {
         Some(input) => match FrozenScenario::capture(&input, &root.join("local-scenario")) {
-            Ok(snapshot) => SelectedScenario::Local(snapshot),
+            Ok(snapshot) => SelectedScenario::Local(Box::new(snapshot)),
             Err(error) => {
                 let retained = write_json(&root.join("report.json"), &json!({"schema_version":2,
                     "status":"failed_preparation", "complete":false, "requested_scenario":requested,

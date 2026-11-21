@@ -267,8 +267,8 @@ fn local_runner_bindings_and_original_reader_results_reconstruct_offline() -> Re
     let input_path = fixture.selection("selected-for-runner", &input)?;
     let run_root = fixture.0.join("retained-run");
     create_evidence_dir(&run_root)?;
-    let scenario = runner::SelectedScenario::Local(FrozenScenario::capture(&input_path,
-        &run_root.join("local-scenario"))?);
+    let scenario = runner::SelectedScenario::Local(Box::new(FrozenScenario::capture(&input_path,
+        &run_root.join("local-scenario"))?));
     assert_eq!(scenario.scenario(), input.scenario);
     assert_eq!(scenario.question(), input.question);
     assert_eq!(scenario.rubric(), input.rubric);
