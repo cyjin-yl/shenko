@@ -1,0 +1,9 @@
+{
+  "error": null,
+  "inference_connection_end": "client_eof",
+  "journey_passed": true,
+  "metadata_connection_end": "client_eof",
+  "model_completion_tested": false,
+  "remote_completion_claimed": false,
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0"
+}
