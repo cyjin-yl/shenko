@@ -82,6 +82,12 @@ pub trait ProviderRuntime: Send + Sync + 'static {
     fn accepts_model(&self, model: &str) -> bool {
         self.profile().model_id == model
     }
+    /// Resolve an explicit effort name to this runtime's native wire semantics.
+    /// The default refuses every name. A cost label, transport family, model
+    /// name or an omitted option never supplies an inferred mapping.
+    fn resolve_effort(&self, _requested: &str) -> Option<crate::effort::ProviderEffort> {
+        None
+    }
     /// Run one complete request.
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse>;
     /// Run one request and publish its stream.
