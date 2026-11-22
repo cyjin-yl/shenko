@@ -1,0 +1,19 @@
+{
+  "target": "blake3:2baac6c3aba44f41c16fad1aa26b86b05812002c650b643f9aee1014006176f2",
+  "scope": "References inside the original closed verified closure; large opaque objects were not text scanned",
+  "parents": [
+    {
+      "digest": "blake3:2c235fb5da27fb596055b76a62cd9fb27716f46983b764445268d05bd120f66a",
+      "bytes": 5669,
+      "sha256": "4d6ce17d75d70977fa232a1c56ac45a31f926c4071f06593b8f0d027269a7ccc",
+      "matches": [
+        {
+          "path": [
+            "contract_digest"
+          ],
+          "value": "blake3:2baac6c3aba44f41c16fad1aa26b86b05812002c650b643f9aee1014006176f2"
+        }
+      ]
+    }
+  ]
+}

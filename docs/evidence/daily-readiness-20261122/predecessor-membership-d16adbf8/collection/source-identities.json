@@ -1,0 +1,30 @@
+{
+  "original_model_source": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "baseline_fixture_source": "6d087562cc33928fa3a6a3fecd012cc5081dc7c3",
+  "fixed_source": "95cdc272866a5f31cedb790d263761523e9b0e2c",
+  "baseline_parent_is_original_model_source": true,
+  "fixed_parent_is_baseline_source": true,
+  "baseline_changed_paths": [
+    "crates/shenko-store/tests/store_roundtrip.rs"
+  ],
+  "baseline_diff_sha256": "eb947e7b7f6efbd069c7328ead991f7ca6930a30a81a4c454323d59555fe5a96",
+  "baseline_diff_bytes": 5166,
+  "baseline_production_source_unchanged": true,
+  "fixture_bytes_equal_between_baseline_and_fixed": true,
+  "fixture_sha256_at_both": "2834e7ba35640ad88a5cfd64c3dbfdc96c23b517f320c00ff0dc66e95999cfea",
+  "fixed_changed_paths": [
+    "crates/shenko-store/src/cognition/archive_admission_tests.rs",
+    "crates/shenko-store/src/cognition/closure.rs",
+    "crates/shenko-store/src/cognition_archive.rs",
+    "crates/shenko-store/src/control_predecessor.rs",
+    "crates/shenko-store/src/roots.rs"
+  ],
+  "fixed_diff_sha256": "0c1d4b8d6e76eb47184a87e94d112132dfb4597422a69d1dd1354405696700bf",
+  "fixed_diff_bytes": 22696,
+  "git_trees": {
+    "d16adbf89c9f79dfce8ef90d77843412bcda85bf": "7b09b70be925abe8fa9aaba7a23b45bd865e3531",
+    "6d087562cc33928fa3a6a3fecd012cc5081dc7c3": "8f28bab92c9c20676b81533f140d3412c5a3f3bf",
+    "95cdc272866a5f31cedb790d263761523e9b0e2c": "13fb61e77eebc158444c0fa2afdccd3734b5a32e"
+  },
+  "scope": "Local immutable Git objects; no live checkout identity substituted for an earlier receipt."
+}

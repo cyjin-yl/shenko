@@ -1,0 +1,933 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-11-22T00:48:59.198536+00:00",
+  "scope": "Original closed baseline/fixed scoped receipts and selected closed-d16 diagnostic files only. No test, model, Store API, database or new CAS inspection is executed by this collector.",
+  "files": [
+    {
+      "path": "baseline-6d087562/cargo.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/cargo.txt",
+      "source_bytes": 36,
+      "source_sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "bytes": 36,
+      "sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 36,
+        "mtime_ns": 1795307204358712270,
+        "inode": 75775155
+      },
+      "source_stat_after": {
+        "bytes": 36,
+        "mtime_ns": 1795307204358712270,
+        "inode": 75775155
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/exit.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/exit.txt",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777022
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777022
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "6f3909f05a16c57a77c36c0c1e559ecd45623b09c2584e4403ffb0e781cce07e",
+      "bytes": 21,
+      "sha256": "6f3909f05a16c57a77c36c0c1e559ecd45623b09c2584e4403ffb0e781cce07e",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777023
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777023
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/node.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/node.txt",
+      "source_bytes": 9,
+      "source_sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 9,
+        "mtime_ns": 1795307204365712646,
+        "inode": 75775156
+      },
+      "source_stat_after": {
+        "bytes": 9,
+        "mtime_ns": 1795307204365712646,
+        "inode": 75775156
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/predecessor-membership.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/predecessor-membership.exit",
+      "source_bytes": 4,
+      "source_sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "bytes": 4,
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 4,
+        "mtime_ns": 1795307213972228591,
+        "inode": 75777020
+      },
+      "source_stat_after": {
+        "bytes": 4,
+        "mtime_ns": 1795307213972228591,
+        "inode": 75777020
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/predecessor-membership.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/predecessor-membership.log",
+      "source_bytes": 7317,
+      "source_sha256": "a49c0362ee23b63e45222ca8983bfa3c89c5b24927abeb321448e5897a3a2453",
+      "bytes": 2387,
+      "sha256": "ff9c2dea38821746881d3852d1e77d652e94009e65d50bcfdf4f304122baa4ff",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 7317,
+        "mtime_ns": 1795307213956227731,
+        "inode": 75777019
+      },
+      "source_stat_after": {
+        "bytes": 7317,
+        "mtime_ns": 1795307213956227731,
+        "inode": 75777019
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/runner.sh",
+      "source_bytes": 3741,
+      "source_sha256": "51ad8a4dd3c206a2e024b83cb0eb234b7652b3e4d6219fb4de95dba4bc61480a",
+      "bytes": 3741,
+      "sha256": "51ad8a4dd3c206a2e024b83cb0eb234b7652b3e4d6219fb4de95dba4bc61480a",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 3741,
+        "mtime_ns": 1795307204222704965,
+        "inode": 75773998
+      },
+      "source_stat_after": {
+        "bytes": 3741,
+        "mtime_ns": 1795307204222704965,
+        "inode": 75773998
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/rustc.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/rustc.txt",
+      "source_bytes": 36,
+      "source_sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 36,
+        "mtime_ns": 1795307204316710014,
+        "inode": 75777871
+      },
+      "source_stat_after": {
+        "bytes": 36,
+        "mtime_ns": 1795307204316710014,
+        "inode": 75777871
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/started.txt",
+      "source_bytes": 21,
+      "source_sha256": "4045fb82048b2ef772975b381c828a7bb0c1e3b5bd92ac067fe2d21a67114a2c",
+      "bytes": 21,
+      "sha256": "4045fb82048b2ef772975b381c828a7bb0c1e3b5bd92ac067fe2d21a67114a2c",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307204252706577,
+        "inode": 75773999
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307204252706577,
+        "inode": 75773999
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/summary.json",
+      "source_bytes": 1229,
+      "source_sha256": "399b0d32f12102eb8d0ff52a96e4ce5e12be718d0361ff10f88abd0b8b0a5819",
+      "bytes": 1229,
+      "sha256": "399b0d32f12102eb8d0ff52a96e4ce5e12be718d0361ff10f88abd0b8b0a5819",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 1229,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777021
+      },
+      "source_stat_after": {
+        "bytes": 1229,
+        "mtime_ns": 1795307213973228644,
+        "inode": 75777021
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/host/predecessor-6d087562.host.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/predecessor-6d087562.host.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "c45ee55f9b51d50ad32283efcf0adcd4f0f32abbfeab248f7e7487da283ece9e",
+      "bytes": 21,
+      "sha256": "c45ee55f9b51d50ad32283efcf0adcd4f0f32abbfeab248f7e7487da283ece9e",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307203006639653,
+        "inode": 75777618
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307203006639653,
+        "inode": 75777618
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/host/predecessor-6d087562.host.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/predecessor-6d087562.host.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "6f3909f05a16c57a77c36c0c1e559ecd45623b09c2584e4403ffb0e781cce07e",
+      "bytes": 21,
+      "sha256": "6f3909f05a16c57a77c36c0c1e559ecd45623b09c2584e4403ffb0e781cce07e",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307213989229503,
+        "inode": 75781632
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307213989229503,
+        "inode": 75781632
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/host/predecessor-6d087562.host.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/predecessor-6d087562.host.exit",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795307213987229396,
+        "inode": 75778714
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795307213987229396,
+        "inode": 75778714
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/archive-admission.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/archive-admission.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795308215453065734,
+        "inode": 75774015
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795308215453065734,
+        "inode": 75774015
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/archive-admission.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/archive-admission.log",
+      "source_bytes": 8321,
+      "source_sha256": "8fed189c28a6fb7f70ee044a1538bcde226d1e97c81de02634afa852636ec2bb",
+      "bytes": 2609,
+      "sha256": "037ac38370c2b59fa4ad1c50556c57ccaa6c2f3684cf5a24b5e8447827c7ec1d",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 8321,
+        "mtime_ns": 1795308215430064497,
+        "inode": 75779993
+      },
+      "source_stat_after": {
+        "bytes": 8321,
+        "mtime_ns": 1795308215430064497,
+        "inode": 75779993
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/cargo.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/cargo.txt",
+      "source_bytes": 36,
+      "source_sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "bytes": 36,
+      "sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 36,
+        "mtime_ns": 1795307894769806079,
+        "inode": 75781113
+      },
+      "source_stat_after": {
+        "bytes": 36,
+        "mtime_ns": 1795307894769806079,
+        "inode": 75781113
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/exit.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/exit.txt",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75774016
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75774016
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "05189d769703ff28084f2bde2ba0b5a2e303c3746367025d86b600dce3171ad9",
+      "bytes": 21,
+      "sha256": "05189d769703ff28084f2bde2ba0b5a2e303c3746367025d86b600dce3171ad9",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75774017
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75774017
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/native-chain.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/native-chain.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795308111228456209,
+        "inode": 75779992
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795308111228456209,
+        "inode": 75779992
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/native-chain.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/native-chain.log",
+      "source_bytes": 21640,
+      "source_sha256": "716373e4b32279d0aad25883da85634b9ce778f209d45d027069f710cf23c0af",
+      "bytes": 4320,
+      "sha256": "d9d852fdb2779c84ae232000a08b0bc008a544e826ebd063613e78e26609a7a0",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 21640,
+        "mtime_ns": 1795308111208455133,
+        "inode": 75778897
+      },
+      "source_stat_after": {
+        "bytes": 21640,
+        "mtime_ns": 1795308111208455133,
+        "inode": 75778897
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/node.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/node.txt",
+      "source_bytes": 9,
+      "source_sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 9,
+        "mtime_ns": 1795307894775806402,
+        "inode": 75781114
+      },
+      "source_stat_after": {
+        "bytes": 9,
+        "mtime_ns": 1795307894775806402,
+        "inode": 75781114
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/predecessor-membership.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/predecessor-membership.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795307923640359936,
+        "inode": 75778895
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795307923640359936,
+        "inode": 75778895
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/predecessor-membership.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/predecessor-membership.log",
+      "source_bytes": 7108,
+      "source_sha256": "d1736f1241629cf1ace2d35b2687a0ab8dff53e3b4ea1181a3a28577bfe82ffd",
+      "bytes": 2314,
+      "sha256": "2d954acfa1e85a465a7fa95f5bbe484ca977f86fe9731790522ac1b629e138e3",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 7108,
+        "mtime_ns": 1795307923616358644,
+        "inode": 75778894
+      },
+      "source_stat_after": {
+        "bytes": 7108,
+        "mtime_ns": 1795307923616358644,
+        "inode": 75778894
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/runner.sh",
+      "source_bytes": 4006,
+      "source_sha256": "6e972bfc03fb36c5e17558610a2d4bbefca1526814b1c93e0456c785614cb1a0",
+      "bytes": 4006,
+      "sha256": "6e972bfc03fb36c5e17558610a2d4bbefca1526814b1c93e0456c785614cb1a0",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 4006,
+        "mtime_ns": 1795307894659800159,
+        "inode": 75779809
+      },
+      "source_stat_after": {
+        "bytes": 4006,
+        "mtime_ns": 1795307894659800159,
+        "inode": 75779809
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/rustc.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/rustc.txt",
+      "source_bytes": 36,
+      "source_sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 36,
+        "mtime_ns": 1795307894716803227,
+        "inode": 75779811
+      },
+      "source_stat_after": {
+        "bytes": 36,
+        "mtime_ns": 1795307894716803227,
+        "inode": 75779811
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/started.txt",
+      "source_bytes": 21,
+      "source_sha256": "6361981e56fa82d876cbfe2f08a2f457c5ac4a6d31ca5a3ac86e6d10e420c336",
+      "bytes": 21,
+      "sha256": "6361981e56fa82d876cbfe2f08a2f457c5ac4a6d31ca5a3ac86e6d10e420c336",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307894660800213,
+        "inode": 75779810
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307894660800213,
+        "inode": 75779810
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/summary.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/summary.json",
+      "source_bytes": 3255,
+      "source_sha256": "edf76bbeaec0ab7a03fb9de1487382ee89b2683a3c458ee89a1dd717efc4b0dc",
+      "bytes": 3255,
+      "sha256": "edf76bbeaec0ab7a03fb9de1487382ee89b2683a3c458ee89a1dd717efc4b0dc",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 3255,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75778896
+      },
+      "source_stat_after": {
+        "bytes": 3255,
+        "mtime_ns": 1795308215454065788,
+        "inode": 75778896
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/host/frozen-closure-95cdc272.host.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/frozen-closure-95cdc272.host.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "30a590405c4b218246fce47ccf2032bb621f310436f1482d58ee897ac7b638a2",
+      "bytes": 21,
+      "sha256": "30a590405c4b218246fce47ccf2032bb621f310436f1482d58ee897ac7b638a2",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795307893450735085,
+        "inode": 75778999
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795307893450735085,
+        "inode": 75778999
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/host/frozen-closure-95cdc272.host.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/frozen-closure-95cdc272.host.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "05189d769703ff28084f2bde2ba0b5a2e303c3746367025d86b600dce3171ad9",
+      "bytes": 21,
+      "sha256": "05189d769703ff28084f2bde2ba0b5a2e303c3746367025d86b600dce3171ad9",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 21,
+        "mtime_ns": 1795308215474066865,
+        "inode": 75775157
+      },
+      "source_stat_after": {
+        "bytes": 21,
+        "mtime_ns": 1795308215474066865,
+        "inode": 75775157
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/host/frozen-closure-95cdc272.host.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/frozen-closure-95cdc272.host.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2,
+        "mtime_ns": 1795308215472066757,
+        "inode": 75778216
+      },
+      "source_stat_after": {
+        "bytes": 2,
+        "mtime_ns": 1795308215472066757,
+        "inode": 75778216
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "baseline-6d087562/host/runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-verify-predecessor-fixture.sh",
+      "source_bytes": 2293,
+      "source_sha256": "41b8bbd235ed3679b1b1fb037a02c0244cf67b7361dabc26a4f61ebf7818ac8b",
+      "bytes": 2293,
+      "sha256": "41b8bbd235ed3679b1b1fb037a02c0244cf67b7361dabc26a4f61ebf7818ac8b",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2293,
+        "mtime_ns": 1795307200283493399,
+        "inode": 75778863
+      },
+      "source_stat_after": {
+        "bytes": 2293,
+        "mtime_ns": 1795307200283493399,
+        "inode": 75778863
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "fixed-95cdc272/host/runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-verify-frozen-closure.sh",
+      "source_bytes": 2300,
+      "source_sha256": "7d8d03c3ae0ed6ceebd9950d636fff4afe1fdb2ffe35e56faf47340af6a77f9b",
+      "bytes": 2300,
+      "sha256": "7d8d03c3ae0ed6ceebd9950d636fff4afe1fdb2ffe35e56faf47340af6a77f9b",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2300,
+        "mtime_ns": 1795307857974825718,
+        "inode": 75779986
+      },
+      "source_stat_after": {
+        "bytes": 2300,
+        "mtime_ns": 1795307857974825718,
+        "inode": 75779986
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/cas-metadata-after.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/cas-metadata-after.json",
+      "source_bytes": 49158,
+      "source_sha256": "ca8b44a675f4c02fc9ee851e454a5a04635a3d77c322c8ea50523279c9a23786",
+      "bytes": 19482,
+      "sha256": "9f0ace0b3f8bb14b89d4c098b27abebdeb33ba78bd5e9ccc8e3b35b0f2030783",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 49158,
+        "mtime_ns": 1795306421468664986,
+        "inode": 75779969
+      },
+      "source_stat_after": {
+        "bytes": 49158,
+        "mtime_ns": 1795306421468664986,
+        "inode": 75779969
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/cas-metadata-before.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/cas-metadata-before.json",
+      "source_bytes": 49158,
+      "source_sha256": "ca8b44a675f4c02fc9ee851e454a5a04635a3d77c322c8ea50523279c9a23786",
+      "bytes": 19482,
+      "sha256": "9f0ace0b3f8bb14b89d4c098b27abebdeb33ba78bd5e9ccc8e3b35b0f2030783",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 49158,
+        "mtime_ns": 1795306421467664932,
+        "inode": 75779968
+      },
+      "source_stat_after": {
+        "bytes": 49158,
+        "mtime_ns": 1795306421467664932,
+        "inode": 75779968
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/compile.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/compile.log",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 20,
+      "sha256": "f61f27bd17de546264aa58f40f3aafaac7021e0ef69c17f6b1b4cd7664a037ec",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 0,
+        "mtime_ns": 1795306415883365012,
+        "inode": 75779783
+      },
+      "source_stat_after": {
+        "bytes": 0,
+        "mtime_ns": 1795306415883365012,
+        "inode": 75779783
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/inspect.rs",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/inspect.rs",
+      "source_bytes": 3112,
+      "source_sha256": "6341fd5de43fbf6be7a152c97fd141fac0cf285ee7dc576b48999433b33b1209",
+      "bytes": 3112,
+      "sha256": "6341fd5de43fbf6be7a152c97fd141fac0cf285ee7dc576b48999433b33b1209",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 3112,
+        "mtime_ns": 1795306415643352121,
+        "inode": 75779781
+      },
+      "source_stat_after": {
+        "bytes": 3112,
+        "mtime_ns": 1795306415643352121,
+        "inode": 75779781
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/late-closure-objects.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/late-closure-objects.json",
+      "source_bytes": 2438,
+      "source_sha256": "a4741d35914557968e18bde2ae18d4d31ced8466268ef94429e6dd94c3e25a6c",
+      "bytes": 2438,
+      "sha256": "a4741d35914557968e18bde2ae18d4d31ced8466268ef94429e6dd94c3e25a6c",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 2438,
+        "mtime_ns": 1795306493686543648,
+        "inode": 75779980
+      },
+      "source_stat_after": {
+        "bytes": 2438,
+        "mtime_ns": 1795306493686543648,
+        "inode": 75779980
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/late-object-parent-edges.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/late-object-parent-edges.json",
+      "source_bytes": 634,
+      "source_sha256": "2aec48a14f024429eeb1942c5c4baea5b447154e8f72352185b4e86a58e6dc75",
+      "bytes": 634,
+      "sha256": "2aec48a14f024429eeb1942c5c4baea5b447154e8f72352185b4e86a58e6dc75",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 634,
+        "mtime_ns": 1795306620935377900,
+        "inode": 75777615
+      },
+      "source_stat_after": {
+        "bytes": 634,
+        "mtime_ns": 1795306620935377900,
+        "inode": 75777615
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/manifest.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/manifest.json",
+      "source_bytes": 16917,
+      "source_sha256": "df17a7a29431315480f859931c33ab93a48590297ef8086ca1195dfb2a245706",
+      "bytes": 4059,
+      "sha256": "9dd89240c30032d671549e58d71827d492871e92f21a62ee847ff4ea5bf9b171",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 16917,
+        "mtime_ns": 1795306421468664986,
+        "inode": 75779970
+      },
+      "source_stat_after": {
+        "bytes": 16917,
+        "mtime_ns": 1795306421468664986,
+        "inode": 75779970
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/observation.json.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/observation.json",
+      "source_bytes": 86002,
+      "source_sha256": "56d68148ab87e3a4216e0a8e732f48c2cb3c31bd97651e5af358527b5275423f",
+      "bytes": 14973,
+      "sha256": "1dfa6e2de4dada994d6358516e2eb495e44b58dfc0557171b9b31103eafc7744",
+      "encoding": "gzip-mtime0",
+      "source_stat_before": {
+        "bytes": 86002,
+        "mtime_ns": 1795306421422662515,
+        "inode": 75777150
+      },
+      "source_stat_after": {
+        "bytes": 86002,
+        "mtime_ns": 1795306421422662515,
+        "inode": 75777150
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/original-gaps-present-now.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/original-gaps-present-now.json",
+      "source_bytes": 161,
+      "source_sha256": "ca36d11124c0e7fef365e98a72c8c8c6882aa28abce9fb28de53b507b7f4a84f",
+      "bytes": 161,
+      "sha256": "ca36d11124c0e7fef365e98a72c8c8c6882aa28abce9fb28de53b507b7f4a84f",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 161,
+        "mtime_ns": 1795306460741774258,
+        "inode": 75778174
+      },
+      "source_stat_after": {
+        "bytes": 161,
+        "mtime_ns": 1795306460741774258,
+        "inode": 75778174
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/parents/2c235fb5da27fb596055b76a62cd9fb27716f46983b764445268d05bd120f66a",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/parents/2c235fb5da27fb596055b76a62cd9fb27716f46983b764445268d05bd120f66a",
+      "source_bytes": 5669,
+      "source_sha256": "4d6ce17d75d70977fa232a1c56ac45a31f926c4071f06593b8f0d027269a7ccc",
+      "bytes": 5669,
+      "sha256": "4d6ce17d75d70977fa232a1c56ac45a31f926c4071f06593b8f0d027269a7ccc",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 5669,
+        "mtime_ns": 1795306620919377040,
+        "inode": 75777614
+      },
+      "source_stat_after": {
+        "bytes": 5669,
+        "mtime_ns": 1795306620919377040,
+        "inode": 75777614
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/payload.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/payload.json",
+      "source_bytes": 9289,
+      "source_sha256": "3a6a0e34468e934da820a0f2b648bacc22391bd944d61051220ac6c6bf3d66e8",
+      "bytes": 9289,
+      "sha256": "3a6a0e34468e934da820a0f2b648bacc22391bd944d61051220ac6c6bf3d66e8",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 9289,
+        "mtime_ns": 1795306420683622823,
+        "inode": 75777148
+      },
+      "source_stat_after": {
+        "bytes": 9289,
+        "mtime_ns": 1795306420683622823,
+        "inode": 75777148
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/predecessor.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/predecessor.json",
+      "source_bytes": 9617,
+      "source_sha256": "a9061ad9cd6dcea9cfe9eefe94c20a507a506d81c5e0c06cac57bbaa30829abf",
+      "bytes": 9617,
+      "sha256": "a9061ad9cd6dcea9cfe9eefe94c20a507a506d81c5e0c06cac57bbaa30829abf",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 9617,
+        "mtime_ns": 1795306420683622823,
+        "inode": 75777149
+      },
+      "source_stat_after": {
+        "bytes": 9617,
+        "mtime_ns": 1795306420683622823,
+        "inode": 75777149
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/run.stderr",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/run.stderr",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 0,
+        "mtime_ns": 1795306420740625885,
+        "inode": 75777151
+      },
+      "source_stat_after": {
+        "bytes": 0,
+        "mtime_ns": 1795306420740625885,
+        "inode": 75777151
+      },
+      "stable_during_copy": true
+    },
+    {
+      "path": "closed-d16-attempt003/runner.py",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/closed-predecessor-d16adbf8-attempt003/runner.py",
+      "source_bytes": 6414,
+      "source_sha256": "c073cb462aa54d04c8c38bfb5e3779ae3589569104eddc7802b5189fe1739041",
+      "bytes": 6414,
+      "sha256": "c073cb462aa54d04c8c38bfb5e3779ae3589569104eddc7802b5189fe1739041",
+      "encoding": "original",
+      "source_stat_before": {
+        "bytes": 6414,
+        "mtime_ns": 1795306415643352121,
+        "inode": 75779782
+      },
+      "source_stat_after": {
+        "bytes": 6414,
+        "mtime_ns": 1795306415643352121,
+        "inode": 75779782
+      },
+      "stable_during_copy": true
+    }
+  ],
+  "excluded": [
+    "closed diagnostic inspect executable",
+    "native-artifacts directories (retained on authorized device)",
+    "release/dependency rlibs",
+    "complete original CAS and installation databases"
+  ]
+}

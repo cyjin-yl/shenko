@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Reading last 8 lines (total: 17 lines)]\n\n来自 /tank/shared/projects/shenko/build/anchored-native-95cdc272.bundle\n   6d087562c..95cdc2728  fix/frozen-predecessor-membership-20261122 -> fix/frozen-predecessor-membership-20261122\n之前的 HEAD 位置是 6d087562c Reproduce a frozen predecessor growing after optional CAS publication\nHEAD 目前位于 95cdc2728 Freeze optional CAS membership in control predecessors and archives\nVerified build container image: sha256:28df77cc6beee4f88ee1f57922190dcb02414d78d284e8b0f91859e18728e565\n{\"label\": \"predecessor-membership\", \"exit\": 0, \"outer_summary\": [\"ok\", \"1\", \"0\", \"0\", \"0\", \"49\", \"6.14s\"], \"verified_pass\": true}\n{\"label\": \"native-chain\", \"exit\": 0, \"outer_summary\": [\"ok\", \"1\", \"0\", \"0\", \"0\", \"49\", \"187.12s\"], \"verified_pass\": true}\n{\"label\": \"archive-admission\", \"exit\": 0, \"outer_summary\": [\"ok\", \"8\", \"0\", \"0\", \"0\", \"31\", \"89.15s\"], \"verified_pass\": true}\n✅ Process completed with exit code 0 (runtime: 322.72s)"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}
