@@ -1327,10 +1327,10 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
     let mut execution = Box::pin(execute_step(1, &[], &mut subject, &cancel));
     let wire = tokio::time::timeout(Duration::from_secs(10), async {
         tokio::select! {
-            result = &mut execution => panic!("original request ended before its wire: {result:?}"),
-            wire = wire_rx => wire.unwrap(),
+            response = wire_rx => response,
+            _ = &mut execution => panic!("the original high-effort seal ended before its Messages wire"),
         }
-    }).await.expect("the exact original high-effort seal must reach Messages HTTP");
+    }).await.expect("the exact original high-effort seal must reach Messages HTTP").unwrap();
     assert_eq!(wire["model"], "quota-alternate");
     assert_eq!(wire["max_tokens"], 73);
     assert_eq!(wire["output_config"], input.payload.native_options["output_config"]);
