@@ -13,7 +13,10 @@ use crate::anthropic_rules::{
     ANTHROPIC_API_VERSION, AnthropicRuleViolation, ProviderCitation, validate_messages,
     validate_native_options,
 };
-use crate::capability::{BackendCapabilitySnapshot, CapacityEntry, CapacityUnit, classify_operations};
+use crate::capability::{
+    BackendCapabilitySnapshot, CacheSurfaces, CapacityEntry, CapacityUnit, DeclaredCapability,
+    ProviderCapabilityDeclaration, QuotaSurfaces, classify_operations,
+};
 use crate::profile::{
     AuthBinding, AuthMethod, BackendFamily, ProviderProfile, SamplingCapabilities, TransportKind,
     UsageFieldMapping,
@@ -540,6 +543,30 @@ impl ProviderRuntime for AnthropicProvider {
 
     fn binding(&self) -> ProviderBinding {
         AnthropicProvider::binding(self)
+    }
+
+    fn declaration(&self) -> ProviderCapabilityDeclaration {
+        // Facts of this implementation, not of the deployment: the Messages
+        // SSE path exists here, the allowlisted rate-limit header family is
+        // retained with every response, and the usage block carries the
+        // cache-read counter the profile maps. Whether this account really
+        // returns SSE or rate-limit headers is settled by a real terminal, and
+        // the probe can still declare a surface unavailable.
+        ProviderCapabilityDeclaration {
+            streaming: DeclaredCapability::implemented(),
+            cache: CacheSurfaces {
+                cache_read_accounting: if self.profile.usage.cache_read_tokens_path.is_some() {
+                    DeclaredCapability::implemented()
+                } else {
+                    DeclaredCapability::UNDECLARED
+                },
+                ..CacheSurfaces::UNDECLARED
+            },
+            quota: QuotaSurfaces {
+                api_headers: DeclaredCapability::implemented(),
+                ..QuotaSurfaces::UNDECLARED
+            },
+        }
     }
 
     fn accepts_model(&self, _model: &str) -> bool {

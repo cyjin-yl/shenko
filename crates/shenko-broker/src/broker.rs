@@ -21,7 +21,10 @@ use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
 use crate::admission::{AdmissionController, AdmissionGuard, CapacityPool, CapacitySnapshot};
-use crate::capability::BackendCapabilitySnapshot;
+use crate::capability::{
+    BackendCapabilitySnapshot, CapabilityRequirement, CapabilityVerdict,
+    ProviderCapabilityDeclaration,
+};
 use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
 use crate::execution::{ExecutionContext, execute_request, now_ms};
 use crate::kv::{
@@ -239,11 +242,14 @@ impl BrokerHandle {
                 binding: self.binding.clone(), observed_at: chrono::Utc::now(),
                 usability: crate::health::BindingUsability::Unavailable,
                 reason: "no installed runtime can serve this exact configured binding".into(),
-                capabilities: None, snapshot: None,
+                capabilities: None,
+                declaration: ProviderCapabilityDeclaration::UNDECLARED,
+                snapshot: None,
             });
         };
+        let declared = runtime.declaration();
         let snapshot = runtime.probe().await?;
-        Ok(crate::health::classify_probe(self.binding.clone(), snapshot))
+        Ok(crate::health::classify_probe(self.binding.clone(), declared, snapshot))
     }
 
     /// Same physical scheduling domain and configured transport, distinct
@@ -337,6 +343,34 @@ impl BrokerHandle {
     /// transport-compatible recovery semantics.
     pub fn serves_model(&self, model: &str) -> bool {
         self.registry.serves_model(&self.binding, model)
+    }
+
+    /// What this handle's binding declared about streaming, its cache surfaces
+    /// and its quota observation surfaces.
+    ///
+    /// The installed implementation's claim is applied first and this domain's
+    /// latest probe on top of it. A fact neither of them declared stays
+    /// unknown; a model name, a backend family or a transport never supplies
+    /// one. The same read feeds routing and diagnostics, so a surface is never
+    /// advertised to one and withheld from the other.
+    pub fn capability_declaration(&self) -> ProviderCapabilityDeclaration {
+        let declared = self
+            .registry
+            .runtime_for(&self.binding)
+            .map(|runtime| runtime.declaration())
+            .unwrap_or(ProviderCapabilityDeclaration::UNDECLARED);
+        ProviderCapabilityDeclaration::with_observation(
+            &declared,
+            &self.domain.probed_capability_declaration(),
+        )
+    }
+
+    /// The routing read of one requirement.
+    ///
+    /// Only an actual declaration permits the action; an undeclared fact stays
+    /// unknown and is never promoted to support.
+    pub fn route_capability(&self, requirement: CapabilityRequirement) -> CapabilityVerdict {
+        self.capability_declaration().verdict(requirement)
     }
 
     /// Restore an original armed request before admitting any new inference.
@@ -971,6 +1005,9 @@ impl Broker {
     /// to the new figure as part of that same step.
     pub fn adopt_capabilities(&self, snapshot: &BackendCapabilitySnapshot) -> KvCapabilities {
         let capabilities = KvCapabilities::from_snapshot(snapshot);
+        self.domain.adopt_probed_capability_declaration(
+            ProviderCapabilityDeclaration::from_snapshot(snapshot),
+        );
         if let Some(entry) = snapshot.capacity(CapacityPool::ContextKv) {
             self.domain.apply_kv_capacity(entry.value, entry.provenance);
         }
@@ -1380,6 +1417,12 @@ impl ProviderRuntime for OfflineRuntime {
 
     fn available(&self) -> bool {
         false
+    }
+
+    fn declaration(&self) -> ProviderCapabilityDeclaration {
+        // This runtime never attempts a model call, so it declares the refusal
+        // instead of leaving the caller to discover it after enqueueing.
+        ProviderCapabilityDeclaration::refused()
     }
 
     async fn complete(&self, _request: &InferenceRequest) -> Result<InferenceResponse> {
