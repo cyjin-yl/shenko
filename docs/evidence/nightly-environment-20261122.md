@@ -468,3 +468,104 @@ still failed **0/3**: native arm and settlement encountered unrelated-table
 witness conflicts. No successful full task, restart or clean-shutdown result
 is inferred from green CI. Subsequent product changes must obtain their own
 regression and real-model receipts before the PR is made ready.
+
+
+## c931526c compiler failure and mutation-delivery fix
+
+The later candidate `c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0` obtained six
+successful regular CI jobs in
+[CI 44968265233](https://github.com/cyjin-yl/shenko/actions/runs/44968265233),
+whose actual synthetic merge was `4f8b95619ea942df2574775b0b4ff4eb51bdc082`.
+Its exact-head [Nightly 44968307539](https://github.com/cyjin-yl/shenko/actions/runs/44968307539)
+**failed**. The [complete retained receipts](daily-readiness-20261122/ci-nightly-c931526c/README.md)
+preserve the original failure, source identities, browser environment and
+all Rust accounting; an earlier green candidate does not replace this result.
+
+| Scope | Actual result |
+| --- | --- |
+| Regular CI Rust workspace | 1241 passed, 0 failed, 11 ignored; 19 nested process results excluded from that total; one separate unconfigured real-model harness skip |
+| Nightly Rust workspace | The same outer counts, with its own exact-source receipt |
+| Three explicit Nightly long proofs | Partition/recovery, SSH lost-reply recovery and wrong-pin/helper refusal each passed; the partition proof's six child harnesses remain separate |
+| Full compiler | 182 suites passed, 1 failed, 2 skipped; 2912 tests passed, 1 failed, 9 skipped; 595.85 s |
+
+The sole compiler failure was the ordinary React DOM rejection case in
+`scroll-reveal-consumers.test.ts`: all four `unavailable` assertions completed,
+then the position assertion found `scrollTop=300` instead of `50`. Browser
+prerequisites and the actual sandbox check had passed. The original
+[browser receipt](daily-readiness-20261122/ci-nightly-c931526c/compiler/compiler-browser.json)
+records UID 1001, Node 24.22.1, Playwright 1.58.2, Chrome 157.0.8103.78 and
+Ubuntu 24 image `20261116.133.1`. This failure was observed at upstream pin
+`795b1b4958333cf904547e484acb4de9d4b3ee80`, after the earlier frame-drain
+fixture fix. The independently verified complete compiler ZIP is artifact
+`14732462738`, 1,151,499 bytes, SHA256
+`0ab487b6747204ce4626836f216a5d527b7cc4cdfb710dc93c8f441d9cb6bdbd`.
+
+### Controlled ordering and minimal upstream fix
+
+The new [upstream record](https://github.com/Proto-UI/Proto-UI/blob/8fcde0e1e522762969e89c0343a78179edb8c89e/internal/records/2026-11-22-compiler-scroll-mutation-order.md)
+and [raw artifact manifest](https://github.com/Proto-UI/Proto-UI/blob/8fcde0e1e522762969e89c0343a78179edb8c89e/internal/records/evidence/2026-11-22-compiler-scroll-mutation-order/file-manifest.json)
+retain an actual owner-window timer trace. With only mount mutation delivery
+delayed in temporary instrumentation, the old helper returned while seven
+mutation timers remained and no RAF was yet queued. Each rejected request
+synchronously preserved position 50. Later mutation delivery scheduled the
+normal end-follow frame, which saw the injected geometry and moved 50 to 300.
+This proves a reachable ordering with the same assertion failure. The original
+Nightly did not capture that event trace, so it is not an exact replay or an
+exclusive attribution of the CI event.
+
+| Full focused-file run | Passed / failed / skipped | Recorded duration |
+| --- | --- | --- |
+| Controlled owner-timer negative on the old helper | 27 / 1 / 0 | 13.722 s |
+| Same controlled ordering with the new task barrier | 28 / 0 / 0 | 13.683 s |
+| Final fixture without diagnostic instrumentation | 28 / 0 / 0 | 13.115 s |
+
+The first two diagnostic probes targeted a window alias and intercepted no
+mutation timers; their passing results remain labelled ineffective
+instrumentation in the upstream record. They are not counted as evidence
+that the ordering was tested or as a reliability estimate. These focused
+runs used local Node 24.22.1, Vitest 2.1.9 and Happy DOM 15.11.7; they are
+fixture diagnostics, not new Shenko devcontainer, browser-layout or model
+receipts.
+
+The reviewed commit `8fcde0e1e522762969e89c0343a78179edb8c89e` adds four lines
+to the test: a public Happy DOM type import, two comments and a call to
+`happyDOM.waitUntilComplete()` after `owner.act` and before the existing
+pending-frame empty check. The RAF spy remains installed while mutation
+tasks drain. The original eight frame rounds, per-test/runner deadlines,
+cleanup and all 29 assertion expressions and expected values are unchanged.
+There is no fixed sleep in the final fixture. The public task wait itself
+has no new wall-clock deadline; recurring work is still bounded by the
+existing test deadline. The natural run retains all seven definitions across
+four profiles, including four unavailable rejections and the later valid
+move from 50 to 70. No upstream production, dependency or contract file changed.
+
+### Publication and remaining consumer gates
+
+The original [upstream PR #1671](https://github.com/Proto-UI/Proto-UI/pull/1671)
+was observed merged at `2026-11-21T20:48:56Z`; its earlier draft observation
+above remains a dated historical receipt. The follow-up was normally pushed
+to the new owned branch `fix/compiler-scroll-mutation-settle-20261122` and
+submitted as [PR #1682](https://github.com/Proto-UI/Proto-UI/pull/1682), with
+the creation request issued at `2026-11-22T01:26:53Z`, exact head `8fcde0e1`, direct parent `795b1b49`,
+and base main `2d21cb4d6c3f726c5d6756d03739d466faa7ff10`. The existing merged
+PR and its author/commit history were preserved; no force push, squash,
+reopening or administrative merge occurred.
+
+At `2026-11-22T01:31:45Z`, the new PR remained open and unmerged. Its DCO,
+four planning/configuration/lockstep jobs and Vercel checks succeeded, but
+18 execution jobs in [upstream CI 44971508365](https://github.com/Proto-UI/Proto-UI/actions/runs/44971508365)
+were skipped. There were no submitted reviews or inline findings; the
+automated review comment reported exhausted review quota. Those facts do
+not constitute a completed code review or a full compiler pass.
+
+Shenko pin-only commit `1c5fc19775e6be47214cf92ac07277cf4310fb36` changes only
+`commit` to `8fcde0e1` and `migrated_from` to `795b1b49`. The actual old/new
+263,425-byte upstream lock is identical, SHA256
+`e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8`.
+This checkpoint has not yet claimed generated assets or an independently
+rebuilt manifest for that pin. The authorized producer must bind the actual
+source and dependency closure, then independently rebuild and compare all
+12 payloads. Even if those payloads prove equal, Rust embeds the manifest,
+so a new manifest is not evidence of an identical binary. The fixed
+consumer still requires its own complete Nightly and real-model candidate
+receipts; c931's original failed Nightly and model batch are not regraded.
