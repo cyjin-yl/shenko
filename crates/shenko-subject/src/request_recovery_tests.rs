@@ -1224,6 +1224,8 @@ async fn expired_wait_does_not_pin_a_reopened_subject_to_its_missing_original_mo
     handle.request_stop();
     broker_task.await.unwrap();
     server.abort();
+}
+
 async fn serve_effort_original(
     listener: TcpListener,
     wire: tokio::sync::oneshot::Sender<serde_json::Value>,
