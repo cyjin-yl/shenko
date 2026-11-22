@@ -260,12 +260,18 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 当前从 `f29738eb6a80` 固定到
-`795b1b4958333cf904547e484acb4de9d4b3ee80`，采用
-[上游 #1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 的 compiler 测试挂载时序修复。
-该提交是原 pin 的直接子提交，只改测试和诊断记录；原来的四项拒绝、50/70
-位置断言及全部 28 项测试保持。此次不同时引入新上游 main 的其他运行逻辑，
-原 Nightly 失败与受控复现见[运行证据](../evidence/nightly-environment-20261122.md)。
+`web/upstream-pin.json` 当前从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
+固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
+[上游 #1682](https://github.com/Proto-UI/Proto-UI/pull/1682) 的 compiler 测试挂载时序补正。
+原 [#1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 已合入；其帧队列排空仍可能早于
+Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公开的
+`happyDOM.waitUntilComplete()`，再判断帧队列是否为空；原八轮预算、测试期限、
+四项拒绝、50/70 位置断言、29 个断言及全部 28 项测试保持。新提交只改测试和
+诊断记录，上游运行代码与 lock 字节不变；不同时引入上游 main 的其他改动。
+原 c931 Nightly 失败、受控红绿对照及未插桩的 28 项回执见
+[运行证据](../evidence/nightly-environment-20261122.md#c931526c-compiler-failure-and-mutation-delivery-fix)。
+pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
+producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
 使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
 family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
