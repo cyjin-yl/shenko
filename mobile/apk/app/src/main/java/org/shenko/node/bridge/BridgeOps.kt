@@ -37,6 +37,23 @@ object BridgeOps {
             "shell_exec" -> shellExec(context, request)
             "db_snapshot" -> dbSnapshot(context, request)
             "human_activity_after" -> humanActivityAfter(request)
+            "activation_restart" -> try {
+                org.shenko.node.activation.ActivationController.install(
+                    context, request.getString("request_digest"),
+                    request.getString("candidate_apk_path"), request.getString("expected_package"),
+                    request.getLong("expected_version_code"), request.getString("expected_signer_sha256"),
+                    request.getString("expected_apk_sha256"), request.getLong("expected_apk_bytes"),
+                    request.getString("expected_native_sha256"))
+            } catch (failure: org.shenko.node.activation.ActivationController.VerificationFailure) {
+                error("denied", "${failure.condition}: ${failure.message}", false).apply {
+                    getJSONObject("error").put("condition", failure.condition)
+                }
+            }
+            "activation_status" -> org.shenko.node.activation.ActivationController.status(
+                context, request.getString("request_digest"))
+            "activation_abandon" -> org.shenko.node.activation.ActivationController.abandon(
+                context, request.getString("request_digest"))
+            "activation_session_state" -> org.shenko.node.activation.ActivationController.sessionState(context)
             else -> error("unsupported", "unknown op", false)
         }
 

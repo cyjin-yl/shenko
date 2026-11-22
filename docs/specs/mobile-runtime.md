@@ -54,6 +54,34 @@ service log. No permission, installer confirmation or incoming intent extra
 changes service inputs or grants authority through this activity. Compilation requires SDK 36 for the pinned Dhizuku dependency. API 26 remains
 the minimum; the service retains its existing API-specific foreground calls.
 
+### Ordinary APK replacement
+
+The launcher exposes **Install APK update**. Its private installer Activity
+reads one document selected through Android's document picker into a new
+0600 file in `filesDir`, retains the package length and SHA-256, and uses the
+same `ActivationController` as the authenticated device bridge. The controller
+requires the same package and signer, a higher versionCode, a supported native
+ABI and the frozen native-member digest. It hashes the bytes actually streamed
+into the PackageInstaller session before committing. Android retains control
+of installation permission and user confirmation. The confirmation can be
+opened from the installer Activity or its notification; neither path confirms
+on the user's behalf.
+
+An attempt is durable before session creation. Repeating its request observes
+the same enrolled attempt. Status callbacks must match the request, attempt,
+callback URI and OS session. A missing session, lost response or interrupted
+session enrollment remains Unknown. Session enumeration never identifies an
+unenrolled session by package name alone.
+
+This entry replaces an APK only. It does not write the activation selector,
+advance an epoch, start a replacement service or establish node readiness.
+Authenticated package preparation, isolated smoke, final state import and
+frozen in-process Start still require the package activation contracts of
+[X05/X16/X17](self-update.md#spec-41-12). Installer success cannot substitute
+for exact installed-APK/loaded-JNI verification or a selected runtime-owner
+admission. Existing JNI and launcher Start behavior is retained; automatic
+replacement startup is not registered here.
+
 ## 2. Node portability ([§5.4](nodes.md#spec-5-4))
 
 The node core never gains OS gates: `shenko-node` uses only `cfg(unix)`

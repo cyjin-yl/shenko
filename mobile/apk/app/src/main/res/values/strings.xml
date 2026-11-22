@@ -7,4 +7,16 @@
     <string name="node_start_failed">Node start could not be requested: %1$s</string>
     <string name="node_open_ui">Open Shenko</string>
     <string name="node_browser_unavailable">No browser is available to open the local UI.</string>
+    <string name="package_install_open">Install APK update</string>
+    <string name="package_install_hint">Choose a same-signer Shenko APK with a higher version. Android asks for installation permission and confirmation. This replaces the app package only. Node continuation after replacement is unavailable in this version.</string>
+    <string name="package_install_choose">Choose APK</string>
+    <string name="package_install_permission">Open installation permission</string>
+    <string name="package_install_notifications">Allow installer notifications</string>
+    <string name="package_install_request">Request system installation</string>
+    <string name="package_install_observe">Observe installation</string>
+    <string name="package_install_cancel">Request cancellation</string>
+    <string name="package_install_confirm">Open system confirmation</string>
+    <string name="package_install_working">Reading the selected package or installer state…</string>
+    <string name="package_install_observation">Installer: %1$s %2$s %3$s. This does not confirm node activation.</string>
+    <string name="package_install_failed">Installation request unresolved or refused: %1$s</string>
 </resources>

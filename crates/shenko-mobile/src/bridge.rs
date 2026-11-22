@@ -138,6 +138,26 @@ pub enum BridgeOp {
     },
     /// Accessibility human-activity feed: events observed after a timestamp.
     HumanActivityAfter { after_ms: i64 },
+    /// Request ordinary same-package installation of frozen APK bytes. This
+    /// is a PackageInstaller operation, not a selector or runtime admission.
+    ActivationRestart {
+        request_digest: String,
+        candidate_apk_path: String,
+        expected_package: String,
+        expected_version_code: u64,
+        expected_signer_sha256: String,
+        expected_apk_sha256: String,
+        expected_apk_bytes: u64,
+        expected_native_sha256: String,
+    },
+    /// Observe only the exact previously enrolled installer attempt.
+    ActivationStatus { request_digest: String },
+    /// Ask the system to abandon only the exact enrolled session. A lost
+    /// callback or absent session keeps the installation outcome unknown.
+    ActivationAbandon { request_digest: String },
+    /// Enumerate OS-owned sessions without treating stream activity as an
+    /// installation result or permission to run a successor.
+    ActivationSessionState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +260,7 @@ impl SocketBridge {
 
     fn op_timeout(op: &BridgeOp) -> Duration {
         match op {
+            BridgeOp::ActivationRestart { .. } => Duration::from_secs(120),
             BridgeOp::ShellExec { timeout_secs, .. } => {
                 Duration::from_secs(u64::from(*timeout_secs).saturating_add(15).min(90))
             }
@@ -670,6 +691,49 @@ mod tests {
         assert_eq!(error.kind, BridgeErrorKind::TypedUnavailable);
         assert_eq!(error.message, "shizuku not granted");
         assert!(!error.retryable);
+    }
+
+    #[test]
+    fn socket_installer_preserves_frozen_identity_and_unknown_outcome() {
+        let response = serde_json::json!({"ok":true,"state":"commit_requested",
+            "request_digest":"sha256:request","session_id":17,"attempt_id":"attempt",
+            "session_actionable":false,"terminal_confirmed":false});
+        let (result, request) = exchange(BridgeOp::ActivationRestart {
+            request_digest: "sha256:request".into(),
+            candidate_apk_path: "/data/user/0/org.shenko.node/files/更新.apk".into(),
+            expected_package: "org.shenko.node".into(), expected_version_code: 12,
+            expected_signer_sha256: "signer".into(), expected_apk_sha256: "apk".into(),
+            expected_apk_bytes: 1234, expected_native_sha256: "arm64-v8a=native".into(),
+        }, response.clone());
+        assert_eq!(request["op"], "activation_restart");
+        assert_eq!(request["candidate_apk_path"], "/data/user/0/org.shenko.node/files/更新.apk");
+        assert_eq!(request["request_digest"], "sha256:request");
+        assert_eq!(request["expected_package"], "org.shenko.node");
+        assert_eq!(request["expected_version_code"], 12);
+        assert_eq!(request["expected_signer_sha256"], "signer");
+        assert_eq!(request["expected_apk_sha256"], "apk");
+        assert_eq!(request["expected_apk_bytes"], 1234);
+        assert_eq!(request["expected_native_sha256"], "arm64-v8a=native");
+        assert_eq!(result.unwrap(), response);
+        for op in [BridgeOp::ActivationStatus { request_digest: "sha256:request".into() },
+            BridgeOp::ActivationAbandon { request_digest: "sha256:request".into() }] {
+            let (result, request) = exchange(op, response.clone());
+            assert_eq!(request["request_digest"], "sha256:request");
+            assert_eq!(result.unwrap(), response);
+        }
+    }
+
+    #[test]
+    fn socket_installer_denial_is_not_retryable_or_silently_reclassified() {
+        let response = serde_json::json!({"ok":false,"error":{"kind":"denied",
+            "condition":"installer_permission_denied", "retryable":false,
+            "message":"installer_permission_denied: allow package requests in Android settings"}});
+        let (result, _) = exchange(BridgeOp::ActivationSessionState, response);
+        let error = result.unwrap_err();
+        assert_eq!(error.kind, BridgeErrorKind::Denied);
+        assert!(!error.retryable);
+        assert_eq!(error.message,
+            "installer_permission_denied: allow package requests in Android settings");
     }
 
     /// The fingerprint request must reach the device with the exact scope this

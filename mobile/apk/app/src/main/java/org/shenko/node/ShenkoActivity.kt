@@ -35,6 +35,13 @@ class ShenkoActivity : Activity() {
                 setOnClickListener { startNode() }
             })
             addView(Button(this@ShenkoActivity).apply {
+                setText(R.string.package_install_open)
+                setOnClickListener {
+                    startActivity(Intent(this@ShenkoActivity,
+                        org.shenko.node.activation.InstallerActivity::class.java))
+                }
+            })
+            addView(Button(this@ShenkoActivity).apply {
                 setText(R.string.node_open_ui)
                 setOnClickListener {
                     try {
