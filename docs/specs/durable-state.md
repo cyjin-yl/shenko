@@ -85,7 +85,7 @@ remain historical evidence in the copy.
 
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 
-`ARCHIVE_SCHEMA` is 12. Readers recognize exactly versions 2–7, 10, 11 and 12 and apply the
+`ARCHIVE_SCHEMA` is 13. Readers recognize exactly versions 2–7 and 10–13 and apply the
 original version's format and fact ownership before reporting recovery. Two
 historical writers independently used 7: one declares both `dialogue_endpoints`
 and `dialogue_messages`, the other both `subject_branch_forks` and
@@ -123,22 +123,36 @@ predecessor roots. The inner fact and all predecessor closures remain full
 archive and GC graph edges. Only the independent E1 transfer charges its new
 observation graph against an incremental budget; this does not omit predecessor
 bytes from a recovery archive or create local application authority.
-All new exports use 12,
-including snapshots without those objects. A schema-11 reader therefore refuses
+Schema 13 additionally declares `store-control-predecessor/2`. Its root retains
+the complete sorted, unique digest inventory from the original snapshot. A bare
+optional digest that was absent then cannot join that frozen inventory merely
+because its bytes appear in CAS later. The inspector verifies the exact inventory
+and original fingerprint; typed ObjectRefs and schema-required children still
+require their complete bytes, integrity and membership. Schema-13 archive closure
+likewise resolves optional hints only within its declared objects. Earlier archive
+schemas and control-predecessor codec 1 keep their original live-discovery rules;
+they are not relabeled or silently reinterpreted.
+This adds O(object_count) digest metadata to the predecessor root. It does not
+remove full snapshot collection, object verification, row reconstruction or the
+history-growth costs described in the
+[predecessor design](../development/control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2).
+All new exports use 13,
+including snapshots without those objects. A schema-12 reader therefore refuses
 the manifest before CAS payload callbacks, SQL facts or files are published;
-this writer offers no version-label downgrade. Old archives 2–7, 10 and 11 and
+this writer offers no version-label downgrade. Old archives 2–7 and 10–12 and
 their native transition codecs retain their original interpretation, including
-10 and 11's strict column-layout and fork/history membership checks. Versions 8
-and 9 remain unsupported; 12 does not enable either reserved contract.
+10–12's strict column-layout and fork/history membership checks. Versions 8
+and 9 remain unsupported; 13 does not enable either reserved contract.
 This archive boundary is distinct from raw Node control-object transport and
 does not establish mixed-version Node consensus acceptance or full rollback.
 The existing archive admission regression covers the current writer, retained
-7/11 facts, malformed current membership and unsupported-format refusal before
+7/12 facts, malformed current membership and unsupported-format refusal before
 CAS or file publication. The previous-writer compatibility window now imports
-representable schema-11 facts and relays them through the schema-12 writer;
-it replaces the earlier 10-to-11 window without adding a test or scenario.
-Schema 10 remains explicitly supported with its original rules, and its earlier
-execution receipts remain historical evidence. Schemas 10, 11 and 12 share the
+representable schema-12 facts and relays them through the schema-13 writer;
+it replaces the earlier 11-to-12 window without adding another compatibility
+scenario. Schemas 10 and 11 remain explicitly supported with their original
+rules, and their earlier execution receipts remain historical evidence.
+Schemas 10–13 share the
 same family-membership gate. This source update is not a new runtime pass claim;
 actual candidate execution is reported with its own source identity.
 

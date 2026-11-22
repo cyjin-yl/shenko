@@ -9,11 +9,14 @@ Only codec 3 uses the deterministic operation's physical-PK absence selector;
 it does not add arm's decoded-JSON identity or logical-key predicates.
 The new reader preserves the same birth proof, exact Running result, authority
 and one-live-permit rules. New archives declare
-[schema 12](../specs/durable-state.md), which retains the schema-10 creator
+[schema 13](../specs/durable-state.md), which retains the schema-10 creator
 witness, schema-11 claim 3, direct arm/T2 and generic dispatch/T2 readers,
-and additionally declares the anchored native E1 codec 6 envelope. The archive
+the schema-12 anchored native E1 codec 6 envelope, and additionally declares
+control-predecessor codec 2's frozen optional object membership. The archive
 declaration does not rewrite any retained transition's original codec or read
-semantics or omit predecessor closures from recovery.
+semantics or omit predecessor closures from recovery. The complete digest
+inventory adds root metadata proportional to object count; it does not remove
+the full predecessor snapshot and verification costs.
 
 ## Exact scope
 

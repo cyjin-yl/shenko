@@ -165,11 +165,12 @@ requires row schema 4. Rows 1–3 cannot
 carry a selector. This introduces no retry, serialization of unrelated tasks,
 replacement chosen action or receiver execution permission.
 
-The direct-selector increment introduced archive schema 11. The current
-candidate declares schema 12 for its additional anchored E1 capability,
-including snapshots without native actions. Schemas 10 and 11 remain readable
-with their original strict fact-family/layout rules; schemas 8 and 9 remain
-unsupported. Older readers refuse schema 12 before payload CAS publication.
+The direct-selector increment introduced archive schema 11, and the anchored
+E1 capability introduced schema 12. The current candidate declares schema 13
+for frozen control-predecessor membership, including snapshots without native
+actions. Schemas 10–12 remain readable with their original strict fact-family,
+layout and closure rules; schemas 8 and 9 remain unsupported. A schema-12 reader
+refuses schema 13 before payload CAS publication.
 The archive gate does not version raw Node object transport.
 
 The existing direct-chain regression adds six necessary windows: real unrelated
@@ -179,8 +180,9 @@ under another physical key, and a T2 selector naming another attempt. It retains
 the original malformed-E1, staged-E1 rollback, foreign parking, one-effect,
 lost-reply, reopen and replay assertions. One retained-schema-10 import/relay
 window, one ancestry-dispatch interleaving and the generic-T2 interleaving below
-bring this same candidate to nine new windows across existing test functions.
-No new test function or test factory is introduced.
+brought that selector increment to nine new windows across existing test
+functions. That increment introduced no new test function or test factory;
+the later frozen-membership regression below is a separate correctness fix.
 
 The learned T2 receiver lacks the unrelated source operation/attempt/E1 entirely
 and still must retain its exact original result; T2's original lost-reply,
@@ -262,6 +264,35 @@ window checks missing and same-length corrupt bulk, then retains the original
 debt after restoration. Two existing E1 delivery trajectories retain their
 source/Unknown, replay and no-effect assertions under the explicit new format.
 These authored checks still require execution on the integrated candidate.
+
+### Frozen predecessor membership (2026-11-22 candidate)
+
+An optional bare digest is evidence of a retained CAS object only if that object
+belonged to the original snapshot. A later CAS publication must not enlarge an
+already sealed predecessor. The actual d16 third browser attempt failed while
+inspecting a direct-native predecessor; its original error and failed journey
+remain retained separately from the corrected reader and its regression.
+
+Control-predecessor codec 2 freezes the complete sorted digest inventory in the
+root and requires an exact count/set match plus the original snapshot fingerprint
+when inspected. Optional bare-digest discovery is restricted to that inventory
+both when building direct roots and while walking nested generic JSON. Complete
+ObjectRefs and schema-required cognitive/unit/WASM children bypass this optional
+filter and still require full integrity and membership. A retained optional
+object that is later absent or corrupt still refuses; a new capture may genuinely
+include an object that an older capture excluded.
+
+Archive schema 13 applies the same optional-membership boundary using its listed
+objects. Legacy archive versions through 12 and predecessor codec 1 keep their
+original semantics. This is an explicit format change, not a retry or a rewrite
+of a previously chosen action, its E1, or its execution permit.
+
+The root gains O(object_count) digest metadata without introducing another page
+tree for the expanded object inventory. Snapshot construction, complete graph
+integrity checks, ancestry/child verification and retained-history growth remain.
+The [predecessor design](control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2)
+records the exact format and regression boundary; this fix claims no measured
+latency or constant-memory improvement.
 
 ### Remaining issue #316 boundaries
 
