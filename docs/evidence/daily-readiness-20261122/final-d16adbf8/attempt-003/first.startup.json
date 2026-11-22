@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "phase": "first",
+  "started_at": "2026-11-22T00:00:21Z",
+  "startup_timeout_seconds": 300,
+  "ready": true,
+  "pid": 1142881,
+  "subject_id": "8aa79664-0cfb-4df0-a8eb-73a0ec2949ab",
+  "elapsed_seconds": 15.915537583001424
+}

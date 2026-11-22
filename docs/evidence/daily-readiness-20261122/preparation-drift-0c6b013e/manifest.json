@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 5146,
+      "sha256": "c7e0a7f96130949edc270ae56625242891e21c05ee2855e55735bb4c5658e666",
+      "encoding": "identity"
+    },
+    {
+      "path": "attempt-001-predecessor-readonly-actions.json.gz",
+      "bytes": 10265,
+      "sha256": "548f6c383d3b4a088846d48f5e74c00b59177df2223102ebc8b6e793c604b236",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 115366,
+      "raw_sha256": "fc13e551a36df9bebbb332fdac0bd7ea5e3e87d1eaccbe96200ee1a1b1dc1ffc"
+    },
+    {
+      "path": "attempt-001-predecessor-readonly-payloads.json.gz",
+      "bytes": 10273,
+      "sha256": "94197522813beb34ff0b39d5afda8aa68076c581a3b95add379108d90fc97be2",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 122765,
+      "raw_sha256": "04c05cc82f50307537329853df9ad9f1f6607ff1093b29633130337ee36a6e7a"
+    },
+    {
+      "path": "attempt-001-predecessor-readonly-schema.json.gz",
+      "bytes": 14286,
+      "sha256": "f184bac38a978b5ab063f9a586769e832bc9d49c4e377c2e449bd0cbe4a17d3e",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 125772,
+      "raw_sha256": "ea22c77a8a63ad41c7cdb125ae57d8b2861a2210e89ee6c374b32dfaac8bd995"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 26821,
+      "sha256": "db59e1ca68b5d00df263422b3aadf7725064df3a97a81f0a57eee36cd3f5c718",
+      "encoding": "identity"
+    }
+  ]
+}

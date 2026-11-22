@@ -1,0 +1,280 @@
+{
+  "schema_version": 1,
+  "source_revision": "972e16ef34213f568eda3b236fc33be50e40d7fb",
+  "scope": "Completed six-target scoped regression run; one real fixture assertion failure retained.",
+  "overall_outcome": "test_failed",
+  "all_passed": false,
+  "counts": {
+    "planned_cargo_invocations": 6,
+    "completed_cargo_invocations": 6,
+    "compile_failed_invocations": 0,
+    "planned_test_executions": 13,
+    "executed_test_cases": 13,
+    "passed_tests": 12,
+    "failed_tests": 1,
+    "ignored_selected_tests": 0,
+    "unexecuted_planned_tests": 0,
+    "outer_result_rows": 6,
+    "nested_result_rows": 0,
+    "filtered_out_not_executed": 285
+  },
+  "checks": [
+    {
+      "label": "native-chain",
+      "planned_tests": 1,
+      "cargo_exit": 101,
+      "test_result": "FAILED",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 48,
+      "executed_test_cases": 1,
+      "outer_summary": [
+        "FAILED",
+        "0",
+        "1",
+        "0",
+        "0",
+        "48",
+        "192.67s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        1
+      ],
+      "libtest_elapsed_seconds": 192.67,
+      "cargo_elapsed_seconds": 217.69444549598848,
+      "log": "native-chain.log.gz",
+      "original_log_bytes": 22930,
+      "original_log_sha256": "43c3921f45e833a1089e4a36e45915eb24d736c744af16f92c4f671db73621b2"
+    },
+    {
+      "label": "preparation-progress",
+      "planned_tests": 1,
+      "cargo_exit": 0,
+      "test_result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 48,
+      "executed_test_cases": 1,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "48",
+        "6.40s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        1
+      ],
+      "libtest_elapsed_seconds": 6.4,
+      "cargo_elapsed_seconds": 6.972676348988898,
+      "log": "preparation-progress.log.gz",
+      "original_log_bytes": 6839,
+      "original_log_sha256": "d64ff60860bf67a447f50a1c03216a1c1733d65b2acf56343c4728d4b84d7ac3"
+    },
+    {
+      "label": "e1-ssh",
+      "planned_tests": 1,
+      "cargo_exit": 0,
+      "test_result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 1,
+      "executed_test_cases": 1,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "1",
+        "123.37s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        1
+      ],
+      "libtest_elapsed_seconds": 123.37,
+      "cargo_elapsed_seconds": 189.01897342002485,
+      "log": "e1-ssh.log.gz",
+      "original_log_bytes": 38861,
+      "original_log_sha256": "967bf160fa3bd35aea746651d677910db568231a115c4e58562952b07744af4c"
+    },
+    {
+      "label": "e1-source",
+      "planned_tests": 1,
+      "cargo_exit": 0,
+      "test_result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 1,
+      "executed_test_cases": 1,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "1",
+        "52.97s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        1
+      ],
+      "libtest_elapsed_seconds": 52.97,
+      "cargo_elapsed_seconds": 53.67475278201164,
+      "log": "e1-source.log.gz",
+      "original_log_bytes": 36009,
+      "original_log_sha256": "1a681b1d844a2fb32541be96a108a9a6b55733b3924c787288a2ad5f0a77f46a"
+    },
+    {
+      "label": "child-e1-reopen",
+      "planned_tests": 1,
+      "cargo_exit": 0,
+      "test_result": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 156,
+      "executed_test_cases": 1,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "156",
+        "9.46s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        1
+      ],
+      "libtest_elapsed_seconds": 9.46,
+      "cargo_elapsed_seconds": 45.76153195297229,
+      "log": "child-e1-reopen.log.gz",
+      "original_log_bytes": 14945,
+      "original_log_sha256": "f9129d024024bbff1bcbdbda05d914e6a74f7b045fea5af761411b90586cc3ff"
+    },
+    {
+      "label": "archive-admission",
+      "planned_tests": 8,
+      "cargo_exit": 0,
+      "test_result": "ok",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered_out": 31,
+      "executed_test_cases": 8,
+      "outer_summary": [
+        "ok",
+        "8",
+        "0",
+        "0",
+        "0",
+        "31",
+        "89.12s"
+      ],
+      "excluded_nested_summaries": [],
+      "run_declarations": [
+        8
+      ],
+      "libtest_elapsed_seconds": 89.12,
+      "cargo_elapsed_seconds": 104.10573939801543,
+      "log": "archive-admission.log.gz",
+      "original_log_bytes": 8321,
+      "original_log_sha256": "b0c6b448e3348ab6cfc83c540d4325446bce37755b810c442f68024b8b4505cb"
+    }
+  ],
+  "host": {
+    "started_at_utc": "2026-11-21T23:02:55Z",
+    "finished_at_utc": "2026-11-21T23:13:14Z",
+    "timestamp_precision_seconds": 1,
+    "exit_code": 1,
+    "collector_cancelled_or_retried": false
+  },
+  "scope_runner": {
+    "started_at_utc": "2026-11-21T23:02:57Z",
+    "finished_at_utc": "2026-11-21T23:13:14Z",
+    "exit_code": 1,
+    "per_cargo_monotonic_seconds_sum": 617.2281193980016,
+    "outer_libtest_seconds_sum": 473.99,
+    "runner": "runner.sh",
+    "runner_sha256": "7f65ae2da2c0021851f5648afa80bce9048ef53d8c2c38203ef7ce39ddf9489c",
+    "source_identity_gate": "Original runner checks exact Git HEAD and clean checkout before Cargo.",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v24.22.1"
+  },
+  "failure": {
+    "label": "native-chain",
+    "classification": "fixture_assertion_failure",
+    "source_file": "crates/shenko-store/tests/store_roundtrip.rs",
+    "line": 3996,
+    "column": 5,
+    "actual_retained_reason": "object closure incomplete: missing 1 object(s)",
+    "expected_reason_substring_at_tested_revision": "anchored E1 predecessor closure is missing or corrupt",
+    "mechanism_basis": "Source inspection: original T1 full-closure validation precedes anchored E1 sealing; original log shows its error retained as seal debt.",
+    "assertions_after_failure_executed": false,
+    "failed_test_reclassified_as_pass": false,
+    "later_correction_verified_by_this_receipt": false
+  },
+  "conditional_release": {
+    "admitted": false,
+    "completed": false,
+    "blocking_reason": "Original runner scope exits 1 under set -e before release section.",
+    "observation": {
+      "observed_at_utc": "2026-11-21T23:14:53.410907+00:00",
+      "scope_original_file_count": 20,
+      "host_original_files": [
+        "anchored-native-972e16ef.host.exit",
+        "anchored-native-972e16ef.host.finished.txt",
+        "anchored-native-972e16ef.host.started.txt"
+      ],
+      "scope_exit": 1,
+      "scope_finished_at_utc": "2026-11-21T23:13:14Z",
+      "host_exit": 1,
+      "host_finished_at_utc": "2026-11-21T23:13:14Z",
+      "release_directory_exists": false,
+      "release_binary_exists": false,
+      "retention_performed_no_build_or_model": true
+    }
+  },
+  "real_model_acceptance": {
+    "invocations_started_by_this_scope": 0,
+    "outcomes_measured": false,
+    "daily_readiness_proved": false
+  },
+  "preservation": {
+    "original_scoped_files": 20,
+    "original_host_files": 3,
+    "all_original_files": 23,
+    "logs_gzip_mtime_zero": 6,
+    "raw_identity_verified_after_transfer": true,
+    "transfer_archive_bytes": 35794,
+    "transfer_archive_sha256": "9a26c6e7a7d2ce6f25a90a3f4ccf2ea33ea805576c05253ca0081468e29a5e50",
+    "source_files_overwritten": false,
+    "remote_checkout_changed_by_collector": false,
+    "new_build_or_model_invocation_by_collector": false,
+    "large_databases_and_cas_copied": false
+  },
+  "limits": [
+    "The native-chain failure remains one failed test; a fixture diagnosis does not convert it into a passing execution.",
+    "Only this exact candidate executed these thirteen tests; any later reuse must explicitly bind identical relevant source.",
+    "Scoped fixture success is separate from actual reference-model journey acceptance."
+  ]
+}

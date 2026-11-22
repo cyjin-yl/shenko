@@ -1,0 +1,18 @@
+{
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "started_at_utc": "2026-11-21T23:49:24.633157+00:00",
+  "interval_seconds": 60,
+  "max_duration_seconds": 7200,
+  "runs": {
+    "ci": [
+      44963143476,
+      "pull_request"
+    ],
+    "nightly": [
+      44963198484,
+      "workflow_dispatch"
+    ]
+  },
+  "script_sha256": "0853a4ae9c8fadb39f4d148d8de465b13419273a794d2b766591cac837192979",
+  "github_mutations": false
+}

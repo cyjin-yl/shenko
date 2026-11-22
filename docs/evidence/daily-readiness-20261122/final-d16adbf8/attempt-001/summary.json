@@ -1,0 +1,156 @@
+{
+  "passed": false,
+  "checks": {
+    "startup_paused_before_inference": true,
+    "input_accepted_before_inference": true,
+    "one_child_of_each_requested_kind": true,
+    "finite_model_child_succeeded": true,
+    "child_model_matches_requested_binding": true,
+    "native_host_process_exact_result": true,
+    "native_effect_observed_once": true,
+    "both_children_have_attempt_and_e1": true,
+    "committed_output_after_child_results": true,
+    "input_durably_accepted": true,
+    "first_request_contains_exact_input": true,
+    "browser_first_input_from_composer": true,
+    "browser_first_durable_receipt": true,
+    "browser_first_input_mode_matches_capability": true,
+    "browser_first_committed_output": false,
+    "browser_no_page_errors": true,
+    "browser_cleanup_complete": true,
+    "final_shutdown_clean": true,
+    "no_child_redelegation_after_restart": true,
+    "original_child_operations_and_attempts_unchanged": true,
+    "original_child_result_bytes_retained": true,
+    "original_child_receipt_bytes_retained": true
+  },
+  "errors": [
+    "journey: Error: Locator.click: Error: strict mode violation: locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True) resolved to 2 elements:\n    1) <div tabindex=\"-1\" role=\"button\" class=\"tab-item\" data-pui-root=\"\" aria-pressed=\"false\" aria-disabled=\"false\" data-collection-index=\"1\" data-collection-total=\"3\" data-pui-a11y-actions=\"activate\" data-pui-style=\"inline-flex items-center justify-center whitespace-nowrap select-none outline-none shrink-0 bg-transparent data-[focus-visible]:z-10 data-[focus-visible]:forced-colors-focus-outline data-[focused]:z-10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-1 rounded-lg text-sm fo…>…</div> aka get_by_role(\"button\", name=\"Inspect\", exact=True)\n    2) <span>Inspect</span> aka locator(\"span\").filter(has_text=\"Inspect\")\n\nCall log:\n  - waiting for locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True)\n"
+  ],
+  "interruptions": [],
+  "browser": {
+    "checks": {
+      "browser_first_input_from_composer": true,
+      "browser_first_durable_receipt": true,
+      "browser_first_input_mode_matches_capability": true,
+      "browser_first_committed_output": false,
+      "browser_no_page_errors": true,
+      "browser_cleanup_complete": true
+    },
+    "observations": {
+      "served_manifest_sha256": "134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89",
+      "first_input_mode": {
+        "socket_id": 1,
+        "hello_index": 3,
+        "capabilities": {
+          "actions": true,
+          "append": true,
+          "attachments": true,
+          "committed_replay": true,
+          "documents": true,
+          "durable_input_receipts": true,
+          "steer": true,
+          "streaming": true,
+          "withdraw": true
+        },
+        "expected_mode": "steer",
+        "submitted_mode": "steer",
+        "accepted_receipt": {
+          "schema_version": 2,
+          "type": "receipt",
+          "submission_id": "59bcc778-2599-47bf-b493-140be89a241e",
+          "stage": "accepted",
+          "mode": "steer",
+          "durability": "durable",
+          "event_id": "baf98bd2-45da-49f6-a258-0d2de2d538fe",
+          "accepted_commit": "7d3610d5-5694-4a1f-98a6-9cd75ef2346d/11",
+          "replayed": false,
+          "placement": {
+            "requested": "steer",
+            "actual": "next_boundary"
+          },
+          "detail": "已持久接纳；已通知当前循环，选入与处置另查回执。"
+        }
+      },
+      "streaming": {
+        "observed": true,
+        "received_stream_parts": 263,
+        "scope": "actual public wire frames only; no stream-quality or latency claim"
+      },
+      "accessibility": {
+        "aria_snapshot_phases": [
+          "opened",
+          "first-submitted",
+          "final"
+        ],
+        "screen_reader_tested": false
+      }
+    },
+    "errors": [],
+    "page_errors": [],
+    "cleanup": {
+      "capture_timeout_seconds": 15,
+      "owner_timeout_seconds": 10,
+      "final_capture": "complete",
+      "context": "complete",
+      "browser": "complete",
+      "driver": "complete"
+    },
+    "interruptions": [],
+    "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"
+  },
+  "last_shutdown": {
+    "parent_exit": 0,
+    "parent_timed_out": false,
+    "clean": true,
+    "interrupted": false,
+    "started": {
+      "utc": "2026-11-21T23:55:59.056414+00:00",
+      "monotonic_ns": 223520717239274
+    },
+    "signal_calls": [
+      {
+        "target": "owned_parent",
+        "id": 1142206,
+        "signal": "SIGINT",
+        "started": {
+          "utc": "2026-11-21T23:55:59.056468+00:00",
+          "monotonic_ns": 223520717264735
+        },
+        "result": "returned",
+        "finished": {
+          "utc": "2026-11-21T23:55:59.056490+00:00",
+          "monotonic_ns": 223520717286036
+        }
+      }
+    ],
+    "group_cleanup": {
+      "pgid": 1142206,
+      "required": false,
+      "forced": false,
+      "signals": [],
+      "complete": true,
+      "after_parent": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "parent_reaped": true
+    },
+    "errors": [],
+    "finished": {
+      "utc": "2026-11-21T23:55:59.408091+00:00",
+      "monotonic_ns": 223521068911048
+    }
+  },
+  "last_exit": 0,
+  "finished_at": "2026-11-21T23:56:00Z",
+  "elapsed_seconds": 281.37076011300087
+}

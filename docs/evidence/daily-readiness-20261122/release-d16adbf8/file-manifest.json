@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4782,
+      "sha256": "59199b8808fa0fa8fa8f430996732f3c874ce0d4282d8c8370ce63681c282237",
+      "encoding": "identity"
+    },
+    {
+      "path": "build.log.gz",
+      "bytes": 7770,
+      "sha256": "58f683951b91f6c0613901e09c8516e17beacef3af0fa9372c4b4665fca745cc",
+      "encoding": "gzip",
+      "gzip_mtime": 0,
+      "raw_bytes": 39292,
+      "raw_sha256": "bce1a0016c190263bf25886a21030e78e3f6c0743f318180d1353d9daa4b143f"
+    },
+    {
+      "path": "cargo.txt",
+      "bytes": 36,
+      "sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "encoding": "identity"
+    },
+    {
+      "path": "exit.txt",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "finished.txt",
+      "bytes": 21,
+      "sha256": "22b51ef6e75226472080219b485a523f2866c96f71914580ea3d0e579255c41c",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/completion.tool.json",
+      "bytes": 847,
+      "sha256": "a043d44e0a0465944e800bbedb20992e25abbd05d1b55ca1d69459c0f1d50f60",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/finished.txt",
+      "bytes": 21,
+      "sha256": "07b986a1727df55e25976fd40cc602caaf9ec08069bace028617fe52d13a731d",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/runner.sh",
+      "bytes": 2267,
+      "sha256": "956d4e5db0d7b7949e0214f083c80c294193f136cf84055a9cca94d2c41dc923",
+      "encoding": "identity"
+    },
+    {
+      "path": "host/started.txt",
+      "bytes": 21,
+      "sha256": "704d213215249b312876044c8b10ea0ce6c2ab7077603747334e09b891b90025",
+      "encoding": "identity"
+    },
+    {
+      "path": "manifest.json",
+      "bytes": 511,
+      "sha256": "c175240d635cd27be869a6410ab2025a19f50cba1cb6b92f84d231e309092388",
+      "encoding": "identity"
+    },
+    {
+      "path": "node.txt",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "identity"
+    },
+    {
+      "path": "preflight.json",
+      "bytes": 4857,
+      "sha256": "82d5aa7ac6c6afb65c03a0138e91cbd4b95ac1b402546b1a057a9536ad99b197",
+      "encoding": "identity"
+    },
+    {
+      "path": "retention-index.json",
+      "bytes": 6772,
+      "sha256": "347c21d282dd98bccc9fa5b9b2802e5ae6791194818eeb866902285de769054e",
+      "encoding": "identity"
+    },
+    {
+      "path": "runner.sh",
+      "bytes": 4759,
+      "sha256": "b890255b4d968205f8b676e2736311574e9e258e4c831a60e9f41932cb44b0aa",
+      "encoding": "identity"
+    },
+    {
+      "path": "rustc.txt",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "identity"
+    },
+    {
+      "path": "started.txt",
+      "bytes": 21,
+      "sha256": "02e5c1a1910852a9ec8304725a49f69a7453154176bb1b0fe4e23af909a13403",
+      "encoding": "identity"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 2311,
+      "sha256": "dda5d8cc9bb49c7a20a3ece53b8cb8b566b2ab5132e4171e5ab5a7a8e9bb1111",
+      "encoding": "identity"
+    }
+  ]
+}

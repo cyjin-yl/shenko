@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Reading last 1 lines (total: 14 lines)]\n\n{\"source_revision\": \"d16adbf89c9f79dfce8ef90d77843412bcda85bf\", \"binary\": \"/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-d16adbf8\", \"bytes\": 90351680, \"sha256\": \"d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce\", \"started_at_utc\": \"2026-11-21T23:42:17Z\", \"finished_at_utc\": \"2026-11-21T23:50:15Z\", \"profile\": \"release\", \"command\": [\"cargo\", \"build\", \"--offline\", \"--locked\", \"--release\", \"-p\", \"shenko\", \"-j4\"]}\n✅ Process completed with exit code 0 (runtime: 482.80s)"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}

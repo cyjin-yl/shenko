@@ -18,6 +18,8 @@
 | 同行 JSON 澄清前的 release | `72fc70d3` | `7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7` | 89865568 |
 | 同行 JSON 澄清后的 release | `9a7be2f8` | `c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15` | 89869664 |
 | native 见证、CAS 目录合批与进程级停止修复后的 release | `cdf71091` | `e1bec856a805687d18250907a39ff999bcf76cfc224f569dba961847ef59459b` | 89994976 |
+| 收窄 native 依赖后的 release | `0c6b013e` | `8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1` | 90162848 |
+| anchored E1、fresh preparation 与 corrected UI 修复后的 release | `d16adbf8` | `d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce` | 90351680 |
 
 Rust 构建运行在实际 `shenko-build-r71` 开发容器，Rust/Cargo 1.98.1，
 使用持久源码、锁文件及共享构建锁。release 使用仓库声明的优化、thin LTO、单 codegen unit
@@ -462,4 +464,123 @@ binding/incarnation 校验不变，也没有放宽三秒条件或把 Unknown 转
 1 passed / 0 failed，执行 12.79 秒，原进程和外层 wrapper 均退出 0。
 be9 的进程成功明确列为复用，未重复运行、未重复计数；这些回执不证明远端模型进程已停止。
 
-固定产品候选仍需取得完整成功浏览器回执和重复运行结果；本记录尚不宣称首条完整真实任务已收口。
+截至上述 `0c6b013e` 观察，完整真实任务仍未收口。后续产品修复和新观察分别记录如下，
+不改写此前的失败分母。
+
+### 让原始 E1 在实际实现工件大小下完成封存
+
+`0c` 的真实效果已经发生，但原 T1 引用的约 90 MB 实现文件使 E1 全闭包超过 64 MiB。
+[新 E1 codec 6](../development/native-e1-incremental-closure.md) 显式引用原始 inner fact，
+并带上由 Store 从事实独立推导的原 T1、source E1 或 first Unknown 前序根。
+每个根都必须已经在本地实际应用，且其完整 typed closure 的长度、摘要和结构校验通过。
+只有这些已验证的确切身份可以退出新对象计数；4,096 个新 typed references 与 64 MiB
+新对象字节的上限保留，旧 codec 1–5 的原语义也保留。
+
+Node 的闭包缓存不能代替 Store 的应用证明。完整缓存仍须查验实际本地前序；缺少缓存时，
+只能从同一 Store 的已验证前序补入，不能从新 E1 传输修复缺失的原前序。
+直接 Store intake 在同一个 IMMEDIATE 事务内检查原前序、验证完整 base，再接纳新增字节、
+执行原事实校验和 fold。新封套没有删除完整图边，archive/GC 仍保留原始实现与历史；
+archive writer 提升到 schema 12，让旧 reader 在发布 payload 前拒绝不支持的能力。
+
+这修正的是 E1 容量与来源边界。完整旧闭包仍会被读取、验证，首次 Node cache fill 仍可能
+复制大对象；不能把它写成历史成本、启动成本或派发延迟已经消失。GC 仍未激活，
+旧版本完整回退和混合版本 Node 运行也未由此完成。
+
+### 准备中的主体推进与已经取得的 claim 分开处理
+
+[原 `0c001` 只读审计](daily-readiness-20261122/preparation-drift-0c6b013e/README.md)
+保留了主体 S1 推进与下一次 native 准备交错的证据，同时说明原错误缺少 action ID，
+不能将关闭后账本伪装成当时的完整调用栈。产品现在只把同一 authority 下、尚未 chosen 的
+fresh preparation 头部推进识别为 typed `ControlPreparationChanged`，交回正常 250 ms
+调度周期重新准备。损坏输入、缺失事实、authority 变化、同 revision 内容变化以及已冻结的
+prepared/chosen 准入错误仍然失败，不通过通用 conflict 重试吸收。
+
+若同步结果已经取得原 claim，随后 T2 的 fresh preparation 遇到同类推进，则按原
+claim revision 停放一次，保留原 operation、E1 与恢复路径。停放本身失败或没有实际取得
+停放时，`NativeClaimNeedsRecovery` 先于可延后/停止分支处理，错误继续向上传递。
+这不会重新赋予物理执行权，也不会把 Unknown 改为成功。
+现有并发准备回归与 child 原 E1 重开回归已运行；没有新增一个强制制造
+“已 claim 后 fresh drift”全部交错的独立测试，不能将已有成功扩大为这个窗口的专门实测。
+
+### 新封存路径的实际回归与原失败
+
+[`01bc98bb` 的原记录](daily-readiness-20261122/scoped-01bc98bb/README.md)
+保留六次 Cargo 编译失败：计划覆盖 13 项，实际执行零项。随后两处显式闭包修正了
+`sort_by_key` 的高阶生命周期推导，没有修改产品判据。
+
+[`972e16ef` 的原完整定向记录](daily-readiness-20261122/scoped-972e16ef/README.md)
+中，13 项实际执行，12 项通过、1 项失败。失败的 native 链已经走过 129 MiB 无关历史、
+原 T1 中真实 64 MiB 加一字节的实现工件，以及 chosen T2 回复丢失后的恢复与无重复效果。
+后续损坏原工件的窗口被更早的原 T1 完整闭包校验拒绝，实际错误是
+`object closure incomplete: missing 1 object(s)`；fixture 却还期待后一步 anchored E1 的报错。
+该条断言之后的检查当时没有执行，因此原测试仍为失败，release 被门禁阻止。
+
+`9bcab2b0` 只把这一断言改为确切 typed `ObjectClosureIncomplete { missing_count: 1 }`
+的错误文本；保留损坏拒绝、恢复原字节后原 E1/seal debt 不变、T2 继续拒绝及效果不重复。
+整合后的 `4a5b88aa` [单项实际重跑](daily-readiness-20261122/scoped-native-chain-4a5b88aa/README.md)
+通过：1 passed、0 failed，libtest 184.73 秒、Cargo 188.382 秒。其它生产文件与 `972e`
+逐字节一致，因此复用该来源上的 12 项通过；没有宣称全部 13 项在 `4a` 重新执行。
+
+### 修正后的正式正文取代旧流式正文
+
+[独立 `0c` 语义审计](daily-readiness-20261122/final-0c6b013e-semantic-audit/README.md)
+逐一核对 7 个原主体请求、5 份正常 provider 输出和 4 段真正提交的正文，未发现这些
+等待/纠错正文预支两个 child 的成功结果。它同时证实第三轮收到了正确绑定的
+`text/0@<commit_ref>` 帧，但最终 DOM 仍显示同一消息的旧 `text/0` 流。
+收到正确帧和显示正确正文是不同证据，原第三轮截图没有被当成成功。
+
+`ef2256e1` 按既有 Web §1.1 修正 reducer：只替换同一 message/step 的未提交 base 或
+同一 commit 的 base，保留实际 corrected part ID 和提交身份；不同消息、part、提交引用
+仍隔离，迟到旧流和同提交 base 重放不能复活旧正文。原 stream/request/attempt ID 不会
+被借给新 corrected 身份，§5.2 的静默轮次归类、服务端 wire、提示词和 parser 均未改。
+
+[原生产 reducer 的实际复现](daily-readiness-20261122/ui-corrected-ef2256e1/README.md)
+在同一既有测试中执行两种到达顺序，结果 0 passed / 1 failed；没有新增测试函数。
+修复后的实际 producer 与独立 fresh rebuild 都构建固定上游的 42 个 public packages，
+通过类型检查和同一组 51 项前端测试。12 个静态 payload 的成员及字节完全一致；这是
+同一 51 项执行两次，不能计成 102 个不同测试。
+[独立源字节审计](daily-readiness-20261122/ui-corrected-1cbed-independent-audit.json)
+另外核对原包、gzip 原字节、53 个 web 输入和生成资产，不声称独立重算了全部 13,502 个
+上游输入。后者的保全由实际生成 runner 的原回执支持。
+
+### `d16adbf8` 固定二进制
+
+[`d16adbf8` 的原 release 回执](daily-readiness-20261122/release-d16adbf8/README.md)
+记录精确源码 `d16adbf89c9f79dfce8ef90d77843412bcda85bf`，实际 build 时间为
+2026-11-21 23:42:17–23:50:15 UTC。Cargo 原行是 7m 58s，秒级 build 时间跨度 478 秒，
+宿主 start/finish 跨度 482 秒，原工具报告 482.80 秒；这些是不同测量边界。
+90,351,680 字节的 release 二进制及 12 个实际静态 payload 均有身份记录。
+构建没有重新执行定向测试，也没有把上述复用的成功改记成本次运行。
+
+### `d16adbf8` 的完整回归通过，真实旅程仍为 0/3
+
+[完整 CI / Nightly 原回执](daily-readiness-20261122/ci-nightly-d16adbf8/README.md)
+记录常规六项和夜间两项均自然成功。CI 实际测试的是 GitHub 合并提交 `5f4b34ed`，
+Nightly 直接测试 `d16adbf8`；两者不能混写为同一个 checkout。两次 Rust workspace
+各为外层 1,240 passed、0 failed、11 ignored，19 条嵌套子进程结果另列。
+Nightly 的三个显式长测试各通过一项，完整编译器为 183 个套件通过、2 个跳过，
+2,913 个测试通过、9 个跳过。原 Chromium 沙箱开启，没有用关闭沙箱绕过环境缺口。
+
+[固定二进制的三轮浏览器原件](daily-readiness-20261122/final-d16adbf8/README.md)
+则明确保留 **0/3 完整旅程通过**：
+
+| 轮次 | 实际观察 | 完整旅程边界 |
+| --- | --- | --- |
+| 001 | 两个真实 T2 已被最终回答的 sealed input 消费，浏览器可见正确结果 | Inspect 定位同时匹配按钮和内部 span，暂停/重启尚未达到 |
+| 002 | 两个任务完成，但旧自动门选中的正文仍在等待；它的原请求未包含这两个结果 | 同样被 Inspect 定位阻断；原中间 checks 的假阳性不算语义通过 |
+| 003 | printf 原效果成功，随后 chosen T2 的前序闭包校验失败，缺少本地 applied marker | 父进程退出 1；模型观察 Unknown 与原错误保留 |
+
+三轮均完整收尾且进程组回收，不能以此把第三轮产品错误或未完成旅程记成通过。
+原批次的分母、各轮 checks、原 E1、未知结果和日志不因后续修复而改写。
+最终回答的后续验收需要核对同一个决定的实际输入：完整原 TaskResult 必须既出现在
+封存 provider payload，又绑定到新事件或封存历史前缀；稍后全局账本中的结果不能
+倒填进旧请求。重启后的回答还须实际消费下一条已接受消息。
+
+第三轮的闭库 CAS 诊断进一步定位到晚到的可选 bare digest 对象：原前序在
+00:05:03 UTC 封存 238 个对象，00:05:06.981 UTC 发布的 child input 被嵌套
+`contract_digest` 提示发现，原 reader 重建为 239 个对象且没有 missing。
+这解释了该次完整性错误；它不证明所有前序成本或历史增长问题已经解决。
+后续固定成员格式仍须保留完整必需闭包、精确成员、原指纹及旧 reader 语义。
+
+本记录仍未取得暂停、重启和下一条消息全部成功的真实模型旅程；修复后的新候选
+需要独立批次和对应源码、二进制、观察器身份，不能复用本批次为成功回执。

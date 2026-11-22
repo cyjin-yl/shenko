@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Reading last 1 lines (total: 1 lines)]\n\n{\"archive\": \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8-supplement.tar.gz\", \"bytes\": 74705, \"sha256\": \"b6ee1d651391f66c2a3e4e6402ec2699821bc5816f7270f69e56de29cadec0c3\", \"original_files\": 8, \"files\": 12, \"chunks\": 7, \"chunk_root\": \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8-supplement-transfer\", \"timing\": {\"schema_version\": 1, \"command\": [\"/usr/bin/python3\", \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8-supplement/observer/summarize_request_timing.py\", \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-001/first.runtime.log\", \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-002/first.runtime.log\", \"/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/first.runtime.log\"], \"exit_code\": 0, \"tool_sha256\": \"0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7\", \"scope_count\": 1920, \"complete_count\": 1920, \"incomplete_count\": 0, \"invalid_events\": [], \"observed_dropped_events\": [], \"interpretation\": \"Only a timing parser invocation over already closed original logs. Matched scope ends do not prove a successful operation, physical send or full journey.\"}}\n✅ Process completed with exit code 0 (runtime: 0.23s)"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}
