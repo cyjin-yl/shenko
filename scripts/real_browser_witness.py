@@ -338,6 +338,28 @@ class BrowserWitness:
     async def finish_journey(self):
         # Replay can arrive after hello and after the first paint. Recheck the
         # original facts after the continued model result, on the same page.
+        # observe_output just switched from Inspect back to the conversation.
+        # Compiled bubbles mount their content after that click returns. Wait
+        # within the existing 15-second UI boundary for the same strict
+        # identity/count/text predicate, then retain a fresh DOM observation.
+        self.checks["browser_existing_messages_retained_once_at_finish"] = False
+        expected = [{"key": row["key"], "text": row["text"]}
+                    for row in self.before_restart["rows"] if row["stable_fact"]]
+        rendering = {"timeout_seconds": 15, "ready": False}
+        self.observations["final_conversation_render"] = rendering
+        started = time.monotonic()
+        try:
+            await self.page.wait_for_function("""expected => {
+                const rows = [...document.querySelectorAll('.im-scroll .im-msg[data-message-key]')];
+                return expected.length > 0 && expected.every(old => {
+                    const matches = rows.filter(row => row.dataset.messageKey === old.key);
+                    return matches.length === 1 &&
+                        (matches[0].querySelector('.im-line') ?? matches[0]).innerText === old.text;
+                });
+            }""", arg=expected, timeout=15000)
+            rendering["ready"] = True
+        finally:
+            rendering["elapsed_seconds"] = time.monotonic() - started
         state = await self.capture("journey-finished")
         self.checks["browser_existing_messages_retained_once_at_finish"] = self.stable_messages_match(state)
 

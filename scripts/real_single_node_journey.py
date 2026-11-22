@@ -702,6 +702,9 @@ def accepted_receipt(messages, submission):
 async def admit_then_resume(args, ws, browser, process, data_dir, phase, submission, boundary_id, prior_requests):
     facts, messages = await collect(ws, process, data_dir, args.evidence_dir / f"{phase}.websocket.jsonl", 30,
         lambda _facts, observed: accepted_receipt(observed + (browser.received() if browser else []), submission) is not None)
+    # Preserve this connection's observations before adding the page's full
+    # history. Only this fresh socket receives the explicit replay below.
+    wire_messages = messages.copy()
     if browser:
         messages.extend(browser.received())
     accepted = accepted_receipt(messages, submission)
@@ -711,7 +714,7 @@ async def admit_then_resume(args, ws, browser, process, data_dir, phase, submiss
     resumed = await runtime_control(args, data_dir, "resume", boundary_id)
     if resumed.get("state") != "resumed":
         raise AssertionError("public runtime resume did not release the original boundary")
-    return accepted, messages
+    return accepted, messages, wire_messages
 
 
 def first_request_contains_input(data_dir, facts, prior_requests, accepted, submission):
@@ -817,7 +820,7 @@ async def run(args):
             else:
                 await ws.send(json.dumps(submission, ensure_ascii=False))
             save(args.evidence_dir / "first.input.json", submission)
-            accepted, initial_messages = await admit_then_resume(args, ws, browser, process, data_dir,
+            accepted, initial_messages, _ = await admit_then_resume(args, ws, browser, process, data_dir,
                 "first", submission, startup_boundary, set())
             summary["checks"]["input_accepted_before_inference"] = True
             first, messages = await collect(ws, process, data_dir, args.evidence_dir / "first.websocket.jsonl", args.timeout,
@@ -893,7 +896,7 @@ async def run(args):
             else:
                 await ws.send(json.dumps(resumed_input, ensure_ascii=False))
             save(args.evidence_dir / "restart.input.json", resumed_input)
-            resumed_accepted, initial_messages = await admit_then_resume(args, ws, browser, process, data_dir,
+            resumed_accepted, initial_messages, replay_wire = await admit_then_resume(args, ws, browser, process, data_dir,
                 "restart", resumed_input, restart_boundary, prior_requests)
             summary["checks"]["continued_input_accepted_before_inference"] = True
             def continued(facts, messages):
@@ -904,6 +907,7 @@ async def run(args):
                                              accepted=resumed_accepted, submission=resumed_input)["consumed"]
                     for row in facts.get("decisions", []))
             after, messages = await collect(ws, process, data_dir, args.evidence_dir / "restart.websocket.jsonl", args.timeout, continued)
+            replay = accepted_receipt(replay_wire + messages, submission)
             messages = initial_messages + messages
         save(args.evidence_dir / "restart.ledger.json", after)
         summary["checks"]["model_continued_prior_context"] = continued(after, messages)
@@ -911,7 +915,7 @@ async def run(args):
             data_dir, after, prior_requests, resumed_accepted, resumed_input)
         summary["checks"]["original_results_retained"] = before_ids <= {row["task_id"] for row in after.get("task_results", [])}
         summary["checks"].update(evaluate_recovery(recovery_baseline, after))
-        replay = next((row for row in messages if row.get("type") == "receipt" and row.get("submission_id") == submission["submission_id"]), None)
+        summary["replayed_input_receipt"] = replay
         summary["checks"]["replayed_input_same_event"] = bool(accepted and replay and replay.get("replayed") is True
             and replay.get("event_id") == accepted.get("event_id") and replay.get("accepted_commit") == accepted.get("accepted_commit"))
         summary["checks"]["same_branch_after_restart"] = after["subject_branch_heads"][0]["data"]["branch_id"] == head["branch_id"]

@@ -167,7 +167,7 @@ async def observe(args, case, models):
                 **journey.observer_websocket_options(args.timeout)) as ws:
             await ws.send(json.dumps(submission, ensure_ascii=False))
             journey.save(args.evidence_dir / "submission.json", submission)
-            accepted, _ = await journey.admit_then_resume(args, ws, None, process, data_dir,
+            accepted, _, _ = await journey.admit_then_resume(args, ws, None, process, data_dir,
                 "first", submission, boundary, set())
             if (accepted.get("schema_version") != 2 or accepted.get("durability") != "durable"
                     or accepted.get("mode") != submission["mode"] or accepted.get("replayed") is not False
