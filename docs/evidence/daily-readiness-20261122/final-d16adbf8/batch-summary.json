@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "startup_timeout_seconds": 300,
+  "requested_runs": 3,
+  "runs": [
+    {
+      "attempt": 1,
+      "directory": "attempt-001",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: Error: Locator.click: Error: strict mode violation: locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True) resolved to 2 elements:\n    1) <div tabindex=\"-1\" role=\"button\" class=\"tab-item\" data-pui-root=\"\" aria-pressed=\"false\" aria-disabled=\"false\" data-collection-index=\"1\" data-collection-total=\"3\" data-pui-a11y-actions=\"activate\" data-pui-style=\"inline-flex items-center justify-center whitespace-nowrap select-none outline-none shrink-0 bg-transparent data-[focus-visible]:z-10 data-[focus-visible]:forced-colors-focus-outline data-[focused]:z-10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-1 rounded-lg text-sm fo…>…</div> aka get_by_role(\"button\", name=\"Inspect\", exact=True)\n    2) <span>Inspect</span> aka locator(\"span\").filter(has_text=\"Inspect\")\n\nCall log:\n  - waiting for locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True)\n"
+      ],
+      "summary_sha256": "3a59e65c563a2d86cec0ff7724f94293d1a027a4fa638e24cdd6afd9320c727b",
+      "exit_code": 1,
+      "elapsed_seconds": 281.37076011300087
+    },
+    {
+      "attempt": 2,
+      "directory": "attempt-002",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: Error: Locator.click: Error: strict mode violation: locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True) resolved to 2 elements:\n    1) <div tabindex=\"-1\" role=\"button\" class=\"tab-item\" data-pui-root=\"\" aria-pressed=\"false\" aria-disabled=\"false\" data-collection-index=\"1\" data-collection-total=\"3\" data-pui-a11y-actions=\"activate\" data-pui-style=\"inline-flex items-center justify-center whitespace-nowrap select-none outline-none shrink-0 bg-transparent data-[focus-visible]:z-10 data-[focus-visible]:forced-colors-focus-outline data-[focused]:z-10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-1 rounded-lg text-sm fo…>…</div> aka get_by_role(\"button\", name=\"Inspect\", exact=True)\n    2) <span>Inspect</span> aka locator(\"span\").filter(has_text=\"Inspect\")\n\nCall log:\n  - waiting for locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True)\n"
+      ],
+      "summary_sha256": "a24046cf82cae9270eddd4a7785673129802792256e1135d9f64d7f77a28cbe2",
+      "exit_code": 1,
+      "elapsed_seconds": 259.7125566700124
+    },
+    {
+      "attempt": 3,
+      "directory": "attempt-003",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "summary_sha256": "864b466bcf6208f0dc1fdb0096fe80f6f18e502ad0637d6b7e5d0ec03bac489b",
+      "exit_code": 1,
+      "elapsed_seconds": 289.6011206909898
+    }
+  ],
+  "passed": false,
+  "errors": [],
+  "started_at": "2026-11-21T23:51:18Z",
+  "attempted_runs": 3,
+  "completed_runs": 3,
+  "passed_runs": 0,
+  "failed_runs": 3,
+  "unattempted_runs": 0,
+  "success_rate": 0.0,
+  "binary_sha256": "d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce",
+  "model_card": {
+    "id": "swift-qwen3.8-27b-nvfp4",
+    "object": "model",
+    "owned_by": "vllm",
+    "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+    "parent": null,
+    "max_model_len": 409600
+  },
+  "model_card_non_identity_fields": [
+    "permission",
+    "created"
+  ],
+  "model_url": "http://10.10.10.11:8000",
+  "finished_at": "2026-11-22T00:05:11Z"
+}
