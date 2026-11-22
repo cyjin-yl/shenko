@@ -29,11 +29,31 @@ fn invalid(line: u64, reason: &str) -> ShenkoError {
     .into()
 }
 
+/// Keep the original typed parse cause in durable R0 feedback. A complete
+/// JSON object can still contain an invalid UUID, missing field or unknown
+/// enum value; reporting all of these as an object-syntax error misdirects
+/// the next correction. Parsing and the subsequent semantic checks stay
+/// identical to the direct `from_str` calls.
+fn parse_json<T: serde::de::DeserializeOwned>(
+    value: &str,
+    line_no: u64,
+    control: &str,
+) -> Result<T, ShenkoError> {
+    serde_json::from_str(value).map_err(|error| {
+        let category = match error.classify() {
+            serde_json::error::Category::Io => "read",
+            serde_json::error::Category::Syntax => "syntax",
+            serde_json::error::Category::Data => "field/type",
+            serde_json::error::Category::Eof => "incomplete",
+        };
+        invalid(line_no, &format!("{control} JSON {category} error: {error}"))
+    })
+}
+
 /// `[dispose] {"event_id":..., ...}` — the subject's authored disposition of
 /// one input event selected into this step's S0.
 pub(super) fn parse_disposition(value: &str, line_no: u64) -> Result<DispositionSpec, ShenkoError> {
-    let spec: DispositionSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "dispose requires one JSON object"))?;
+    let spec: DispositionSpec = parse_json(value, line_no, "dispose")?;
     if spec.event_id == EntityId::nil() {
         return Err(invalid(line_no, "dispose requires the durable event id"));
     }
@@ -57,8 +77,7 @@ pub(super) fn parse_disposition(value: &str, line_no: u64) -> Result<Disposition
 /// `[obligation] {...}` — a durable obligation read back into later S0
 /// projections until completed or cancelled.
 pub(super) fn parse_obligation(value: &str, line_no: u64) -> Result<ObligationSpec, ShenkoError> {
-    let spec: ObligationSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "obligation requires one JSON object"))?;
+    let spec: ObligationSpec = parse_json(value, line_no, "obligation")?;
     if spec.description.trim().is_empty() {
         return Err(invalid(line_no, "obligation description must not be blank"));
     }
@@ -73,8 +92,7 @@ pub(super) fn parse_obligation_terminal(
     value: &str,
     line_no: u64,
 ) -> Result<ObligationTerminalChange, ShenkoError> {
-    let change: ObligationTerminalChange = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "obligation:terminal requires target, terminal state and reason JSON"))?;
+    let change: ObligationTerminalChange = parse_json(value, line_no, "obligation:terminal")?;
     if change.obligation_id == EntityId::nil() || change.reason.trim().is_empty() {
         return Err(invalid(line_no, "obligation:terminal requires a durable target and nonblank reason"));
     }
@@ -83,8 +101,7 @@ pub(super) fn parse_obligation_terminal(
 
 /// `[dialogue] {...}` — an authored turn to a durable task.
 pub(super) fn parse_dialogue(value: &str, line_no: u64) -> Result<DialogueSpec, ShenkoError> {
-    let spec: DialogueSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "dialogue requires one JSON object"))?;
+    let spec: DialogueSpec = parse_json(value, line_no, "dialogue")?;
     if spec.target_task_id == EntityId::nil() {
         return Err(invalid(line_no, "dialogue requires the target task id"));
     }
@@ -110,8 +127,7 @@ pub(super) fn parse_dialogue(value: &str, line_no: u64) -> Result<DialogueSpec, 
 /// it names the silenced sources and a review time, never an unbounded
 /// silent switch.
 pub(super) fn parse_dnd(value: &str, line_no: u64) -> Result<AttentionSpec, ShenkoError> {
-    let spec: AttentionSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "dnd requires one JSON object"))?;
+    let spec: AttentionSpec = parse_json(value, line_no, "dnd")?;
     if spec.reason.trim().is_empty() {
         return Err(invalid(line_no, "attention decision requires a reason"));
     }
@@ -131,8 +147,7 @@ pub(super) fn parse_dnd(value: &str, line_no: u64) -> Result<AttentionSpec, Shen
 /// loop binds it to the selected event and the store re-checks that binding
 /// at S1, so a fabricated key cannot enter the decision.
 pub(super) fn parse_steer(value: &str, line_no: u64) -> Result<SteerSpec, ShenkoError> {
-    let spec: SteerSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "steer requires one JSON object"))?;
+    let spec: SteerSpec = parse_json(value, line_no, "steer")?;
     if spec.submission_id.trim().is_empty() {
         return Err(invalid(line_no, "steer requires the submission key"));
     }
@@ -147,8 +162,7 @@ pub(super) fn parse_steer(value: &str, line_no: u64) -> Result<SteerSpec, Shenko
 /// The request is durable and visible; whether this installation can serve
 /// it is a fact the subject sees in its next step.
 pub(super) fn parse_policy(value: &str, line_no: u64) -> Result<PolicySpec, ShenkoError> {
-    let spec: PolicySpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "policy requires one JSON object"))?;
+    let spec: PolicySpec = parse_json(value, line_no, "policy")?;
     if spec.description.trim().is_empty() {
         return Err(invalid(line_no, "policy request requires a description"));
     }
@@ -159,8 +173,7 @@ pub(super) fn parse_policy(value: &str, line_no: u64) -> Result<PolicySpec, Shen
 }
 
 pub(super) fn parse_reconcile(value: &str, line_no: u64) -> Result<ReconcileSpec, ShenkoError> {
-    let spec: ReconcileSpec = serde_json::from_str(value)
-        .map_err(|_| invalid(line_no, "reconcile requires one JSON object"))?;
+    let spec: ReconcileSpec = parse_json(value, line_no, "reconcile")?;
     if spec.case_id == EntityId::nil() {
         return Err(invalid(line_no, "reconcile requires the case id"));
     }
