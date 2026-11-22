@@ -1,0 +1,28 @@
+{
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "scoped_source_revision": "95cdc272866a5f31cedb790d263761523e9b0e2c",
+  "scoped_summary_sha256": "edf76bbeaec0ab7a03fb9de1487382ee89b2683a3c458ee89a1dd717efc4b0dc",
+  "scoped_executions_passed": 10,
+  "scoped_targets": 3,
+  "changed_paths_since_scoped_source": [
+    "docs/development/canonical-capture-budget.md",
+    "docs/development/canonical-native-first-claim.md",
+    "docs/development/control-predecessor-publication.md",
+    "docs/development/native-e1-incremental-closure.md",
+    "docs/development/real-single-node-journey.md",
+    "docs/evidence/daily-readiness-20261122/observer-result-consumption/receipt.json",
+    "docs/evidence/daily-readiness-20261122/observer-result-consumption/unittest.log.gz",
+    "docs/specs/durable-state.md",
+    "scripts/fixtures/journey-output-consumption/README.md",
+    "scripts/fixtures/journey-output-consumption/attempt-001.input-plan.json.gz",
+    "scripts/fixtures/journey-output-consumption/attempt-002.input-plan.json.gz",
+    "scripts/fixtures/journey-output-consumption/cases.json",
+    "scripts/real_browser_witness.py",
+    "scripts/real_single_node_journey.py",
+    "scripts/real_single_node_journey_test.py"
+  ],
+  "static_inventory_verified": 12,
+  "static_manifest_sha256": "134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89",
+  "product_tree_identical_to_scoped_source": true,
+  "model_journey_tested": false
+}
