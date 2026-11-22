@@ -24,6 +24,14 @@ message. Those perturbations exercise the observer; they are not newly sealed
 Store facts, provider responses or additional real-model outcomes. No prompt,
 budget, timeout, output wording or product state is changed by this fixture.
 
+The same test also derives an observer-only retry identity projection from
+001: a new active request/attempt retains the original sealed plan, payload
+and provider digests, and a later creation commit. The original attempt must
+still exist; removing it is refused. This models the identity relationship
+used by `RetryPending`, without asserting that the original successful run
+actually retried or creating another real provider execution. Its original
+creation boundary, rather than the later retry, limits result availability.
+
 The [source-bound comparison and test receipt](../../../docs/evidence/daily-readiness-20261122/observer-result-consumption/receipt.json)
 retains the old observer accepting 002 and the fixed observer rejecting it,
 while both accept 001's genuine input consumption. Its sibling `unittest.log.gz`

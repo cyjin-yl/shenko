@@ -151,13 +151,37 @@ def output_input_evidence(data_dir, facts, output, results, *, accepted=None, su
             or decision.get("step_id") != step.get("step_id")
             or attempt.get("request_id") != request_id
             or attempt.get("step_id") != step.get("step_id")
+            or step.get("active_attempt_id") not in (None, attempt.get("attempt_id"))
             or step.get("input_plan_ref") != reference
             or attempt.get("input_plan_ref") != reference):
         return evidence
     plan = read_cas(data_dir, reference)
-    if plan.get("request_id") != request_id or plan.get("step_id") != step["step_id"]:
+    # RetryPending arms a new request/attempt but keeps the immutable S0.
+    # Bind its original identity as well as the selected active attempt; a
+    # later retry must not supply a later availability boundary for this seal.
+    original = next((row["data"] for row in facts.get("subject_request_attempts", [])
+                     if row["request_id"] == plan.get("request_id")), None)
+    if (plan.get("step_id") != step["step_id"] or not original
+            or original.get("request_id") != plan.get("request_id")
+            or original.get("step_id") != step["step_id"]
+            or original.get("agent_id") != attempt.get("agent_id")
+            or original.get("input_plan_ref") != reference
+            or not original.get("payload_digest")
+            or original["payload_digest"] != attempt.get("payload_digest")
+            or not original.get("provider_binding_digest")
+            or original["provider_binding_digest"] != attempt.get("provider_binding_digest")):
+        return evidence
+    created, active_created = original["created_commit"], attempt["created_commit"]
+    if (created["ledger_id"] != active_created["ledger_id"]
+            or created["seq"] > active_created["seq"]
+            or (original["request_id"] != request_id
+                and (created["seq"] == active_created["seq"]
+                     or original["attempt_id"] == attempt["attempt_id"]))):
         return evidence
     evidence["input_identity_matches"] = True
+    evidence["sealed_request_id"] = original["request_id"]
+    evidence["sealed_request_created_commit"] = created
+    evidence["active_request_created_commit"] = active_created
     source = plan.get("context", {}).get("source", {})
     history = [row for row in facts.get("session_events", [])
                if row.get("session_id") == source.get("scope_id")
@@ -194,7 +218,7 @@ def output_input_evidence(data_dir, facts, output, results, *, accepted=None, su
                 exact_result = False
             if exact_result:
                 matches.append({"message_index": mi, "part_index": pi})
-        created, committed = attempt["created_commit"], result["commit_ref"]
+        committed = result["commit_ref"]
         available_before_seal = (created["ledger_id"] == committed["ledger_id"]
                                  and created["seq"] > committed["seq"])
         evidence["results"].append({"task_id": result["task_id"], "result_id": result["result_id"],
@@ -219,7 +243,6 @@ def output_input_evidence(data_dir, facts, output, results, *, accepted=None, su
         expected = f"[event {accepted['event_id']}] [web_ui] {submission['content']}"
         matches = [{"message_index": mi, "part_index": pi} for mi, pi, text in parts if text == expected]
         ledger, sequence = accepted["accepted_commit"].rsplit("/", 1)
-        created = attempt["created_commit"]
         bound = (accepted.get("submission_id") == submission["submission_id"]
                  and attempt.get("agent_id") == submission["subject_id"]
                  and created["ledger_id"] == ledger and created["seq"] > int(sequence)
