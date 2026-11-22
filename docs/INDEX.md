@@ -18,6 +18,7 @@
 - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)：Issue #297 的可选安装、公开身份托管、节点凭据、原生账号/API/UCP 接口与未知结果恢复边界。
 - [DSH 工具插件兼容 v0](specs/ecosystem-adapters.md#dsh-tool-compat-v0)：2026-11-20 作者请求的部分插件复用；可选 Node/Cordis 工具宿主经既有 MCP 接入，支持范围、安装与验证边界见[使用说明](../adapters/dsh/README.md)。
 - [可选外部历史研究](specs/external-history.md)：Obelisk 查询、完整原文归档、可追溯引用；[实施 TODO 与验收](development/obelisk-history.md)。
+- [持续学习与联邦学习研究储备](research/federated-continual-learning.md)：源码边界、同基座聚合与异构迁移、一手文献、离线代数探针及后续实验；研究准备不代表参数训练或效果验收已完成。
 - [工作区工具组合](specs/workspace-tools.md)：读取、搜索、创建及可配置的 replace / hashline 编辑插件；[暂定默认、可运行诊断与证据](development/workspace-tool-defaults.md)。
 - [完整交付合同](governance/COMPLETION.md)：正式范围及证据等级。
 - [后台自我修改与即时消息优先](specs/subject-runtime.md#background-self-modification-and-interactive-ingress--2026-11-17)：2026-11-17 作者明确要求，消息持久接入、有限后台任务、真实打断边界与主体故障隔离。
