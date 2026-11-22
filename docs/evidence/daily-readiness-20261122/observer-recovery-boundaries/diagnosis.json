@@ -1,21 +1,21 @@
 {
   "schema_version": 1,
-  "checked_observer_revision": "ba0cc20b1b0867a55ab367fb70817783026da673",
+  "checked_observer_revision": "c5f379230d87d4b6a609e802a681624d7c710b75",
   "checked_source_files": {
     "scripts/real_single_node_journey.py": {
-      "bytes": 63185,
-      "sha256": "db7e45f41c967c9cf748994c36484526dfffcb86709c2bdc277be451b27eb034"
+      "bytes": 63147,
+      "sha256": "1a2f3f29df060510cda675fdd8c62e8fea1af248dcc7948e4c43dd5f3356be60"
     },
     "scripts/real_browser_witness.py": {
-      "bytes": 24312,
-      "sha256": "8b5cd75953758708a9935f2a6d193fd1803f98a8c3f4377e446dd86cf900bfbd"
+      "bytes": 25898,
+      "sha256": "e4a155c1697525bb9a103c8d0c3ef2d8064fa5a55db83f776f2f1a174964e966"
     },
     "scripts/real_protocol_observation.py": {
       "bytes": 21278,
       "sha256": "080645216f56635773d28391a8dac930df3c64aaff37b5e6c569695f84b47271"
     }
   },
-  "derivation_sha256": "59c79bea328c1b81fe44e2415952f87322b6062c52834ca4a10487eed17c5539",
+  "derivation_sha256": "ba27bbe8e880d000b5145e519a99b6a896c18cff08d05ffb47841209eda0cb6f",
   "original_binary_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
   "original_observer_revision": "e537896f771233ea2b8d01758b3acb86fb0c6345",
   "original_attempt_passed": false,
@@ -47,6 +47,18 @@
     "browser/final.dom.json": {
       "bytes": 4883,
       "sha256": "70a0008f356ad49926f62fbba6751a3037c2b3c4c8cab9f38ea787daf3a8b174"
+    },
+    "first.ledger.json": {
+      "bytes": 1919092,
+      "sha256": "b24d5f58ae1839b1358927fd1ff6aae7ef98e60f216f4519eecb0618a2a10607"
+    },
+    "restart.ledger.json": {
+      "bytes": 2476591,
+      "sha256": "20ed196c1e0735de91aa44c0f179dd687448df0e57ff5093392161cd7908d682"
+    },
+    "browser/restart-output.aria.yml": {
+      "bytes": 7046,
+      "sha256": "599d80dbd578afbf68e8a70e7e2db2e073be4bff1cfc791ebb6e1acf33b23bd8"
     }
   },
   "accepted_receipt": {
@@ -210,6 +222,117 @@
           "offset": 554.984375,
           "visible": true,
           "stable_fact": false
+        }
+      ]
+    }
+  },
+  "selected_output_delivery": {
+    "first": {
+      "step_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+      "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+      "committed_content": "两个真实回执本輪都到了，等待条件成立：\n\n- 计算 child（task 863cb73a，模型 swift-qwen3.8-27b-nvfp4）outcome=succeeded，termination=completed，answer 与 transcript 均为 **437**（恰为 19×23 的正确乘积，非我模拟，是回执原值）。\n- host.printf child（task a5e5e9b0）outcome=succeeded，exit_code=0、stderr 为空、exact_postcondition=true，stdout 原样回显 **S1-3bb963699812**。\n\n由此报告：计算结果 437，标记回显 S1-3bb963699812，均出自本轮真实 task_result 回执，无提前宣称。原事件可認知结，持久义务随之完成。\n\n",
+      "original_browser_check": true,
+      "actual_page_committed_frames": [
+        {
+          "index": 903,
+          "elapsed_seconds": 666.9562104729994,
+          "kind": "frame",
+          "direction": "received",
+          "socket_id": 1,
+          "message": {
+            "schema_version": 2,
+            "type": "timeline_part",
+            "role": "subject",
+            "content": "两个真实回执本輪都到了，等待条件成立：\n\n- 计算 child（task 863cb73a，模型 swift-qwen3.8-27b-nvfp4）outcome=succeeded，termination=completed，answer 与 transcript 均为 **437**（恰为 19×23 的正确乘积，非我模拟，是回执原值）。\n- host.printf child（task a5e5e9b0）outcome=succeeded，exit_code=0、stderr 为空、exact_postcondition=true，stdout 原样回显 **S1-3bb963699812**。\n\n由此报告：计算结果 437，标记回显 S1-3bb963699812，均出自本轮真实 task_result 回执，无提前宣称。原事件可認知结，持久义务随之完成。\n\n",
+            "message_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "part_id": "text/0",
+            "part_revision": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "chunk_seq": 0,
+            "committed_only": true,
+            "observed_at": "2026-11-22T01:05:34.429004726+00:00",
+            "step": 3,
+            "step_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "commit_seq": 491,
+            "terminal": true
+          }
+        },
+        {
+          "index": 1124,
+          "elapsed_seconds": 856.5280942540267,
+          "kind": "frame",
+          "direction": "received",
+          "socket_id": 4,
+          "message": {
+            "schema_version": 2,
+            "type": "timeline_part",
+            "role": "subject",
+            "content": "两个真实回执本輪都到了，等待条件成立：\n\n- 计算 child（task 863cb73a，模型 swift-qwen3.8-27b-nvfp4）outcome=succeeded，termination=completed，answer 与 transcript 均为 **437**（恰为 19×23 的正确乘积，非我模拟，是回执原值）。\n- host.printf child（task a5e5e9b0）outcome=succeeded，exit_code=0、stderr 为空、exact_postcondition=true，stdout 原样回显 **S1-3bb963699812**。\n\n由此报告：计算结果 437，标记回显 S1-3bb963699812，均出自本轮真实 task_result 回执，无提前宣称。原事件可認知结，持久义务随之完成。\n\n",
+            "message_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "part_id": "text/0",
+            "part_revision": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "chunk_seq": 0,
+            "committed_only": true,
+            "observed_at": "2026-11-22T01:08:43.977500730+00:00",
+            "step": 3,
+            "step_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "commit_seq": 491,
+            "terminal": true
+          }
+        }
+      ],
+      "actual_page_matching_stream_parts": 188,
+      "independent_restart_socket_committed_frames": [
+        {
+          "line": 6,
+          "message": {
+            "schema_version": 2,
+            "type": "timeline_part",
+            "role": "subject",
+            "content": "两个真实回执本輪都到了，等待条件成立：\n\n- 计算 child（task 863cb73a，模型 swift-qwen3.8-27b-nvfp4）outcome=succeeded，termination=completed，answer 与 transcript 均为 **437**（恰为 19×23 的正确乘积，非我模拟，是回执原值）。\n- host.printf child（task a5e5e9b0）outcome=succeeded，exit_code=0、stderr 为空、exact_postcondition=true，stdout 原样回显 **S1-3bb963699812**。\n\n由此报告：计算结果 437，标记回显 S1-3bb963699812，均出自本轮真实 task_result 回执，无提前宣称。原事件可認知结，持久义务随之完成。\n\n",
+            "message_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "part_id": "text/0",
+            "part_revision": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "chunk_seq": 0,
+            "committed_only": true,
+            "observed_at": "2026-11-22T01:08:44.362178022+00:00",
+            "step": 3,
+            "step_id": "49b5992c-3120-4a31-9d9a-2925531a0265",
+            "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/490",
+            "commit_seq": 491,
+            "terminal": true
+          }
+        }
+      ]
+    },
+    "restart": {
+      "step_id": "6d18ce79-60f6-4031-9854-9db8950e6472",
+      "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/908",
+      "committed_content": "从已有上下文继续，不重新执行上一条任务：\n\n- 原始标记（host.printf child 真实回执 stdout，原样回显）：**S1-3bb963699812**\n- child 计算结果（swift-qwen3.8-27b-nvfp4 有限模型 child，真实回执 answer）：**437**（即 19×23）\n\n本次继续工作的标记：**CONTINUE-f1fe8c08ef1d**\n\n",
+      "original_browser_check": true,
+      "actual_page_committed_frames": [],
+      "actual_page_matching_stream_parts": 49,
+      "independent_restart_socket_committed_frames": [
+        {
+          "line": 482,
+          "message": {
+            "schema_version": 2,
+            "type": "timeline_part",
+            "role": "subject",
+            "content": "从已有上下文继续，不重新执行上一条任务：\n\n- 原始标记（host.printf child 真实回执 stdout，原样回显）：**S1-3bb963699812**\n- child 计算结果（swift-qwen3.8-27b-nvfp4 有限模型 child，真实回执 answer）：**437**（即 19×23）\n\n本次继续工作的标记：**CONTINUE-f1fe8c08ef1d**\n\n",
+            "message_id": "6d18ce79-60f6-4031-9854-9db8950e6472",
+            "part_id": "text/0",
+            "part_revision": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/908",
+            "chunk_seq": 0,
+            "committed_only": true,
+            "observed_at": "2026-11-22T01:09:40.189328152+00:00",
+            "step": 5,
+            "step_id": "6d18ce79-60f6-4031-9854-9db8950e6472",
+            "commit_ref": "2dc58d06-c49d-4dc0-b75a-f9a3442e3f7f/908",
+            "commit_seq": 909,
+            "terminal": true
+          }
         }
       ]
     }

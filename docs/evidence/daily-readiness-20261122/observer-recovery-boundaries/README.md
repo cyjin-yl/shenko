@@ -59,11 +59,40 @@ text still fails, as does a timeout. This observes final rendered retention;
 it does not establish flicker-free rendering, a rendering-latency improvement,
 or a complete real journey on the fixed observer.
 
+## A visible stream did not prove the page received its committed answer
+
+Independent review found a further gap in an originally **true** check.
+The resumed S1 was durably committed at `/908`, and the independent observer
+socket received its exact terminal `timeline_part` at line 482. The actual
+page's original event capture contains 49 stream parts for that step, but
+**no terminal committed frame** for it. Its Inspect capture labels the
+answer as uncommitted; its final conversation DOM makes the text visible but
+does not mark that row as a stable fact. For the first answer at `/490`, in
+contrast, the page recorded exact committed frames at indices 903 and 1124.
+These original frames and source-file hashes are retained in the derivation.
+
+The subsequent `c5f37923` observer fix requires a received frame on the
+actual page with the selected step, exact S1 commit and full original body,
+terminal and committed flags, and the actual base or exact corrected part.
+It then waits for the production Inspect entry with those same message,
+part and commit attributes and `data-committed="true"`. The original visible
+result checks still apply. Frame arrival and DOM readiness each have a
+15-second UI-operation boundary; together they can take up to approximately
+30 seconds. The actual page socket and frame index are retained.
+
+This closes a false-positive opportunity in the existing named committed
+output check. It does not claim the original page received that commit, that
+its delivery necessarily exceeds 15 seconds, or that product latency was
+fixed. The original page was closed shortly after the independent observer
+noticed S1. The next real run must wait for actual page delivery and
+presentation before cleanup; a missing or late projection remains failure.
+
 ## Reproduction and validation scope
 
 [derive.py](derive.py) reads only the original closed attempt's captures and
-records all seven input files' byte lengths and SHA256 values. It uses the
-actual observer receipt selector and browser retention predicate. Given an
+records all ten input files' byte lengths and SHA256 values. It uses the
+actual observer receipt selector, browser retention predicate and committed
+page-frame predicate. Given an
 extracted original `public/attempt-001` directory:
 
 ```sh
@@ -72,10 +101,10 @@ python3 docs/evidence/daily-readiness-20261122/observer-recovery-boundaries/deri
 ```
 
 The four existing observer regression functions passed after the source
-changes (4 passed, 0 failed, 0.232 seconds). No additional test function was
+replay/render-boundary changes (4 passed, 0 failed, 0.232 seconds). No additional test function was
 added. Independent source review found no P1/P2 within these changes and
 checked all three callers of the changed admission return shape. The
-derivation itself ran against the exact fixed observer source above and
+derivation itself ran against the subsequent exact fixed observer source and
 records its file hashes. It performs no Store open, model/browser run,
 submission replay or mutation of an original receipt. A new fixed-candidate
 batch must provide the subsequent end-to-end evidence.
