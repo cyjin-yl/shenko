@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "scope": "Observer-only identity validation on the same preserved real seals and explicitly synthetic retry receipt projection. No product/model execution or change to original failed journey verdicts.",
+  "base_revision": "6525a358415b36de312f4e0947ca7129fdae0d30",
+  "baseline": {
+    "base_revision": "6525a358415b36de312f4e0947ca7129fdae0d30",
+    "scope": "Observer-only retry identity projection added to the existing result-consumption regression; unchanged baseline helper is expected to refuse it. No model/product run.",
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "-I",
+      "scripts/real_single_node_journey_test.py"
+    ],
+    "started_at": "2026-11-22T00:50:47.200644+00:00",
+    "finished_at": "2026-11-22T00:50:47.581075+00:00",
+    "elapsed_seconds": 0.38337710999621777,
+    "exit_code": 1,
+    "source_files": {
+      "scripts/real_single_node_journey.py": {
+        "bytes": 61497,
+        "sha256": "2a0e804b32d81a52ef4db89ee9cd6f13d141144cf759e37c146e873c527afc65"
+      },
+      "scripts/real_single_node_journey_test.py": {
+        "bytes": 14016,
+        "sha256": "c5e1de6a2f5d45654ee01fa255cf58e1ccb6c57c0c1d0921ffc9f8bfc79c628b"
+      }
+    },
+    "raw_log": {
+      "path": "retry-baseline.log.gz",
+      "bytes": 352,
+      "sha256": "cabd3302370155b003fdcad7ed1beefda1e35dc2b16074a6961f6f67a44108f4",
+      "decoded_bytes": 827,
+      "decoded_sha256": "a16d4304e80b5709d98d8ec9988919e6bde31512c5a1e422390351bedf1f5f9c"
+    }
+  },
+  "fixed": {
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "-I",
+      "scripts/real_single_node_journey_test.py"
+    ],
+    "started_at": "2026-11-22T00:51:26.933444+00:00",
+    "finished_at": "2026-11-22T00:51:27.324839+00:00",
+    "elapsed_seconds": 0.39461027000652393,
+    "exit_code": 0,
+    "checked_source_files": {
+      "scripts/real_single_node_journey.py": {
+        "bytes": 62990,
+        "sha256": "245c1d59df8945d7e822dd3dbac5fcfe80d17d3076166d7b3f5b4a50e3b3cb28"
+      },
+      "scripts/real_single_node_journey_test.py": {
+        "bytes": 14016,
+        "sha256": "c5e1de6a2f5d45654ee01fa255cf58e1ccb6c57c0c1d0921ffc9f8bfc79c628b"
+      },
+      "scripts/fixtures/journey-output-consumption/cases.json": {
+        "bytes": 274012,
+        "sha256": "2448cd38f4a57bbb82904a0894f8e517a5c02036162ee3a8d293853063a2d688"
+      },
+      "scripts/fixtures/journey-output-consumption/attempt-001.input-plan.json.gz": {
+        "bytes": 29006,
+        "sha256": "b1b9e52b23377f2c6324b68a8c4c46fa232b6a69c17cd2c8d40ad658b22f0c40"
+      },
+      "scripts/fixtures/journey-output-consumption/attempt-002.input-plan.json.gz": {
+        "bytes": 26212,
+        "sha256": "590ef4e02a52250b796e2b76452f2a4ecf41eefcebffc8a2ae7336d53785846c"
+      }
+    },
+    "raw_log": {
+      "path": "retry-unittest.log.gz",
+      "encoding": "gzip",
+      "bytes": 55,
+      "sha256": "ba2c8fbd069f3ac21258db96daea5a52f2997b7e98f6c0bf61668e5ed8d0acd5",
+      "decoded_bytes": 102,
+      "decoded_sha256": "732eea1790aad16fec763f15a1c82153206660c1da08470a0806d05967bc78a7"
+    }
+  },
+  "new_test_functions": 0,
+  "total_test_functions_executed": 4,
+  "product_source_basis": {
+    "path": "crates/shenko-subject/src/loop_runner.rs",
+    "rule": "RetryPending selects a new request_id while retaining the same input_plan_ref, input.payload and sealed provider binding.",
+    "bytes": 144032,
+    "sha256": "c7b5aa8effa4245361fa8061b77688a5935686ed0a979188597fa43f6374f0f0"
+  },
+  "limits": [
+    "The retry receipt projection is not an observed new provider execution or proof of product retry eligibility.",
+    "The actual original 001/002 fixture bytes and failed full-journey verdicts remain unchanged.",
+    "The observer still checks CAS length without independently recomputing BLAKE3."
+  ]
+}

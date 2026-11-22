@@ -117,7 +117,14 @@ tasks/attempts still fail this strict journey; their complete records remain
 available for diagnosing refusal, retries and unknown effects.
 
 The output-consumption gate binds the committed step, its active request,
-the recorded request attempt and their exact input-plan reference. It reads
+the recorded request attempt and their exact input-plan reference. A legal
+`RetryPending` attempt has a new wire identity while retaining the original
+S0. The gate also binds the plan's original request to its own same-step,
+same-agent attempt with the same typed reference and payload/provider digests;
+the distinct retry attempt must have been created later in the same ledger.
+Result and submitted-input availability use the original attempt's creation
+boundary, so a later retry cannot supply evidence missing at the original seal.
+It reads
 that immutable plan and requires the two complete original `TaskResult` values
 in its actual provider payload, with their runtime tool-result and event
 identities. Each result must also have a matching sealed `native-child` event
@@ -140,6 +147,9 @@ run remains failed. The preserved observer regression also uses the real
 `attempt-001` seal that did read both originals.
 The [original-case comparison and regression receipt](../evidence/daily-readiness-20261122/observer-result-consumption/receipt.json)
 binds the exact checked source and fixture bytes; it is not another model run.
+The [retry follow-up receipt](../evidence/daily-readiness-20261122/observer-result-consumption/retry-receipt.json)
+preserves the original strict-ID misclassification and its correction on an
+explicitly synthetic receipt projection inside the same observer regression.
 
 Recovery compares the original child operation/attempt rows and complete stored
 result/receipt rows from the first successful answer through the paused boundary

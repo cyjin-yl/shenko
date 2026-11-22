@@ -89,6 +89,31 @@ class JourneyEvidenceTests(unittest.TestCase):
                 self.assertFalse(journey.output_input_evidence(data, facts, output, results,
                     accepted=positive["accepted"], submission=missing_input)["consumed"])
 
+            # RetryPending keeps the original S0 but arms a new wire identity.
+            # This is an observer-only receipt projection, not another model
+            # execution or a claim that the original successful request retried.
+            retried = copy.deepcopy(facts)
+            retried_output = next(row for row in retried["decisions"]
+                if row["step"]["step_id"] == positive["selected_step_id"])
+            original_request_id = plan["request_id"]
+            original_attempt = next(row for row in retried["subject_request_attempts"]
+                if row["request_id"] == original_request_id)
+            retry = copy.deepcopy(original_attempt)
+            retry["request_id"] = retry["data"]["request_id"] = "dc6f8f7c-efc9-457b-bb5e-f28dd2c1b962"
+            retry["attempt_id"] = retry["data"]["attempt_id"] = "f0015be6-671d-4e79-98db-251c5f04a9f4"
+            retry["created_commit_seq"] += 1
+            retry["data"]["created_commit"]["seq"] += 1
+            retried["subject_request_attempts"].append(retry)
+            retried_output["step"]["active_request_id"] = retry["request_id"]
+            evidence = journey.output_input_evidence(data, retried, retried_output, results,
+                accepted=positive["accepted"], submission=positive["submission"])
+            self.assertTrue(evidence["consumed"], "a new wire identity may retain the original consumed seal")
+            self.assertEqual(evidence["sealed_request_id"], original_request_id)
+            self.assertEqual(evidence["sealed_request_created_commit"], original_attempt["data"]["created_commit"])
+            retried["subject_request_attempts"].remove(original_attempt)
+            self.assertFalse(journey.output_input_evidence(data, retried, retried_output, results)["consumed"],
+                "the plan's original identity still needs its own durable attempt")
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "observes Linux process groups and zombies")
     def test_exited_parent_does_not_hide_live_owned_child(self):
         with tempfile.TemporaryDirectory() as temporary:
