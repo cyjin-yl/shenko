@@ -188,6 +188,16 @@ receipt: durable acceptance, matching requested mode, and `next_boundary`
 placement at this journey's clean pause. It does not change the composer or
 force a mode, and does not claim an active-generation steering/replay test.
 
+For each selected committed answer, the page must itself receive a terminal
+`timeline_part` with the same step, exact S1 commit and complete original
+body. The witness then requires the production Inspect entry to carry that
+same message, part and commit identity with `data-committed="true"`, before
+checking its visible result text. It records the actual page socket and frame
+index. The page-frame wait and subsequent DOM wait each use the existing
+15-second UI-operation limit; they are two sequential bounded observations,
+not a single combined 15-second limit. An independent observer socket's frame
+or matching uncommitted stream cannot prove delivery to the actual page.
+
 `python3 -I scripts/real_single_node_journey_test.py` checks the driver's owned
 cleanup, reexecution detection, failed-attempt accounting and output-consumption
 gate. The last uses preserved real seals plus explicitly labelled input

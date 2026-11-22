@@ -30,6 +30,17 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def committed_output_frame(row, step_id, commit_ref, content):
+    message = row.get("message", {})
+    return bool(row.get("direction") == "received"
+        and message.get("schema_version") == 2 and message.get("type") == "timeline_part"
+        and message.get("message_id") == step_id and message.get("step_id") == step_id
+        and message.get("commit_ref") == commit_ref and message.get("content") == content
+        and message.get("part_id") in {"text/0", f"text/0@{commit_ref}"}
+        and message.get("chunk_seq") == 0
+        and message.get("committed_only") is True and message.get("terminal") is True)
+
+
 class BrowserWitness:
     def __init__(self, evidence_dir, url):
         self.directory = evidence_dir / "browser"
@@ -248,18 +259,35 @@ class BrowserWitness:
         self.captures.append(phase)
         return state
 
-    async def observe_output(self, phase, step_id, markers):
+    async def observe_output(self, phase, committed_output, markers):
+        step = committed_output["step"]
+        step_id = step["step_id"]
+        commit = step["commit_ref"]
+        commit_ref = f"{commit['ledger_id']}/{commit['seq']}"
+        content = committed_output["decision"]["output"]["text"]
         self.checks[f"browser_{phase}_committed_output"] = False
         await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="Inspect", exact=True).click()
-        output = self.page.locator(f'.timeline [data-message-id="{step_id}"] .entry-body')
+        observation = {"step_id": step_id, "commit_ref": commit_ref}
+        self.observations[f"{phase}_output"] = observation
         try:
-            await output.first.wait_for(state="visible")
+            # A matching streamed body can arrive before this page receives
+            # the committed projection. An independent socket is not proof
+            # that the actual browser has received and rendered that commit.
+            receipt = await self.wait_for(lambda row: committed_output_frame(
+                row, step_id, commit_ref, content), timeout=15)
+            part_id = receipt["message"]["part_id"]
+            observation["committed_frame"] = {"index": receipt["index"],
+                "socket_id": receipt["socket_id"], "part_id": part_id}
+            output = self.page.locator(f'.timeline [data-message-id="{step_id}"]'
+                f'[data-part-id="{part_id}"][data-commit-ref="{commit_ref}"]'
+                '[data-committed="true"] .entry-body')
+            await output.wait_for(state="visible")
             texts = await output.all_inner_texts()
             self.checks[f"browser_{phase}_committed_output"] = any(
                 all(marker in text for marker in markers) for text in texts)
-            self.observations[f"{phase}_output"] = {"step_id": step_id, "rendered_parts": texts}
+            observation["rendered_parts"] = texts
         except Exception as error:
-            self.observations[f"{phase}_output"] = {"step_id": step_id, "error": str(error)}
+            observation["error"] = str(error)
         await self.capture(f"{phase}-output")
         await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="对话", exact=True).click()
 

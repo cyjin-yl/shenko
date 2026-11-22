@@ -855,7 +855,7 @@ async def run(args):
             summary["first_output_input"] = output_input_evidence(data_dir, first, output, required_results)
         if browser:
             if output is not None:
-                await browser.observe_output("first", output["step"]["step_id"], (marker, "437"))
+                await browser.observe_output("first", output, (marker, "437"))
             else:
                 browser.observations["first_output"] = {"observed": False, "reason": "no qualifying committed model result"}
         if not all(summary["checks"].values()):
@@ -927,7 +927,7 @@ async def run(args):
                                                                     accepted=resumed_accepted, submission=resumed_input)
         if browser:
             if output is not None:
-                await browser.observe_output("restart", output["step"]["step_id"], (marker, resume_marker, "437"))
+                await browser.observe_output("restart", output, (marker, resume_marker, "437"))
             else:
                 browser.observations["restart_output"] = {"observed": False, "reason": "no qualifying continued model result"}
             await browser.finish_journey()
