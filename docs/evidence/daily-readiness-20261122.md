@@ -20,6 +20,7 @@
 | native 见证、CAS 目录合批与进程级停止修复后的 release | `cdf71091` | `e1bec856a805687d18250907a39ff999bcf76cfc224f569dba961847ef59459b` | 89994976 |
 | 收窄 native 依赖后的 release | `0c6b013e` | `8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1` | 90162848 |
 | anchored E1、fresh preparation 与 corrected UI 修复后的 release | `d16adbf8` | `d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce` | 90351680 |
+| 冻结前序成员修复后的 release | `c931526c` | `1ad2899f2c7dff3c0cd5123a16d3dfbb893a9cc8ba85996d5f16a8023c0eeba1` | 90370560 |
 
 Rust 构建运行在实际 `shenko-build-r71` 开发容器，Rust/Cargo 1.98.1，
 使用持久源码、锁文件及共享构建锁。release 使用仓库声明的优化、thin LTO、单 codegen unit
@@ -576,7 +577,8 @@ Nightly 的三个显式长测试各通过一项，完整编译器为 183 个套�
 封存 provider payload，又绑定到新事件或封存历史前缀；稍后全局账本中的结果不能
 倒填进旧请求。重启后的回答还须实际消费下一条已接受消息。
 
-第三轮的闭库 CAS 诊断进一步定位到晚到的可选 bare digest 对象：原前序在
+第三轮的[闭库 CAS 诊断](daily-readiness-20261122/predecessor-membership-d16adbf8/README.md)
+进一步定位到晚到的可选 bare digest 对象：原前序在
 00:05:03 UTC 封存 238 个对象，00:05:06.981 UTC 发布的 child input 被嵌套
 `contract_digest` 提示发现，原 reader 重建为 239 个对象且没有 missing。
 这解释了该次完整性错误；它不证明所有前序成本或历史增长问题已经解决。
@@ -584,3 +586,43 @@ Nightly 的三个显式长测试各通过一项，完整编译器为 183 个套�
 
 本记录仍未取得暂停、重启和下一条消息全部成功的真实模型旅程；修复后的新候选
 需要独立批次和对应源码、二进制、观察器身份，不能复用本批次为成功回执。
+
+### 固定原前序成员，继续验证必需对象
+
+`95cdc272` 为新前序引入 codec 2，在根中封存原始对象的有序唯一摘要集合。
+直接行根和嵌套 generic JSON 都只从该集合解析可选 bare digest；完整 ObjectRef、
+认知根、unit selector 和 WASM 声明的必需子对象继续走原完整核验。
+读取仍须同时满足对象数量、精确集合、原 fingerprint 及事实/头部/任务绑定。
+新归档 writer 声明 schema 13，旧 reader 在能力门拒绝它；旧归档版本与 codec 1
+保留自己的读取语义。这没有重写旧的 chosen T2、原 E1 或任何已经发生的效果。
+
+[实际前后回执](daily-readiness-20261122/predecessor-membership-d16adbf8/README.md)
+先在 `6d087562` 上运行唯一新增回归。它相对 d16 只增加测试，生产代码不变，结果
+为 **0 passed / 1 failed**，重现原闭包错误。修复后的相同测试字节通过；同一
+`95cdc272` 又实际通过原 native chain 1 项和 archive admission 8 项，共 **10/10**。
+三个目标的 libtest 时间分别为 6.14、187.12、89.15 秒；不是模型任务响应时间。
+损坏已纳入的可选对象和必需 typed 对象仍被拒绝，重开与旧 codec 边界也在同一回归中保留。
+
+新根增加 O(object_count) 的摘要元数据。完整 snapshot、闭包验证和重新构造仍存在，
+不能把这次正确性修复写成历史成本已经解决；GC 也仍未激活。
+
+### 观察器绑定同一最终决定的真实输入
+
+`529486d8` 只将视图定位改为唯一的 accessible button role，保留实际可见正文、
+step/commit 身份和截图检查。`6525a358` 增加两份原 TaskResult 的实际消费证据，
+并让首次及恢复回答都选择同一个通过该门的决定。原 d16/002 的旧门全部为 true，
+修复后的消费项为 false；原 d16/001 的完整实际输入仍能通过。
+[原输入比较和四项观察器回归](daily-readiness-20261122/observer-result-consumption/receipt.json)
+不算作新的模型执行，也不改变旧批次结果。
+
+独立审查进一步发现合法 `RetryPending` 会使用新 wire request ID，但保留原 S0。
+`264aab12` 因而同时绑定原封存请求与当前 attempt，并以原 attempt 的创建提交
+判断结果和恢复消息是否已经可见；后来的 retry 时间不能为旧 seal 补证。
+[原误拒与修复回执](daily-readiness-20261122/observer-result-consumption/retry-receipt.json)
+保留原四项测试中 1 项失败，以及同一组测试修复后 4/4 通过；没有再加测试函数。
+独立语义审查仍需阅读实际回答，不能仅凭存在性和来源检查判断措辞正确。
+
+这次新浏览器批次明确分开两种身份：产品二进制来自 `c931526c`，观察器来自
+`e537896f`，后者包含上述 retry 修正，二者生产 Rust、静态资产和工作流字节相同。
+四个实际观察/采样文件均冻结长度与 SHA256；模型、提示词、预算和时限维持原配置。
+批次目录为 `final-c931526c-observer-e537896f`，其完成结果须单独记录。
