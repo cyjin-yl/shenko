@@ -5,6 +5,8 @@ import asyncio
 import contextlib
 import copy
 import datetime
+import gzip
+import hashlib
 import io
 import json
 import os
@@ -21,6 +23,72 @@ import real_single_node_journey as journey
 
 
 class JourneyEvidenceTests(unittest.TestCase):
+    def test_committed_output_reads_the_results_in_its_original_seal(self):
+        # Two original, completed runs: 002's late S1 merely said it was
+        # waiting; 001's later sealed request actually contained both T2s.
+        # These are observer tests, not substitute model executions.
+        fixture_dir = Path(__file__).parent / "fixtures/journey-output-consumption"
+        cases = json.loads((fixture_dir / "cases.json").read_text())["cases"]
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)
+            for case in cases.values():
+                original = case["input_plan"]
+                raw = gzip.decompress((fixture_dir / original["path"]).read_bytes())
+                self.assertEqual(len(raw), original["bytes"])
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), original["sha256"])
+                digest = original["reference"]["digest"].removeprefix("blake3:")
+                target = data / "cas" / digest[:2] / digest[2:4] / digest
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
+
+            negative = cases["unconsumed"]
+            observed = journey.evaluate_first(negative["facts"], negative["marker"],
+                negative["model"], negative["model_url"], data)
+            self.assertTrue(observed["committed_output_after_child_results"], "reproduce the original 002 gate")
+            self.assertFalse(observed["committed_output_consumed_original_child_results"])
+
+            positive = cases["consumed"]
+            facts = positive["facts"]
+            observed = journey.evaluate_first(facts, positive["marker"], positive["model"], positive["model_url"], data)
+            self.assertTrue(all(observed.values()), "the unmodified real 001 seal consumed both originals")
+            output = next(row for row in facts["decisions"] if row["step"]["step_id"] == positive["selected_step_id"])
+            results = [row["data"] for row in facts["task_results"]]
+            model_task = next(row["task_id"] for row in facts["tasks"] if row["data"].get("kind") == "model.child")
+            model_result = next(row for row in results if row["task_id"] == model_task)
+            plan = journey.read_cas(data, positive["input_plan"]["reference"])
+
+            # One selected event or even a later final SQL result is not enough
+            # when that original was absent from the actual model payload.
+            partial = copy.deepcopy(plan)
+            partial["payload"]["messages"] = [message for message in partial["payload"]["messages"]
+                if not any(part.get("text", "").startswith(f"[runtime tool_result call_id={model_task} ")
+                           for part in message.get("parts", []))]
+            with patch.object(journey, "read_cas", return_value=partial):
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results)["consumed"])
+
+            # A result can be old history rather than a new inbox event. Its
+            # row must still lie within THIS seal, not a later final snapshot.
+            prior = copy.deepcopy(plan)
+            prior["events"] = [event for event in prior["events"] if event["event_id"] != model_result["result_id"]]
+            future_only = copy.deepcopy(prior)
+            original_seq = min(row["seq"] for row in facts["session_events"]
+                if row["data"].get("inbox_event", {}).get("event_id") == model_result["result_id"])
+            future_only["context"]["source"]["leaf_seq"] = original_seq - 1
+            with patch.object(journey, "read_cas", return_value=future_only):
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results)["consumed"])
+            with patch.object(journey, "read_cas", return_value=prior):
+                evidence = journey.output_input_evidence(data, facts, output, results,
+                    accepted=positive["accepted"], submission=positive["submission"])
+                self.assertTrue(evidence["consumed"])
+                old = next(row for row in evidence["results"] if row["task_id"] == model_task)
+                self.assertEqual(old["new_event_indices"], [])
+                self.assertTrue(old["sealed_history_rows"])
+                # Restart uses this same gate with its distinct accepted input;
+                # reading both T2s cannot stand in for reading that new message.
+                missing_input = dict(positive["submission"], content="a new resume input absent from this seal")
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results,
+                    accepted=positive["accepted"], submission=missing_input)["consumed"])
+
     @unittest.skipUnless(sys.platform.startswith("linux"), "observes Linux process groups and zombies")
     def test_exited_parent_does_not_hide_live_owned_child(self):
         with tempfile.TemporaryDirectory() as temporary:

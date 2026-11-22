@@ -250,7 +250,7 @@ class BrowserWitness:
 
     async def observe_output(self, phase, step_id, markers):
         self.checks[f"browser_{phase}_committed_output"] = False
-        await self.page.locator('nav[aria-label="视图"]').get_by_text("Inspect", exact=True).click()
+        await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="Inspect", exact=True).click()
         output = self.page.locator(f'.timeline [data-message-id="{step_id}"] .entry-body')
         try:
             await output.first.wait_for(state="visible")
@@ -261,7 +261,7 @@ class BrowserWitness:
         except Exception as error:
             self.observations[f"{phase}_output"] = {"step_id": step_id, "error": str(error)}
         await self.capture(f"{phase}-output")
-        await self.page.locator('nav[aria-label="视图"]').get_by_text("对话", exact=True).click()
+        await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="对话", exact=True).click()
 
     async def prepare_restart(self, draft):
         await self.editor().fill(draft)

@@ -130,7 +130,108 @@ def contains_expected_product(text):
     return isinstance(text, str) and re.search(r"(?<!\d)437(?!\d)", text) is not None
 
 
-def evaluate_first(facts, marker, expected_model, expected_url):
+def output_input_evidence(data_dir, facts, output, results, *, accepted=None, submission=None):
+    """Bind a selected S1 to the originals in its actual sealed model request.
+
+    A late S1 commit does not imply its earlier S0 read a completed child.
+    Check the real provider payload as well as a sealed event or the exact
+    history prefix that supplied it. Later rows in the final snapshot cannot
+    retroactively become that request's input. This is a provenance check;
+    the independent real-model review still judges what the answer says.
+    """
+    step, decision = output["step"], output["decision"]
+    request_id = step.get("active_request_id")
+    attempt = next((row["data"] for row in facts.get("subject_request_attempts", [])
+                    if row["request_id"] == request_id), None)
+    reference = decision.get("input_plan_ref")
+    evidence = {"step_id": step.get("step_id"), "request_id": request_id,
+                "input_plan_ref": reference, "input_identity_matches": False,
+                "results": [], "submitted_input": None, "consumed": False}
+    if (step.get("state") != "committed" or not reference or not attempt
+            or decision.get("step_id") != step.get("step_id")
+            or attempt.get("request_id") != request_id
+            or attempt.get("step_id") != step.get("step_id")
+            or step.get("input_plan_ref") != reference
+            or attempt.get("input_plan_ref") != reference):
+        return evidence
+    plan = read_cas(data_dir, reference)
+    if plan.get("request_id") != request_id or plan.get("step_id") != step["step_id"]:
+        return evidence
+    evidence["input_identity_matches"] = True
+    source = plan.get("context", {}).get("source", {})
+    history = [row for row in facts.get("session_events", [])
+               if row.get("session_id") == source.get("scope_id")
+               and isinstance(row.get("seq"), int) and isinstance(source.get("leaf_seq"), int)
+               and row["seq"] <= source["leaf_seq"]]
+    parts = [(mi, pi, part.get("text", ""))
+             for mi, message in enumerate(plan.get("payload", {}).get("messages", []))
+             if message.get("role") == "user"
+             for pi, part in enumerate(message.get("parts", [])) if part.get("type") == "text"]
+
+    def source_rows(event_matches, event_type):
+        fresh = [index for index, event in enumerate(plan.get("events", [])) if event_matches(event)]
+        prior = [{"event_id": row["event_id"], "scope": row["session_id"], "seq": row["seq"]}
+                 for row in history if row.get("event_type") == event_type
+                 and event_matches(row.get("data", {}).get("inbox_event", {}))]
+        return fresh, prior
+
+    for result in results:
+        def original(event):
+            return (event.get("source") == "native-child" and event.get("kind") == "task_result"
+                and event.get("event_id") == result["result_id"] and event.get("payload") == result)
+
+        fresh, prior = source_rows(original, "tool_result")
+        matches = []
+        event_prefix = f"[event {result['result_id']}] "
+        for mi, pi, text in parts:
+            header, separator, body = text.partition("\n")
+            if (not separator or not header.startswith(f"[runtime tool_result call_id={result['task_id']} ")
+                    or not header.endswith("]") or not body.startswith(event_prefix)):
+                continue
+            try:
+                exact_result = json.loads(body[len(event_prefix):]) == result
+            except json.JSONDecodeError:
+                exact_result = False
+            if exact_result:
+                matches.append({"message_index": mi, "part_index": pi})
+        created, committed = attempt["created_commit"], result["commit_ref"]
+        available_before_seal = (created["ledger_id"] == committed["ledger_id"]
+                                 and created["seq"] > committed["seq"])
+        evidence["results"].append({"task_id": result["task_id"], "result_id": result["result_id"],
+            "operation_id": result["operation_id"], "receipt_id": result["receipt_id"],
+            "t2_commit": committed, "available_before_seal": available_before_seal,
+            "new_event_indices": fresh, "sealed_history_rows": prior, "payload_parts": matches,
+            "consumed": available_before_seal and bool(matches) and bool(fresh or prior)})
+    evidence["consumed"] = (len(results) == 2 and len({row["task_id"] for row in results}) == 2
+                            and all(row["consumed"] for row in evidence["results"]))
+    if accepted is not None or submission is not None:
+        if not accepted or not submission:
+            evidence["consumed"] = False
+            return evidence
+
+        def submitted(event):
+            return (event.get("source") == "web_ui" and event.get("kind") == "message"
+                and event.get("event_id") == accepted["event_id"]
+                and event.get("payload", {}).get("submission_id") == submission["submission_id"]
+                and event.get("payload", {}).get("content") == submission["content"])
+
+        fresh, prior = source_rows(submitted, "user")
+        expected = f"[event {accepted['event_id']}] [web_ui] {submission['content']}"
+        matches = [{"message_index": mi, "part_index": pi} for mi, pi, text in parts if text == expected]
+        ledger, sequence = accepted["accepted_commit"].rsplit("/", 1)
+        created = attempt["created_commit"]
+        bound = (accepted.get("submission_id") == submission["submission_id"]
+                 and attempt.get("agent_id") == submission["subject_id"]
+                 and created["ledger_id"] == ledger and created["seq"] > int(sequence)
+                 and bool(matches) and bool(fresh or prior))
+        evidence["submitted_input"] = {"submission_id": submission["submission_id"],
+            "event_id": accepted["event_id"], "new_event_indices": fresh,
+            "sealed_history_rows": prior, "payload_parts": matches, "consumed": bound}
+        evidence["consumed"] = evidence["consumed"] and bound
+    return evidence
+
+
+def evaluate_first(facts, marker, expected_model, expected_url, data_dir):
     tasks = {row["task_id"]: row["data"] for row in facts.get("tasks", [])}
     model_tasks = {key for key, task in tasks.items() if task.get("kind") == "model.child"}
     native_tasks = {key for key, task in tasks.items() if task.get("kind") == "host.printf"}
@@ -181,6 +282,8 @@ def evaluate_first(facts, marker, expected_model, expected_url):
                if row["step"].get("commit_ref", {}).get("seq", 0) > receipt_seq
                and marker in row["decision"]["output"]["text"]
                and contains_expected_product(row["decision"]["output"]["text"])]
+    consumed = [row for row in outputs if len(required) == 2
+                and output_input_evidence(data_dir, facts, row, required)["consumed"]]
     checks = {
         "one_child_of_each_requested_kind": len(model_tasks) == len(native_tasks) == 1,
         "finite_model_child_succeeded": bool(model),
@@ -189,6 +292,7 @@ def evaluate_first(facts, marker, expected_model, expected_url):
         "native_effect_observed_once": native_once,
         "both_children_have_attempt_and_e1": len(required) == 2 and operation_ids <= attempts & evidence,
         "committed_output_after_child_results": bool(outputs),
+        "committed_output_consumed_original_child_results": bool(consumed),
     }
     return checks
 
@@ -694,14 +798,14 @@ async def run(args):
                 "first", submission, startup_boundary, set())
             summary["checks"]["input_accepted_before_inference"] = True
             first, messages = await collect(ws, process, data_dir, args.evidence_dir / "first.websocket.jsonl", args.timeout,
-                lambda facts, _: all(evaluate_first(facts, marker, args.model, args.model_url).values()))
+                lambda facts, _: all(evaluate_first(facts, marker, args.model, args.model_url, data_dir).values()))
             messages = initial_messages + messages
         if browser:
             # Receipts are sent to the submitting connection. Keep the
             # original receipt assertion, using that page's actual frames.
             messages.extend(browser.received())
         save(args.evidence_dir / "first.ledger.json", first)
-        summary["checks"].update(evaluate_first(first, marker, args.model, args.model_url))
+        summary["checks"].update(evaluate_first(first, marker, args.model, args.model_url, data_dir))
         # Start the immutable-effect comparison at the first successful
         # answer. Browser observation and requesting pause can take time;
         # repetitions in that tail must not become part of a later baseline.
@@ -713,10 +817,18 @@ async def run(args):
             data_dir, first, set(), accepted, submission)
         head = first["subject_branch_heads"][0]["data"]
         before_ids = {row["task_id"] for row in first.get("task_results", [])}
+        requested_tasks = {row["task_id"] for row in first.get("tasks", [])
+                           if row["data"].get("kind") in {"model.child", "host.printf"}}
+        required_results = [row["data"] for row in first.get("task_results", [])
+                            if row["task_id"] in requested_tasks]
+        output = None
+        if summary["checks"]["committed_output_consumed_original_child_results"]:
+            output = next(row for row in reversed(first["decisions"])
+                if evaluate_first(dict(first, decisions=[row]), marker, args.model, args.model_url, data_dir)
+                    ["committed_output_consumed_original_child_results"])
+            summary["first_output_input"] = output_input_evidence(data_dir, first, output, required_results)
         if browser:
-            if summary["checks"]["committed_output_after_child_results"]:
-                output = next(row for row in reversed(first["decisions"])
-                    if evaluate_first(dict(first, decisions=[row]), marker, args.model, args.model_url)["committed_output_after_child_results"])
+            if output is not None:
                 await browser.observe_output("first", output["step"]["step_id"], (marker, "437"))
             else:
                 browser.observations["first_output"] = {"observed": False, "reason": "no qualifying committed model result"}
@@ -724,7 +836,7 @@ async def run(args):
             raise AssertionError("first phase did not satisfy the child/binding/single-execution/output checks")
         await runtime_control(args, data_dir, "pause", restart_boundary)
         paused = await observe_pause(args, process, data_dir, restart_boundary, "before-restart")
-        pause_checks = evaluate_first(paused, marker, args.model, args.model_url)
+        pause_checks = evaluate_first(paused, marker, args.model, args.model_url, data_dir)
         pause_checks.update(evaluate_recovery(recovery_baseline, paused))
         summary["checks"].update(pause_checks)
         if not all(pause_checks.values()):
@@ -765,6 +877,8 @@ async def run(args):
                 return any(row["step"]["step_no"] > head["committed_step_no"]
                     and all(text in row["decision"]["output"]["text"] for text in (marker, resume_marker))
                     and contains_expected_product(row["decision"]["output"]["text"])
+                    and output_input_evidence(data_dir, facts, row, required_results,
+                                             accepted=resumed_accepted, submission=resumed_input)["consumed"]
                     for row in facts.get("decisions", []))
             after, messages = await collect(ws, process, data_dir, args.evidence_dir / "restart.websocket.jsonl", args.timeout, continued)
             messages = initial_messages + messages
@@ -778,10 +892,14 @@ async def run(args):
         summary["checks"]["replayed_input_same_event"] = bool(accepted and replay and replay.get("replayed") is True
             and replay.get("event_id") == accepted.get("event_id") and replay.get("accepted_commit") == accepted.get("accepted_commit"))
         summary["checks"]["same_branch_after_restart"] = after["subject_branch_heads"][0]["data"]["branch_id"] == head["branch_id"]
+        output = None
+        if summary["checks"]["model_continued_prior_context"]:
+            output = next(row for row in reversed(after["decisions"])
+                          if continued(dict(after, decisions=[row]), messages))
+            summary["restart_output_input"] = output_input_evidence(data_dir, after, output, required_results,
+                                                                    accepted=resumed_accepted, submission=resumed_input)
         if browser:
-            if summary["checks"]["model_continued_prior_context"]:
-                output = next(row for row in reversed(after["decisions"])
-                    if continued(dict(after, decisions=[row]), messages))
+            if output is not None:
                 await browser.observe_output("restart", output["step"]["step_id"], (marker, resume_marker, "437"))
             else:
                 browser.observations["restart_output"] = {"observed": False, "reason": "no qualifying continued model result"}
@@ -822,7 +940,7 @@ async def run(args):
             try:
                 final_facts = snapshot(data_dir)
                 save(args.evidence_dir / "final.ledger.json", final_facts)
-                final_checks = evaluate_first(final_facts, marker, args.model, args.model_url)
+                final_checks = evaluate_first(final_facts, marker, args.model, args.model_url, data_dir)
                 summary["checks"].update(final_checks)
                 summary["passed"] = summary["passed"] and all(final_checks.values())
                 if recovery_baseline is not None:
