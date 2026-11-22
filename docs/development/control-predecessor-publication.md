@@ -35,11 +35,63 @@ The selected predecessor is
 Its reference also occurs in the retained S1 admission envelope, and its
 creation interval lies inside the measured seal scope.
 
+## Frozen membership in control predecessor codec 2
+
+The later `95cdc272866a5f31cedb790d263761523e9b0e2c` source change addresses a
+different correctness boundary from the directory-barrier optimization below.
+An optional bare digest such as a nested `contract_digest` may name bytes that
+do not exist in CAS when the snapshot is captured. The legacy inspector discovers
+available bare references again when reading the sealed predecessor. Publishing
+those bytes later can therefore change its reconstructed object set even though
+the original snapshot bytes were neither lost nor changed.
+
+New roots use `store-control-predecessor/2` and `schema_version: 2`; their manifest
+declares archive schema 13. The root contains the complete original digest
+inventory in strictly increasing order, with no duplicate and an exact
+`object_count`. Direct row roots and nested generic-JSON traversal resolve
+optional bare hints only if that digest belongs to this original inventory.
+After full verification, the inspector compares the reconstructed count and
+sorted digest set exactly, then validates the original snapshot fingerprint,
+fact membership, head, task/creator and child-absence proofs as before.
+
+The filter applies only to optional bare hints. A complete typed ObjectRef or
+a schema-required child of a cognitive root, unit selector or WASM state still
+traverses normally and must be retained and valid. Missing or same-length corrupt
+bytes for an object that was retained cannot be excused by this filter. A later
+capture can include a newly published optional object and must then preserve it;
+the older capture remains bound to its own inventory.
+
+Schema-13 archive admission uses its listed objects for the same optional-hint
+boundary. Readers retain archive schemas 2–7 and 10–12 and predecessor codec 1
+with their original live-discovery semantics. The old format is not re-labeled
+or reinterpreted, and older readers refuse the new capability at their existing
+version gate. The row/root/derivative tree pages keep their existing codecs.
+No chosen admission, E1, task identity or live execution permit is replaced.
+
+The inventory occupies O(object_count) digest metadata directly in the root;
+the page tree continues to index direct references rather than introducing a
+second tree of expanded inventory pages. This retains full snapshot collection,
+CAS length/hash and required-child verification, row reconstruction and
+history-dependent work. It neither proves a latency improvement nor makes
+capture bounded in time or memory, and it does not activate GC.
+
+The focused regression is
+`frozen_control_predecessor_keeps_original_optional_object_membership` in
+`store_roundtrip`. It uses actual CAS publication, then reopens the Store,
+retains the legacy-codec refusal, distinguishes a later capture, and checks
+same-length corruption of both a retained optional object and a required typed
+root. The existing generic-JSON archive trajectory additionally gives the
+receiver the optional bytes before importing the original archive. Source review
+does not stand in for execution: the baseline and corrected candidates require
+separate receipts with their own source hashes. Earlier publication and model
+observations below keep their original identities and outcomes.
+
 ## One graph, one child-directory barrier
 
 Only `prepare_control_predecessor_inner` uses the internal graph publisher.
-It keeps the existing snapshot, closure validation, row serialization, tree
-partitioning, codecs and object identities. The change does not cache verified
+The original directory-barrier increment kept its existing snapshot, closure
+validation, row serialization, tree partitioning, codecs and object identities;
+the later codec-2 change is described separately above. Publication does not cache verified
 objects, skip hashes, reduce a read witness or change admission/SQL ordering.
 
 `PendingObjectGraph` produces provisional `ObjectRef` values solely inside the

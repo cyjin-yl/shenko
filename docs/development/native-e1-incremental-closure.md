@@ -120,10 +120,12 @@ including executable and history bytes. No graph edge, recovery object or
 old source seal is replaced by an external availability promise. GC remains
 unactivated; this change supplies no new reclamation permission.
 
-The integrated writer advances cognition archive capability to schema 12 so
-an older reader rejects before payload publication. Schemas 10 and 11 remain
-explicitly supported with their original family/layout rules; unsupported
-8/9 stay unsupported. Raw Node object transport is a separate boundary, and
+This E1 capability introduced cognition archive schema 12. The current writer
+uses schema 13 for the separate
+[frozen control-predecessor membership](control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2)
+format; a schema-12 reader rejects the new manifest before payload publication.
+Schemas 10–12 remain explicitly supported with their original family, layout
+and closure rules; unsupported 8/9 stay unsupported. Raw Node object transport is a separate boundary, and
 an archive manifest alone does not prove that an older live runtime can use
 new E1 facts.
 
