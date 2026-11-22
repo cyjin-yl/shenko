@@ -158,6 +158,22 @@ be incorporated into a later baseline. This recall-only second input must not
 create another model or `host.printf` child. Retaining the old result or returning
 the same WebSocket receipt alone cannot prove that execution was not repeated.
 The driver records its own SHA-256, phase deadline and elapsed wall time.
+The explicit original-input replay is sent on the new observer WebSocket. Its
+receipt must come from that same connection's two actual receive windows,
+before and after the resumed input's admission. The page's retained receipt
+history still proves its own submissions, but cannot supply this replay proof.
+The selected replay receipt is retained in the summary and must preserve the
+original event and accepted commit with `replayed:true`.
+
+After Inspect returns to the conversation, the final browser check waits at
+most the witness's existing 15-second UI-operation limit for the original
+message keys, counts and exact rendered text. Compiled bubble children can
+mount after the view click returns. The witness records this render wait,
+then captures the live DOM and applies the same strict retention predicate
+again. A permanent missing, duplicate or changed original still fails. This
+does not prove flicker-free rendering or improve the product's response time;
+the earlier premature DOM capture remains an original failed observation.
+
 `--timing` selects `SHENKO_LOG=info,shenko_timing=debug`; structured phase timings
 are diagnostic observations, not successful effect receipts or model-quality
 evidence. All existing child, output, pause, browser and clean-exit assertions
