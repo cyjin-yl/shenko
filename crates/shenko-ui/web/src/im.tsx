@@ -6,7 +6,7 @@ import { Markdown } from './markdown';
 import type { Thread, ThreadMessage, Participant } from './threads';
 import type { WebAttachmentRef } from './projection';
 import { formatBytes } from './composer';
-import { ToggleGroupItem, ToggleGroupRoot, dayLabel, formatTime, type Emit } from './ui-kit';
+import { ToggleGroupItem, ToggleGroupRoot, MessageRoot, ReadingViewport, Button, dayLabel, formatTime, type Emit, type ReadingViewportHandle } from './ui-kit';
 
 /**
  * The IM surface: the owner's primary way
@@ -155,7 +155,7 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
           </span>
         </span>
       </header>
-      <MessageViewport ref={viewport}>
+      <MessageViewport key={thread.id} ref={viewport}>
         <div className="im-messages">
           {thread.kind === 'direct' && historyControl?.(() => viewport.current?.beginBackfill())}
           {thread.note && <p className="im-note">{thread.note}</p>}
@@ -185,33 +185,88 @@ interface MessageAnchor {
 
 // Compiled bubbles publish their hosts after the parent React commit. Keep
 // the reading anchor through those content resizes, until the reader moves.
-class MessageViewport extends React.Component<{ children: React.ReactNode }> {
+class MessageViewport extends React.Component<{ children: React.ReactNode }, { paused: boolean; jumpFocused: boolean }> {
+  state = { paused: false, jumpFocused: false };
   private element = React.createRef<HTMLDivElement>();
-  private following = true;
+  private viewport: ReadingViewportHandle | null = null;
+  private offFollowing: (() => void) | undefined;
+  private active = false;
+  private epoch = 0;
   private readingAnchor: MessageAnchor | null = null;
   private lastScrollTop = 0;
   private resizeObserver: ResizeObserver | null = null;
 
   componentDidMount() {
-    const content = this.element.current?.firstElementChild;
-    if (content) {
-      this.resizeObserver = new ResizeObserver(() => this.restore(this.readingAnchor));
-      this.resizeObserver.observe(content);
-    }
-    this.restore(null);
+    this.active = true;
+    document.addEventListener('selectionchange', this.onSelectionChange);
   }
 
+  private bindContent = (content: HTMLDivElement | null) => {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      if (this.active && this.resizeObserver === observer) this.restore(this.readingAnchor);
+    });
+    this.resizeObserver = observer;
+    observer.observe(content);
+  };
+
   componentWillUnmount() {
+    this.active = false;
+    document.removeEventListener('selectionchange', this.onSelectionChange);
+    this.epoch += 1;
+    this.offFollowing?.();
+    this.offFollowing = undefined;
+    this.viewport = null;
     this.resizeObserver?.disconnect();
   }
 
   beginBackfill = () => {
-    this.following = false;
+    this.viewport?.getExposes().pauseFollowing();
     this.readingAnchor = this.captureAnchor();
   };
 
+  private onSelectionChange = () => {
+    if (!this.active) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed
+      && this.element.current?.contains(selection.anchorNode)
+      && this.element.current.contains(selection.focusNode)) this.beginBackfill();
+  };
+
+  private isFollowing() {
+    return this.viewport?.getExposes().following.get() !== 'paused';
+  }
+
+  private bindViewport = (viewport: ReadingViewportHandle | null) => {
+    this.offFollowing?.();
+    this.offFollowing = undefined;
+    this.viewport = viewport;
+    const epoch = ++this.epoch;
+    if (!viewport) return;
+    const exposed = viewport.getExposes();
+    this.offFollowing = exposed.following.subscribe(() => {
+      queueMicrotask(() => {
+        if (!this.active || epoch !== this.epoch || this.viewport !== viewport) return;
+        const paused = exposed.following.get() === 'paused';
+        this.readingAnchor = paused ? this.readingAnchor ?? this.captureAnchor() : null;
+        if (paused !== this.state.paused) this.setState({ paused });
+      });
+    });
+  };
+
+  private surface(): HTMLElement | null {
+    const viewport = this.element.current?.querySelector<HTMLElement>('.im-scroll');
+    if (!viewport) return null;
+    return [viewport, ...Array.from(viewport.querySelectorAll<HTMLElement>('*'))].find((element) => {
+      const overflow = getComputedStyle(element).overflowY;
+      return overflow === 'auto' || overflow === 'scroll';
+    }) ?? viewport;
+  }
+
   getSnapshotBeforeUpdate(): MessageAnchor | null {
-    return this.following ? null : this.readingAnchor ?? this.captureAnchor();
+    return this.isFollowing() ? null : this.readingAnchor ?? this.captureAnchor();
   }
 
   componentDidUpdate(_previous: unknown, _state: unknown, snapshot: MessageAnchor | null) {
@@ -220,7 +275,7 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }> {
   }
 
   private captureAnchor(): MessageAnchor | null {
-    const element = this.element.current;
+    const element = this.surface();
     if (!element) return null;
     const viewport = element.getBoundingClientRect();
     let summary: HTMLElement | undefined;
@@ -244,10 +299,9 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }> {
   }
 
   private restore(snapshot: MessageAnchor | null) {
-    const element = this.element.current;
+    const element = this.surface();
     if (!element) return;
-    if (this.following) element.scrollTop = element.scrollHeight;
-    else if (snapshot) {
+    if (!this.isFollowing() && snapshot) {
       let target: HTMLElement | undefined;
       if (snapshot.key) for (const row of element.querySelectorAll<HTMLElement>('[data-message-key]')) {
         if (row.dataset.messageKey === snapshot.key) { target = row; break; }
@@ -261,19 +315,35 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }> {
   }
 
   private onScroll = (event: React.UIEvent<HTMLDivElement>) => {
-    const element = event.currentTarget;
+    const element = this.surface();
+    if (!element || event.target !== element) return;
     if (element.scrollTop === this.lastScrollTop) return;
-    this.following = element.scrollHeight - element.scrollTop - element.clientHeight < 32;
-    this.readingAnchor = this.following ? null : this.captureAnchor();
+    this.readingAnchor = this.isFollowing() ? null : this.captureAnchor();
     this.lastScrollTop = element.scrollTop;
   };
 
   render() {
-    return <div className="im-scroll" ref={this.element} onScroll={this.onScroll}>{this.props.children}</div>;
+    return <div className="im-scroll-frame" ref={this.element} onScrollCapture={this.onScroll}
+      onPointerDown={(event) => {
+        if ((event.target as Element).closest('pre,button,details,input,textarea,select,[role="button"]')) this.beginBackfill();
+      }}>
+      <MessageRoot a11yLabel={t('conversation.label')}>
+        <ReadingViewport className="im-scroll" ref={this.bindViewport}>
+          <div ref={this.bindContent}>{this.props.children}</div>
+        </ReadingViewport>
+      </MessageRoot>
+      {(this.state.paused || this.state.jumpFocused) && <div className="jump-latest"
+        onFocusCapture={() => this.setState({ jumpFocused: true })}
+        onBlurCapture={() => this.setState({ jumpFocused: false })}>
+        <Button variant="secondary" onClick={() => this.viewport?.getExposes().jumpToEnd()}>
+          <Icon name="down" size={15} />{t('timeline.latest')}
+        </Button>
+      </div>}
+    </div>;
   }
 }
 
-function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspect }: {
+export function Messages({ messages, viewer, group, renderAttachment, emit, onOpenInspect }: {
   messages: ThreadMessage[];
   viewer: string;
   group: boolean;

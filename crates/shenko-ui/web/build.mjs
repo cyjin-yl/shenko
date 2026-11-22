@@ -45,6 +45,7 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/button/index.js',
   'packages/prototypes/shadcn/dist/textarea/index.js',
   'packages/prototypes/shadcn/dist/scroll-area/index.js',
+  'packages/prototypes/shadcn/dist/message-scroller/index.js',
   'packages/prototypes/shadcn/dist/collapsible/index.js',
   'packages/prototypes/shadcn/dist/drawer/index.js',
   'packages/prototypes/shadcn/dist/toggle-group/index.js',
@@ -150,6 +151,10 @@ const bundle = await build({
   jsx: 'automatic',
   legalComments: 'eof',
   sourcemap: false,
+  // Use the consumer's settings for the whole graph. Otherwise esbuild
+  // discovers the linked workspace's development paths in transitive imports
+  // and mixes core/src with core/dist, creating two Hook setup contexts.
+  tsconfig: join(webRoot, 'tsconfig.json'),
   nodePaths: [join(sourceRoot, 'node_modules')],
   alias: {
     react: join(webRoot, 'node_modules', 'react'),
@@ -158,6 +163,13 @@ const bundle = await build({
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'warning',
 });
+const upstreamSourceInputs = Object.keys(bundle.metafile.inputs).filter((input) => {
+  const relativeInput = relative(sourceRoot, resolve(webRoot, input)).split(sep).join('/');
+  return /^packages\/(?:[^/]+\/)+src\//.test(relativeInput);
+});
+if (upstreamSourceInputs.length) {
+  throw new Error(`Browser graph bypassed the pinned public package exports: ${upstreamSourceInputs.join(', ')}`);
+}
 const modules = Object.keys(bundle.metafile.outputs)
   .map((path) => relative(staticDir, resolve(webRoot, path)).split(sep).join('/'))
   .sort();
@@ -244,6 +256,7 @@ const manifest = {
       'packages/prototypes/shadcn/dist/button/index.js',
       'packages/prototypes/shadcn/dist/textarea/index.js',
       'packages/prototypes/shadcn/dist/scroll-area/index.js',
+      'packages/prototypes/shadcn/dist/message-scroller/index.js',
       'packages/prototypes/shadcn/dist/collapsible/index.js',
       'packages/prototypes/shadcn/dist/drawer/index.js',
       'packages/prototypes/shadcn/dist/toggle-group/index.js',

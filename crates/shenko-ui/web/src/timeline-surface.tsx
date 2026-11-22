@@ -3,7 +3,7 @@ import * as React from 'react';
 import { partState, type ReadingAnchor, type ReadingSelection, type TimelinePart, type UiNode, type UiProjection } from './projection';
 import { resolveAnchor, selectionApplies } from './reading-state';
 import { Icon } from './icons';
-import { Button, ScrollRoot, ScrollViewport, ScrollScrollbar, ScrollThumb, type Emit } from './ui-kit';
+import { Button, MessageRoot, ReadingViewport, ScrollScrollbar, ScrollThumb, type Emit, type ReadingViewportHandle } from './ui-kit';
 import { EmptyTimeline, TimelineEntries } from './timeline-entries';
 import { SubmissionHistory } from './submission-history';
 
@@ -23,14 +23,14 @@ interface TimelineSurfaceProps {
   onOpenWork: (artifactId: string) => void;
 }
 
-export class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string }> {
+export class TimelineSurface extends React.Component<TimelineSurfaceProps, { announcement: string; jumpFocused: boolean }> {
   /** The bounded announcement for a screen reader.
    *
    * It says that committed content arrived and which round it was — it does
    * NOT read the answer again: a reader who is listening should not have the
    * whole answer spoken twice.
    */
-  state: { announcement: string } = { announcement: '' };
+  state = { announcement: '', jumpFocused: false };
 
   private capture = React.createRef<HTMLDivElement>();
   private scrollElement: HTMLElement | null = null;
@@ -41,17 +41,21 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
   private restoredSelection: ReadingSelection | undefined;
   /** The committed entry this surface already announced. */
   private announcedEntry: string | undefined;
+  private viewport: ReadingViewportHandle | null = null;
+  private offFollowing: (() => void) | undefined;
+  private active = false;
+  private epoch = 0;
+  private contentObserver: ResizeObserver | null = null;
+  private restoreOnMaterialization = true;
+  private readonly initialAnchor = this.props.node.props.anchor as ReadingAnchor | undefined;
 
   componentDidMount() {
+    this.active = true;
     this.scrollElement = this.findScrollElement();
-    if (this.props.node.props.reading === 'following_latest') {
-      this.scrollToEnd();
-      // The upstream scroll area settles its viewport after first layout.
-      this.resizeFrame = requestAnimationFrame(() => {
-        this.resizeFrame = 0;
-        if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
-      });
-    } else this.restoreSavedAnchor(this.props.node.props.anchor as ReadingAnchor | undefined);
+    if (this.props.node.props.reading !== 'following_latest') {
+      this.viewport?.getExposes().pauseFollowing();
+      this.restorePersistedAnchor();
+    } else this.restoreOnMaterialization = false;
     this.rememberAnchor();
     this.restoreSavedSelection();
     window.addEventListener('resize', this.onResize);
@@ -60,6 +64,13 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
   }
 
   componentWillUnmount() {
+    this.active = false;
+    this.epoch += 1;
+    this.offFollowing?.();
+    this.offFollowing = undefined;
+    this.viewport = null;
+    this.contentObserver?.disconnect();
+    this.contentObserver = null;
     window.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('selectionchange', this.onSelectionChange);
@@ -72,10 +83,14 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
     return this.captureAnchor();
   }
 
-  componentDidUpdate(_previous: TimelineSurfaceProps, _state: unknown, snapshot: AnchorSnapshot | null) {
+  componentDidUpdate(previous: TimelineSurfaceProps, _state: unknown, snapshot: AnchorSnapshot | null) {
     if (!this.scrollElement?.isConnected) this.scrollElement = this.findScrollElement();
-    if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
-    else if (snapshot) this.restoreAnchor(snapshot);
+    if (this.props.node.props.reading === 'following_latest') {
+      if (previous.node.props.reading !== 'following_latest') this.viewport?.getExposes().jumpToEnd();
+    } else {
+      if (previous.node.props.reading === 'following_latest') this.viewport?.getExposes().pauseFollowing();
+      if (!this.restorePersistedAnchor() && snapshot) this.restoreAnchor(snapshot);
+    }
     this.rememberAnchor();
     this.restoreSavedSelection();
     this.announceCommitted();
@@ -95,17 +110,19 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
     if (!newest || newest.key === this.announcedEntry) return;
     this.announcedEntry = newest.key;
     this.setState((previous) => (
-      previous.announcement === newest.label ? previous : { announcement: newest.label }
+      previous.announcement === newest.label ? previous : { ...previous, announcement: newest.label }
     ));
   }
 
   private onResize = () => {
+    if (!this.active) return;
     const snapshot = this.lastAnchor ?? this.captureAnchor();
+    const epoch = this.epoch;
     if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
     this.resizeFrame = requestAnimationFrame(() => {
       this.resizeFrame = 0;
-      if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
-      else if (snapshot) this.restoreAnchor(snapshot);
+      if (!this.active || epoch !== this.epoch) return;
+      if (this.props.node.props.reading !== 'following_latest' && !this.restorePersistedAnchor() && snapshot) this.restoreAnchor(snapshot);
     });
   };
 
@@ -157,27 +174,63 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
   /// absolute offset stand in, so history above the place never silently
   /// scrolls the reader.
   private restoreSavedAnchor(anchor: ReadingAnchor | undefined) {
-    if (!anchor) return;
+    if (!anchor) return false;
     const scroller = this.scrollElement ?? this.findScrollElement();
-    if (!scroller) return;
+    if (!scroller) return false;
     this.scrollElement = scroller;
     const entries = Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-key]'))
       .map((entry) => ({ element: entry, entry_key: entry.dataset.entryKey ?? '' }))
       .filter((entry) => entry.entry_key);
+    if (entries.length === 0) return false;
     const resolved = resolveAnchor(anchor, entries);
     if (resolved) {
       const target = entries[resolved.index].element;
       const nextOffset = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
       scroller.scrollTop += nextOffset - anchor.offset;
-      return;
+      return entries[resolved.index].entry_key === anchor.entry_key ? 'matched' : 'fallback';
     }
     scroller.scrollTop = anchor.scroll_top;
+    return 'fallback';
   }
 
+  private restorePersistedAnchor() {
+    if (!this.restoreOnMaterialization) return false;
+    if (this.props.node.props.reading === 'following_latest') {
+      this.restoreOnMaterialization = false;
+      return false;
+    }
+    const result = this.restoreSavedAnchor(this.initialAnchor);
+    if (!result) return false;
+    // HTTP owner history and committed reply replay arrive independently.
+    // Keep the original stable key through replay and late child layout, even
+    // after a temporary fallback or a zero-height first match. Only new reader
+    // input retires the hint; programmatic scroll reports must not replace it.
+    return true;
+  }
+
+  private bindContent = (content: HTMLDivElement | null) => {
+    this.contentObserver?.disconnect();
+    this.contentObserver = null;
+    if (!content) return;
+    // App-owned stable entry anchors also survive late compiled children and
+    // media layout. Shared end-follow alone handles the following state.
+    const observer = new ResizeObserver(() => {
+      if (!this.active || this.contentObserver !== observer) return;
+      if (this.props.node.props.reading !== 'following_latest') {
+        if (!this.restorePersistedAnchor() && this.lastAnchor) this.restoreAnchor(this.lastAnchor);
+        this.rememberAnchor();
+      }
+    });
+    this.contentObserver = observer;
+    observer.observe(content);
+  };
+
   private emitAnchor() {
-    if (this.anchorFrame) return;
+    if (!this.active || this.anchorFrame || (this.restoreOnMaterialization && this.initialAnchor)) return;
+    const epoch = this.epoch;
     this.anchorFrame = requestAnimationFrame(() => {
       this.anchorFrame = 0;
+      if (!this.active || epoch !== this.epoch || this.viewport?.getExposes().following.get() === 'following') return;
       const snapshot = this.captureAnchor();
       const anchor: ReadingAnchor | undefined = snapshot?.key
         ? {
@@ -189,7 +242,7 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
         }
         : undefined;
       this.props.emit('timeline', 'timeline.reading', {
-        state: 'reading_history',
+        state: this.props.node.props.reading === 'selecting_or_interacting' ? 'selecting_or_interacting' : 'reading_history',
         at_end: false,
         ...(anchor ? { anchor } : {}),
       });
@@ -210,9 +263,21 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
   /// endpoints; an element-level boundary has no content offset the view can
   /// replay honestly, so nothing is stored for it.
   private onSelectionChange = () => {
+    if (!this.active) return;
+    const currentSelection = window.getSelection();
+    if (currentSelection && !currentSelection.isCollapsed
+      && this.capture.current?.contains(currentSelection.anchorNode)
+      && this.capture.current.contains(currentSelection.focusNode)) {
+      this.viewport?.getExposes().pauseFollowing();
+      if (this.props.node.props.reading !== 'selecting_or_interacting') {
+        this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
+      }
+    }
     clearTimeout(this.selectionTimer);
+    const epoch = this.epoch;
     this.selectionTimer = window.setTimeout(() => {
       this.selectionTimer = undefined;
+      if (!this.active || epoch !== this.epoch) return;
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
         this.props.emit('timeline', 'timeline.selection', { clear: true });
@@ -228,6 +293,7 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
       // Selecting committed text is interaction, not "follow the tail": new
       // content must not scroll the reader away from the span they are
       // holding.
+      this.viewport?.getExposes().pauseFollowing();
       this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
       const entryKey = startEntry.dataset.entryKey;
       if (!entryKey) return;
@@ -272,29 +338,41 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
     this.restoredSelection = saved;
   }
 
-  private scrollToEnd() {
-    const scroller = this.scrollElement ?? this.findScrollElement();
-    if (!scroller) return;
-    this.scrollElement = scroller;
-    scroller.scrollTop = scroller.scrollHeight;
-  }
+  private bindViewport = (viewport: ReadingViewportHandle | null) => {
+    this.offFollowing?.();
+    this.offFollowing = undefined;
+    this.viewport = viewport;
+    const epoch = ++this.epoch;
+    if (!viewport) return;
+    const exposed = viewport.getExposes();
+    const observe = () => {
+      if (this.viewport !== viewport || epoch !== this.epoch) return;
+      const following = exposed.following.get();
+      // Initial/late host materialization must not override persisted reading.
+      if (following === 'pending' && this.props.node.props.reading !== 'following_latest') {
+        exposed.pauseFollowing();
+        return;
+      }
+      queueMicrotask(() => {
+        if (!this.active || this.viewport !== viewport || epoch !== this.epoch) return;
+        const current = exposed.following.get();
+        if (current === 'following' && this.props.node.props.reading !== 'following_latest') {
+          this.props.emit('timeline', 'timeline.reading', { state: 'following_latest', at_end: true });
+        } else if (current === 'paused') this.emitAnchor();
+      });
+    };
+    this.offFollowing = exposed.following.subscribe(observe);
+    observe();
+  };
 
   private onScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
     if (!this.scrollElement) this.scrollElement = this.findScrollElement();
     if (target !== this.scrollElement) return;
     this.rememberAnchor();
-    const atEnd = target.scrollHeight - target.scrollTop - target.clientHeight <= 24;
-    if (atEnd) {
-      this.props.emit('timeline', 'timeline.reading', {
-        state: 'following_latest',
-        at_end: true,
-      });
-      return;
-    }
     // Reading upward records a real place: the entry at the viewport top plus
     // its offset, so backfilled history above it does not move the reader.
-    this.emitAnchor();
+    if (this.viewport?.getExposes().following.get() === 'paused') this.emitAnchor();
   };
 
   render() {
@@ -312,30 +390,32 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
           data-reading={node.props.reading}
           data-wrap={node.props.wrap === true ? 'on' : 'off'}
           onScrollCapture={this.onScroll}
-          onWheel={(event) => {
-            if (event.deltaY < 0) this.emitAnchor();
-          }}
+          onWheelCapture={() => { this.restoreOnMaterialization = false; }}
+          onKeyDownCapture={() => { this.restoreOnMaterialization = false; }}
           onPointerDown={(event) => {
+            this.restoreOnMaterialization = false;
             if ((event.target as Element).closest('pre,button,details,input,textarea,select,[role="button"]')) {
+              this.viewport?.getExposes().pauseFollowing();
               emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
             }
           }}
         >
-          <ScrollRoot className="timeline-root">
-            <ScrollViewport className="timeline-viewport">
-              <div className="timeline-column">
+          <MessageRoot className="timeline-root" a11yLabel={t('timeline.label')} newContentCount={node.props.new_count}>
+            <ReadingViewport className="timeline-viewport" ref={this.bindViewport}>
+              <div className="timeline-column" ref={this.bindContent}>
                 <SubmissionHistory node={node} emit={emit} />
                 {entries.length === 0
                   ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />
                   : <TimelineEntries entries={entries} emit={emit} name={name} onOpenWork={this.props.onOpenWork} />}
               </div>
-            </ScrollViewport>
+            </ReadingViewport>
             <ScrollScrollbar orientation="vertical" className="timeline-scrollbar">
               <ScrollThumb className="timeline-thumb" />
             </ScrollScrollbar>
-          </ScrollRoot>
-          {node.props.reading !== 'following_latest' && (
-            <div className="jump-latest">
+          </MessageRoot>
+          {(node.props.reading !== 'following_latest' || this.state.jumpFocused) && (
+            <div className="jump-latest" onFocusCapture={() => this.setState({ jumpFocused: true })}
+              onBlurCapture={() => this.setState({ jumpFocused: false })}>
               <Button variant="secondary" size="sm" onClick={() => emit('timeline', 'timeline.latest')}>
                 <Icon name="down" size={15} />
                 {node.props.new_count > 0 ? t('timeline.newContent', { count: node.props.new_count }) : t('timeline.latest')}

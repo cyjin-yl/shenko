@@ -1,7 +1,9 @@
 import { text as t, preferredLocale } from './messages';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { createReactAdapter } from '@proto.ui/adapter-react';
+import { createReactAdapter, type ReactAdapterHandle } from '@proto.ui/adapter-react';
+import { defineAsHook, definePrototype } from '@proto.ui/core';
+import { asScrollSurface } from '@proto.ui/hooks';
 import { shadcnButton } from '@proto.ui/prototypes-shadcn/button';
 import { shadcnTextareaRoot } from '@proto.ui/prototypes-shadcn/textarea';
 import {
@@ -10,6 +12,12 @@ import {
   shadcnScrollAreaScrollbar,
   shadcnScrollAreaThumb,
 } from '@proto.ui/prototypes-shadcn/scroll-area';
+import {
+  shadcnMessageScrollerRoot,
+  shadcnMessageScrollerViewport,
+  type ShadcnMessageScrollerViewportProps,
+  type MessageScrollerViewportExposes,
+} from '@proto.ui/prototypes-shadcn/message-scroller';
 import {
   shadcnCollapsibleRoot,
   shadcnCollapsibleTrigger,
@@ -41,6 +49,33 @@ export const ScrollRoot = adapt(shadcnScrollAreaRoot);
 export const ScrollViewport = adapt(shadcnScrollAreaViewport);
 export const ScrollScrollbar = adapt(shadcnScrollAreaScrollbar);
 export const ScrollThumb = adapt(shadcnScrollAreaThumb);
+export const MessageRoot = adapt(shadcnMessageScrollerRoot);
+// Integration boundary: Proto-UI owns follow/depart/resume and its
+// lease. Shenko owns persisted entry keys and selection offsets. Turn off the
+// generic visible anchor so there is exactly one anchor owner, including
+// backfill and the late mounting of compiled message content.
+const asMessageViewport = defineAsHook(shadcnMessageScrollerViewport);
+const readingViewport = definePrototype<ShadcnMessageScrollerViewportProps, MessageScrollerViewportExposes>({
+  name: 'shenko-reading-viewport',
+  modules: asMessageViewport.modules,
+  setup() {
+    const inherited = asMessageViewport();
+    asScrollSurface().configure({ anchor: { mode: 'off' } });
+    return inherited.render;
+  },
+});
+export type ReadingViewportHandle = ReactAdapterHandle<typeof readingViewport>;
+const AdaptedReadingViewport = adapt(readingViewport);
+// The Adapter publishes its imperative ref before its own setup layout
+// effect. Publish the bridge ref in the parent layout effect, after that
+// child has installed its public exposes, including on StrictMode replay.
+export const ReadingViewport = React.forwardRef<ReadingViewportHandle, React.ComponentPropsWithoutRef<typeof AdaptedReadingViewport>>(
+  function ReadingViewport(props, ref) {
+    const child = React.useRef<ReadingViewportHandle>(null);
+    React.useImperativeHandle(ref, () => child.current!, []);
+    return <AdaptedReadingViewport {...props} ref={child} />;
+  },
+);
 export const CollapsibleRoot = adapt(shadcnCollapsibleRoot);
 export const CollapsibleTrigger = adapt(shadcnCollapsibleTrigger);
 export const CollapsibleContent = adapt(shadcnCollapsibleContent);

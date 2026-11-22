@@ -25,7 +25,7 @@ mkdirSync(cacheRoot, { recursive: true });
 const bundlePath = join(mkdtempSync(join(cacheRoot, 'shenko-document-')), 'consumer.mjs');
 await build({
   stdin: {
-    contents: "export { RichDocument } from '../src/document-view.tsx'; export { ImView } from '../src/im.tsx'; export { buildProjection } from '../src/projection.ts'; export { initialState } from '../src/live-state.ts'; export { collectThreads } from '../src/threads.ts';",
+    contents: "export { RichDocument } from '../src/document-view.tsx'; export { Messages } from '../src/im.tsx'; export { buildProjection } from '../src/projection.ts'; export { initialState } from '../src/live-state.ts'; export { collectThreads } from '../src/threads.ts';",
     resolveDir: join(webRoot, 'tests'),
     sourcefile: 'document-view-consumer.mjs',
   },
@@ -36,7 +36,7 @@ await build({
   jsx: 'automatic',
   external: ['react', 'react-dom', 'react/jsx-runtime'],
 });
-const { RichDocument, ImView, buildProjection, initialState, collectThreads } = await import(pathToFileURL(bundlePath).href);
+const { RichDocument, Messages, buildProjection, initialState, collectThreads } = await import(pathToFileURL(bundlePath).href);
 
 const markdown = (text) => createElement('div', { className: 'markdown-body' }, text);
 
@@ -63,9 +63,12 @@ test('grouped IM owner rows each retain their saved edit recovery action', (cont
   const projection = buildProjection(state, 1);
   const threads = collectThreads({ projection, tasks: [], conversations: [] });
   const direct = threads[0];
-  const markup = renderToStaticMarkup(createElement(ImView, {
-    threads, selected: direct.id, onSelect: () => {}, composer: null,
-    renderAttachment: () => null, emit: () => {}, onOpenInspect: () => {}, demo: false,
+  // Test the actual row renderer's action ownership. MessageScroller now
+  // materializes the outer viewport after mount; its live App journey is
+  // scripts/web_reading_journey.mjs, not server static markup.
+  const markup = renderToStaticMarkup(createElement(Messages, {
+    messages: direct.messages, viewer: direct.viewer, group: false,
+    renderAttachment: () => null, emit: () => {}, onOpenInspect: () => {},
   }));
   for (const id of [1, 2]) {
     const start = markup.indexOf(`data-entry-key="submission.saved-${id}"`);
