@@ -1,0 +1,57 @@
+{
+  "url": "http://127.0.0.1:17860/",
+  "source": "live",
+  "viewport": {
+    "width": 1280,
+    "height": 900,
+    "dpr": 1
+  },
+  "reduced_motion": true,
+  "rows": [
+    {
+      "key": "submission.59bcc778-2599-47bf-b493-140be89a241e",
+      "entry_key": "submission.59bcc778-2599-47bf-b493-140be89a241e",
+      "text": "请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-cf299c3653c5。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+      "offset": 63.25,
+      "visible": true,
+      "stable_fact": true
+    },
+    {
+      "key": "part.[\"b12cfbda-6959-4161-8571-c50efddda255\",\"text/0\"]",
+      "entry_key": "part.[\"b12cfbda-6959-4161-8571-c50efddda255\",\"text/0\"]",
+      "text": "两个回执都实际回来了，等待条件成立。我核对一下再报告：\n\n第一个是 model.child 的结果（task_id f3bfe4e4…）：outcome=succeeded，termination=completed，model 字段确认就是 swift-qwen3.8-27b-nvfp4（local 通路，base_url http://10.10.10.11:8000），answer 与 transcript 文本都是 \"437\"，一步完成、无工具调用。19×23 的计算数值是 437，数学上也正确。\n\n第二个是 host.printf 原生 child 的结果（task_id 3ee9b0ec…）：outcome=succeeded，exit_code=0，stderr 为空，stdout_utf8 恰好是 \"S1-cf299c3653c5\"，transport_error=null，且 exact_postcondition=true——按该定义的成功合同（退出码 0、stdout 与封存 text 完全一致、stderr 为空）全部满足。原样回显的标记就是 S1-cf299c3653c5。\n\n两次委派都没有模拟：回执带真实 receipt_id、evidence_ref（CAS 摘要）与 ledger commit_seq（printf 为 seq 89，model.child 为 seq 95）。\n\n至于 baf98bd2 这个事件第三次重达，任务已随本报告完成，这次显式 acknowledged 掉，不再留悬。等待条件已满足，结束当前语义等待。",
+      "offset": 248.1875,
+      "visible": true,
+      "stable_fact": true
+    }
+  ],
+  "anchor": {
+    "key": "submission.59bcc778-2599-47bf-b493-140be89a241e",
+    "entry_key": "submission.59bcc778-2599-47bf-b493-140be89a241e",
+    "text": "请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-cf299c3653c5。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+    "offset": 63.25,
+    "visible": true,
+    "stable_fact": true
+  },
+  "scroll": {
+    "top": 0,
+    "height": 736,
+    "client": 736
+  },
+  "announcements": [
+    {
+      "politeness": "polite",
+      "text": ""
+    },
+    {
+      "politeness": "polite",
+      "text": "传输已连接"
+    }
+  ],
+  "editor": {
+    "draft": "",
+    "focused": true,
+    "selection_start": 0,
+    "selection_end": 0
+  }
+}

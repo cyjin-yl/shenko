@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "observed_at_utc": "2026-11-22T00:11:44.353361+00:00",
+  "scope": "Eight additional original observer/wrapper/sampler/exporter files from the closed original batch, plus timing derived with its frozen original tool; no installation database or CAS reads.",
+  "files": [
+    {
+      "path": "observer/real_single_node_journey.py",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-d16adbf8/real_single_node_journey.py",
+      "bytes": 54139,
+      "sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d",
+      "source_stat_before": {
+        "bytes": 54139,
+        "mtime_ns": 1795305062510678374,
+        "inode": 75763046
+      },
+      "source_stat_after": {
+        "bytes": 54139,
+        "mtime_ns": 1795305062510678374,
+        "inode": 75763046
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "observer/real_browser_witness.py",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-d16adbf8/real_browser_witness.py",
+      "bytes": 22907,
+      "sha256": "429d831acf7d597f91bc829856536dcc7afa9959702ed77ffd6fb0af05c7cbc5",
+      "source_stat_before": {
+        "bytes": 22907,
+        "mtime_ns": 1795305062520678911,
+        "inode": 75763047
+      },
+      "source_stat_after": {
+        "bytes": 22907,
+        "mtime_ns": 1795305062520678911,
+        "inode": 75763047
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "observer/summarize_request_timing.py",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-d16adbf8/summarize_request_timing.py",
+      "bytes": 8491,
+      "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7",
+      "source_stat_before": {
+        "bytes": 8491,
+        "mtime_ns": 1795305062520678911,
+        "inode": 75763048
+      },
+      "source_stat_after": {
+        "bytes": 8491,
+        "mtime_ns": 1795305062520678911,
+        "inode": 75763048
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "observer/sample-environment.py",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-d16adbf8/sample-environment.py",
+      "bytes": 8703,
+      "sha256": "6b07d0bae686fa6ac7850e0a6ddefe2330baca0e2469baeb04301e5d73b665fd",
+      "source_stat_before": {
+        "bytes": 8703,
+        "mtime_ns": 1795305062534679663,
+        "inode": 75763049
+      },
+      "source_stat_after": {
+        "bytes": 8703,
+        "mtime_ns": 1795305062534679663,
+        "inode": 75763049
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "runner/real.sh",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-real-final-d16adbf8.sh",
+      "bytes": 2494,
+      "sha256": "53da2371e0a5f570f6d67ed1b94493ebcb30105a1eb035bcb14b678658204cb3",
+      "source_stat_before": {
+        "bytes": 2494,
+        "mtime_ns": 1795305062539679931,
+        "inode": 75763051
+      },
+      "source_stat_after": {
+        "bytes": 2494,
+        "mtime_ns": 1795305062539679931,
+        "inode": 75763051
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "runner/host-real.sh",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-real-final-d16adbf8.sh",
+      "bytes": 2889,
+      "sha256": "b174e39f5df6d7c347993e70d49ac66f390549cc28e33af344ee5fafd80b01c2",
+      "source_stat_before": {
+        "bytes": 2889,
+        "mtime_ns": 1795305062544680200,
+        "inode": 75763052
+      },
+      "source_stat_after": {
+        "bytes": 2889,
+        "mtime_ns": 1795305062544680200,
+        "inode": 75763052
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "sampler.log",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8.sampler.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_stat_before": {
+        "bytes": 0,
+        "mtime_ns": 1795305078368530064,
+        "inode": 75768705
+      },
+      "source_stat_after": {
+        "bytes": 0,
+        "mtime_ns": 1795305078368530064,
+        "inode": 75768705
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "collection/export-real-receipts.py",
+      "kind": "original",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-export-real-receipts.py",
+      "bytes": 3826,
+      "sha256": "1682d24087422fb309aae2dc57365b7da1e92ad1960814f24dbc2af57d7dfb58",
+      "source_stat_before": {
+        "bytes": 3826,
+        "mtime_ns": 1795298590027593005,
+        "inode": 75511789
+      },
+      "source_stat_after": {
+        "bytes": 3826,
+        "mtime_ns": 1795298590027593005,
+        "inode": 75511789
+      },
+      "stable_during_copy": true,
+      "encoding": "original"
+    },
+    {
+      "path": "timing.json.gz",
+      "kind": "derived",
+      "bytes": 43976,
+      "sha256": "8817c872ac90c5f78a00db801ade7549b7e789242834c5e7d1f29c9bf52db820",
+      "raw_bytes": 930459,
+      "raw_sha256": "46f6b4b82c51b218c1d1fe64d44483a36e42751dfd6e4a6fc1a680e5e28629ad",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "timing.stderr",
+      "kind": "derived",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "raw_bytes": 0,
+      "raw_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original"
+    },
+    {
+      "path": "timing-execution.json",
+      "kind": "derived",
+      "bytes": 946,
+      "sha256": "4818c75626e3f3dcb4dc2dba0697f639a365a469ee717f8993ef68be0db70ea4",
+      "raw_bytes": 946,
+      "raw_sha256": "4818c75626e3f3dcb4dc2dba0697f639a365a469ee717f8993ef68be0db70ea4",
+      "encoding": "original"
+    }
+  ]
+}

@@ -1,0 +1,151 @@
+{
+  "runtime_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/first.runtime.log",
+  "runtime_sha256": "491194aca65c6a43bf3632a9a84beb726ffa975c08ff071c5a1e3bb6e3715302",
+  "runtime_bytes": 486454,
+  "context_non_timing": [
+    {
+      "line": 1147,
+      "text": "2026-11-22T00:05:08.596498Z  WARN shenko_subject::child: native settlement failed; recovery decides task_id=e7d5b19f-c4ca-400f-b768-b5b1b0d67ed0 error=invalid direct native predecessor: snapshot object closure is incomplete"
+    },
+    {
+      "line": 1148,
+      "text": "2026-11-22T00:05:08.596783Z  INFO shenko_subject::loop_runner: subject loop: shutdown"
+    },
+    {
+      "line": 1149,
+      "text": "2026-11-22T00:05:08.596883Z  INFO shenko_subject::loop_runner: subject loop terminated"
+    },
+    {
+      "line": 1154,
+      "text": "2026-11-22T00:05:08.600862Z  WARN shenko_broker::execution: provider request did not complete request_id=f78537f5-a9fb-4d4f-946b-1614239f4d98 code=\"INFERENCE_OBSERVATION_STOPPED\" detail=runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown"
+    },
+    {
+      "line": 1155,
+      "text": "2026-11-22T00:05:08.688912Z  WARN shenko_broker::execution: provider inference did not produce a successful terminal result status=Failed"
+    },
+    {
+      "line": 1160,
+      "text": "2026-11-22T00:05:08.857560Z  WARN shenko_subject::child: managed park rejected; recovery decides task_id=e7d5b19f-c4ca-400f-b768-b5b1b0d67ed0 error=protocol error: [writer] runtime_authority_fenced reason=\"reconciling\""
+    },
+    {
+      "line": 1165,
+      "text": "2026-11-22T00:05:08.900224Z  WARN shenko_subject::child: managed park retry rejected; recovery decides task_id=e7d5b19f-c4ca-400f-b768-b5b1b0d67ed0 error=protocol error: [writer] runtime_authority_fenced reason=\"reconciling\""
+    },
+    {
+      "line": 1166,
+      "text": "2026-11-22T00:05:08.956066Z  WARN shenko_subject::child: managed park rejected; recovery decides task_id=ce3dcbab-49c2-43dd-996c-bddf8fbe2192 error=protocol error: [writer] runtime_authority_fenced reason=\"handler_failed\""
+    },
+    {
+      "line": 1171,
+      "text": "2026-11-22T00:05:08.962166Z  WARN shenko_subject::child: managed park retry rejected; recovery decides task_id=ce3dcbab-49c2-43dd-996c-bddf8fbe2192 error=protocol error: [writer] runtime_authority_fenced reason=\"handler_failed\""
+    },
+    {
+      "line": 1172,
+      "text": "2026-11-22T00:05:09.071407Z  INFO shenko_broker::broker: inference broker stopped"
+    },
+    {
+      "line": 1173,
+      "text": "2026-11-22T00:05:09.090897Z  WARN shenko: reconstructing runtime from durable authority and branch facts"
+    },
+    {
+      "line": 1174,
+      "text": "2026-11-22T00:05:09.092975Z  INFO shenko::runtime_lifecycle: quota strategies installed strategies=[StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Forecast }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Route }, StrategyDescriptor { protocol_version: 1, strategy_id: \"shenko.quota.rolling_baseline\", version: \"1\", kind: Cadence }]"
+    },
+    {
+      "line": 1175,
+      "text": "2026-11-22T00:05:09.093191Z  INFO shenko::runtime_start: Shenko starting data_dir=/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation port=17860 name=\"(unnamed)\""
+    },
+    {
+      "line": 1176,
+      "text": "2026-11-22T00:05:09.165710Z  INFO shenko_store::store: store opened fts5=true wal=true sqlite=3.46.0"
+    },
+    {
+      "line": 1177,
+      "text": "2026-11-22T00:05:09.171361Z  INFO shenko::runtime_start: store ready sqlite=3.46.0 wal=true fts5=true"
+    },
+    {
+      "line": 1178,
+      "text": "2026-11-22T00:05:09.210418Z  INFO shenko::runtime_start: owner claim available through the private installation control file control_file=/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/bootstrap/claim-secret.json"
+    },
+    {
+      "line": 1179,
+      "text": "2026-11-22T00:05:09.212647Z  INFO shenko_wasm::runtime: WASM runtime init (wasmtime-45)"
+    },
+    {
+      "line": 1180,
+      "text": "2026-11-22T00:05:09.630014Z  INFO shenko::runtime_host: host shutdown signal observed; no replacement runtime will start"
+    },
+    {
+      "line": 1181,
+      "text": "2026-11-22T00:05:09.792322Z  INFO shenko::runtime_start: WASM home ready manifest=/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/home-manifest.json"
+    },
+    {
+      "line": 1182,
+      "text": "2026-11-22T00:05:09.797607Z  INFO shenko::runtime_bootstrap: existing genesis found — resuming agent_id=8aa79664-0cfb-4df0-a8eb-73a0ec2949ab"
+    },
+    {
+      "line": 1183,
+      "text": "2026-11-22T00:05:09.799135Z  INFO shenko::runtime_start: identity ready revision=1 name=\"(unnamed)\" naming=Unnamed"
+    },
+    {
+      "line": 1184,
+      "text": "2026-11-22T00:05:09.832355Z  INFO shenko::runtime_start: launch bound to control authority generation=seed selector_revision=1 selector_epoch=2"
+    },
+    {
+      "line": 1185,
+      "text": "2026-11-22T00:05:09.832404Z  INFO shenko_broker::broker: local model provider selected (docs/specs/nodes.md#spec-22-1) model=swift-qwen3.8-27b-nvfp4"
+    },
+    {
+      "line": 1186,
+      "text": "2026-11-22T00:05:09.842341Z  INFO shenko::runtime_lifecycle: runtime services stopped; owned local workers joined"
+    },
+    {
+      "line": 1187,
+      "text": "Error: runtime authority requires reconstruction: chosen action control:15:blake3:0d44e544583e848669a5f0830af4094c058a061ad3e1c0ed8b272c576d12f595 has no local applied marker"
+    },
+    {
+      "line": 1188,
+      "text": ""
+    },
+    {
+      "line": 1189,
+      "text": "Caused by:"
+    },
+    {
+      "line": 1190,
+      "text": "    0: protocol error: [writer] runtime_authority_fenced"
+    },
+    {
+      "line": 1191,
+      "text": "    1: [writer] runtime_authority_fenced"
+    }
+  ],
+  "installation_paths": [
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/cas",
+      "directory": true
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/node",
+      "directory": true,
+      "children": [
+        "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/node/node.sqlite3"
+      ]
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/shenko.db",
+      "directory": false,
+      "bytes": 1634304
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/shenko.db-shm",
+      "directory": false,
+      "bytes": 32768
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/installation/shenko.db-wal",
+      "directory": false,
+      "bytes": 4161232
+    }
+  ]
+}
