@@ -10,6 +10,10 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::CommitAdmissionObject,
+    native_evidence::{
+        AnchoredNativeEvidence, NativeEvidenceObjectIdentity, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR,
+        NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS, NATIVE_EVIDENCE_CODEC,
+    },
     object::{Digest, ObjectRef},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,6 +57,36 @@ pub struct ControlObjectChunk {
 pub struct ControlObjectProgress {
     pub complete: bool,
     pub next_offset: u64,
+}
+
+#[derive(Default)]
+struct NativeEvidenceDeltaBudget {
+    seen: BTreeSet<NativeEvidenceObjectIdentity>,
+    counted: BTreeSet<Digest>,
+    bytes: u64,
+}
+
+impl NativeEvidenceDeltaBudget {
+    fn include(
+        &mut self,
+        reference: &ObjectRef,
+        predecessors: &BTreeSet<NativeEvidenceObjectIdentity>,
+    ) -> Result<bool> {
+        let identity = NativeEvidenceObjectIdentity::from(reference);
+        if predecessors.contains(&identity) || !self.seen.insert(identity) {
+            return Ok(false);
+        }
+        ensure!(
+            self.seen.len() <= NATIVE_EVIDENCE_CLOSURE_OBJECTS,
+            "native E1 incremental closure object budget exceeded"
+        );
+        if self.counted.insert(reference.digest.clone()) {
+            self.bytes = self.bytes.checked_add(reference.bytes)
+                .filter(|bytes| *bytes <= NATIVE_EVIDENCE_CLOSURE_BYTES)
+                .context("native E1 incremental closure byte budget exceeded")?;
+        }
+        Ok(true)
+    }
 }
 
 impl Node {
@@ -786,13 +820,41 @@ impl Node {
     /// Reuse immutable CAS transport without adding an admission, vote, log
     /// entry, execution receipt or grant. The Store adapter selects the root
     /// from its actual source observations before calling this method.
-    pub fn retain_native_evidence_objects(&mut self, root: &ObjectRef, objects: &[CommitAdmissionObject]) -> Result<()> {
-        use shenko_types::native_evidence::{NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS};
+    pub fn retain_native_evidence_objects(
+        &mut self,
+        root: &ObjectRef,
+        objects: &[CommitAdmissionObject],
+        local_predecessor: &mut impl FnMut(&ObjectRef, bool) -> Result<Vec<CommitAdmissionObject>>,
+    ) -> Result<()> {
         ensure!(objects.len() <= NATIVE_EVIDENCE_CLOSURE_OBJECTS, "native E1 closure object budget exceeded");
         let bytes = objects.iter().try_fold(0u64, |total, object| total.checked_add(object.reference.bytes));
         ensure!(bytes.is_some_and(|bytes| bytes <= NATIVE_EVIDENCE_CLOSURE_BYTES), "native E1 closure byte budget exceeded");
+        let envelope = if Self::is_anchored_native_evidence(root) {
+            let root_object = objects.iter().find(|object| {
+                NativeEvidenceObjectIdentity::from(&object.reference)
+                    == NativeEvidenceObjectIdentity::from(root)
+            }).context("anchored native E1 envelope is missing from its objects")?;
+            Some(AnchoredNativeEvidence::decode(root, &root_object.bytes)
+                .map_err(anyhow::Error::msg)?)
+        } else {
+            None
+        };
+        if let Some(envelope) = &envelope {
+            self.cache_local_native_evidence_predecessors(envelope, local_predecessor)?;
+        }
         let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
+        // Inspect the immutable predecessor graph BEFORE accepting any of the
+        // supplied bytes. E1 transport cannot repair or introduce a missing T1.
+        let predecessors = envelope.as_ref()
+            .map(|envelope| Self::native_evidence_predecessors_conn(&tx, envelope))
+            .transpose()?;
         Self::store_admission_objects_tx(&tx, objects)?;
+        if let Some(predecessors) = &predecessors {
+            let (_, budget) = Self::native_evidence_delta_objects_conn(&tx, root, predecessors)?;
+            ensure!(objects.iter().all(|object| {
+                budget.seen.contains(&NativeEvidenceObjectIdentity::from(&object.reference))
+            }), "native E1 transport includes objects outside its incremental closure");
+        }
         Self::verify_admission_closure_tx(&tx, root)?;
         tx.commit()?;
         Ok(())
@@ -802,10 +864,145 @@ impl Node {
         &mut self,
         root: &ObjectRef,
         exchange: &mut impl FnMut(crate::Request) -> Result<serde_json::Value>,
+        local_predecessor: &mut impl FnMut(&ObjectRef, bool) -> Result<Vec<CommitAdmissionObject>>,
     ) -> Result<Vec<CommitAdmissionObject>> {
-        use shenko_types::native_evidence::{NATIVE_EVIDENCE_CLOSURE_BYTES, NATIVE_EVIDENCE_CLOSURE_OBJECTS};
-        self.pull_objects_bounded(root, exchange, NATIVE_EVIDENCE_CLOSURE_OBJECTS, NATIVE_EVIDENCE_CLOSURE_BYTES)?;
-        self.admission_objects(root)
+        if !Self::is_anchored_native_evidence(root) {
+            // The capacity and interpretation of original codecs stay fixed.
+            self.pull_objects_bounded(root, exchange, NATIVE_EVIDENCE_CLOSURE_OBJECTS, NATIVE_EVIDENCE_CLOSURE_BYTES)?;
+            return self.admission_objects(root);
+        }
+        ensure!(root.bytes <= NATIVE_EVIDENCE_CLOSURE_BYTES, "native E1 envelope byte budget exceeded");
+        self.pull_native_evidence_object(root, exchange)?;
+        let envelope = AnchoredNativeEvidence::decode(root, &Self::native_evidence_object_conn(&self.conn, root)?.bytes)
+            .map_err(anyhow::Error::msg)?;
+        self.cache_local_native_evidence_predecessors(&envelope, local_predecessor)?;
+        let predecessors = Self::native_evidence_predecessors_conn(&self.conn, &envelope)?;
+        let mut budget = NativeEvidenceDeltaBudget::default();
+        let mut pending = vec![root.clone()];
+        let mut objects = BTreeMap::new();
+        while let Some(reference) = pending.pop() {
+            if !budget.include(&reference, &predecessors)? {
+                continue;
+            }
+            self.pull_native_evidence_object(&reference, exchange)?;
+            let object = Self::native_evidence_object_conn(&self.conn, &reference)?;
+            Self::native_evidence_children(&object, &mut pending)?;
+            objects.entry(reference.digest).or_insert(object);
+        }
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
+        Self::verify_admission_closure_tx(&tx, root)?;
+        tx.commit()?;
+        Ok(objects.into_values().collect())
+    }
+
+    fn is_anchored_native_evidence(root: &ObjectRef) -> bool {
+        root.codec.name == NATIVE_EVIDENCE_CODEC
+            && root.codec.major == NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR
+    }
+
+    /// Populate only this Node's byte cache from already applied, verified
+    /// LOCAL Store predecessors. The adapter must use Store's factual
+    /// predecessor lookup, never the remote E1 exchange. This grants no
+    /// admission and installs no Store history. Existing closure markers are
+    /// not repaired here: their actual bytes are checked by the inventory walk.
+    /// The callback always validates actual local application; its bool asks
+    /// for bytes only when this Node does not already have a closed cache.
+    fn cache_local_native_evidence_predecessors(
+        &mut self,
+        envelope: &AnchoredNativeEvidence,
+        local_predecessor: &mut impl FnMut(&ObjectRef, bool) -> Result<Vec<CommitAdmissionObject>>,
+    ) -> Result<()> {
+        for root in &envelope.predecessor_roots {
+            let cached = self.control_closure_present(root)?;
+            let objects = local_predecessor(root, !cached)
+                .context("native E1 requires its original predecessor already applied locally")?;
+            if cached {
+                continue;
+            }
+            let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
+            Self::store_admission_objects_tx(&tx, &objects)?;
+            Self::verify_admission_closure_tx(&tx, root)?;
+            tx.commit()?;
+        }
+        Ok(())
+    }
+
+    fn native_evidence_object_conn(conn: &Connection, reference: &ObjectRef) -> Result<CommitAdmissionObject> {
+        let bytes: Vec<u8> = conn.query_row(
+            "SELECT bytes FROM objects WHERE digest=?1",
+            [&reference.digest.0],
+            |row| row.get(0),
+        ).with_context(|| format!("native E1 predecessor or observation object missing: {}", reference.digest))?;
+        ensure!(reference.bytes == bytes.len() as u64 && reference.digest == Digest::blake3(&bytes),
+            "native E1 predecessor or observation object differs from its reference");
+        Ok(CommitAdmissionObject { reference: reference.clone(), bytes })
+    }
+
+    fn native_evidence_children(object: &CommitAdmissionObject, pending: &mut Vec<ObjectRef>) -> Result<()> {
+        if object.reference.media_type == "application/json" || object.reference.media_type.ends_with("+json") {
+            collect_admission_references(&serde_json::from_slice(&object.bytes)?, pending);
+        }
+        Ok(())
+    }
+
+    fn native_evidence_predecessors_conn(
+        conn: &Connection,
+        envelope: &AnchoredNativeEvidence,
+    ) -> Result<BTreeSet<NativeEvidenceObjectIdentity>> {
+        for root in &envelope.predecessor_roots {
+            ensure!(Self::control_closure_present_conn(conn, root)?,
+                "native E1 predecessor closure was not already verified locally");
+        }
+        let mut pending = envelope.predecessor_roots.clone();
+        let mut inventory = BTreeSet::new();
+        while let Some(reference) = pending.pop() {
+            if !inventory.insert(NativeEvidenceObjectIdentity::from(&reference)) {
+                continue;
+            }
+            // Recheck actual bytes, including opaque bulk leaves. A closure
+            // marker alone must not conceal corruption or a missing object.
+            let object = Self::native_evidence_object_conn(conn, &reference)?;
+            Self::native_evidence_children(&object, &mut pending)?;
+        }
+        Ok(inventory)
+    }
+
+    fn native_evidence_delta_objects_conn(
+        conn: &Connection,
+        root: &ObjectRef,
+        predecessors: &BTreeSet<NativeEvidenceObjectIdentity>,
+    ) -> Result<(Vec<CommitAdmissionObject>, NativeEvidenceDeltaBudget)> {
+        let mut pending = vec![root.clone()];
+        let mut budget = NativeEvidenceDeltaBudget::default();
+        let mut objects = BTreeMap::new();
+        while let Some(reference) = pending.pop() {
+            if !budget.include(&reference, predecessors)? {
+                continue;
+            }
+            let object = Self::native_evidence_object_conn(conn, &reference)?;
+            Self::native_evidence_children(&object, &mut pending)?;
+            objects.entry(reference.digest).or_insert(object);
+        }
+        Ok((objects.into_values().collect(), budget))
+    }
+
+    fn pull_native_evidence_object(
+        &mut self,
+        reference: &ObjectRef,
+        exchange: &mut impl FnMut(crate::Request) -> Result<serde_json::Value>,
+    ) -> Result<()> {
+        let mut progress = self.control_object_progress(&reference.digest, reference.bytes)?;
+        while !progress.complete {
+            let chunk: ControlObjectChunk = serde_json::from_value(exchange(crate::Request::ReadControlObject {
+                digest: reference.digest.clone(),
+                offset: progress.next_offset,
+            })?)?;
+            ensure!(chunk.digest == reference.digest && chunk.total == reference.bytes
+                && chunk.offset == progress.next_offset,
+                "peer native E1 object chunk differs from the requested reference and cursor");
+            progress = self.store_control_object_chunk(&chunk)?;
+        }
+        Ok(())
     }
 
     fn pull_objects_bounded(

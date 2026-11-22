@@ -766,9 +766,19 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
         &json!({"stage":"pending_before_original_chunk","snapshot":pending_roots}))?;
     // A new CLI process retries the durable pending manifest, then stops at
     // the receiver's missing actual T1 rather than accepting peer markers.
+    let blocked_serial = fixture.counter.get();
     let (blocked, blocked_report) = fixture.cli_sync(source_id)?;
     assert!(!blocked.success(), "{blocked_report}");
-    assert_eq!(blocked_report["reconciliation_required"], 2);
+    let blocked_error = fs::read_to_string(fixture.logs().join(format!("{blocked_serial:03}-sync-evidence.stderr")))?;
+    assert!(blocked_error.contains("native E1 base is not one actual local T1 application"), "{blocked_error}");
+    assert!(blocked_report.is_null(), "transport refusal must not invent an application report");
+    assert_eq!(connection.query_row("SELECT count(*) FROM native_evidence_deliveries WHERE state='pending'",
+        [], |row| row.get::<_, i64>(0))?, 1);
+    for (_, operation, _, arm) in &originals {
+        assert!(!receiver.control_admission_applied_here(&arm.admission)?);
+        assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
+    }
+    assert_eq!(fs::read(fixture.private().join("effects"))?, b"effect\neffect\n");
     assert_eq!(
         connection.query_row(
             "SELECT count(*) FROM native_evidence_materializations",
@@ -838,7 +848,8 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     let NativeEvidenceAvailability::Sealed { evidence_ref } = &page.items[0].availability else {
         anyhow::bail!("source first E1 lacks seal")
     };
-    let delivered_objects = receiver_node.admission_objects(evidence_ref)?;
+    assert_eq!(evidence_ref.codec.major, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR);
+    let delivered_objects = source.native_evidence_objects(&page.items[0])?;
     let parked_delivery = parked.queue_native_evidence_delivery(&NativeEvidenceDelivery {
         source: page.source.clone(),
         item: page.items[0].clone(),
@@ -935,8 +946,11 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     let NativeEvidenceAvailability::Sealed { evidence_ref: successor_ref } = &successor_item.availability else {
         anyhow::bail!("later definite observation lacks its source seal")
     };
-    assert_eq!(successor_ref.codec.major, 3);
-    let successor_fact: Value = serde_json::from_slice(&receiver.cas.read_object(&successor_ref.digest)?)?;
+    assert_eq!(successor_ref.codec.major, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR);
+    let successor_envelope = AnchoredNativeEvidence::decode(successor_ref,
+        &receiver.cas.read_object(&successor_ref.digest)?).map_err(anyhow::Error::msg)?;
+    assert_eq!(successor_envelope.fact_ref.codec.major, 3);
+    let successor_fact: Value = serde_json::from_slice(&receiver.cas.read_object(&successor_envelope.fact_ref.digest)?)?;
     let NativeEvidenceAvailability::Sealed { evidence_ref: first_unknown_ref } = &next_page.items[0].availability else {
         anyhow::bail!("original Unknown lacks its source seal")
     };
@@ -963,13 +977,16 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
 
     // Successor window 3: a genuine T1 is insufficient without this Store's
     // actual first-E1 application. Closure bytes do not install that receipt.
+    let out_of_order_serial = fixture.counter.get();
     let (out_of_order, out_of_order_report) = fixture.cli_sync_from("causal", receiver_id)?;
     assert!(!out_of_order.success(), "{out_of_order_report}");
-    assert_eq!(out_of_order_report["reconciliation_required"], 1);
+    let out_of_order_error = fs::read_to_string(fixture.logs().join(format!("{out_of_order_serial:03}-sync-evidence.stderr")))?;
+    assert!(out_of_order_error.contains("anchored E1 predecessor has no unique actual local application"), "{out_of_order_error}");
+    assert!(out_of_order_report.is_null());
     let (causal_debts, causal_debt_count) = causal.native_evidence_delivery_debts()?;
     assert_eq!(causal_debt_count, 1);
-    assert!(causal_debts[0].reason.as_deref().is_some_and(|reason|
-        reason.contains("first Unknown's actual local receipt")), "{causal_debts:#?}");
+    assert_eq!(causal_debts[0].state, shenko_store::NativeEvidenceDeliveryState::Pending);
+    assert!(causal_debts[0].materialized_at.is_none());
     assert!(causal.external_operation_evidence(originals[1].1.operation_id)?.is_empty());
     assert_eq!(serde_json::to_value(causal.external_operation(originals[1].1.operation_id)?)?,
         serde_json::to_value(&originals[1].1)?);
@@ -1078,8 +1095,15 @@ fn original_native_e1_arrives_over_authenticated_ssh_without_t2_or_reexecution()
     };
     let mut forged_fact = successor_fact.clone();
     forged_fact["predecessor_ref"] = serde_json::to_value(definite_ref)?;
-    let forged_ref = source.cas.seal_object(&serde_json::to_vec(&forged_fact)?,
+    let forged_fact_ref = source.cas.seal_object(&serde_json::to_vec(&forged_fact)?,
         "application/json", "commit-authority", "store-native-evidence-fact", 3)?.object;
+    let mut forged_envelope = successor_envelope.clone();
+    forged_envelope.fact_ref = forged_fact_ref;
+    forged_envelope.predecessor_roots.retain(|reference| reference != first_unknown_ref);
+    forged_envelope.predecessor_roots.push(definite_ref.clone());
+    forged_envelope.predecessor_roots.sort_by_key(|reference| NativeEvidenceObjectIdentity::from(reference));
+    let forged_ref = source.cas.seal_object(&serde_json::to_vec(&forged_envelope)?,
+        "application/json", "commit-authority", NATIVE_EVIDENCE_CODEC, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR)?.object;
     let mut forged_item = successor_item.clone();
     forged_item.availability = NativeEvidenceAvailability::Sealed { evidence_ref: forged_ref };
     let forged = source.queue_native_evidence_delivery(&NativeEvidenceDelivery {
@@ -1546,9 +1570,11 @@ fn source_bound_original_e1_requires_local_source_custody_and_current_heads() ->
     let NativeEvidenceAvailability::Sealed { evidence_ref: dependent_ref } = &dependent_item.availability else {
         anyhow::bail!("guarded original E1 must be sealed");
     };
-    assert_eq!(dependent_ref.codec.major, 4);
+    assert_eq!(dependent_ref.codec.major, NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR);
     let dependent_bytes = source.cas.read_object(&dependent_ref.digest)?;
-    let fact: Value = serde_json::from_slice(&dependent_bytes)?;
+    let dependent_envelope = AnchoredNativeEvidence::decode(dependent_ref, &dependent_bytes).map_err(anyhow::Error::msg)?;
+    assert_eq!(dependent_envelope.fact_ref.codec.major, 4);
+    let fact: Value = serde_json::from_slice(&source.cas.read_object(&dependent_envelope.fact_ref.digest)?)?;
     assert_eq!(fact["schema_version"], 4);
     assert_eq!(fact["receipt"], serde_json::to_value(&dependent)?);
     assert_eq!(fact["operation"], serde_json::to_value(&dependent_head)?);
@@ -1557,13 +1583,15 @@ fn source_bound_original_e1_requires_local_source_custody_and_current_heads() ->
     assert_eq!(fact["fold"]["expected_revision"], serde_json::to_value(dependent_armed.record_revision)?);
     assert_eq!(fact["fold"]["source_operation_revision"], serde_json::to_value((source_head.operation_id, source_head.record_revision))?);
     let source_bytes = source.cas.read_object(&source_ref.digest)?;
-    let source_fact: Value = serde_json::from_slice(&source_bytes)?;
+    let source_envelope = AnchoredNativeEvidence::decode(source_ref, &source_bytes).map_err(anyhow::Error::msg)?;
+    let source_fact: Value = serde_json::from_slice(&source.cas.read_object(&source_envelope.fact_ref.digest)?)?;
     assert_eq!(source_fact["receipt"], serde_json::to_value(&original)?);
     let source_objects = source.native_evidence_objects(source_item)?;
     let dependent_objects = source.native_evidence_objects(dependent_item)?;
     for reference in [source_ref, &original.raw_ref, original.normalized_ref.as_ref().context("source normalized")?] {
-        assert!(dependent_objects.iter().any(|object| object.reference.digest == reference.digest));
+        assert!(dependent_objects.iter().all(|object| object.reference.digest != reference.digest));
     }
+    assert!(dependent_envelope.predecessor_roots.iter().any(|reference| reference == source_ref));
     let dependent_delivery = NativeEvidenceDelivery {
         source: descriptor.clone(), item: dependent_item.clone(),
     };
@@ -1582,8 +1610,8 @@ fn source_bound_original_e1_requires_local_source_custody_and_current_heads() ->
         ).optional()?;
         Ok(raw.map(|raw| serde_json::from_str(&raw)).transpose()?)
     };
-    // Both real T1s exist. Supplying the complete dependent CAS closure still
-    // cannot synthesize the original source's local E1 materialization.
+    // Both real T1s exist. The increment cannot synthesize or download the
+    // original source's local E1 materialization or its missing graph.
     let mut predecessor_reasons = Vec::new();
     for _ in 0..2 {
         let NativeEvidenceDeliveryOutcome::ReconciliationRequired { reason, .. } =

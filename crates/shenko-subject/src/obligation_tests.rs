@@ -411,7 +411,7 @@ fn archive(store:&Store,memory:Option<PathBuf>,permit_incomplete:bool)->Vec<u8> 
 }
 
 #[tokio::test]
-async fn obligation_schema7_archive_reopens_replays_and_relays_exact_settlements() {
+async fn obligation_current_archive_reopens_replays_and_relays_exact_settlements() {
     let (dir,store,agent)=fixture();let mut subject=state(store.clone(),agent).unwrap();
     commit_output(&store,&mut subject,1,&[],"[obligation] {\"description\":\"replicated promise\"}").await;
     let obligation=store.open_subject_obligations(agent).unwrap().remove(0);
@@ -420,10 +420,11 @@ async fn obligation_schema7_archive_reopens_replays_and_relays_exact_settlements
     let source_receipts=terminal_receipts(&store);let bytes=archive(&store,None,false);
     // This journey exercises the current writer. The historical two-binary
     // schema-5/schema-6 proof keeps its original writers and archive bytes.
-    assert_eq!(store.export_cognition(&Default::default()).unwrap().manifest.schema,7);
+    let schema=shenko_store::cognition_archive::ARCHIVE_SCHEMA;
+    assert_eq!(store.export_cognition(&Default::default()).unwrap().manifest.schema,schema);
     if let Some(output)=std::env::var_os("SHENKO_OBLIGATION_ARCHIVE_DIR") {
         let output=PathBuf::from(output);std::fs::create_dir_all(&output).unwrap();
-        std::fs::write(output.join("actual-schema7-terminal.archive"),&bytes).unwrap();
+        std::fs::write(output.join(format!("actual-schema{schema}-terminal.archive")),&bytes).unwrap();
         std::fs::write(output.join("source.json"),serde_json::to_vec_pretty(&serde_json::json!({"source_root":&dir,"agent_id":agent,"obligation_id":obligation.obligation_id})).unwrap()).unwrap();
     }
     let receiver_dir=dir.join("receiver");std::fs::create_dir_all(&receiver_dir).unwrap();

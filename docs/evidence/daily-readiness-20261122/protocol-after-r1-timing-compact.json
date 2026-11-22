@@ -1,0 +1,1110 @@
+{
+  "schema_version": 1,
+  "run_id": "protocol-after-r1",
+  "observed_at": "2026-11-21T19:30:10Z",
+  "batch": {
+    "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+    "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+    "startup_timeout_seconds": 300,
+    "requested_runs": 8,
+    "attempted_runs": 8,
+    "unattempted_runs": 0,
+    "completed_observations": 8,
+    "protocol_passed_runs": 2,
+    "canonical_case_table_sha256": "d7b9f0a2dfddffda823f1154e54fc6a5f0eef4c99445f6a40b5f9ccdea87359a",
+    "finished_at": "2026-11-21T19:28:14Z",
+    "errors": []
+  },
+  "fixed_identity": {
+    "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+    "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-after-protocol",
+    "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+    "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+    "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+    "model": "swift-qwen3.8-27b-nvfp4",
+    "model_url": "http://10.10.10.11:8000",
+    "startup_timeout_seconds": 300,
+    "phase_timeout_seconds": 900,
+    "configured_local_request_timeout_ms": "600000",
+    "request_path_timing": true
+  },
+  "full_observation": {
+    "file": "protocol-after-r1-timing.json",
+    "bytes": 194442,
+    "sha256": "b00e1afd763e77d8faeda7211ac290a6631f8be06934e5a635a94918068c7ba6"
+  },
+  "descriptive_counts": {
+    "completed_cases": 8,
+    "first_request_check_all_true": 8,
+    "original_summary_protocol_passed": 2,
+    "first_r0_codes": [],
+    "scope_count": 1379,
+    "complete_count": 1379,
+    "incomplete_count": 0,
+    "invalid_event_count": 0,
+    "drops": [
+      {
+        "case": "case-01",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-02",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-03",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-04",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-05",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-06",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-07",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-08",
+        "observed_dropped_events": []
+      }
+    ],
+    "note": "Completed fixed eight-case batch. Raw first-request checks are separate from cleanup-inclusive original protocol_passed; neither is a full native/child/restart journey."
+  },
+  "cases": [
+    {
+      "case": "case-01",
+      "case_id": "multiply-17-29",
+      "request_id": "6b614d5e-18e6-4af4-ae6d-b92d4d4f5f8c",
+      "step_id": "1040a398-d314-4563-8de9-036e002b3cf5",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1847,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "069c7809-971a-4818-a93b-fefb60ea2f66",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:12:43"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "069c7809-971a-4818-a93b-fefb60ea2f66",
+            "seq": 103
+          },
+          "created_at": "2026-11-21 19:14:08"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "069c7809-971a-4818-a93b-fefb60ea2f66",
+            "seq": 106
+          },
+          "created_at": "2026-11-21 19:14:20"
+        }
+      },
+      "startup_seconds": 12.468716661009239,
+      "elapsed_seconds": 116.02858261400252,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 122,
+        "complete_count": 122,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/first.runtime.log",
+          "bytes": 95787,
+          "sha256": "9e616962760bc9f759f4064410e15d4b391e7028b49028a29d746f9ed335b4bb"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 10451097,
+          "p50_us": 10451097,
+          "p95_us": 10451097,
+          "max_us": 10451097,
+          "self_sample_count": 1,
+          "self_total_us": 130339
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 12986763,
+          "p50_us": 967198,
+          "p95_us": 10033133,
+          "max_us": 10033133,
+          "self_sample_count": 4,
+          "self_total_us": 12986763
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 15,
+          "inclusive_total_us": 151,
+          "p50_us": 1,
+          "p95_us": 132,
+          "max_us": 132,
+          "self_sample_count": 15,
+          "self_total_us": 151
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-02",
+      "case_id": "multiply-28-34",
+      "request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+      "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1532,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:14:39"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "seq": 163
+          },
+          "created_at": "2026-11-21 19:15:40"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "seq": 166
+          },
+          "created_at": "2026-11-21 19:15:50"
+        }
+      },
+      "startup_seconds": 11.465180555998813,
+      "elapsed_seconds": 117.58446979001747,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 227,
+        "complete_count": 227,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/first.runtime.log",
+          "bytes": 181432,
+          "sha256": "3a3e55274b8c35f21031e657491754ad499e2a1e862bd4b65389f638e06c9c31"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 9500612,
+          "p50_us": 9500612,
+          "p95_us": 9500612,
+          "max_us": 9500612,
+          "self_sample_count": 1,
+          "self_total_us": 86829
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 8,
+          "inclusive_total_us": 18288769,
+          "p50_us": 1702122,
+          "p95_us": 9247603,
+          "max_us": 9247603,
+          "self_sample_count": 8,
+          "self_total_us": 18288769
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 23,
+          "inclusive_total_us": 41,
+          "p50_us": 1,
+          "p95_us": 5,
+          "max_us": 5,
+          "self_sample_count": 23,
+          "self_total_us": 41
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "da576cfc-1eda-4fe1-b5e3-2040574e71f7",
+          "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+              "seq": 173
+            },
+            "created_at": "2026-11-21 19:15:54"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+              "seq": 175
+            },
+            "created_at": "2026-11-21 19:15:56"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        {
+          "request_id": "de85bbd3-70d9-4727-bf82-a1960bbd2f3d",
+          "step_id": "6774988d-5f4d-4117-b6ff-67ef38a1b9ea",
+          "state": "dispatched",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+              "seq": 189
+            },
+            "created_at": "2026-11-21 19:16:02"
+          },
+          "terminal_recorded": null,
+          "status": null,
+          "termination": null
+        }
+      ]
+    },
+    {
+      "case": "case-03",
+      "case_id": "multiply-46-27",
+      "request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+      "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 3611,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:16:39"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "seq": 107
+          },
+          "created_at": "2026-11-21 19:18:53"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "seq": 110
+          },
+          "created_at": "2026-11-21 19:18:59"
+        }
+      },
+      "startup_seconds": 14.089840344997356,
+      "elapsed_seconds": 192.55639022702235,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 239,
+        "complete_count": 239,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/first.runtime.log",
+          "bytes": 186384,
+          "sha256": "fa2e5ca62cd7cca026028492c1e01d764cd48978db5f19c38c0f0dcdc76df2b3"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 5595443,
+          "p50_us": 5595443,
+          "p95_us": 5595443,
+          "max_us": 5595443,
+          "self_sample_count": 1,
+          "self_total_us": 119311
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 7,
+          "inclusive_total_us": 13075116,
+          "p50_us": 1675930,
+          "p95_us": 5304669,
+          "max_us": 5304669,
+          "self_sample_count": 7,
+          "self_total_us": 13075116
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 27,
+          "inclusive_total_us": 168,
+          "p50_us": 1,
+          "p95_us": 4,
+          "max_us": 140,
+          "self_sample_count": 27,
+          "self_total_us": 168
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "3ae7654e-803a-4624-9996-9d1a379619d7",
+          "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+              "seq": 116
+            },
+            "created_at": "2026-11-21 19:19:03"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+              "seq": 118
+            },
+            "created_at": "2026-11-21 19:19:04"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        {
+          "request_id": "4bb80e08-aed8-45a9-b664-7a2e9291a0a4",
+          "step_id": "cc248ba3-62c1-43f0-b479-96901dbbfc16",
+          "state": "dispatched",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+              "seq": 131
+            },
+            "created_at": "2026-11-21 19:19:11"
+          },
+          "terminal_recorded": null,
+          "status": null,
+          "termination": null
+        }
+      ]
+    },
+    {
+      "case": "case-04",
+      "case_id": "multiply-63-18",
+      "request_id": "10940591-eb9e-4fe6-b5c6-fd1a84288305",
+      "step_id": "2bcec865-92b5-437c-a011-b3ff2d035851",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2955,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "383fc3f7-9caa-4ccc-9a0f-069d83611d5d",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:19:50"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "383fc3f7-9caa-4ccc-9a0f-069d83611d5d",
+            "seq": 163
+          },
+          "created_at": "2026-11-21 19:21:08"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "383fc3f7-9caa-4ccc-9a0f-069d83611d5d",
+            "seq": 167
+          },
+          "created_at": "2026-11-21 19:21:18"
+        }
+      },
+      "startup_seconds": 12.08242787400377,
+      "elapsed_seconds": 107.695766549994,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 119,
+        "complete_count": 119,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-04/first.runtime.log",
+          "bytes": 90797,
+          "sha256": "35fc655614705aefe8d660298a7c510c13d76db5a6d0b34bc789a5936a49de31"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 10049387,
+          "p50_us": 10049387,
+          "p95_us": 10049387,
+          "max_us": 10049387,
+          "self_sample_count": 1,
+          "self_total_us": 94782
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 13667349,
+          "p50_us": 1094590,
+          "p95_us": 9796423,
+          "max_us": 9796423,
+          "self_sample_count": 4,
+          "self_total_us": 13667349
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 14,
+          "inclusive_total_us": 17,
+          "p50_us": 0,
+          "p95_us": 5,
+          "max_us": 5,
+          "self_sample_count": 14,
+          "self_total_us": 17
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-05",
+      "case_id": "multiply-42-57",
+      "request_id": "b19febf8-d866-499e-b310-6b277258aaa8",
+      "step_id": "58a764cd-5cde-43d0-a0ef-7fd3fc84d8cc",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1743,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "75758df7-7851-4423-a688-f167af05e0bf",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:21:39"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "75758df7-7851-4423-a688-f167af05e0bf",
+            "seq": 136
+          },
+          "created_at": "2026-11-21 19:22:41"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "75758df7-7851-4423-a688-f167af05e0bf",
+            "seq": 139
+          },
+          "created_at": "2026-11-21 19:22:50"
+        }
+      },
+      "startup_seconds": 11.857334123982582,
+      "elapsed_seconds": 95.84922151500359,
+      "original_protocol_passed": true,
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 213,
+        "complete_count": 213,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-05/first.runtime.log",
+          "bytes": 171485,
+          "sha256": "cccaef95519639fdbf4b09e1e76e36f821acb013f2a548ca9139128c5f10e066"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 7968033,
+          "p50_us": 7968033,
+          "p95_us": 7968033,
+          "max_us": 7968033,
+          "self_sample_count": 1,
+          "self_total_us": 100514
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 8,
+          "inclusive_total_us": 15880864,
+          "p50_us": 1106026,
+          "p95_us": 7637370,
+          "max_us": 7637370,
+          "self_sample_count": 8,
+          "self_total_us": 15880864
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 26,
+          "inclusive_total_us": 500,
+          "p50_us": 1,
+          "p95_us": 204,
+          "max_us": 260,
+          "self_sample_count": 26,
+          "self_total_us": 500
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "0ce8e645-b8e9-4878-8209-dafc8a813ef5",
+          "step_id": "fc5d68b7-9c10-48a6-99dc-a6112a69fa2e",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "75758df7-7851-4423-a688-f167af05e0bf",
+              "seq": 145
+            },
+            "created_at": "2026-11-21 19:22:54"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "75758df7-7851-4423-a688-f167af05e0bf",
+              "seq": 154
+            },
+            "created_at": "2026-11-21 19:22:57"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ]
+    },
+    {
+      "case": "case-06",
+      "case_id": "multiply-73-16",
+      "request_id": "7a65fe88-6d3f-4208-a09f-192c074cb765",
+      "step_id": "d3c4cb38-201b-401d-a9c7-8c6290218646",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 836,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "6037fd40-c718-45d3-a8fa-387ccb82f890",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:23:14"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "6037fd40-c718-45d3-a8fa-387ccb82f890",
+            "seq": 76
+          },
+          "created_at": "2026-11-21 19:23:47"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "6037fd40-c718-45d3-a8fa-387ccb82f890",
+            "seq": 79
+          },
+          "created_at": "2026-11-21 19:23:53"
+        }
+      },
+      "startup_seconds": 11.861529350018827,
+      "elapsed_seconds": 59.53045003299485,
+      "original_protocol_passed": true,
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 116,
+        "complete_count": 116,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-06/first.runtime.log",
+          "bytes": 90930,
+          "sha256": "eee1a860bdc3c7246b4dfe88a9a68e25b579b434ca664892e2f9d3aed5c1f325"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 5024803,
+          "p50_us": 5024803,
+          "p95_us": 5024803,
+          "max_us": 5024803,
+          "self_sample_count": 1,
+          "self_total_us": 161178
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 5,
+          "inclusive_total_us": 9008473,
+          "p50_us": 979318,
+          "p95_us": 4679808,
+          "max_us": 4679808,
+          "self_sample_count": 5,
+          "self_total_us": 9008473
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 11,
+          "inclusive_total_us": 113,
+          "p50_us": 3,
+          "p95_us": 93,
+          "max_us": 93,
+          "self_sample_count": 11,
+          "self_total_us": 113
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "9960c802-7d11-401a-befe-f60f0ebdd36b",
+          "step_id": "a9da960e-f45a-4769-ba6a-f1fd5d83b5a7",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "6037fd40-c718-45d3-a8fa-387ccb82f890",
+              "seq": 83
+            },
+            "created_at": "2026-11-21 19:23:57"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "6037fd40-c718-45d3-a8fa-387ccb82f890",
+              "seq": 89
+            },
+            "created_at": "2026-11-21 19:23:58"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ]
+    },
+    {
+      "case": "case-07",
+      "case_id": "multiply-84-25",
+      "request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+      "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 3884,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:24:15"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "seq": 98
+          },
+          "created_at": "2026-11-21 19:26:01"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "seq": 101
+          },
+          "created_at": "2026-11-21 19:26:08"
+        }
+      },
+      "startup_seconds": 12.465176911995513,
+      "elapsed_seconds": 164.48477422998985,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 227,
+        "complete_count": 227,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/first.runtime.log",
+          "bytes": 179491,
+          "sha256": "aa2e6d77aa452dc7f5c9687a80247251c7ed31cc8fef929cb168c6498d198c26"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 6072678,
+          "p50_us": 6072678,
+          "p95_us": 6072678,
+          "max_us": 6072678,
+          "self_sample_count": 1,
+          "self_total_us": 328188
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 7,
+          "inclusive_total_us": 14282040,
+          "p50_us": 1922965,
+          "p95_us": 5476199,
+          "max_us": 5476199,
+          "self_sample_count": 7,
+          "self_total_us": 14282040
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 25,
+          "inclusive_total_us": 82,
+          "p50_us": 1,
+          "p95_us": 25,
+          "max_us": 29,
+          "self_sample_count": 25,
+          "self_total_us": 82
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96",
+          "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+              "seq": 108
+            },
+            "created_at": "2026-11-21 19:26:13"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+              "seq": 110
+            },
+            "created_at": "2026-11-21 19:26:13"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        {
+          "request_id": "2d699ce8-1af9-4441-af85-015168d22e8d",
+          "step_id": "e6fe4768-f1cf-480d-93cb-5ac5e06c57eb",
+          "state": "dispatched",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+              "seq": 123
+            },
+            "created_at": "2026-11-21 19:26:21"
+          },
+          "terminal_recorded": null,
+          "status": null,
+          "termination": null
+        }
+      ]
+    },
+    {
+      "case": "case-08",
+      "case_id": "multiply-56-39",
+      "request_id": "67a9261d-9433-447d-96b0-301cebc093af",
+      "step_id": "8675535c-3b55-45df-9090-6bf2ee587248",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2391,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "a446d095-af8d-4e5c-86c0-45c8e079e1d7",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:27:00"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "a446d095-af8d-4e5c-86c0-45c8e079e1d7",
+            "seq": 135
+          },
+          "created_at": "2026-11-21 19:28:02"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "a446d095-af8d-4e5c-86c0-45c8e079e1d7",
+            "seq": 138
+          },
+          "created_at": "2026-11-21 19:28:10"
+        }
+      },
+      "startup_seconds": 12.473304366023513,
+      "elapsed_seconds": 89.13868484200793,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 116,
+        "complete_count": 116,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-08/first.runtime.log",
+          "bytes": 92186,
+          "sha256": "c0b71d744c445b39ea14d0d4a9b74514364eba62cbe81ae36915d289339dcf12"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 7535445,
+          "p50_us": 7535445,
+          "p95_us": 7535445,
+          "max_us": 7535445,
+          "self_sample_count": 1,
+          "self_total_us": 119227
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 10089626,
+          "p50_us": 965074,
+          "p95_us": 7208450,
+          "max_us": 7208450,
+          "self_sample_count": 4,
+          "self_total_us": 10089626
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 14,
+          "inclusive_total_us": 74,
+          "p50_us": 1,
+          "p95_us": 52,
+          "max_us": 52,
+          "self_sample_count": 14,
+          "self_total_us": 74
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    }
+  ],
+  "boundaries": [
+    "Frozen first.ledger defines each first-request verdict. Later attempts and their shutdown Unknowns are retained separately.",
+    "Timing phases summarize each whole closed runtime log, including startup and shutdown. Parent/child inclusive durations must not be summed.",
+    "Commit-log wall timestamps have one-second resolution; request_armed is not a measured physical-send timestamp.",
+    "This eight-case batch observes first-request syntax and durable S1 child admission, not native/child completion, arithmetic correctness or restart recovery.",
+    "Before and after batches ran at different wall times. Neither timing differences nor eight observed cases establish causal performance effects or population reliability.",
+    "All eight raw first-request checks passed; the original strict protocol_passed count remains two of eight. Six unclean stops remain failures in that strict summary.",
+    "All 1379 observed scopes are complete, without invalid events or explicit dropped-event counters observed.",
+    "Neither binary contains the newly authored child-directory batching or typed shutdown changes. The environment sampler was not active in these paired batches."
+  ]
+}

@@ -192,7 +192,7 @@ impl HostPrintfHandler {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        if let Some(existing) = self.store.arm_external_operation(
+        if let Some(existing) = self.store.arm_native_operation_for_dispatch(
             &invocation.task_invocation,
             &mut operation,
             &mut attempt,

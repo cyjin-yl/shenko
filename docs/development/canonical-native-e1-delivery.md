@@ -3,6 +3,10 @@
 This document describes the original first-observation increment. The next
 bounded candidate adds [one causal Unknown-to-definite successor](canonical-native-e1-successor.md),
 with an explicit new wire scope and no expansion of T2's existing proof.
+The current candidate writes [codec-6 anchored E1 envelopes](native-e1-incremental-closure.md)
+around the original fact shapes. That separately versioned change replaces
+whole-graph transport accounting for new facts; the historical codecs and
+their original capacity checks below remain unchanged.
 
 This increment adds an authenticated factual path for the first observation
 of the original paired native T1. A receiver can retain that E1 before any

@@ -93,6 +93,13 @@ enum Visit {
     NoCapacity,
 }
 
+/// A synchronous claim has no managed worker to finish it. Even if its
+/// underlying error is fresh preparation drift, it cannot be deferred until
+/// this exact claim has been durably parked or lifecycle recovery takes over.
+#[derive(Debug, thiserror::Error)]
+#[error("durable parking of native claim {0} was not confirmed; runtime recovery is required")]
+pub(crate) struct NativeClaimNeedsRecovery(EntityId);
+
 /// Why a worker admission check may refuse a candidate.
 enum Admission {
     /// A slot is free and no worker owns this task.
@@ -1122,9 +1129,7 @@ impl NativeChildService {
                 let Some(claim) = self.store.claim_native_task(task.task_id, task.implementation_ref.clone(), true)? else {
                     return Ok(Visit::Skipped);
                 };
-                return Ok(if self.store.complete_native_task(&claim, operation)?.is_some() {
-                    Visit::Progressed
-                } else { Visit::Skipped });
+                return self.settle_without_worker(&claim, operation);
         }
         let registered = match self.frozen_handler(task) {
             Some(registered) => Some(registered),
@@ -1200,11 +1205,7 @@ impl NativeChildService {
             else {
                 return Ok(Visit::Skipped);
             };
-            return Ok(if self.store.complete_native_task(&claim, &operation)?.is_some() {
-                Visit::Progressed
-            } else {
-                Visit::Skipped
-            });
+            return self.settle_without_worker(&claim, &operation);
         }
         if matches!(park_reason(task), Some(reason) if !matches!(reason,
             "handler_unavailable" | "reconciling") && !recovery)
@@ -1227,7 +1228,7 @@ impl NativeChildService {
             return Ok(Visit::Skipped);
         };
         if claim.software_generation != self.generation {
-            self.store.park_native_task(
+            self.park_unowned_claim(
                 task.task_id,
                 claim.task.record_revision,
                 "generation_unavailable",
@@ -1239,7 +1240,7 @@ impl NativeChildService {
         let input = match self.native_input(&claim.task) {
             Ok(input) => input,
             Err(error) => {
-                self.store.park_native_task(
+                self.park_unowned_claim(
                     task.task_id,
                     claim.task.record_revision,
                     "input_unavailable",
@@ -1279,6 +1280,7 @@ impl NativeChildService {
             cancellation: Default::default(),
         };
         let task_id = claim.task.task_id;
+        let claim_revision = claim.task.record_revision;
         if !self.spawn_execution(
             task_id,
             registered,
@@ -1288,8 +1290,9 @@ impl NativeChildService {
             // or the budget filled. The claim is already durable; park it as
             // reconciling so the armed operation is recovered from evidence,
             // never replayed or left unowned without a durable record.
-            self.park_current(
+            self.park_unowned_claim(
                 task_id,
+                claim_revision,
                 "reconciling",
                 "durable claim exists but admission closed before a managed execution owned it; reconcile on recovery",
                 true,
@@ -1297,6 +1300,36 @@ impl NativeChildService {
             return Ok(Visit::Progressed);
         }
         Ok(Visit::Progressed)
+    }
+
+    fn settle_without_worker(&self, claim: &NativeTaskClaim, operation: &OperationRecord) -> Result<Visit> {
+        let settled = match self.store.complete_native_task(claim, operation) {
+            Ok(settled) => settled,
+            Err(error) if error.downcast_ref::<shenko_types::error::ShenkoError>()
+                .is_some_and(|error| error.is_control_preparation_changed_for(claim.task.agent_id)) =>
+            {
+                // The current T2 was not chosen, but its preceding claim WAS
+                // committed. Return that exact claim to durable reconciliation
+                // before allowing another pass; preserve its operation and E1.
+                self.park_unowned_claim(claim.task.task_id, claim.task.record_revision,
+                    "reconciling", "fresh settlement preparation changed; reconcile the original evidence", true)
+                    .map_err(|parking| parking.context(format!("settlement preparation failed: {error:#}")))?;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(if settled.is_some() { Visit::Progressed } else { Visit::Skipped })
+    }
+
+    fn park_unowned_claim(
+        &self, task_id: EntityId, revision: RecordRevision, reason: &str, detail: &str, retry: bool,
+    ) -> Result<()> {
+        let parked = self.store.park_native_task(task_id, revision, reason, detail, retry)
+            .map_err(|error| error.context(NativeClaimNeedsRecovery(task_id)))?;
+        if !parked {
+            return Err(NativeClaimNeedsRecovery(task_id).into());
+        }
+        Ok(())
     }
 
     fn park_current(

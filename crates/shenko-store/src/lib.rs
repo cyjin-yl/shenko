@@ -6,6 +6,7 @@ pub mod store;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 pub mod authority;
+mod timing;
 mod control_recovery;
 mod control_transition;
 mod dispatch_transition;
@@ -14,6 +15,7 @@ mod claim_transition;
 mod native_transition;
 mod native_facts;
 mod native_evidence;
+mod native_evidence_closure;
 mod native_evidence_successor;
 pub use native_evidence::NativeEvidenceSealDebt;
 mod native_evidence_delivery;

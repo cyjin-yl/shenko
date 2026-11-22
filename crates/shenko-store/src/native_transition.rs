@@ -5,7 +5,7 @@
 //! task and, after its ordinary children converge, its result and inbox entry.
 use std::collections::BTreeMap;
 
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -30,8 +30,9 @@ use crate::{
         NATIVE_RECOVERY, NATIVE_RESULT_ID, NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_ANCESTRY_READ_SCHEMA, NATIVE_OPERATION_READ_SCHEMA,
+        NATIVE_SUBJECT_READ_SCHEMA, NativeAncestry, NativeReadSelector, PreparedTransition,
+        RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::{commit_error, storage_error},
@@ -116,6 +117,24 @@ fn task_outcome(outcome: OperationOutcome) -> TaskOutcome {
 }
 
 impl NativeT2Plan {
+    fn read_selectors(&self) -> [NativeReadSelector; 3] {
+        [
+            NativeReadSelector::OriginalOperation { operation_id: self.operation.operation_id },
+            NativeReadSelector::OriginalAttempt { attempt_id: self.attempt.attempt_id },
+            NativeReadSelector::OriginalReceipt { receipt_id: self.evidence.receipt_id },
+        ]
+    }
+
+    fn generic_read_selectors(&self, head: &SubjectBranchHead) -> Vec<NativeReadSelector> {
+        let ancestry = NativeAncestry::new(&self.task, head);
+        let mut selectors = self.read_selectors().to_vec();
+        selectors.extend([
+            NativeReadSelector::TaskAncestry { ancestry: ancestry.clone(), ordinary_children: true },
+            NativeReadSelector::AuthoringSteps { ancestry },
+        ]);
+        selectors
+    }
+
     fn input_digest(&self, head: &SubjectBranchHead) -> Result<Digest, ShenkoError> {
         Ok(Digest::blake3(&serde_json::to_vec(&(head, self))?))
     }
@@ -269,6 +288,14 @@ fn json<T: serde::de::DeserializeOwned>(cell: &Cell) -> Result<T, ShenkoError> {
 }
 
 impl NativeT2Transition {
+    fn read_selectors(&self) -> Vec<NativeReadSelector> {
+        if self.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            self.plan.generic_read_selectors(&self.rows.original_head)
+        } else {
+            self.plan.read_selectors().to_vec()
+        }
+    }
+
     fn read_table(&self, name: &str) -> Result<&TableTransition, ShenkoError> {
         let matches = self
             .rows
@@ -282,6 +309,8 @@ impl NativeT2Transition {
                 Ok(table)
             }
             [table] if table.complete_read => Ok(table),
+            [table] if matches!(self.rows.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+                && self.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector)) => Ok(table),
             _ => Err(invalid(format!("missing complete {name} read condition"))),
         }
     }
@@ -318,6 +347,7 @@ impl NativeT2Transition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&self.read_selectors())?;
         if self.evidence_fact.is_some()
             && (!matches!(plan.phase, NativeT2Phase::Complete { .. }) || self.result.is_none())
         {
@@ -326,7 +356,9 @@ impl NativeT2Transition {
             ));
         }
         let key = plan.phase.position(&plan.task);
-        if rows.schema_version != 1
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+            || (matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) && self.evidence_fact.is_none())
+            || (rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA && self.evidence_fact.is_some())
             || rows.action_id != admission.action_id
             || rows.action_id != EntityId::derived("commit-admission-action-v1", key.as_bytes())
             || rows.input_digest != plan.input_digest(head)?
@@ -345,6 +377,10 @@ impl NativeT2Transition {
                 .contains(&crate::authority::task_revision_position(&plan.task))
         {
             return Err(invalid("transition does not bind the admitted T2 position"));
+        }
+        if rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = crate::native_facts::validate_native_ancestry(rows, &plan.task, true)?;
+            crate::native_facts::validate_native_ancestry_fences(admission, &ancestry)?;
         }
         self.original("subject_branch_heads", "agent_id", head.agent_id, head)?;
         self.original("tasks", "task_id", plan.task.task_id, &plan.task)?;
@@ -521,6 +557,9 @@ impl Store {
         phase: NativeT2Phase,
         completion: CompletionMemo,
     ) -> Result<Option<TaskResult>, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("native.t2", crate::timing::Binding {
+            task_id: Some(task_id), operation_id: Some(completion.operation_id), ..Default::default()
+        });
         let (head, mut position) = self.task_admission_position(task_id, String::new())?;
         let task = position
             .expected_tasks
@@ -553,7 +592,7 @@ impl Store {
         position.operation_id = Some(plan.operation.operation_id);
         position.attempt_id = Some(plan.attempt.attempt_id);
         let evidence_fact = if matches!(plan.phase, NativeT2Phase::Complete { .. }) {
-            let conn = self.ledger.conn.lock();
+            let conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
             let reference =
                 self.native_completion_evidence(&conn, &plan.task, &plan.operation, &plan.attempt)?;
             if let Some(reference) = &reference {
@@ -614,6 +653,10 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("canonical.prepare", crate::timing::Binding {
+            subject_id: Some(head.agent_id), task_id: Some(plan.task.task_id), action_id: Some(action_id),
+            operation_id: Some(plan.operation.operation_id), attempt_id: Some(plan.attempt.attempt_id),
+        });
         let input_digest = plan.input_digest(head)?;
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok(prepared);
@@ -628,23 +671,30 @@ impl Store {
             position.expected_steps.clone(),
         );
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             self.check_dispatch_owner(&tx).map_err(source_error)?;
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok(prepared); }
             // The local execution guard is checked in this transaction, outside
             // the shared read set. A follower never copies dispatcher ownership.
-            let (mut rows, result) = self.capture_row_transition(&tx, RowTransitionInput {
-                action_id, input_digest: input_digest.clone(), head,
-            }, evidence_fact.as_ref().map(|_| &plan.task), |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at))?;
+            let input = RowTransitionInput { action_id, input_digest: input_digest.clone(), head };
+            let evaluate = |commit, at| self.evaluate_native_t2(&tx, head, &plan, commit, at);
+            let (mut rows, result) = if evidence_fact.is_some() {
+                let [creator] = position.expected_steps.as_slice() else {
+                    return Err(invalid("direct T2 requires its original creator"));
+                };
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
+            } else {
+                self.capture_native_ancestry_transition(&tx, input, &plan.generic_read_selectors(head), evaluate)?
+            };
             if evidence_fact.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = NativeT2Transition { rows, plan: plan.clone(), result, evidence_fact: evidence_fact.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("native T2 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if evidence_fact.is_some() { 2 } else { 1 })?.object;
+                if evidence_fact.is_some() { 4 } else { 5 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -664,7 +714,7 @@ impl Store {
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?])
                 .map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(commit_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
             Ok(PreparedTransition { admission, transition_ref })
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -747,7 +797,7 @@ impl Store {
         &self,
         reference: &ObjectRef,
     ) -> Result<NativeT2Transition, ShenkoError> {
-        if !matches!(reference.codec.major, 1 | 2) {
+        if !matches!(reference.codec.major, 1..=5) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -756,7 +806,14 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: NativeT2Transition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if (reference.codec.major == 2) != transition.evidence_fact.is_some() {
+        if matches!(reference.codec.major, 2..=4) != transition.evidence_fact.is_some()
+            || transition.rows.schema_version != match reference.codec.major {
+                5 => NATIVE_ANCESTRY_READ_SCHEMA,
+                4 => NATIVE_OPERATION_READ_SCHEMA,
+                3 => NATIVE_SUBJECT_READ_SCHEMA,
+                _ => 1,
+            }
+        {
             return Err(invalid(
                 "T2 reader version differs from its original E1 proof",
             ));
@@ -804,6 +861,11 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("missing reserved T2 admission"))?;
+        let _phase = crate::timing::Phase::bound("canonical.apply", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let transition = self.read_native_transition(reference)?;
         transition.validate(admission)?;
         let envelope: serde_json::Value =
@@ -816,11 +878,14 @@ impl Store {
         {
             return Err(invalid("T2 action differs from its admitted envelope"));
         }
+        if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = crate::native_facts::validate_native_ancestry(&transition.rows, &transition.plan.task, true)?;
+            crate::native_facts::validate_native_ancestry_envelope(&envelope, &ancestry)?;
+        }
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 match mode {
                     NativeApplyMode::Learned => authority.check_materialization(&tx)?,
@@ -840,6 +905,10 @@ impl Store {
                 }
                 if admission_materialized(&tx, admission)? {
                     return Err(conflict("T2 already materialized"));
+                }
+                if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+                    crate::child::ensure_owner_active(&tx, &transition.plan.task, &transition.rows.original_head)
+                        .map_err(source_error)?;
                 }
                 self.verify_native_continuation(
                     &tx,
@@ -878,7 +947,7 @@ impl Store {
                     (if transition.result.is_some() { 3 } else { 1 })
                         + if evidence_written { 3 } else { 0 },
                 )?;
-                tx.commit().map_err(commit_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(commit_error)?;
                 authority.materialized();
                 Ok(transition.result.clone())
             },

@@ -1,0 +1,1380 @@
+{
+  "schema_version": 1,
+  "run_id": "protocol-after-r1",
+  "observed_at_utc": "2026-11-21T20:06:56.053234+00:00",
+  "purpose": "Read-only comparison of chosen claim-v1 frozen subject_steps witnesses with retained first/final snapshots and stopped SQL rows.",
+  "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+  "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+  "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+  "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+  "source_diagnostic": {
+    "path": "protocol-after-r1-shutdown-diagnostic.json",
+    "sha256": "163e0a05de9fd092e433dc12b9fe224ac201986e945e9684e4fb6de5094873e6"
+  },
+  "method": [
+    "Three already-stopped installations only; cleanup_complete and group_cleanup.complete were checked before reads.",
+    "Read three original 25,784-byte claim CAS files and the retained first/final ledger JSON files. No subject/model runtime was opened.",
+    "SQL verification selected only the two frozen subject_steps primary keys per database using mode=ro and PRAGMA query_only. A nonempty WAL without pre-existing SHM would be refused; all observed SHM files already existed.",
+    "Compare full SQL cell values after replacing updated_commit_seq with the same LocalSequence marker used by the canonical row engine. Compare data text exactly in SQL verification. Artifact snapshots decode JSON and their comparisons are semantic.",
+    "SHA-256 binds the observed raw claim bytes and retained ledger files. Declared original BLAKE3 refs are retained; BLAKE3 was not recomputed because the Python module was unavailable.",
+    "No source, model, installation state, score, failed denominator or control admission was modified."
+  ],
+  "conclusions": [
+    "All three frozen tables contain exactly two rows: the immutable creator and the current successor. The creator's complete canonical cell vector and data text remain equal in the stopped SQL databases.",
+    "Among the frozen old-branch rows, only the successor changed: state preparing→awaiting_model, record_revision 1→2, active_request_id null→the retained second-request ID. All other data fields and canonical columns remain equal.",
+    "The final table also has one newly created step on the reconstructed branch; it was not in the original frozen table. This later addition is distinct from the old-branch successor change.",
+    "These retained rows are direct evidence of S0 progress after capture. The runtime error separately proves the complete subject_steps witness comparison failed. No transaction snapshot from the exact failing materialization is retained, so this audit does not claim the final table was the precise table read at failure or exclude additional transient differences.",
+    "The old second requests retain Unknown terminal outcomes and all three original protocol_passed=false / parent_exit=-15 results remain unchanged."
+  ],
+  "cases": [
+    {
+      "case": "case-02",
+      "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+      "transition_ref": {
+        "digest": "blake3:7bce0bb7a7ba0c1bf6d4c75ecbe3ac902ab93b34c8c27eab3dae4d159f8b3e5a",
+        "bytes": 25784,
+        "codec": {
+          "name": "store-native-claim-transition",
+          "major": 1,
+          "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+        }
+      },
+      "transition_sha256": "5b7a6165df53065c1f5f8c1ec95f470e4673968819d924b4874b48c767e8d010",
+      "transition_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/7b/ce/7bce0bb7a7ba0c1bf6d4c75ecbe3ac902ab93b34c8c27eab3dae4d159f8b3e5a",
+      "frozen_created_at": "2026-11-21T19:15:54.192152286Z",
+      "frozen_result_commit": {
+        "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+        "seq": 172
+      },
+      "row_schema": 1,
+      "original_head": {
+        "agent_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86",
+        "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+        "next_step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+        "committed_step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+        "committed_at": {
+          "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+          "seq": 166
+        }
+      },
+      "creator_step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+      "frozen_table": {
+        "complete_read": true,
+        "row_count": 2,
+        "columns": [
+          "step_id",
+          "branch_id",
+          "step_no",
+          "state",
+          "record_revision",
+          "data",
+          "updated_commit_seq",
+          "created_at"
+        ],
+        "encoded_image_sha256": "7de33f1e0352d05517bdfde634bbec8129721cf59fcb35ad4456b2ded65cdfca"
+      },
+      "comparisons": [
+        {
+          "snapshot": "first.ledger.json",
+          "sha256": "52e91457a8c4af7daffd8a08e9701e5ec67730e1738555b28d217849db96d69f",
+          "bytes": 313985,
+          "mtime_utc": "2026-11-21T19:15:51.299646+00:00",
+          "same_old_branch_step_ids": [
+            "b69c0058-4c80-4512-b442-b9fb75170587",
+            "ef51db9b-f38e-49b4-8aac-b29eac31933b"
+          ],
+          "added_step_ids": [],
+          "rows": [
+            {
+              "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "99d2099652b8657fca00d08569dfc228c3aac049bd41400c17fc979ed70e610e",
+              "after_identity": {
+                "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 2,
+                "state": "planned",
+                "record_revision": 0,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "data_equal": false,
+              "data_fields_changed": {
+                "context_revision": {
+                  "before_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+                  "after_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+                },
+                "input_plan_ref": {
+                  "before_sha256": "4cb5c53890d28a8ba32254db85e3902e336606a0e942108ed5d6325b67734bce",
+                  "after_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+                  "before": {
+                    "digest": "blake3:501154a0d1016eee5ea77cc9590493457f7589542c7adc4790cf13e6ef296e54",
+                    "bytes": 65973,
+                    "codec": {
+                      "name": "subject_step_input",
+                      "major": 15,
+                      "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+                    }
+                  },
+                  "after": null
+                },
+                "record_revision": {
+                  "before_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                  "after_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+                  "before": 1,
+                  "after": 0
+                },
+                "state": {
+                  "before_sha256": "a9c04f9d51fd373f548b23b57b82ab90c48811694d72d8038560ca10f6da67c5",
+                  "after_sha256": "05ad072baae0b1e93afd052919622063b32b852dd55c9495c77a16487b1fa639",
+                  "before": "preparing",
+                  "after": "planned"
+                }
+              },
+              "after_row_sha256": "1d0ebfc424f9a62c01cdc7004a2cab07087a8127310e635a405bf2d9f4856868",
+              "after_updated_commit_seq": 167,
+              "snapshot_columns_changed_semantically": [
+                "state",
+                "record_revision",
+                "data"
+              ]
+            },
+            {
+              "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 2
+                },
+                "active_request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+                "commit_ref": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                }
+              },
+              "frozen_cells_sha256": "5ed46a10e2bfeb15f19b6cda32a4ad581ed10fab48a0f5a32d9d7b15aa887a06",
+              "after_identity": {
+                "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 2
+                },
+                "active_request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+                "commit_ref": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "2c06e7ba1f8419bac9c77339c07276f5d26f99cdf5a302e2e103b1dcf1c96f98",
+              "after_updated_commit_seq": 167,
+              "snapshot_columns_changed_semantically": []
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+              "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                "seq": 17
+              }
+            }
+          ]
+        },
+        {
+          "snapshot": "final.ledger.json",
+          "sha256": "7cf42ec485e03729e2496e0b1e6eb3a4852bfea0d854a40efd5ade09fc0bac23",
+          "bytes": 394315,
+          "mtime_utc": "2026-11-21T19:16:21.412333+00:00",
+          "same_old_branch_step_ids": [
+            "b69c0058-4c80-4512-b442-b9fb75170587",
+            "ef51db9b-f38e-49b4-8aac-b29eac31933b"
+          ],
+          "added_step_ids": [
+            "6774988d-5f4d-4117-b6ff-67ef38a1b9ea"
+          ],
+          "rows": [
+            {
+              "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "99d2099652b8657fca00d08569dfc228c3aac049bd41400c17fc979ed70e610e",
+              "after_identity": {
+                "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 2,
+                "state": "awaiting_model",
+                "record_revision": 2,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                },
+                "active_request_id": "da576cfc-1eda-4fe1-b5e3-2040574e71f7",
+                "commit_ref": null
+              },
+              "data_equal": false,
+              "data_fields_changed": {
+                "active_request_id": {
+                  "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+                  "after_sha256": "d8c99b66aef30a534028f2ed4ccac88d480724110953266f3eace8bb74a0ff94",
+                  "before": null,
+                  "after": "da576cfc-1eda-4fe1-b5e3-2040574e71f7"
+                },
+                "record_revision": {
+                  "before_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                  "after_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+                  "before": 1,
+                  "after": 2
+                },
+                "state": {
+                  "before_sha256": "a9c04f9d51fd373f548b23b57b82ab90c48811694d72d8038560ca10f6da67c5",
+                  "after_sha256": "823781dd77d4077528aca2e5996f48783d95121377877dbe2172ff2ae2600d96",
+                  "before": "preparing",
+                  "after": "awaiting_model"
+                }
+              },
+              "after_row_sha256": "420c18b8db74c9d78b45d1dd980b61a7c3ace92f0af234dc6236ed7b856ae97f",
+              "after_updated_commit_seq": 173,
+              "snapshot_columns_changed_semantically": [
+                "state",
+                "record_revision",
+                "data"
+              ]
+            },
+            {
+              "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 2
+                },
+                "active_request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+                "commit_ref": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                }
+              },
+              "frozen_cells_sha256": "5ed46a10e2bfeb15f19b6cda32a4ad581ed10fab48a0f5a32d9d7b15aa887a06",
+              "after_identity": {
+                "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+                "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 2
+                },
+                "active_request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+                "commit_ref": {
+                  "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                  "seq": 166
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "2c06e7ba1f8419bac9c77339c07276f5d26f99cdf5a302e2e103b1dcf1c96f98",
+              "after_updated_commit_seq": 167,
+              "snapshot_columns_changed_semantically": []
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+              "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                "seq": 17
+              }
+            },
+            {
+              "request_id": "da576cfc-1eda-4fe1-b5e3-2040574e71f7",
+              "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+                "seq": 173
+              }
+            }
+          ]
+        }
+      ],
+      "stopped_sql_point_check": {
+        "case": "case-02",
+        "transition_sha256": "5b7a6165df53065c1f5f8c1ec95f470e4673968819d924b4874b48c767e8d010",
+        "checked_at_utc": "2026-11-21T20:06:56.034412+00:00",
+        "blake3_verified": null,
+        "sqlite_sidecars_before": {
+          "wal_bytes": 4128272,
+          "shm_exists": true
+        },
+        "rows": [
+          {
+            "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+            "role": "successor",
+            "canonical_cells_equal": false,
+            "changed_columns": [
+              "state",
+              "record_revision",
+              "data"
+            ],
+            "data_exact_text_equal": false,
+            "data_fields_changed": [
+              "active_request_id",
+              "record_revision",
+              "state"
+            ],
+            "sql_row_sha256": "9ead625cd24a2ad142be98c39d4f9f34e534453b3e3f5f3f6ba35cde21f3f684",
+            "frozen_cells_sha256": "99d2099652b8657fca00d08569dfc228c3aac049bd41400c17fc979ed70e610e",
+            "current_cells_sha256": "9c855dd2b0c3793e8c6cde90b5434f0a213073550883f9a35ac807a301314aa6",
+            "current_updated_commit_seq": 173,
+            "current_state": "awaiting_model",
+            "current_record_revision": 2,
+            "active_request_id": "da576cfc-1eda-4fe1-b5e3-2040574e71f7"
+          },
+          {
+            "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+            "role": "creator",
+            "canonical_cells_equal": true,
+            "changed_columns": [],
+            "data_exact_text_equal": true,
+            "data_fields_changed": [],
+            "sql_row_sha256": "3cf30637298d1902b4b6285c0d19c69dab0b7f2ebb4610e82d650ccc909d834d",
+            "frozen_cells_sha256": "5ed46a10e2bfeb15f19b6cda32a4ad581ed10fab48a0f5a32d9d7b15aa887a06",
+            "current_cells_sha256": "5ed46a10e2bfeb15f19b6cda32a4ad581ed10fab48a0f5a32d9d7b15aa887a06",
+            "current_updated_commit_seq": 167,
+            "current_state": "committed",
+            "current_record_revision": 5,
+            "active_request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1"
+          }
+        ],
+        "query_elapsed_seconds": 0.010917645005974919
+      },
+      "original_observation": {
+        "log": {
+          "bytes": 181432,
+          "sha256": "3a3e55274b8c35f21031e657491754ad499e2a1e862bd4b65389f638e06c9c31",
+          "mtime_ns": "1795288575470000303",
+          "mtime_utc": "2026-11-21T19:16:15.470000+00:00"
+        },
+        "summary": {
+          "bytes": 1443,
+          "sha256": "11eb019c9d7adc514ad26705bfdd8984e97e0d74166e97687d9e591c694313bb",
+          "mtime_ns": "1795288581842357430",
+          "mtime_utc": "2026-11-21T19:16:21.842357+00:00"
+        },
+        "chosen_control_index": 7,
+        "chosen_accepted": true,
+        "materialization_count": 0,
+        "native_claim_scope": {
+          "source": 0,
+          "pid": 1117351,
+          "scope_id": 99,
+          "phase": "native.claim",
+          "parent_id": null,
+          "started_unix_us": 1795288551218446,
+          "binding": {
+            "task_id": "7b14b638-19dc-4599-afb4-a238a0b0c10b"
+          },
+          "status": "complete",
+          "inclusive_us": 4362497,
+          "observed_drops_during_scope": 0,
+          "self_us": 156047,
+          "started_utc": "2026-11-21T19:15:51.218446Z",
+          "ended_utc": "2026-11-21T19:15:55.580943Z"
+        },
+        "conflict_event": [
+          {
+            "event_id": "3b62d035-a457-4b0c-a80e-917af8cb98fb",
+            "occurred_at": "2026-11-21T19:15:55.962Z",
+            "message": "committed dispatcher pass failed: conflict: canonical Store transition: predecessor/schema differs for subject_steps"
+          }
+        ],
+        "successor_request": {
+          "request_id": "da576cfc-1eda-4fe1-b5e3-2040574e71f7",
+          "step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+              "seq": 173
+            },
+            "created_at": "2026-11-21 19:15:54"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+              "seq": 175
+            },
+            "created_at": "2026-11-21 19:15:56"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        "original_protocol_passed": false,
+        "original_parent_exit": -15
+      },
+      "findings": {
+        "frozen_two_rows_creator_and_successor": true,
+        "creator_exact_canonical_cells_unchanged": true,
+        "successor_frozen_state": "preparing",
+        "successor_frozen_revision": 1,
+        "successor_final_state": "awaiting_model",
+        "successor_final_revision": 2,
+        "successor_data_fields_changed": [
+          "active_request_id",
+          "record_revision",
+          "state"
+        ],
+        "final_added_step_is_new_branch": true
+      }
+    },
+    {
+      "case": "case-03",
+      "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+      "transition_ref": {
+        "digest": "blake3:d9edce3d7e0ed8415cf2a33399842db918788bb1851bbb11c95a3920d7cd0bc2",
+        "bytes": 25784,
+        "codec": {
+          "name": "store-native-claim-transition",
+          "major": 1,
+          "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+        }
+      },
+      "transition_sha256": "8eadda4bf8be5b35b16e8dcb81f7c45d75319611d5f1fd26ec2e4fb575545822",
+      "transition_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/d9/ed/d9edce3d7e0ed8415cf2a33399842db918788bb1851bbb11c95a3920d7cd0bc2",
+      "frozen_created_at": "2026-11-21T19:19:02.546420183Z",
+      "frozen_result_commit": {
+        "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+        "seq": 115
+      },
+      "row_schema": 1,
+      "original_head": {
+        "agent_id": "48f59302-510c-420e-9fac-26b3e86d1073",
+        "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+        "next_step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+        "committed_step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+        "committed_at": {
+          "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+          "seq": 110
+        }
+      },
+      "creator_step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+      "frozen_table": {
+        "complete_read": true,
+        "row_count": 2,
+        "columns": [
+          "step_id",
+          "branch_id",
+          "step_no",
+          "state",
+          "record_revision",
+          "data",
+          "updated_commit_seq",
+          "created_at"
+        ],
+        "encoded_image_sha256": "4c9da589fef793b912dd8eca048590427d11a351cf83f0faae6bd4cd91600540"
+      },
+      "comparisons": [
+        {
+          "snapshot": "first.ledger.json",
+          "sha256": "3d6656b67953c8e17b2bd68c771dbc1bcdb6c53a5f4480e1bbc8ba4d83318389",
+          "bytes": 617215,
+          "mtime_utc": "2026-11-21T19:19:04.283461+00:00",
+          "same_old_branch_step_ids": [
+            "265fb9fa-91cb-4306-8a08-1e521363adc3",
+            "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e"
+          ],
+          "added_step_ids": [],
+          "rows": [
+            {
+              "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "d6694770c66c0808261f33ea2bc51c63847ba4a14b400e2f3816bd9b866a2fe4",
+              "after_identity": {
+                "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "6ad31a19a10aeb9fc464a493b4770337d1efeb298f92e366624538ed4f98ae73",
+              "after_updated_commit_seq": 114,
+              "snapshot_columns_changed_semantically": []
+            },
+            {
+              "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 2
+                },
+                "active_request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+                "commit_ref": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                }
+              },
+              "frozen_cells_sha256": "d88f643344322d5adcd1a237538a9211bfec5ad3d3898e5cf082a169deb01e52",
+              "after_identity": {
+                "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 2
+                },
+                "active_request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+                "commit_ref": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "9d94412c22628fdf2ed2a1541a43e5dfb1f66fdba563c3454873ffd41bf8d21c",
+              "after_updated_commit_seq": 111,
+              "snapshot_columns_changed_semantically": []
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+              "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                "seq": 17
+              }
+            }
+          ]
+        },
+        {
+          "snapshot": "final.ledger.json",
+          "sha256": "6cc53467063ef5f48b9407210da23b0e4645d7096facecd1ca4e7ec284ba2776",
+          "bytes": 670890,
+          "mtime_utc": "2026-11-21T19:19:34.410150+00:00",
+          "same_old_branch_step_ids": [
+            "265fb9fa-91cb-4306-8a08-1e521363adc3",
+            "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e"
+          ],
+          "added_step_ids": [
+            "cc248ba3-62c1-43f0-b479-96901dbbfc16"
+          ],
+          "rows": [
+            {
+              "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "d6694770c66c0808261f33ea2bc51c63847ba4a14b400e2f3816bd9b866a2fe4",
+              "after_identity": {
+                "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 2,
+                "state": "awaiting_model",
+                "record_revision": 2,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                },
+                "active_request_id": "3ae7654e-803a-4624-9996-9d1a379619d7",
+                "commit_ref": null
+              },
+              "data_equal": false,
+              "data_fields_changed": {
+                "active_request_id": {
+                  "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+                  "after_sha256": "15e405fd976621b22fc875b95b11d6ccc713a1990148b759b6bfa67c126228a6",
+                  "before": null,
+                  "after": "3ae7654e-803a-4624-9996-9d1a379619d7"
+                },
+                "record_revision": {
+                  "before_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                  "after_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+                  "before": 1,
+                  "after": 2
+                },
+                "state": {
+                  "before_sha256": "a9c04f9d51fd373f548b23b57b82ab90c48811694d72d8038560ca10f6da67c5",
+                  "after_sha256": "823781dd77d4077528aca2e5996f48783d95121377877dbe2172ff2ae2600d96",
+                  "before": "preparing",
+                  "after": "awaiting_model"
+                }
+              },
+              "after_row_sha256": "6b8b2f591ed41ae16c4781e0c79450883664ed3472e6dbbfabaf1bf1f6e9d237",
+              "after_updated_commit_seq": 116,
+              "snapshot_columns_changed_semantically": [
+                "state",
+                "record_revision",
+                "data"
+              ]
+            },
+            {
+              "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 2
+                },
+                "active_request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+                "commit_ref": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                }
+              },
+              "frozen_cells_sha256": "d88f643344322d5adcd1a237538a9211bfec5ad3d3898e5cf082a169deb01e52",
+              "after_identity": {
+                "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+                "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 2
+                },
+                "active_request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+                "commit_ref": {
+                  "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                  "seq": 110
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "9d94412c22628fdf2ed2a1541a43e5dfb1f66fdba563c3454873ffd41bf8d21c",
+              "after_updated_commit_seq": 111,
+              "snapshot_columns_changed_semantically": []
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+              "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                "seq": 17
+              }
+            },
+            {
+              "request_id": "3ae7654e-803a-4624-9996-9d1a379619d7",
+              "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+                "seq": 116
+              }
+            }
+          ]
+        }
+      ],
+      "stopped_sql_point_check": {
+        "case": "case-03",
+        "transition_sha256": "8eadda4bf8be5b35b16e8dcb81f7c45d75319611d5f1fd26ec2e4fb575545822",
+        "checked_at_utc": "2026-11-21T20:06:56.046093+00:00",
+        "blake3_verified": null,
+        "sqlite_sidecars_before": {
+          "wal_bytes": 4152992,
+          "shm_exists": true
+        },
+        "rows": [
+          {
+            "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+            "role": "successor",
+            "canonical_cells_equal": false,
+            "changed_columns": [
+              "state",
+              "record_revision",
+              "data"
+            ],
+            "data_exact_text_equal": false,
+            "data_fields_changed": [
+              "active_request_id",
+              "record_revision",
+              "state"
+            ],
+            "sql_row_sha256": "fd2357e300148ed65cfa5468d8d9b8e77df180df4c5fa995e3d90a87a29ba2d0",
+            "frozen_cells_sha256": "d6694770c66c0808261f33ea2bc51c63847ba4a14b400e2f3816bd9b866a2fe4",
+            "current_cells_sha256": "3da4ff7a085d187306e856ed7af5f86f47cd1ce7ef6ded1ddd8536094df2a16d",
+            "current_updated_commit_seq": 116,
+            "current_state": "awaiting_model",
+            "current_record_revision": 2,
+            "active_request_id": "3ae7654e-803a-4624-9996-9d1a379619d7"
+          },
+          {
+            "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+            "role": "creator",
+            "canonical_cells_equal": true,
+            "changed_columns": [],
+            "data_exact_text_equal": true,
+            "data_fields_changed": [],
+            "sql_row_sha256": "22e6c17a84b8f63b208b61dbb164504d3649e0f622ca3f18af45c02d70e9b2ac",
+            "frozen_cells_sha256": "d88f643344322d5adcd1a237538a9211bfec5ad3d3898e5cf082a169deb01e52",
+            "current_cells_sha256": "d88f643344322d5adcd1a237538a9211bfec5ad3d3898e5cf082a169deb01e52",
+            "current_updated_commit_seq": 111,
+            "current_state": "committed",
+            "current_record_revision": 5,
+            "active_request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc"
+          }
+        ],
+        "query_elapsed_seconds": 0.0063824929820839316
+      },
+      "original_observation": {
+        "log": {
+          "bytes": 186384,
+          "sha256": "fa2e5ca62cd7cca026028492c1e01d764cd48978db5f19c38c0f0dcdc76df2b3",
+          "mtime_ns": "1795288763639545906",
+          "mtime_utc": "2026-11-21T19:19:23.639546+00:00"
+        },
+        "summary": {
+          "bytes": 1443,
+          "sha256": "b4cd514e7e33f9c371b6864b965a2238d50f4610f33a6bb9f5176bb8901e8e00",
+          "mtime_ns": "1795288774761169196",
+          "mtime_utc": "2026-11-21T19:19:34.761169+00:00"
+        },
+        "chosen_control_index": 7,
+        "chosen_accepted": true,
+        "materialization_count": 0,
+        "native_claim_scope": {
+          "source": 0,
+          "pid": 1117518,
+          "scope_id": 123,
+          "phase": "native.claim",
+          "parent_id": null,
+          "started_unix_us": 1795288740506547,
+          "binding": {
+            "task_id": "2705e1dd-dd91-4ba7-b111-1da7f1f4ea48"
+          },
+          "status": "complete",
+          "inclusive_us": 3770115,
+          "observed_drops_during_scope": 0,
+          "self_us": 148479,
+          "started_utc": "2026-11-21T19:19:00.506547Z",
+          "ended_utc": "2026-11-21T19:19:04.276662Z"
+        },
+        "conflict_event": [
+          {
+            "event_id": "35ddc0a6-2d68-404d-a2a2-74cdffd75620",
+            "occurred_at": "2026-11-21T19:19:04.291Z",
+            "message": "committed dispatcher pass failed: conflict: canonical Store transition: predecessor/schema differs for subject_steps"
+          }
+        ],
+        "successor_request": {
+          "request_id": "3ae7654e-803a-4624-9996-9d1a379619d7",
+          "step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+              "seq": 116
+            },
+            "created_at": "2026-11-21 19:19:03"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+              "seq": 118
+            },
+            "created_at": "2026-11-21 19:19:04"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        "original_protocol_passed": false,
+        "original_parent_exit": -15
+      },
+      "findings": {
+        "frozen_two_rows_creator_and_successor": true,
+        "creator_exact_canonical_cells_unchanged": true,
+        "successor_frozen_state": "preparing",
+        "successor_frozen_revision": 1,
+        "successor_final_state": "awaiting_model",
+        "successor_final_revision": 2,
+        "successor_data_fields_changed": [
+          "active_request_id",
+          "record_revision",
+          "state"
+        ],
+        "final_added_step_is_new_branch": true
+      }
+    },
+    {
+      "case": "case-07",
+      "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+      "transition_ref": {
+        "digest": "blake3:fe2c16ca62fcbd773f39c9a16874fb470c05c8104b6e993eaa6b90caada8820a",
+        "bytes": 25784,
+        "codec": {
+          "name": "store-native-claim-transition",
+          "major": 1,
+          "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+        }
+      },
+      "transition_sha256": "43d69e7928c01f429996437ce6947345f0034e827792bd3f5fa01b6c8b833cbb",
+      "transition_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/fe/2c/fe2c16ca62fcbd773f39c9a16874fb470c05c8104b6e993eaa6b90caada8820a",
+      "frozen_created_at": "2026-11-21T19:26:11.963395955Z",
+      "frozen_result_commit": {
+        "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+        "seq": 107
+      },
+      "row_schema": 1,
+      "original_head": {
+        "agent_id": "0054a728-c1d9-489d-bf7d-9dd91677774d",
+        "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+        "next_step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+        "committed_step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+        "committed_at": {
+          "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+          "seq": 101
+        }
+      },
+      "creator_step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+      "frozen_table": {
+        "complete_read": true,
+        "row_count": 2,
+        "columns": [
+          "step_id",
+          "branch_id",
+          "step_no",
+          "state",
+          "record_revision",
+          "data",
+          "updated_commit_seq",
+          "created_at"
+        ],
+        "encoded_image_sha256": "5d3528cdde5a60580428c93d6e10afa00dbf1ed20880ab002d01a090220f7077"
+      },
+      "comparisons": [
+        {
+          "snapshot": "first.ledger.json",
+          "sha256": "440b5e95073bc033051eb197b09c734c20b7ad72a468599992356c488884fd3d",
+          "bytes": 617808,
+          "mtime_utc": "2026-11-21T19:26:13.643399+00:00",
+          "same_old_branch_step_ids": [
+            "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+            "e68ad1b0-321f-4044-b362-df81743914d8"
+          ],
+          "added_step_ids": [],
+          "rows": [
+            {
+              "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 2
+                },
+                "active_request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+                "commit_ref": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                }
+              },
+              "frozen_cells_sha256": "41007e40beee3cfb1609473d3659d4716e73c221916efa34b81406fb441fed1e",
+              "after_identity": {
+                "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 2
+                },
+                "active_request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+                "commit_ref": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "17ab4eb51d32037fd1a3e2d66fb7ba41dcaac5c497c43fab44f0bfea602c39cf",
+              "after_updated_commit_seq": 103,
+              "snapshot_columns_changed_semantically": []
+            },
+            {
+              "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "c609e3c13516e0e3695111a642eaef92df28903543afb69d0d98f010a4f118b7",
+              "after_identity": {
+                "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "cb324a9a1e991269f94437c9869a394cc1a5a8710e86b6f311dcc2f66888d2a6",
+              "after_updated_commit_seq": 106,
+              "snapshot_columns_changed_semantically": []
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+              "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                "seq": 17
+              }
+            }
+          ]
+        },
+        {
+          "snapshot": "final.ledger.json",
+          "sha256": "36d95c361f5333bcafe7a6772147be856970846813cdb6ff006f72e72d503871",
+          "bytes": 671486,
+          "mtime_utc": "2026-11-21T19:26:43.732029+00:00",
+          "same_old_branch_step_ids": [
+            "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+            "e68ad1b0-321f-4044-b362-df81743914d8"
+          ],
+          "added_step_ids": [
+            "e6fe4768-f1cf-480d-93cb-5ac5e06c57eb"
+          ],
+          "rows": [
+            {
+              "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+              "role": "creator",
+              "before_identity": {
+                "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 2
+                },
+                "active_request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+                "commit_ref": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                }
+              },
+              "frozen_cells_sha256": "41007e40beee3cfb1609473d3659d4716e73c221916efa34b81406fb441fed1e",
+              "after_identity": {
+                "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 1,
+                "state": "committed",
+                "record_revision": 5,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 2
+                },
+                "active_request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+                "commit_ref": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                }
+              },
+              "data_equal": true,
+              "data_fields_changed": {},
+              "after_row_sha256": "17ab4eb51d32037fd1a3e2d66fb7ba41dcaac5c497c43fab44f0bfea602c39cf",
+              "after_updated_commit_seq": 103,
+              "snapshot_columns_changed_semantically": []
+            },
+            {
+              "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+              "role": "successor",
+              "before_identity": {
+                "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 2,
+                "state": "preparing",
+                "record_revision": 1,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                },
+                "active_request_id": null,
+                "commit_ref": null
+              },
+              "frozen_cells_sha256": "c609e3c13516e0e3695111a642eaef92df28903543afb69d0d98f010a4f118b7",
+              "after_identity": {
+                "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+                "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+                "step_no": 2,
+                "state": "awaiting_model",
+                "record_revision": 2,
+                "controller_epoch": 2,
+                "software_generation": "seed",
+                "expected_parent_commit": {
+                  "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                  "seq": 101
+                },
+                "active_request_id": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96",
+                "commit_ref": null
+              },
+              "data_equal": false,
+              "data_fields_changed": {
+                "active_request_id": {
+                  "before_sha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+                  "after_sha256": "9d9213f9066a0663d20063def27e59f3de3b068cf7c3299d523900f6f5588554",
+                  "before": null,
+                  "after": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96"
+                },
+                "record_revision": {
+                  "before_sha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+                  "after_sha256": "d4735e3a265e16eee03f59718b9b5d03019c07d8b6c51f90da3a666eec13ab35",
+                  "before": 1,
+                  "after": 2
+                },
+                "state": {
+                  "before_sha256": "a9c04f9d51fd373f548b23b57b82ab90c48811694d72d8038560ca10f6da67c5",
+                  "after_sha256": "823781dd77d4077528aca2e5996f48783d95121377877dbe2172ff2ae2600d96",
+                  "before": "preparing",
+                  "after": "awaiting_model"
+                }
+              },
+              "after_row_sha256": "d1ed979b0eda77df349043d463bc9a3069b2546f4d6d7cfd6dce8f2740333300",
+              "after_updated_commit_seq": 108,
+              "snapshot_columns_changed_semantically": [
+                "state",
+                "record_revision",
+                "data"
+              ]
+            }
+          ],
+          "requests_for_frozen_steps": [
+            {
+              "request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+              "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                "seq": 17
+              }
+            },
+            {
+              "request_id": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96",
+              "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+              "state": "terminal",
+              "created_commit": {
+                "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+                "seq": 108
+              }
+            }
+          ]
+        }
+      ],
+      "stopped_sql_point_check": {
+        "case": "case-07",
+        "transition_sha256": "43d69e7928c01f429996437ce6947345f0034e827792bd3f5fa01b6c8b833cbb",
+        "checked_at_utc": "2026-11-21T20:06:56.053234+00:00",
+        "blake3_verified": null,
+        "sqlite_sidecars_before": {
+          "wal_bytes": 4144752,
+          "shm_exists": true
+        },
+        "rows": [
+          {
+            "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+            "role": "creator",
+            "canonical_cells_equal": true,
+            "changed_columns": [],
+            "data_exact_text_equal": true,
+            "data_fields_changed": [],
+            "sql_row_sha256": "90b78164cb1f87cabfb383cb708dccef9be4b5e8ec19ba93fbbd0e218510475e",
+            "frozen_cells_sha256": "41007e40beee3cfb1609473d3659d4716e73c221916efa34b81406fb441fed1e",
+            "current_cells_sha256": "41007e40beee3cfb1609473d3659d4716e73c221916efa34b81406fb441fed1e",
+            "current_updated_commit_seq": 103,
+            "current_state": "committed",
+            "current_record_revision": 5,
+            "active_request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96"
+          },
+          {
+            "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+            "role": "successor",
+            "canonical_cells_equal": false,
+            "changed_columns": [
+              "state",
+              "record_revision",
+              "data"
+            ],
+            "data_exact_text_equal": false,
+            "data_fields_changed": [
+              "active_request_id",
+              "record_revision",
+              "state"
+            ],
+            "sql_row_sha256": "731b193aaa3d0d5ee99cad891e086a4f8f6e508351c0f04ddfd4a7c9462881b1",
+            "frozen_cells_sha256": "c609e3c13516e0e3695111a642eaef92df28903543afb69d0d98f010a4f118b7",
+            "current_cells_sha256": "7a7301ea4ae16c567e8e5e7c5b1f72e9d8260f820fe563d3fcd255284e6bfab1",
+            "current_updated_commit_seq": 108,
+            "current_state": "awaiting_model",
+            "current_record_revision": 2,
+            "active_request_id": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96"
+          }
+        ],
+        "query_elapsed_seconds": 0.006062053987989202
+      },
+      "original_observation": {
+        "log": {
+          "bytes": 179491,
+          "sha256": "aa2e6d77aa452dc7f5c9687a80247251c7ed31cc8fef929cb168c6498d198c26",
+          "mtime_ns": "1795289193574478729",
+          "mtime_utc": "2026-11-21T19:26:33.574479+00:00"
+        },
+        "summary": {
+          "bytes": 1443,
+          "sha256": "fffc16dce88939a7f3884eb07383295ab6ea9da89720740f68e816215354780e",
+          "mtime_ns": "1795289204132050557",
+          "mtime_utc": "2026-11-21T19:26:44.132051+00:00"
+        },
+        "chosen_control_index": 7,
+        "chosen_accepted": true,
+        "materialization_count": 0,
+        "native_claim_scope": {
+          "source": 0,
+          "pid": 1118054,
+          "scope_id": 111,
+          "phase": "native.claim",
+          "parent_id": null,
+          "started_unix_us": 1795289169596932,
+          "binding": {
+            "task_id": "76bb8378-be4a-451d-9824-6bc8f1399cf6"
+          },
+          "status": "complete",
+          "inclusive_us": 4035815,
+          "observed_drops_during_scope": 0,
+          "self_us": 150721,
+          "started_utc": "2026-11-21T19:26:09.596932Z",
+          "ended_utc": "2026-11-21T19:26:13.632747Z"
+        },
+        "conflict_event": [
+          {
+            "event_id": "c73b4220-3427-46fa-ad7b-93d1f6bb43ce",
+            "occurred_at": "2026-11-21T19:26:13.641Z",
+            "message": "committed dispatcher pass failed: conflict: canonical Store transition: predecessor/schema differs for subject_steps"
+          }
+        ],
+        "successor_request": {
+          "request_id": "43e77b66-0ca5-45cb-85bd-9eb7bdf6ed96",
+          "step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+              "seq": 108
+            },
+            "created_at": "2026-11-21 19:26:13"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+              "seq": 110
+            },
+            "created_at": "2026-11-21 19:26:13"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        },
+        "original_protocol_passed": false,
+        "original_parent_exit": -15
+      },
+      "findings": {
+        "frozen_two_rows_creator_and_successor": true,
+        "creator_exact_canonical_cells_unchanged": true,
+        "successor_frozen_state": "preparing",
+        "successor_frozen_revision": 1,
+        "successor_final_state": "awaiting_model",
+        "successor_final_revision": 2,
+        "successor_data_fields_changed": [
+          "active_request_id",
+          "record_revision",
+          "state"
+        ],
+        "final_added_step_is_new_branch": true
+      }
+    }
+  ]
+}

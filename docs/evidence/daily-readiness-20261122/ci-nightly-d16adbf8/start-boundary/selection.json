@@ -1,0 +1,29 @@
+{
+  "artifact_id": 14730789214,
+  "artifact_metadata_digest": "sha256:ad10c5ef9618ac1bfc480572e765a0154fdfb897e3c7eca64127ba2adae81392",
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "verification_scope": "Selected ZIP members read with CRC checking and individually SHA256 hashed; complete ZIP digest not independently checked.",
+  "artifact_zip_bytes": 1116505239,
+  "range_requests": 4,
+  "range_downloaded_bytes": 1217004,
+  "selected": [
+    {
+      "path": "start-boundary/recovery-stop-order.json",
+      "bytes": 686,
+      "sha256": "8c09656fc8e39ed4f756da64a078a2827f0ec73649852acdc6548139900b00a9",
+      "crc32": "5aacb0b6"
+    },
+    {
+      "path": "start-boundary/recovery-stopped.log",
+      "bytes": 8862,
+      "sha256": "9f053117bf68d4cadafccc9871e1d9bc3c5af983f0da207449b358b9be615e3b",
+      "crc32": "fa47c8ae"
+    },
+    {
+      "path": "start-boundary/result.json",
+      "bytes": 271,
+      "sha256": "b6ba9a797b05b153cbea9ff83d54b3a0f9795a437366deb546c99bc908c60936",
+      "crc32": "ee667504"
+    }
+  ]
+}

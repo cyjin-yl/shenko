@@ -93,6 +93,15 @@ impl ProtocolError {
 
 impl std::error::Error for ProtocolError {}
 
+/// An input row observed again while preparing a fresh ordered action.
+/// This is not a chosen transition's witness or a materialization result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlPreparationRecord {
+    SubjectHead,
+    Task,
+    Step,
+}
+
 /// 顶层错误类型
 #[derive(Debug, thiserror::Error)]
 pub enum ShenkoError {
@@ -107,6 +116,25 @@ pub enum ShenkoError {
 
     #[error("resnapshot required: {reason}")]
     ResnapshotRequired { reason: String },
+
+    /// This writer's owner explicitly requested ordinary runtime shutdown.
+    /// Admission was refused; no commit, send or remote termination is implied.
+    /// Authority loss and failure-driven cancellation use their original errors.
+    #[error("runtime admission closed by shutdown of writer {writer_incarnation}")]
+    RuntimeAdmissionClosed { writer_incarnation: EntityId },
+
+    /// Fresh snapshot capture observed a newer revision under the same
+    /// identity and authority. No admission for this preparation was ordered.
+    /// Inspection/application of prepared or chosen actions and uncertain
+    /// writes never emit this; it says nothing about earlier action choices.
+    #[error("ordered action preparation changed before snapshot capture: {record:?} {record_id} for subject {subject_id}, revision {expected_revision} -> {actual_revision}")]
+    ControlPreparationChanged {
+        subject_id: EntityId,
+        record: ControlPreparationRecord,
+        record_id: EntityId,
+        expected_revision: u64,
+        actual_revision: u64,
+    },
 
     #[error("conflict: {0}")]
     Conflict(String),
@@ -128,6 +156,15 @@ pub enum ShenkoError {
 }
 
 impl ShenkoError {
+    pub fn is_control_preparation_changed_for(&self, subject: EntityId) -> bool {
+        matches!(self, Self::ControlPreparationChanged { subject_id, .. } if *subject_id == subject)
+    }
+
+    pub fn is_runtime_admission_closed_for(&self, incarnation: EntityId) -> bool {
+        matches!(self, Self::RuntimeAdmissionClosed { writer_incarnation }
+            if *writer_incarnation == incarnation)
+    }
+
     pub fn storage(msg: impl Into<String>) -> Self {
         Self::Storage(msg.into())
     }

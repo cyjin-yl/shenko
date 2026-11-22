@@ -1,0 +1,44 @@
+[
+  {
+    "name": "evidence/compiler-vitest.log",
+    "bytes": 2295170,
+    "compressed_bytes": 128834,
+    "crc32": "155bfdcc"
+  },
+  {
+    "name": "web/inputs.json",
+    "bytes": 3863563,
+    "compressed_bytes": 1020037,
+    "crc32": "17754000"
+  },
+  {
+    "name": "web/upstream-checkout.log",
+    "bytes": 90,
+    "compressed_bytes": 85,
+    "crc32": "365eaf45"
+  },
+  {
+    "name": "evidence/compiler-browser.json",
+    "bytes": 2225,
+    "compressed_bytes": 1080,
+    "crc32": "c33aac16"
+  },
+  {
+    "name": "web/upstream-fetch.log",
+    "bytes": 118,
+    "compressed_bytes": 103,
+    "crc32": "f5db0437"
+  },
+  {
+    "name": "web/upstream-init.log",
+    "bytes": 677,
+    "compressed_bytes": 364,
+    "crc32": "c9a3a6f7"
+  },
+  {
+    "name": "web/upstream-remote.log",
+    "bytes": 0,
+    "compressed_bytes": 2,
+    "crc32": "00000000"
+  }
+]

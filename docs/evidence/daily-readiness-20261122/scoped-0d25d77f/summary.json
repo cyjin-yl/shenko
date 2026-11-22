@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source_revision": "0d25d77fde4b96ecbc3a8af88baeee9fadaf362f",
+  "started_at_utc": "2026-11-21T20:25:39Z",
+  "finished_at_utc": "2026-11-21T20:29:06Z",
+  "runner_exit_code": 1,
+  "release_started": false,
+  "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "node": "v24.22.1",
+  "passed": 3,
+  "failed": 1,
+  "tests": [
+    {
+      "name": "start-boundary",
+      "exit_code": 101,
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0,
+      "seconds": 83.96,
+      "raw_bytes": 46999,
+      "raw_sha256": "3f294d259654ac1180c8e997a14ac72687f05a99a6ebd88b2bbd5922aa6cbbeb",
+      "gzip_path": "start-boundary.log.gz",
+      "gzip_sha256": "fc809b797c4f3ad337cebfc4d23da837d3955b3d951c5ad82488d9c4148ab684"
+    },
+    {
+      "name": "runtime-owner",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 4.02,
+      "raw_bytes": 36669,
+      "raw_sha256": "29d920c798c0f409e71e4ac099708c203221e4e9871ba45cbd2e95c9c8022163",
+      "gzip_path": "runtime-owner.log.gz",
+      "gzip_sha256": "88eabb43f1a55581e9bf25c809adec68ef16281ffeaffac97f62f174a6c62923"
+    },
+    {
+      "name": "component-order",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 8.78,
+      "raw_bytes": 36584,
+      "raw_sha256": "62c1405be2e4164bb78ba1730edd3f314096286d4f778e1acef0cae84fd98bd0",
+      "gzip_path": "component-order.log.gz",
+      "gzip_sha256": "a072cf4bbff48412eb3f567137ff8efd7c720047e2759ae2d5fd23b2fdf18872"
+    },
+    {
+      "name": "authority",
+      "exit_code": 0,
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 11.5,
+      "raw_bytes": 36567,
+      "raw_sha256": "995254455f4c3a41e7570eacb136fe2c71edc1b7010264076b59cbf7c40e0edb",
+      "gzip_path": "authority.log.gz",
+      "gzip_sha256": "6c5b0a28a098639af5935ddd8776c01a8a7c7619777f290da615ef5b82620fc7"
+    }
+  ],
+  "scope": "Actual runtime ownership, authority and start-boundary regressions. Original process fixture failed before its cleanup SIGINT was sent; retained final logs are not failure-instant snapshots or real-model completion evidence."
+}

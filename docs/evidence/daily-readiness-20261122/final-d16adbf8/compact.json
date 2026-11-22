@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "kind": "derived_retention_summary",
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "binary_sha256": "d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce",
+  "binary_identity_source": "original batch and release manifests; no binary copied or rehashed by this retention",
+  "original_batch_summary_sha256": "593b2ed5ef77bdec7c7d5de07bfc84601b2a9927050dfd4605472c0fe0eee09f",
+  "requested_runs": 3,
+  "completed_runs": 3,
+  "passed_runs": 0,
+  "failed_runs": 3,
+  "unattempted_runs": 0,
+  "success_rate": 0.0,
+  "daily_readiness_proved": false,
+  "started_at": "2026-11-21T23:51:18Z",
+  "finished_at": "2026-11-22T00:05:11Z",
+  "wrapper_finished_at": "2026-11-22T00:05:14Z",
+  "wrapper_exit": 1,
+  "driver_exit": 1,
+  "sampler_exit": 0,
+  "model_post_exit": 0,
+  "model_pre_post_selected_identity_equal": true,
+  "model_identity_scope": "selected observed process identity and configured input files; not memory-resident tensor attestation",
+  "runs": [
+    {
+      "attempt": 1,
+      "directory": "attempt-001",
+      "summary_sha256": "3a59e65c563a2d86cec0ff7724f94293d1a027a4fa638e24cdd6afd9320c727b",
+      "finished_at": "2026-11-21T23:56:00Z",
+      "journey_passed": false,
+      "driver_exit": 1,
+      "runtime_parent_exit": 0,
+      "runtime_shutdown_clean": true,
+      "process_group_complete": true,
+      "parent_reaped": true,
+      "forced_cleanup": false,
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "primary_recorded_failure_class": "browser_locator_strict_mode",
+      "original_errors": [
+        "journey: Error: Locator.click: Error: strict mode violation: locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True) resolved to 2 elements:\n    1) <div tabindex=\"-1\" role=\"button\" class=\"tab-item\" data-pui-root=\"\" aria-pressed=\"false\" aria-disabled=\"false\" data-collection-index=\"1\" data-collection-total=\"3\" data-pui-a11y-actions=\"activate\" data-pui-style=\"inline-flex items-center justify-center whitespace-nowrap select-none outline-none shrink-0 bg-transparent data-[focus-visible]:z-10 data-[focus-visible]:forced-colors-focus-outline data-[focused]:z-10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-1 rounded-lg text-sm fo…>…</div> aka get_by_role(\"button\", name=\"Inspect\", exact=True)\n    2) <span>Inspect</span> aka locator(\"span\").filter(has_text=\"Inspect\")\n\nCall log:\n  - waiting for locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True)\n"
+      ],
+      "semantic_success_assessed_by_this_retention": false
+    },
+    {
+      "attempt": 2,
+      "directory": "attempt-002",
+      "summary_sha256": "a24046cf82cae9270eddd4a7785673129802792256e1135d9f64d7f77a28cbe2",
+      "finished_at": "2026-11-22T00:00:20Z",
+      "journey_passed": false,
+      "driver_exit": 1,
+      "runtime_parent_exit": 0,
+      "runtime_shutdown_clean": true,
+      "process_group_complete": true,
+      "parent_reaped": true,
+      "forced_cleanup": false,
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "primary_recorded_failure_class": "browser_locator_strict_mode",
+      "original_errors": [
+        "journey: Error: Locator.click: Error: strict mode violation: locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True) resolved to 2 elements:\n    1) <div tabindex=\"-1\" role=\"button\" class=\"tab-item\" data-pui-root=\"\" aria-pressed=\"false\" aria-disabled=\"false\" data-collection-index=\"1\" data-collection-total=\"3\" data-pui-a11y-actions=\"activate\" data-pui-style=\"inline-flex items-center justify-center whitespace-nowrap select-none outline-none shrink-0 bg-transparent data-[focus-visible]:z-10 data-[focus-visible]:forced-colors-focus-outline data-[focused]:z-10 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-1 rounded-lg text-sm fo…>…</div> aka get_by_role(\"button\", name=\"Inspect\", exact=True)\n    2) <span>Inspect</span> aka locator(\"span\").filter(has_text=\"Inspect\")\n\nCall log:\n  - waiting for locator(\"nav[aria-label=\\\"视图\\\"]\").get_by_text(\"Inspect\", exact=True)\n"
+      ],
+      "semantic_success_assessed_by_this_retention": false
+    },
+    {
+      "attempt": 3,
+      "directory": "attempt-003",
+      "summary_sha256": "864b466bcf6208f0dc1fdb0096fe80f6f18e502ad0637d6b7e5d0ec03bac489b",
+      "finished_at": "2026-11-22T00:05:10Z",
+      "journey_passed": false,
+      "driver_exit": 1,
+      "runtime_parent_exit": 1,
+      "runtime_shutdown_clean": false,
+      "process_group_complete": true,
+      "parent_reaped": true,
+      "forced_cleanup": false,
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "primary_recorded_failure_class": "runtime_native_predecessor_closure",
+      "original_errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "semantic_success_assessed_by_this_retention": false
+    }
+  ],
+  "retention": {
+    "original_exporter_files": 91,
+    "supplement_original_files": 8,
+    "original_files_total": 99,
+    "original_exporter_sha256": "1682d24087422fb309aae2dc57365b7da1e92ad1960814f24dbc2af57d7dfb58",
+    "public_archive_bytes": 1152328,
+    "public_archive_sha256": "4ec8fe1c64358d5b59d56d0531f60b2ef7352243348bb97159fa0a3924f55cbb",
+    "supplement_archive_bytes": 74705,
+    "supplement_archive_sha256": "b6ee1d651391f66c2a3e4e6402ec2699821bc5816f7270f69e56de29cadec0c3",
+    "original_index_sha256": "f9e6136038e4f03504fab6b7eb48ec82ede1e845de6fb70ce4a12f0027567179",
+    "support_index_sha256": "f12184017ac70d8425fe28be34f9cc88b3a123cc2b06738c825d1dd7702ec3cd",
+    "databases_or_complete_cas_copied": false
+  },
+  "timing": {
+    "scope_count": 1920,
+    "complete_count": 1920,
+    "incomplete_count": 0,
+    "invalid_events": [],
+    "observed_dropped_events": [],
+    "tool_sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7",
+    "scope_completion_is_not_operation_or_journey_success": true
+  },
+  "observation_limits": [
+    "Original intermediate checks remain byte-for-byte retained; text-token presence plus post-T2 commit ordering does not prove the response request consumed either result.",
+    "The completed three-run denominator remains failed regardless of later observer or product fixes.",
+    "This receipt retention does not independently adjudicate answer semantics or native evidence closure causality; those require the separate selected-CAS audit.",
+    "Third-run logs record the closure error before its host SIGINT and preserve the original reconstruction error through parent exit 1."
+  ]
+}

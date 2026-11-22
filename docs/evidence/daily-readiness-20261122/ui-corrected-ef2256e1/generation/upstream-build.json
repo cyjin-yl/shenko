@@ -1,0 +1,258 @@
+{
+  "packageCount": 47,
+  "selectedCount": 42,
+  "results": [
+    {
+      "name": "@proto.ui/types",
+      "durationMs": 1488,
+      "files": 12,
+      "bytes": 8952
+    },
+    {
+      "name": "@proto.ui/core",
+      "durationMs": 1570,
+      "files": 98,
+      "bytes": 181926
+    },
+    {
+      "name": "@proto.ui/module-base",
+      "durationMs": 945,
+      "files": 14,
+      "bytes": 11525
+    },
+    {
+      "name": "@proto.ui/module-expose",
+      "durationMs": 1009,
+      "files": 12,
+      "bytes": 9383
+    },
+    {
+      "name": "@proto.ui/module-state",
+      "durationMs": 1073,
+      "files": 12,
+      "bytes": 31363
+    },
+    {
+      "name": "@proto.ui/module-expose-state",
+      "durationMs": 1024,
+      "files": 10,
+      "bytes": 11224
+    },
+    {
+      "name": "@proto.ui/module-feedback",
+      "durationMs": 1686,
+      "files": 42,
+      "bytes": 136559
+    },
+    {
+      "name": "@proto.ui/module-anatomy",
+      "durationMs": 1212,
+      "files": 14,
+      "bytes": 68105
+    },
+    {
+      "name": "@proto.ui/module-positioning",
+      "durationMs": 1616,
+      "files": 36,
+      "bytes": 147003
+    },
+    {
+      "name": "@proto.ui/module-collection",
+      "durationMs": 975,
+      "files": 6,
+      "bytes": 7277
+    },
+    {
+      "name": "@proto.ui/module-a11y",
+      "durationMs": 1479,
+      "files": 14,
+      "bytes": 97286
+    },
+    {
+      "name": "@proto.ui/module-table-structure",
+      "durationMs": 1114,
+      "files": 10,
+      "bytes": 33556
+    },
+    {
+      "name": "@proto.ui/hooks",
+      "durationMs": 1133,
+      "files": 46,
+      "bytes": 29264
+    },
+    {
+      "name": "@proto.ui/module-expose-event",
+      "durationMs": 945,
+      "files": 12,
+      "bytes": 5996
+    },
+    {
+      "name": "@proto.ui/module-event",
+      "durationMs": 1165,
+      "files": 14,
+      "bytes": 32659
+    },
+    {
+      "name": "@proto.ui/module-as-trigger",
+      "durationMs": 994,
+      "files": 10,
+      "bytes": 8989
+    },
+    {
+      "name": "@proto.ui/module-axis-input",
+      "durationMs": 1104,
+      "files": 6,
+      "bytes": 13247
+    },
+    {
+      "name": "@proto.ui/module-boundary",
+      "durationMs": 1106,
+      "files": 12,
+      "bytes": 23640
+    },
+    {
+      "name": "@proto.ui/module-context",
+      "durationMs": 1092,
+      "files": 12,
+      "bytes": 31947
+    },
+    {
+      "name": "@proto.ui/module-control-label",
+      "durationMs": 1226,
+      "files": 12,
+      "bytes": 44027
+    },
+    {
+      "name": "@proto.ui/module-expose-state-web",
+      "durationMs": 1038,
+      "files": 12,
+      "bytes": 19230
+    },
+    {
+      "name": "@proto.ui/module-focus",
+      "durationMs": 1362,
+      "files": 12,
+      "bytes": 98965
+    },
+    {
+      "name": "@proto.ui/module-hit-participation",
+      "durationMs": 1130,
+      "files": 14,
+      "bytes": 26722
+    },
+    {
+      "name": "@proto.ui/module-image-view",
+      "durationMs": 1109,
+      "files": 12,
+      "bytes": 20166
+    },
+    {
+      "name": "@proto.ui/module-native-link",
+      "durationMs": 1169,
+      "files": 12,
+      "bytes": 15495
+    },
+    {
+      "name": "@proto.ui/module-overlay",
+      "durationMs": 1337,
+      "files": 20,
+      "bytes": 70351
+    },
+    {
+      "name": "@proto.ui/module-presence",
+      "durationMs": 951,
+      "files": 10,
+      "bytes": 15595
+    },
+    {
+      "name": "@proto.ui/module-props",
+      "durationMs": 1235,
+      "files": 18,
+      "bytes": 48744
+    },
+    {
+      "name": "@proto.ui/module-rule",
+      "durationMs": 1235,
+      "files": 16,
+      "bytes": 27534
+    },
+    {
+      "name": "@proto.ui/module-rule-expose-state-web",
+      "durationMs": 1109,
+      "files": 10,
+      "bytes": 13568
+    },
+    {
+      "name": "@proto.ui/module-rule-meta",
+      "durationMs": 1102,
+      "files": 10,
+      "bytes": 14535
+    },
+    {
+      "name": "@proto.ui/module-scroll",
+      "durationMs": 1521,
+      "files": 22,
+      "bytes": 118652
+    },
+    {
+      "name": "@proto.ui/module-state-accessibility",
+      "durationMs": 963,
+      "files": 6,
+      "bytes": 2598
+    },
+    {
+      "name": "@proto.ui/module-state-interaction",
+      "durationMs": 964,
+      "files": 6,
+      "bytes": 5166
+    },
+    {
+      "name": "@proto.ui/module-test-sys",
+      "durationMs": 981,
+      "files": 8,
+      "bytes": 3404
+    },
+    {
+      "name": "@proto.ui/module-text-control",
+      "durationMs": 1178,
+      "files": 14,
+      "bytes": 24582
+    },
+    {
+      "name": "@proto.ui/runtime",
+      "durationMs": 1705,
+      "files": 60,
+      "bytes": 121232
+    },
+    {
+      "name": "@proto.ui/adapter-base",
+      "durationMs": 2333,
+      "files": 106,
+      "bytes": 395372
+    },
+    {
+      "name": "@proto.ui/adapter-react",
+      "durationMs": 1787,
+      "files": 20,
+      "bytes": 110612
+    },
+    {
+      "name": "@proto.ui/cli",
+      "durationMs": 2709,
+      "files": 62,
+      "bytes": 1157398
+    },
+    {
+      "name": "@proto.ui/prototypes-base",
+      "durationMs": 9492,
+      "files": 704,
+      "bytes": 1370499
+    },
+    {
+      "name": "@proto.ui/prototypes-shadcn",
+      "durationMs": 8684,
+      "files": 756,
+      "bytes": 848113
+    }
+  ]
+}

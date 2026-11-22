@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "observer_preflight_failure",
+  "intended_source_revision": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+  "host_exit": 1,
+  "host_started_at": "2026-11-21T22:34:52Z",
+  "host_finished_at": "2026-11-21T22:34:52Z",
+  "source_admitted": false,
+  "scope_created": false,
+  "actual_test_executions": 0,
+  "passed_tests": 0,
+  "failed_tests": 0,
+  "source_checkout_occurred": false,
+  "reason": "The strict base64 decoder rejected a trailing newline in the transported .bundle.b64 before the host acquired the global cargo lock or invoked Git.",
+  "original_host_log": {
+    "path": "host.log",
+    "bytes": 291,
+    "sha256": "02f47fa5c436a71f27b59aabad605028bfbba33c5b71a2d87e57b5bd2bda2867"
+  },
+  "followup": "A separately named immutable r2 wrapper strips transport whitespace, retains validate=True and verifies the same 798-byte bundle SHA-256 before admission. Original scripts and failure receipts are retained here.",
+  "limits": [
+    "This is an observer assembly failure, not a product test result.",
+    "No actual unit or process test was run by this preflight.",
+    "No release or real model was invoked."
+  ]
+}

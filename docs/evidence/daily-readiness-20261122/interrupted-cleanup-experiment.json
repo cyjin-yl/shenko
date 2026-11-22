@@ -1,0 +1,29 @@
+{
+  "scope": "driver cancellation experiment; synthetic browser owners and no model",
+  "cancel_propagated": "cancel during final browser capture",
+  "runtime_parent_exit": 0,
+  "owned_group_complete": true,
+  "later_browser_owners_closed": [
+    "browser",
+    "driver"
+  ],
+  "final_ledger_and_cas_retained": true,
+  "browser_timeout_and_cancel_retained": true,
+  "attempt_passed": false,
+  "negative_control": {
+    "scope": "synthetic retained-success records with duplicate/late effects and wrong child binding",
+    "checks": {
+      "one_child_of_each_requested_kind": false,
+      "finite_model_child_succeeded": true,
+      "child_model_matches_requested_binding": false,
+      "native_host_process_exact_result": true,
+      "native_effect_observed_once": false,
+      "both_children_have_attempt_and_e1": true,
+      "committed_output_after_child_results": true,
+      "no_child_redelegation_after_restart": false,
+      "original_child_operations_and_attempts_unchanged": false,
+      "original_child_result_bytes_retained": false,
+      "original_child_receipt_bytes_retained": false
+    }
+  }
+}

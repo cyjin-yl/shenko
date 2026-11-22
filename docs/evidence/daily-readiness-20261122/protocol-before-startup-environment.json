@@ -1,0 +1,424 @@
+{
+  "schema_version": 1,
+  "observation_scope": "Completed startup attempts only; immutable runtime logs and retained ledger JSON; no live SQLite connection, model request, runtime control, build or source mutation performed by this observer",
+  "collected_at": "2026-11-21T18:28:58Z",
+  "run_id": "protocol-before",
+  "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+  "binary": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+    "bytes": 89865568,
+    "sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7"
+  },
+  "binary_size_comparison": {
+    "debug_bytes": 332838480,
+    "release_bytes": 89865568,
+    "release_divided_by_debug": 0.2699975315354162,
+    "reduction_fraction": 0.7300024684645838,
+    "interpretation": "Binary bytes only. Different source revisions, compiler profiles, workload, runtime/observer state and concurrent host workload prevent a single-factor causal latency comparison."
+  },
+  "batch": {
+    "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+    "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+    "requested_runs": 8,
+    "attempted_runs": 2,
+    "unattempted_runs": 6,
+    "completed_observations": 0,
+    "protocol_passed_runs": 0,
+    "canonical_case_table_sha256": "d7b9f0a2dfddffda823f1154e54fc6a5f0eef4c99445f6a40b5f9ccdea87359a",
+    "finished_at": "2026-11-21T18:27:55Z",
+    "batch_summary_sha256": "9990077def9bf9c9340bb078cb7e555cf5a23ddaae49afee3f25e0b01d06a08a",
+    "errors": [
+      "CancelledError: "
+    ]
+  },
+  "cases": [
+    {
+      "case": "case-01",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "30ec0e5b62a3c1eb759b622e862e15d14410532946a8644151228a3e1c5d90c6",
+        "journey_helper_sha256": "693af3d7df627230329ea0a67456a12636ac95577cdcec04094002ac82f2c6f0",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-17-29",
+        "checks": {
+          "input_in_first_seal": false,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": false,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": false,
+        "errors": [
+          "observation: TimeoutError: Shenko did not expose a bound subject within 60 seconds",
+          "startup runtime cleanup was not clean; see startup_shutdown"
+        ],
+        "interruptions": [],
+        "startup_shutdown": {
+          "parent_exit": -2,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1114803,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 60.820541627996136,
+        "finished_at": "2026-11-21T18:27:28Z"
+      },
+      "summary_sha256": "60d597bbc8441ee8a9ff824d7cb6b3a0c66416d8db9ffefae779c99160cd522a",
+      "log": {
+        "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before/case-01/first.runtime.log",
+        "bytes": 2117,
+        "sha256": "9e280db77c871a441887564d0ec8ede6233210378a16b70b2bc95d44b2e37993"
+      },
+      "timing_quality": {
+        "scope_count": 0,
+        "complete_count": 0,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": []
+      },
+      "retained_ledger": {
+        "case": "case-01",
+        "final_ledger_sha256": "79fa9ff60bc09d854d371c2ad3bdfdaef9f4920a2263b1f6d879877ce96c626e",
+        "final_ledger_bytes": 668,
+        "counts": {
+          "subject_request_attempts": 0,
+          "subject_steps": 0,
+          "tasks": 0,
+          "task_results": 0,
+          "web_input_submissions": 0,
+          "operations": 0,
+          "attempts": 0,
+          "evidence_receipts": 0,
+          "commit_log": 1
+        }
+      },
+      "self_file_exists": false
+    },
+    {
+      "case": "case-02",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "30ec0e5b62a3c1eb759b622e862e15d14410532946a8644151228a3e1c5d90c6",
+        "journey_helper_sha256": "693af3d7df627230329ea0a67456a12636ac95577cdcec04094002ac82f2c6f0",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-28-34",
+        "checks": {
+          "input_in_first_seal": false,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": false,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": false,
+        "errors": [
+          "observation: CancelledError: ",
+          "startup runtime cleanup was not clean; see startup_shutdown"
+        ],
+        "interruptions": [
+          {
+            "stage": "observation",
+            "type": "CancelledError",
+            "message": ""
+          }
+        ],
+        "startup_shutdown": {
+          "parent_exit": -2,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1114954,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 27.44641149000381,
+        "finished_at": "2026-11-21T18:27:55Z"
+      },
+      "summary_sha256": "bf196375b86e289362ec2b69adc81063b2a359374a211e55d29c71fca68b4452",
+      "log": {
+        "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before/case-02/first.runtime.log",
+        "bytes": 793,
+        "sha256": "307c5a6481c6ce286d3d472fcba4b4749e8cb78367d2f07e90b36a36739eb24a"
+      },
+      "timing_quality": {
+        "scope_count": 0,
+        "complete_count": 0,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": []
+      },
+      "retained_ledger": {
+        "case": "case-02",
+        "final_ledger_sha256": "0bb9bcf87aef2b80e0798bc22182281c27602213d457964a7174b0bbc8181daf",
+        "final_ledger_bytes": 481,
+        "counts": {
+          "subject_request_attempts": 0,
+          "subject_steps": 0,
+          "tasks": 0,
+          "task_results": 0,
+          "web_input_submissions": 0,
+          "operations": 0,
+          "attempts": 0,
+          "evidence_receipts": 0,
+          "commit_log": 0
+        }
+      },
+      "self_file_exists": false
+    }
+  ],
+  "timing_summarizer": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cb1d0632/summarize_request_timing.py",
+    "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7"
+  },
+  "remaining_owned_group_members": [],
+  "environment": {
+    "observed_at": "2026-11-21T18:28:31Z",
+    "relationship_to_run": "Snapshot 36 seconds after batch finished; PSI averages are rolling windows, not phase-specific or per-process startup measurements. Host /proc pressure and container cgroup pressure describe different scopes.",
+    "raw": {
+      "/proc/pressure/cpu": "some avg10=0.28 avg60=1.49 avg300=1.65 total=4466435738\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+      "/proc/pressure/io": "some avg10=46.77 avg60=38.98 avg300=18.09 total=59538730196\nfull avg10=42.28 avg60=30.34 avg300=13.35 total=45522745718",
+      "/proc/pressure/memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=421280080\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=334875463",
+      "/proc/loadavg": "23.33 18.14 14.38 6/7744 1115057",
+      "/sys/fs/cgroup/cpu.max": "max 100000",
+      "/sys/fs/cgroup/cpu.stat": "usage_usec 76973532244\nuser_usec 56971817596\nsystem_usec 20001714647\nnice_usec 24000\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+      "/sys/fs/cgroup/memory.current": "7241351168",
+      "/sys/fs/cgroup/memory.max": "max",
+      "/sys/fs/cgroup/memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 3",
+      "/sys/fs/cgroup/io.pressure": "some avg10=0.00 avg60=0.24 avg300=0.39 total=37621236726\nfull avg10=0.00 avg60=0.24 avg300=0.39 total=37156381438",
+      "/sys/fs/cgroup/cpu.pressure": "some avg10=0.00 avg60=0.03 avg300=0.01 total=178857244\nfull avg10=0.00 avg60=0.03 avg300=0.00 total=152936125",
+      "/sys/fs/cgroup/memory.pressure": "some avg10=0.00 avg60=0.00 avg300=0.00 total=163367939\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=161684944"
+    },
+    "build_markers": {
+      "release-after.build-started.txt": "2026-11-21T18:26:34Z",
+      "release-before.build-started.txt": "2026-11-21T18:10:48Z",
+      "release-before.build-finished.txt": "2026-11-21T18:22:11Z",
+      "release-before.build.exit": "0"
+    },
+    "observed_build_processes": [
+      {
+        "pid": 1114856,
+        "comm": "cargo",
+        "state": "S",
+        "ppid": 1114837,
+        "pgid": 1114837,
+        "user_cpu_ticks": 31,
+        "system_cpu_ticks": 47,
+        "rss_pages": 34334,
+        "io": "rchar: 55429867\nwchar: 397524620\nsyscr: 8372\nsyscw: 4678\nread_bytes: 791552\nwrite_bytes: 397455090\ncancelled_write_bytes: 0"
+      },
+      {
+        "pid": 1114998,
+        "comm": "rustc",
+        "state": "S",
+        "ppid": 1114856,
+        "pgid": 1114837,
+        "user_cpu_ticks": 5510,
+        "system_cpu_ticks": 202,
+        "rss_pages": 259604,
+        "io": "rchar: 1760053\nwchar: 20112115\nsyscr: 157\nsyscw: 330\nread_bytes: 0\nwrite_bytes: 20070789\ncancelled_write_bytes: 0"
+      },
+      {
+        "pid": 1115039,
+        "comm": "rustc",
+        "state": "S",
+        "ppid": 1114856,
+        "pgid": 1114837,
+        "user_cpu_ticks": 3069,
+        "system_cpu_ticks": 278,
+        "rss_pages": 306218,
+        "io": "rchar: 898126\nwchar: 6295556\nsyscr: 135\nsyscw: 106\nread_bytes: 0\nwrite_bytes: 6287050\ncancelled_write_bytes: 0"
+      }
+    ]
+  },
+  "debug_reference": {
+    "artifact_path": "/workspace/scratch/0e9f736f5ffa/observations/candidate-journey-r1-timing-summary.json",
+    "artifact_sha256": "13350c16fa12bf755338522de6b54038833694ef925286329f520a6628ad823d",
+    "run_id": "candidate-journey-r1",
+    "artifact_identity": {
+      "binary_sha256": "ad13f0e737fb5e17b282fdb65b58c023ace54bc7df5da31fb10ce8c9d1b8768c",
+      "model": "swift-qwen3.8-27b-nvfp4",
+      "driver_sha256": "4e5cd4133d1e858188ba1ee399e4e090fec06ba3dd00fcb54588950c5be048c8"
+    },
+    "binary_bytes": 332838480,
+    "trace": {
+      "sha256": "cd4a73c53890b503a0f678111220ebc891309a6ea68a23cbf9cf077c004b9891",
+      "bytes": 280875
+    },
+    "quality": {
+      "scope_count": 402,
+      "complete_count": 402,
+      "incomplete_count": 0,
+      "invalid_events": [],
+      "observed_dropped_events": []
+    },
+    "phases": [
+      {
+        "phase": "authority.order",
+        "count": 10,
+        "inclusive_total_us": 52338949,
+        "p50_us": 4521820,
+        "p95_us": 8100799,
+        "max_us": 8100799,
+        "self_sample_count": 10,
+        "self_total_us": 52338949
+      },
+      {
+        "phase": "canonical.admission",
+        "count": 2,
+        "inclusive_total_us": 14349689,
+        "p50_us": 6216895,
+        "p95_us": 8132794,
+        "max_us": 8132794,
+        "self_sample_count": 2,
+        "self_total_us": 683
+      },
+      {
+        "phase": "canonical.apply",
+        "count": 1,
+        "inclusive_total_us": 6075659,
+        "p50_us": 6075659,
+        "p95_us": 6075659,
+        "max_us": 6075659,
+        "self_sample_count": 1,
+        "self_total_us": 2325784
+      },
+      {
+        "phase": "canonical.prepare",
+        "count": 1,
+        "inclusive_total_us": 11046246,
+        "p50_us": 11046246,
+        "p95_us": 11046246,
+        "max_us": 11046246,
+        "self_sample_count": 1,
+        "self_total_us": 144685
+      },
+      {
+        "phase": "control.predecessor",
+        "count": 10,
+        "inclusive_total_us": 54846622,
+        "p50_us": 3423369,
+        "p95_us": 15500221,
+        "max_us": 15500221,
+        "self_sample_count": 10,
+        "self_total_us": 12824
+      },
+      {
+        "phase": "control.seal_pages",
+        "count": 10,
+        "inclusive_total_us": 32097769,
+        "p50_us": 1280775,
+        "p95_us": 13093847,
+        "max_us": 13093847,
+        "self_sample_count": 10,
+        "self_total_us": 32097769
+      },
+      {
+        "phase": "control.snapshot",
+        "count": 10,
+        "inclusive_total_us": 11793197,
+        "p50_us": 1211921,
+        "p95_us": 1404944,
+        "max_us": 1404944,
+        "self_sample_count": 10,
+        "self_total_us": 80287
+      },
+      {
+        "phase": "control.validate",
+        "count": 11,
+        "inclusive_total_us": 12212876,
+        "p50_us": 1120809,
+        "p95_us": 1353086,
+        "max_us": 1353086,
+        "self_sample_count": 11,
+        "self_total_us": 12212876
+      },
+      {
+        "phase": "native.claim",
+        "count": 1,
+        "inclusive_total_us": 27571174,
+        "p50_us": 27571174,
+        "p95_us": 27571174,
+        "max_us": 27571174,
+        "self_sample_count": 1,
+        "self_total_us": 2287221
+      },
+      {
+        "phase": "sqlite.mutex_wait",
+        "count": 51,
+        "inclusive_total_us": 40325,
+        "p50_us": 2,
+        "p95_us": 872,
+        "max_us": 30552,
+        "self_sample_count": 51,
+        "self_total_us": 40325
+      }
+    ]
+  },
+  "conclusions": {
+    "timing_comparison_available": false,
+    "reason": "Both closed release runtime logs contain zero timing scopes; no release phase duration can be compared with the debug phases.",
+    "sampling": "2 attempted startups, 0 completed first-request observations, 6 unattempted cases. Do not describe 0/2 attempted checks as a measured model protocol success rate.",
+    "cleanup": "Both owned groups were fully reaped; parent exits were SIGINT (-2) and shutdown clean=false. Batch cancellation is preserved separately from startup timeout.",
+    "causality": "After build overlap and high host IO PSI are observed context. These observations do not establish that the build caused startup timeout.",
+    "future": "Any protocol-before-r2 must retain this aborted batch and use a new evidence directory; no result is replaced."
+  }
+}

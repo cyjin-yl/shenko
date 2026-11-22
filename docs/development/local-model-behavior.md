@@ -85,3 +85,96 @@ cargo test -p shenko-subject --test local_model_behavior -- --nocapture
 解析。修复是把平台真实上报的回复目标放进消息头（`[昵称 · 私聊 QQ 号]` /
 `[昵称 · 群 群号]`），并在输出合同里说明号码取自消息头。实测数据见对应 evidence
 文件；它不是完整 C09/C16 或真实渠道送达的验收。
+
+## 首请求控制协议对照 / First-request protocol observation
+
+`scripts/real_protocol_observation.py` 补充一个范围更窄、使用实际 CLI 的观察入口。
+上面的 Rust harness 保持原有基础行为覆盖；它直接调用 provider，不能替代工具委派的
+真实 Store、完整能力目录、subject step 和 S1 接纳证据。
+
+这次澄清来自候选 `cb1d0632` 的实际失败：首个响应以 `stop` 结束，但将 `[delegate]`
+与 JSON 分成两行，得到 `CONTROL_PROTOCOL_INVALID`（第 3 行，`empty action`）。
+完整旧 system prompt 的 SHA256 为
+`e7f06f9159ca450e9aa75b187aa9a103def1a281931ab277b8399b47a4308d9c`；原始结果 CAS
+为 `blake3:430000314a04e2ae5eec5dde9e004be714a68558f17f7ed05e92efdc6c7ee095`，
+SHA256 为 `16674c93c35fb468d549221fce726e287f0a456339c7aa7af821aab84d1a80af`。
+原始输入、完整 wire、失败正文和下一轮的完整纠错反馈均保留在该运行证据中。
+本次产品变化只把“后接一行 JSON”明确为“标签后同一行写完整 JSON”，并在
+empty-action 诊断中说明这一点。parser 的成功条件、4096-token 主体预算和模型配置不变；
+跨行 JSON 仍拒绝。不能由文字变更本身推断成功率已经改善。
+
+前后对照使用 release 二进制：before 为 `72fc70d3`，after 为上述文字/诊断修复。
+两边都用同一份新 driver 和 journey helper；`33363d95` 的观察 socket 配置只修正
+观察期限，不能作为模型行为或性能改善的因素。模型由实际环境指定，不修改温度、
+reasoning 配置、主体或 child 预算。每边各运行脚本内固定的 8 个新任务；每个配对具有
+相同的计算题、原样 marker 和用户文字，每次使用全新安装。样例不含控制行或预期答案，
+也不复用写作/诊断中的 19×23 例子。
+
+```sh
+SHENKO_LOCAL_MODEL_REQUEST_TIMEOUT_MS=600000 \
+python3 scripts/real_protocol_observation.py \
+  --binary /absolute/path/to/release/shenko \
+  --source-revision ACTUAL_COMMIT \
+  --model-url http://10.10.10.11:8000 \
+  --model swift-qwen3.8-27b-nvfp4 \
+  --evidence-dir /absolute/path/to/new-before-or-after-directory \
+  --timeout 900 --startup-timeout 300 --timing
+```
+
+每个安装通过实际 CLI `--pause-at-start` 启动，确认未派发模型请求，通过真实 WebSocket
+接受输入后再执行公开的 `runtime resume`。观察只等**最早的主体请求**到达 terminal，且
+它自己的 step 已 committed 或 retired；不会等待纠错、child 完成或最终回答。原始
+installation、模型结果和 wire、第一次/最终 ledger、全部 CAS、文件哈希及 owned runtime
+关闭回执都保留。关闭引起的后续 Unknown 和任何失败留在尾部事实中。
+
+`--startup-timeout` 是独立的启动观测边界，接受正整数，默认仍为 60 秒。本次前后两组
+统一使用同一份新 driver 和显式 300 秒边界，before/after 二进制不因驱动变化而改变。
+manifest 与批次摘要记录配置；每个安装的 `first.startup.json` 保留实际耗时、是否就绪与
+原始失败，耗时不包含随后 owned cleanup。扩长观测窗口不代表启动延迟得到修复，
+也不改变请求预算、协议/耐久成功条件或清理判据；此前未就绪的失败尝试仍保留。
+
+报告的三个指标分别是：原始输入进入首个 seal；首结果完成并实际提交 S1、没有 R0；
+该 S1 恰好接纳各一个 `model.child` 与 `host.printf`，child 绑定指定模型/endpoint，原生
+输入为对应 marker，且实际 task 行绑定同一 decision/commit。它不判 child 的计算语义、
+执行结果或用户任务完成，也不证明重启恢复、完整浏览器旅程或延迟改善。
+
+`batch-summary.json` 在 spawn 前写入每次尝试，保留失败分母和未尝试数。超时、证据缺失、
+身份/预算不符或不干净的关闭不能计作通过；原始测量结果仍单独保留，不能用后续成功覆盖。
+二进制哈希和实际 `/v1/models` card 在每次前后校验，唯独响应生成的 `created` 和
+`permission` 元数据不参与身份比较；完整响应仍保存。模型 card 不是内存权重的证明，实际
+服务启动配置、模板和权重哈希应由部署证据另行绑定。前后报告还必须核对同一场景表哈希、
+model card、请求时限与 sealed/effective 配置；任一批次不足 8 个已观察样本时明确保留缺口。
+
+## Typed-control rejection diagnostics / 类型化控制拒绝诊断
+
+`c931526c` 的真实浏览器批次 `final-c931526c-observer-e537896f` 第 002 次尝试，
+两份原始 TaskResult 已在主体请求 `c7065033-5454-4ce0-9886-59f5b3aa960b` 的实际
+sealed payload 中。该 payload 提供完整事件 ID
+`a87df7e3-8be6-4f70-97d1-610088bd4e5e`；模型的完整响应却写出
+`a87df7e3-8be6-4f70-9740-8e5e`。后一个字符串在此请求输入中未出现。
+原 R0 严格拒绝了控制，但将所有 typed JSON 反序列化错误归成
+`dispose requires one JSON object`。下一请求 `95842485-ec36-4a64-8ed2-5b8cd6045a72`
+确实收到该反馈和原完整 ID，却把问题解释成括号未闭合，并保留同一非法 UUID。
+它的 JSON 对象已闭合且必需字段齐全，仍被拒绝；没有产生成功的结果报告 S1。
+
+这两份原输入的 SHA256 分别为
+`5912063a03d2c3152486919aa79c86300ccfee118e9eeaf61c42d519d53741b2` 和
+`d51fe83bbcbef4fb5ab3441e149fd68a772e1f630dbb8183a9b0fbcd74af3b75`；第二次完整
+provider wire 的 SHA256 为
+`6c4b173a544780eab4e28ffd2da452bc8c7d25ccf3b8d969999051a1dad784b1`，提取的
+content 为 `cc8b31086e1a7a3dd56ff46d862349db59604dae50fbfece7dcc6b8f25731553`。
+原始 R0、provider 响应、Unknown 和该批次失败分母保持原样。
+
+产品修正由 `authored_controls` 的共享 helper 保留同一次 `serde_json::from_str<T>`
+的错误类别和原错误详情，放入原有 `CONTROL_PROTOCOL_INVALID` 的 `reason`；例如
+字段类型错误现在以 `dispose JSON field/type error:` 开头，后接实际 serde 原因。
+syntax、incomplete 和 read 类别也保留其实际原因。八类 authored-control 的 typed
+结构与后续语义校验不变；不会修补 ID、接纳未知字段、增加重试、生成动作或调整预算。
+
+现有 `frozen_input_survives_shutdown_rejection_and_recorded_result_reopen` 机制回归
+延续原安装的 R0/reopen 轨迹，将第二个实际非法控制经过真实 parser、R0 持久化和
+下一份 frozen feedback，并检查原输入/输出不变、重开后反馈保留、原合法控制仍只提交
+一次。该 fixture 不调用 provider；未知字段和未完成 JSON 仍必须拒绝。这个改动提交时
+尚未取得该扩展的实际执行回执，也未取得新诊断的真实模型纠错成功率。随后保持同一模型、
+4096 主体输出预算与 900 秒阶段边界的完整旅程必须独立记录结果；不能由诊断更准确
+推断模型一定会纠正，也不能把后续整个候选的结果归因于这一处文字变化。

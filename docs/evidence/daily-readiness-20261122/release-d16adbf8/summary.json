@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "binary": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-d16adbf8",
+    "bytes": 90351680,
+    "sha256": "d44703d84ff02a4235005e54c935ddeb2b6dc78a4dbe4184e981c293f1daccce",
+    "source": "Original manifest produced by the actual build runner; binary is not copied or independently rehashed by this retention."
+  },
+  "container_image": "sha256:28df77cc6beee4f88ee1f57922190dcb02414d78d284e8b0f91859e18728e565",
+  "profile": "release",
+  "command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--release",
+    "-p",
+    "shenko",
+    "-j4"
+  ],
+  "build_exit": 0,
+  "host_exit": 0,
+  "timing": {
+    "build_started_at_utc": "2026-11-21T23:42:17Z",
+    "build_finished_at_utc": "2026-11-21T23:50:15Z",
+    "build_seconds_from_second_precision_timestamps": 478,
+    "cargo_finished_line": "    Finished `release` profile [optimized] target(s) in 7m 58s",
+    "host_started_at_utc": "2026-11-21T23:42:15Z",
+    "host_finished_at_utc": "2026-11-21T23:50:17Z",
+    "host_seconds_from_second_precision_timestamps": 482,
+    "remote_tool_pid": 2532083,
+    "remote_tool_reported_runtime_seconds": 482.8,
+    "boundary": "Cargo line, second-precision timestamps, and remote process wall time are distinct measurements."
+  },
+  "toolchain": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "node": "v24.22.1"
+  },
+  "admission": {
+    "reused_scope": "972e16ef34213f568eda3b236fc33be50e40d7fb",
+    "reused_scope_passes": 12,
+    "fixed_native_chain": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+    "fixed_native_chain_passes": 1,
+    "tests_executed_by_this_build_runner": 0,
+    "static_inventory_verified": 12,
+    "static_manifest_sha256": "134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89",
+    "preflight": "preflight.json",
+    "original_scope_failure_reclassified": false
+  },
+  "compiler_error_lines": [],
+  "warnings_boundary": "Original warnings are retained. No claim that every warning predates this candidate.",
+  "scope": "Completed release build only; no new model/browser or journey verdict, no source/driver/checkout change by this retention, no binary or CAS copy."
+}

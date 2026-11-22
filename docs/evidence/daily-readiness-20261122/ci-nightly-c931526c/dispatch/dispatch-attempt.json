@@ -1,0 +1,15 @@
+{
+  "requested_at_utc": "2026-11-22T00:47:04.822743+00:00",
+  "command": [
+    "gh",
+    "workflow",
+    "run",
+    "nightly.yml",
+    "--repo",
+    "cyjin-yl/shenko",
+    "--ref",
+    "feat/daily-readiness-20261122"
+  ],
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "retry_performed": false
+}

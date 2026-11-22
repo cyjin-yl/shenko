@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Reading 2 new lines (total: 12 lines)]\n\n{\"observed_at_utc\": \"2026-11-22T01:07:26.114640+00:00\", \"kind\": \"nightly\", \"run_id\": 44968307539, \"status\": \"completed\", \"conclusion\": \"failure\", \"jobs\": [{\"id\": 137042231258, \"name\": \"nightly-compiler-full\", \"status\": \"completed\", \"conclusion\": \"failure\", \"active_steps\": []}, {\"id\": 137042231546, \"name\": \"nightly-rust-long\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}]}\n{\"finished_at_utc\": \"2026-11-22T01:07:26.115038+00:00\", \"source_revision\": \"c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0\", \"branch\": \"feat/daily-readiness-20261122\", \"all_runs_completed\": true, \"all_runs_successful\": false, \"remaining_runs\": {}, \"last_states\": {\"ci\": {\"kind\": \"ci\", \"run_id\": 44968265233, \"status\": \"completed\", \"conclusion\": \"success\", \"jobs\": [{\"id\": 137042094276, \"name\": \"clippy-ratchet\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}, {\"id\": 137042094371, \"name\": \"kernel-boundary\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}, {\"id\": 137042094442, \"name\": \"web\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}, {\"id\": 137042094455, \"name\": \"docs-migration\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}, {\"id\": 137042094470, \"name\": \"docs\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}, {\"id\": 137042094533, \"name\": \"rust\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}]}, \"nightly\": {\"kind\": \"nightly\", \"run_id\": 44968307539, \"status\": \"completed\", \"conclusion\": \"failure\", \"jobs\": [{\"id\": 137042231258, \"name\": \"nightly-compiler-full\", \"status\": \"completed\", \"conclusion\": \"failure\", \"active_steps\": []}, {\"id\": 137042231546, \"name\": \"nightly-rust-long\", \"status\": \"completed\", \"conclusion\": \"success\", \"active_steps\": []}]}}, \"observer_error\": null, \"elapsed_seconds\": 977.3309367900074, \"github_mutations\": false, \"observer_exit_code\": 1}\n✅ Process completed with exit code 1 (runtime: 977.42s)"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}

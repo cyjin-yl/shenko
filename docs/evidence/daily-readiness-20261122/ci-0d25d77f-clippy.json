@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source_revision": "0d25d77fde4b96ecbc3a8af88baeee9fadaf362f",
+  "run_id": 44946037112,
+  "job_id": 136973435653,
+  "job_url": "https://github.com/cyjin-yl/shenko/actions/runs/44946037112/job/136973435653",
+  "conclusion": "failure",
+  "original_log_bytes": 19258866,
+  "original_log_sha256": "80e6f91dde54623ade2951b5a3960521b956b0447b1a25e4979152fd1065bda0",
+  "artifact_id": 14723339274,
+  "artifact_bytes": 3003188,
+  "artifact_sha256_reported_by_github": "698f92c153db1ade88ef478ced982e3d7b45223e7e08bc2719d33a41b112e9a3",
+  "new_diagnostics": [
+    {
+      "scope": "production",
+      "package": "shenko",
+      "lint": "unused_variables",
+      "increase": 1
+    },
+    {
+      "scope": "all-targets",
+      "package": "shenko",
+      "lint": "unused_variables",
+      "increase": 2
+    }
+  ],
+  "source_location": "bin/shenko/src/runtime_host.rs:131",
+  "repair_commit": "c3f7b04ce107a1d532d9977724f5ff80e142c23b",
+  "repair": "Rename the select! pattern to _signal_result while still consuming its Result with context and ?. No allow, lint threshold or error handling was removed.",
+  "repair_verification": "Pending the next source-bound CI; the original failure remains a failure."
+}

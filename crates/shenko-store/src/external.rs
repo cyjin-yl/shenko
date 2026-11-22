@@ -462,7 +462,8 @@ impl Store {
     ) -> Result<Option<OperationRecord>> {
         match self.canonical_native_arm(ctx, op, att, native_dispatch) {
             Ok(result) => Ok(result),
-            Err(error) if matches!(error, shenko_types::error::ShenkoError::Conflict(_))
+            Err(error) if matches!(error, shenko_types::error::ShenkoError::Conflict(_)
+                | shenko_types::error::ShenkoError::RuntimeAdmissionClosed { .. })
                 || shenko_types::authority::is_authority_fenced(&error) => {
                 // Another caller can commit the matching original between
                 // the public fast read and this source's final CAS. A factual

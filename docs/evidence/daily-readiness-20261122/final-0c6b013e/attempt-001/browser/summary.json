@@ -1,0 +1,70 @@
+{
+  "checks": {
+    "browser_first_input_from_composer": true,
+    "browser_first_durable_receipt": true,
+    "browser_first_input_mode_matches_capability": true,
+    "browser_no_page_errors": true,
+    "browser_cleanup_complete": true
+  },
+  "observations": {
+    "served_manifest_sha256": "f9c51242b87e5201033c08b6439cfe6247cece4c45177feca092dcc67dbc0157",
+    "first_input_mode": {
+      "socket_id": 1,
+      "hello_index": 4,
+      "capabilities": {
+        "actions": true,
+        "append": true,
+        "attachments": true,
+        "committed_replay": true,
+        "documents": true,
+        "durable_input_receipts": true,
+        "steer": true,
+        "streaming": true,
+        "withdraw": true
+      },
+      "expected_mode": "steer",
+      "submitted_mode": "steer",
+      "accepted_receipt": {
+        "schema_version": 2,
+        "type": "receipt",
+        "submission_id": "d64570c6-1242-4d01-b21e-091fb6d67b88",
+        "stage": "accepted",
+        "mode": "steer",
+        "durability": "durable",
+        "event_id": "93be7acd-6066-4284-a7c5-84b26bd5d16a",
+        "accepted_commit": "3114de1a-bc40-475e-9391-f9bc216ea180/11",
+        "replayed": false,
+        "placement": {
+          "requested": "steer",
+          "actual": "next_boundary"
+        },
+        "detail": "已持久接纳；已通知当前循环，选入与处置另查回执。"
+      }
+    },
+    "streaming": {
+      "observed": true,
+      "received_stream_parts": 60,
+      "scope": "actual public wire frames only; no stream-quality or latency claim"
+    },
+    "accessibility": {
+      "aria_snapshot_phases": [
+        "opened",
+        "first-submitted",
+        "final"
+      ],
+      "screen_reader_tested": false
+    }
+  },
+  "errors": [],
+  "page_errors": [],
+  "cleanup": {
+    "capture_timeout_seconds": 15,
+    "owner_timeout_seconds": 10,
+    "final_capture": "complete",
+    "context": "complete",
+    "browser": "complete",
+    "driver": "complete"
+  },
+  "interruptions": [],
+  "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"
+}

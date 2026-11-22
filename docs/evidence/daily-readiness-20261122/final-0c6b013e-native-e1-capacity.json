@@ -1,0 +1,2924 @@
+{
+  "schema_version": 1,
+  "source_commit": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "observed_at": "2026-11-21T22:21:21.137710+00:00",
+  "read_method": "Only completed attempts with parent_reaped and empty live process groups; URI mode=ro BEGIN snapshots. Post-exit facts, not failure-transaction traces.",
+  "attempts": [
+    {
+      "attempt": "attempt-001",
+      "summary_sha256": "771db5f5de37a35508984b2ba763253508237744d6439bbfa77bbe510b5defd4",
+      "summary": {
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "checks": {
+          "startup_paused_before_inference": true,
+          "input_accepted_before_inference": true,
+          "browser_first_input_from_composer": true,
+          "browser_first_durable_receipt": true,
+          "browser_first_input_mode_matches_capability": true,
+          "browser_no_page_errors": true,
+          "browser_cleanup_complete": true,
+          "final_shutdown_clean": false,
+          "one_child_of_each_requested_kind": true,
+          "finite_model_child_succeeded": false,
+          "child_model_matches_requested_binding": false,
+          "native_host_process_exact_result": false,
+          "native_effect_observed_once": false,
+          "both_children_have_attempt_and_e1": false,
+          "committed_output_after_child_results": false
+        },
+        "started_at": null,
+        "finished_at": "2026-11-21T22:12:07Z",
+        "elapsed_seconds": 112.22826400899794
+      },
+      "shutdowns": [
+        {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "started": {
+            "utc": "2026-11-21T22:12:07.140996+00:00",
+            "monotonic_ns": 217288801830915
+          },
+          "signal_calls": [],
+          "group_cleanup": {
+            "pgid": 1131108,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": [],
+          "finished": {
+            "utc": "2026-11-21T22:12:07.147635+00:00",
+            "monotonic_ns": 217288808437410
+          }
+        }
+      ],
+      "debts": [
+        {
+          "raw": "{\"schema_version\":1,\"receipt_id\":\"742fd7c9-fc12-4992-8bbc-55e53feac722\",\"operation_id\":\"ea08e989-7b6a-9739-ab47-3a7bc0937ddb\",\"attempt_id\":\"3ee78642-e348-4e11-8add-9d487fd80608\",\"received_commit\":{\"ledger_id\":\"3114de1a-bc40-475e-9391-f9bc216ea180\",\"seq\":98},\"reason\":\"invalid direct native fact: CAS closure byte budget exceeded\"}",
+          "sha256": "0da7537c01c64e63286114682f7ad82c7e8e6d6c085fc3d5f05095e2532a6d15",
+          "decoded": {
+            "schema_version": 1,
+            "receipt_id": "742fd7c9-fc12-4992-8bbc-55e53feac722",
+            "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+            "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+            "received_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 98
+            },
+            "reason": "invalid direct native fact: CAS closure byte budget exceeded"
+          }
+        }
+      ],
+      "task_results": 0,
+      "native_materializations": 0,
+      "operations": [
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "aee49097-0042-5c8f-8979-a408f5779d51",
+            "record_revision": 1,
+            "task_id": "1e4fa905-5668-45cb-bcac-6f6fb90acd46",
+            "logical_key": "model-child-step:0",
+            "operation_name": "model.child.generate.v1",
+            "input_schema_version": 2,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:8a06435c8797a033110c712aaa65f4bab401d11da69171dd27fd6afe98c23baa",
+              "bytes": 5732,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/8a/06/8a06435c8797a033110c712aaa65f4bab401d11da69171dd27fd6afe98c23baa",
+              "codec": {
+                "name": "model-child-step-input",
+                "major": 2,
+                "digest": "blake3:b4f6c5ceadda61ba63349f824b58b34955b5c86982e1e4b67025f44f2a9e4771"
+              }
+            },
+            "input_digest": "blake3:8a06435c8797a033110c712aaa65f4bab401d11da69171dd27fd6afe98c23baa",
+            "contract_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:81c8a088db7618833804b12c827eadeb707877707e4680329bd9edcaa2a10a66",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:model-child-v2"
+                },
+                "symbol": "model.child.generate.v1",
+                "schema": {
+                  "name": "model-child-provider-result",
+                  "major": 1,
+                  "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:a23619b2109b8850a0b35acf0aae7f1e175d1d2de3f3691622ff2b198273ef33",
+              "bytes": 933,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/a2/36/a23619b2109b8850a0b35acf0aae7f1e175d1d2de3f3691622ff2b198273ef33",
+              "codec": {
+                "name": "model-child-resource-binding",
+                "major": 1,
+                "digest": "blake3:b06344da74f3b8a18183cd043f3f3d4cdc929887a5a45735caa81ac96cfc444a"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "1e4fa905-5668-45cb-bcac-6f6fb90acd46",
+              "delegation_revision": 0,
+              "decision_ref": "e3a05380-ba11-47bd-a36c-b5711e3271f4"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "bytes": 102,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/01/3d/013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "codec": {
+                "name": "model-child-acceptance",
+                "major": 1,
+                "digest": "blake3:a84c09fe541730bbd5ba19ebfb80b758d35c7890ee449824fd2994736e125ed1"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "bytes": 104,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/43/07/430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "codec": {
+                "name": "model-child-retry",
+                "major": 1,
+                "digest": "blake3:33fa3bdfff4e386e1e2ea33a4ca89ad9797a485e0e92f02e88e3216a6f13d682"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "reconciling",
+            "outcome": null,
+            "outcome_conflict": false,
+            "effect_status": "unknown",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 91
+            },
+            "evidence_through": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 155
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "1e4fa905-5668-45cb-bcac-6f6fb90acd46",
+            "task_revision": 0,
+            "record_revision": 3,
+            "agent_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f",
+            "conversation_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f",
+            "owner": {
+              "kind": "task",
+              "id": "79f41f98-1661-499e-be1b-6a54fb6c7b64"
+            },
+            "background": false,
+            "kind": "model.child",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 55
+            },
+            "input_ref": {
+              "digest": "blake3:31c32677dfc7b2e0b94f1f1151adab2155675b722450dcb54f1e67e2df4b8908",
+              "bytes": 6142,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/31/c3/31c32677dfc7b2e0b94f1f1151adab2155675b722450dcb54f1e67e2df4b8908",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": null,
+              "invocation_id": "8923935a-8849-39f4-ff95-6420b0f438bf",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "e7157e8a-c0b1-4d02-984d-e2ee731ffe9b",
+                "operation_id": "aee49097-0042-5c8f-8979-a408f5779d51"
+              },
+              "intent_id": "1e4fa905-5668-45cb-bcac-6f6fb90acd46",
+              "model_child_budget_usage": {
+                "reserved_tokens": 128,
+                "reserved_tool_calls": 0,
+                "steps": 1
+              },
+              "native_child": true,
+              "native_dispatch_committed": {
+                "attempts": {
+                  "e7157e8a-c0b1-4d02-984d-e2ee731ffe9b": {
+                    "commit": {
+                      "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                      "seq": 142
+                    },
+                    "invocation_id": "8923935a-8849-39f4-ff95-6420b0f438bf",
+                    "operation_id": "aee49097-0042-5c8f-8979-a408f5779d51",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 85
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+                  "registry_revision": 55
+                },
+                "invocation_id": "8923935a-8849-39f4-ff95-6420b0f438bf",
+                "node_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                "worker_id": "0869ac9d-5780-4c17-ab32-a7797da512a4"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "5fe02827-92c9-a763-3164-b68fa96f1931",
+              "native_result_id": "b0559f16-1ca0-523a-1ce9-ddaa176ad3b0"
+            },
+            "created_by_step_id": "e3a05380-ba11-47bd-a36c-b5711e3271f4",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:11:48.681240478Z",
+            "created_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 78
+            },
+            "updated_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 142
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "e7289974-4aea-49b2-8567-e492d721f53b",
+                "operation_id": "aee49097-0042-5c8f-8979-a408f5779d51",
+                "attempt_id": "e7157e8a-c0b1-4d02-984d-e2ee731ffe9b",
+                "source_id": "model.child.generate.v1",
+                "source_instance_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                "source_event_key": "model-request:d6fb9b2a-d34b-598d-bee1-3e251b3055fd",
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:2a1b364719aaf17c87576818f445959d6b16ed4d0f972f808ca3a42619625056",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/2a/1b/2a1b364719aaf17c87576818f445959d6b16ed4d0f972f808ca3a42619625056",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:model-child-v2"
+                  },
+                  "symbol": "model.child.generate.v1",
+                  "schema": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": null,
+                "normalized_ref": {
+                  "digest": "blake3:97f293b5e596d5eae2c4a25a64e63cfa7350926ca80dbbc8a1a0476a964d893f",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/97/f2/97f293b5e596d5eae2c4a25a64e63cfa7350926ca80dbbc8a1a0476a964d893f",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "observed_at": "2026-11-21T22:12:03.626064191Z",
+                "received_commit": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 155
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:2a1b364719aaf17c87576818f445959d6b16ed4d0f972f808ca3a42619625056",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/2a/1b/2a1b364719aaf17c87576818f445959d6b16ed4d0f972f808ca3a42619625056",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "actual_bytes": 560,
+                "sha256": "62f9fc7665df4bf490a2a6300642a0d77d7fc5a5944fbf7a24933d5fa7abd922",
+                "body": {
+                  "effective": {
+                    "api_version": null,
+                    "max_tokens": 128,
+                    "native_options": {},
+                    "profile_id": "local.openai.chat_completions",
+                    "profile_revision": 4,
+                    "provider_binding": {
+                      "allow_invalid_certs": false,
+                      "base_url": "http://10.10.10.11:8000",
+                      "default_max_tokens": 8192,
+                      "kind": "local",
+                      "model": "swift-qwen3.8-27b-nvfp4",
+                      "request_timeout_ms": 600000,
+                      "serializer_revision": 4
+                    }
+                  },
+                  "purpose": "child",
+                  "request_id": "d6fb9b2a-d34b-598d-bee1-3e251b3055fd",
+                  "response": null,
+                  "status": "failed",
+                  "termination": {
+                    "kind": "unknown",
+                    "length": false,
+                    "max_tokens": null,
+                    "output_tokens": null,
+                    "stop_reason": null
+                  }
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:97f293b5e596d5eae2c4a25a64e63cfa7350926ca80dbbc8a1a0476a964d893f",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/97/f2/97f293b5e596d5eae2c4a25a64e63cfa7350926ca80dbbc8a1a0476a964d893f",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "actual_bytes": 492,
+                "sha256": "e6b70654e85edc4fe2d5e0f46ddee8b41585537b5dfdf9132cf2f11d9c098439",
+                "body": {
+                  "complete": false,
+                  "output_ref": null,
+                  "provider_binding": {
+                    "allow_invalid_certs": false,
+                    "base_url": "http://10.10.10.11:8000",
+                    "default_max_tokens": 8192,
+                    "kind": "local",
+                    "model": "swift-qwen3.8-27b-nvfp4",
+                    "request_timeout_ms": 600000,
+                    "serializer_revision": 4
+                  },
+                  "question": null,
+                  "reply": null,
+                  "request_id": "d6fb9b2a-d34b-598d-bee1-3e251b3055fd",
+                  "schema_version": 1,
+                  "step_index": 0,
+                  "stop_reason": "",
+                  "task_id": "1e4fa905-5668-45cb-bcac-6f6fb90acd46",
+                  "text": "",
+                  "text_truncated": false,
+                  "tool_calls": [],
+                  "usage": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": []
+        },
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+            "record_revision": 1,
+            "task_id": "e5f834ae-52a1-40b9-b721-4d1fc35e4151",
+            "logical_key": "native-handler",
+            "operation_name": "host.printf.v1",
+            "input_schema_version": 1,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:14228d35469d1f03dd01b73804863461bbfbcc0db8fcb7f30a044950440d84aa",
+              "bytes": 43,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/14/22/14228d35469d1f03dd01b73804863461bbfbcc0db8fcb7f30a044950440d84aa",
+              "codec": {
+                "name": "host-printf-frozen-input",
+                "major": 1,
+                "digest": "blake3:246f4f275709de7f0d63460aec5264777fb023d50000be62ee620a4ee18bbc62"
+              }
+            },
+            "input_digest": "blake3:14228d35469d1f03dd01b73804863461bbfbcc0db8fcb7f30a044950440d84aa",
+            "contract_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:fb13573daca3cdb239b2b6d9616802338489cb957e9ad9665a907f9a47f18058",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:host-printf-v1"
+                },
+                "symbol": "host.printf.execute",
+                "schema": {
+                  "name": "host-printf-observation-v1",
+                  "major": 1,
+                  "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:15342f2505b183fd34d7db6525a43db5c1c078b980f131bf0aee3b9f2e9e513a",
+              "bytes": 247,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/15/34/15342f2505b183fd34d7db6525a43db5c1c078b980f131bf0aee3b9f2e9e513a",
+              "codec": {
+                "name": "host-printf-binding",
+                "major": 1,
+                "digest": "blake3:8238daf8e3ca5d1e398e9c20ef2c563f9dc9c8e80efa1d64527f8e45ca5d0bbd"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "e5f834ae-52a1-40b9-b721-4d1fc35e4151",
+              "delegation_revision": 0,
+              "decision_ref": "e3a05380-ba11-47bd-a36c-b5711e3271f4"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "bytes": 56,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/01/ec/01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "codec": {
+                "name": "host-printf-acceptance",
+                "major": 1,
+                "digest": "blake3:993abedb26f0f4b10e8f36e118c0647fd6a13410e3d7a524695b72585188c448"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "bytes": 72,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/af/14/af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "codec": {
+                "name": "host-printf-retry",
+                "major": 1,
+                "digest": "blake3:bdf777a89a6d2e2113aab17d480f412f5c19c35f4323041d6777157311e18279"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "resolved",
+            "outcome": "succeeded",
+            "outcome_conflict": false,
+            "effect_status": "none",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 90
+            },
+            "evidence_through": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 98
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "e5f834ae-52a1-40b9-b721-4d1fc35e4151",
+            "task_revision": 0,
+            "record_revision": 3,
+            "agent_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f",
+            "conversation_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f",
+            "owner": {
+              "kind": "task",
+              "id": "79f41f98-1661-499e-be1b-6a54fb6c7b64"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:31c32677dfc7b2e0b94f1f1151adab2155675b722450dcb54f1e67e2df4b8908",
+              "bytes": 6142,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/31/c3/31c32677dfc7b2e0b94f1f1151adab2155675b722450dcb54f1e67e2df4b8908",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+                "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb"
+              },
+              "intent_id": "e5f834ae-52a1-40b9-b721-4d1fc35e4151",
+              "native_child": true,
+              "native_diagnostic": {
+                "detail": "resolved operation could not be committed; reconcile evidence and retry",
+                "reason": "reconciling"
+              },
+              "native_dispatch_committed": {
+                "attempts": {
+                  "3ee78642-e348-4e11-8add-9d487fd80608": {
+                    "commit": {
+                      "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                      "seq": 90
+                    },
+                    "invocation_id": "3183d003-f127-2447-bb8e-44d86bc2d4b2",
+                    "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 88
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+                  "registry_revision": 1
+                },
+                "invocation_id": "3183d003-f127-2447-bb8e-44d86bc2d4b2",
+                "node_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                "worker_id": "0869ac9d-5780-4c17-ab32-a7797da512a4"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+              "native_park": "reconciling",
+              "native_recovery": true,
+              "native_result_id": "df63936c-39e6-6fb8-e3a1-d946d096be4e"
+            },
+            "created_by_step_id": "e3a05380-ba11-47bd-a36c-b5711e3271f4",
+            "dispatch_eligibility": {
+              "status": "parked",
+              "reason_ref": "e5f834ae-52a1-40b9-b721-4d1fc35e4151",
+              "until_utc": "2026-11-21T22:12:02.548121695Z"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:11:49.996942440Z",
+            "created_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 78
+            },
+            "updated_commit": {
+              "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+              "seq": 143
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "742fd7c9-fc12-4992-8bbc-55e53feac722",
+                "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+                "source_id": "host.printf.v1",
+                "source_instance_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                "source_event_key": null,
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:f7bdaf61a972cf480f7e5bc20e069f53bc08e546cc325c6c879408834ecd53ac",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/f7/bd/f7bdaf61a972cf480f7e5bc20e069f53bc08e546cc325c6c879408834ecd53ac",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:host-printf-v1"
+                  },
+                  "symbol": "host.printf.execute",
+                  "schema": {
+                    "name": "host-printf-observation-v1",
+                    "major": 1,
+                    "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": "postcondition_verified",
+                "normalized_ref": {
+                  "digest": "blake3:b3be89f74b6e4d9ed21677fc2a01de7060dd17b49fa64ec985cf60b2cabae80f",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/b3/be/b3be89f74b6e4d9ed21677fc2a01de7060dd17b49fa64ec985cf60b2cabae80f",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "observed_at": "2026-11-21T22:11:56.116864803Z",
+                "received_commit": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 98
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:f7bdaf61a972cf480f7e5bc20e069f53bc08e546cc325c6c879408834ecd53ac",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/f7/bd/f7bdaf61a972cf480f7e5bc20e069f53bc08e546cc325c6c879408834ecd53ac",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "actual_bytes": 171,
+                "sha256": "0b5957bc34a7897be120995efbc5df8a3c939e20b96d03574047e0c528c43255",
+                "body": {
+                  "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                  "exit_code": 0,
+                  "stdout_b64": "UzEtYmNiODJkZjYwNzhk",
+                  "stderr_b64": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:b3be89f74b6e4d9ed21677fc2a01de7060dd17b49fa64ec985cf60b2cabae80f",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/b3/be/b3be89f74b6e4d9ed21677fc2a01de7060dd17b49fa64ec985cf60b2cabae80f",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "actual_bytes": 114,
+                "sha256": "69dd47ccd2477e1968656b36870124a0ec1a0fbe18d4da98a99a0d9f2afccd98",
+                "body": {
+                  "exit_code": 0,
+                  "stdout_utf8": "S1-bcb82df6078d",
+                  "stderr_utf8": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": [
+            {
+              "marker": {
+                "admission": {
+                  "action_id": "fb962089-3508-fcea-b148-7a5966109ffd",
+                  "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+                  "branch_id": "2093a59e-5dcb-4df3-a977-418a55733b38",
+                  "conflict_aliases": [
+                    "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/revision/1"
+                  ],
+                  "conflict_key": "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                  "controller_epoch": 2,
+                  "expected_head_revision": null,
+                  "expected_parent": null,
+                  "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                  "payload_ref": {
+                    "bytes": 8351,
+                    "codec": {
+                      "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                      "major": 1,
+                      "name": "commit-admission"
+                    },
+                    "digest": "blake3:91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                    "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/91/ef/91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                    "media_type": "application/json",
+                    "store_namespace": "commit-authority"
+                  },
+                  "required_unconsumed": [
+                    "task/79f41f98-1661-499e-be1b-6a54fb6c7b64/revision/0"
+                  ],
+                  "schema_version": 1,
+                  "software_generation": "seed",
+                  "subject_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f"
+                },
+                "committed_at": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 92
+                },
+                "grant": {
+                  "admission": {
+                    "action_id": "fb962089-3508-fcea-b148-7a5966109ffd",
+                    "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+                    "branch_id": "2093a59e-5dcb-4df3-a977-418a55733b38",
+                    "conflict_aliases": [
+                      "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/revision/1"
+                    ],
+                    "conflict_key": "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                    "controller_epoch": 2,
+                    "expected_head_revision": null,
+                    "expected_parent": null,
+                    "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                    "payload_ref": {
+                      "bytes": 8351,
+                      "codec": {
+                        "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                        "major": 1,
+                        "name": "commit-admission"
+                      },
+                      "digest": "blake3:91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                      "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/91/ef/91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                      "media_type": "application/json",
+                      "store_namespace": "commit-authority"
+                    },
+                    "required_unconsumed": [
+                      "task/79f41f98-1661-499e-be1b-6a54fb6c7b64/revision/0"
+                    ],
+                    "schema_version": 1,
+                    "software_generation": "seed",
+                    "subject_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f"
+                  },
+                  "grant_id": "control:11:blake3:d77a5ad8f0de6032329f5f8c30e94f4437a7ac02b590754497ac9e242d159e53",
+                  "proof": {
+                    "durability": {
+                      "acknowledgements": [
+                        {
+                          "accepted": true,
+                          "ballot": {
+                            "proposer": "26ec70b0-2b7e-4a26-9ca5-a626eb32ab97",
+                            "term": 2
+                          },
+                          "configuration_digest": "blake3:9bd56506078b7d8aa6ffdc7cebed9616791f194e7dbd0f233359c4c735aa96b3",
+                          "configuration_revision": 1,
+                          "entry_digest": "blake3:d77a5ad8f0de6032329f5f8c30e94f4437a7ac02b590754497ac9e242d159e53",
+                          "index": 11,
+                          "observed_term": 2,
+                          "prefix_digest": "blake3:dd4e6cc0651147b265c8f9290f283879f833e569e4590c30eaf0836f478366f7",
+                          "reason": "durably_accepted",
+                          "responder_id": "26ec70b0-2b7e-4a26-9ca5-a626eb32ab97",
+                          "schema": 3
+                        }
+                      ],
+                      "ballot": {
+                        "proposer": "26ec70b0-2b7e-4a26-9ca5-a626eb32ab97",
+                        "term": 2
+                      }
+                    },
+                    "index": 11,
+                    "kind": "admission",
+                    "payload": {
+                      "admission": {
+                        "action_id": "fb962089-3508-fcea-b148-7a5966109ffd",
+                        "attempt_id": "3ee78642-e348-4e11-8add-9d487fd80608",
+                        "branch_id": "2093a59e-5dcb-4df3-a977-418a55733b38",
+                        "conflict_aliases": [
+                          "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/revision/1"
+                        ],
+                        "conflict_key": "task/e5f834ae-52a1-40b9-b721-4d1fc35e4151/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                        "controller_epoch": 2,
+                        "expected_head_revision": null,
+                        "expected_parent": null,
+                        "operation_id": "ea08e989-7b6a-9739-ab47-3a7bc0937ddb",
+                        "payload_ref": {
+                          "bytes": 8351,
+                          "codec": {
+                            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                            "major": 1,
+                            "name": "commit-admission"
+                          },
+                          "digest": "blake3:91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/91/ef/91efd059632acd747b357e4548d5772f8d6db62b1aabf2a7d7b05b40b3a939e0",
+                          "media_type": "application/json",
+                          "store_namespace": "commit-authority"
+                        },
+                        "required_unconsumed": [
+                          "task/79f41f98-1661-499e-be1b-6a54fb6c7b64/revision/0"
+                        ],
+                        "schema_version": 1,
+                        "software_generation": "seed",
+                        "subject_id": "4df23aa4-2076-4ede-88b0-96df1a533b3f"
+                      }
+                    },
+                    "schema": 3,
+                    "term": 2
+                  },
+                  "replayed": false
+                },
+                "logical_result": {
+                  "ledger_id": "3114de1a-bc40-475e-9391-f9bc216ea180",
+                  "seq": 90
+                },
+                "transition_ref": {
+                  "bytes": 45034,
+                  "codec": {
+                    "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                    "major": 4,
+                    "name": "store-native-arm-transition"
+                  },
+                  "digest": "blake3:3273108cbf8a67c10acaa1ac0e0757a07f00f517514f390dd03fab9cb27ad75d",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/32/73/3273108cbf8a67c10acaa1ac0e0757a07f00f517514f390dd03fab9cb27ad75d",
+                  "media_type": "application/json",
+                  "store_namespace": "commit-authority"
+                }
+              },
+              "transition_ref": {
+                "bytes": 45034,
+                "codec": {
+                  "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                  "major": 4,
+                  "name": "store-native-arm-transition"
+                },
+                "digest": "blake3:3273108cbf8a67c10acaa1ac0e0757a07f00f517514f390dd03fab9cb27ad75d",
+                "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-001/installation/cas/32/73/3273108cbf8a67c10acaa1ac0e0757a07f00f517514f390dd03fab9cb27ad75d",
+                "media_type": "application/json",
+                "store_namespace": "commit-authority"
+              },
+              "actual_bytes": 45034,
+              "sha256": "caa46dd596704137f8f1af9546d657213ee43f7ca46994cda44a3a744b2e2ccf",
+              "plan_task_implementation": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": "attempt-002",
+      "summary_sha256": "59c04d4483c816400d9eb76ec02d8f774ceb4b10fc980b81a654bb896be301ba",
+      "summary": {
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "checks": {
+          "startup_paused_before_inference": true,
+          "input_accepted_before_inference": true,
+          "browser_first_input_from_composer": true,
+          "browser_first_durable_receipt": true,
+          "browser_first_input_mode_matches_capability": true,
+          "browser_no_page_errors": true,
+          "browser_cleanup_complete": true,
+          "final_shutdown_clean": false,
+          "one_child_of_each_requested_kind": true,
+          "finite_model_child_succeeded": false,
+          "child_model_matches_requested_binding": false,
+          "native_host_process_exact_result": false,
+          "native_effect_observed_once": false,
+          "both_children_have_attempt_and_e1": false,
+          "committed_output_after_child_results": false
+        },
+        "started_at": null,
+        "finished_at": "2026-11-21T22:13:52Z",
+        "elapsed_seconds": 104.31050808000145
+      },
+      "shutdowns": [
+        {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "started": {
+            "utc": "2026-11-21T22:13:52.066947+00:00",
+            "monotonic_ns": 217393727765320
+          },
+          "signal_calls": [],
+          "group_cleanup": {
+            "pgid": 1131385,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": [],
+          "finished": {
+            "utc": "2026-11-21T22:13:52.067855+00:00",
+            "monotonic_ns": 217393728656158
+          }
+        }
+      ],
+      "debts": [
+        {
+          "raw": "{\"schema_version\":1,\"receipt_id\":\"b9e79a2e-7697-450c-bb7c-a256a3db3b96\",\"operation_id\":\"5cb6d439-bdb3-df5f-85ee-f8ef5d32098f\",\"attempt_id\":\"41e1e059-98d2-4f27-94f3-09b0470ed863\",\"received_commit\":{\"ledger_id\":\"543c99ea-f9f8-4f9e-85b1-c970e65707dd\",\"seq\":226},\"reason\":\"invalid direct native fact: CAS closure byte budget exceeded\"}",
+          "sha256": "5065cb7242ab28206429d2aaeb0100d0f9989c475ab1a1e90a8ba9be198354ee",
+          "decoded": {
+            "schema_version": 1,
+            "receipt_id": "b9e79a2e-7697-450c-bb7c-a256a3db3b96",
+            "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+            "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+            "received_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 226
+            },
+            "reason": "invalid direct native fact: CAS closure byte budget exceeded"
+          }
+        }
+      ],
+      "task_results": 0,
+      "native_materializations": 0,
+      "operations": [
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "6c99ce54-f570-5d89-9401-b618c4f24b42",
+            "record_revision": 1,
+            "task_id": "90d6fee8-be89-48db-a374-51c54db96d9a",
+            "logical_key": "model-child-step:0",
+            "operation_name": "model.child.generate.v1",
+            "input_schema_version": 2,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:4a12a9f7ff96841ab2c8f0ae6cb830bc4d5e38165156b9d962af64dc1de9dbd8",
+              "bytes": 5994,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/4a/12/4a12a9f7ff96841ab2c8f0ae6cb830bc4d5e38165156b9d962af64dc1de9dbd8",
+              "codec": {
+                "name": "model-child-step-input",
+                "major": 2,
+                "digest": "blake3:b4f6c5ceadda61ba63349f824b58b34955b5c86982e1e4b67025f44f2a9e4771"
+              }
+            },
+            "input_digest": "blake3:4a12a9f7ff96841ab2c8f0ae6cb830bc4d5e38165156b9d962af64dc1de9dbd8",
+            "contract_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:81c8a088db7618833804b12c827eadeb707877707e4680329bd9edcaa2a10a66",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:model-child-v2"
+                },
+                "symbol": "model.child.generate.v1",
+                "schema": {
+                  "name": "model-child-provider-result",
+                  "major": 1,
+                  "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:1c7eb3cf18d9ce541a7f7a7b9988491c141b83193d0f3a9d69f0ab292d21110b",
+              "bytes": 933,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/1c/7e/1c7eb3cf18d9ce541a7f7a7b9988491c141b83193d0f3a9d69f0ab292d21110b",
+              "codec": {
+                "name": "model-child-resource-binding",
+                "major": 1,
+                "digest": "blake3:b06344da74f3b8a18183cd043f3f3d4cdc929887a5a45735caa81ac96cfc444a"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "90d6fee8-be89-48db-a374-51c54db96d9a",
+              "delegation_revision": 0,
+              "decision_ref": "4cdff4ca-950c-43c5-88c4-75cc6e00fa09"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "bytes": 102,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/01/3d/013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "codec": {
+                "name": "model-child-acceptance",
+                "major": 1,
+                "digest": "blake3:a84c09fe541730bbd5ba19ebfb80b758d35c7890ee449824fd2994736e125ed1"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "bytes": 104,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/43/07/430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "codec": {
+                "name": "model-child-retry",
+                "major": 1,
+                "digest": "blake3:33fa3bdfff4e386e1e2ea33a4ca89ad9797a485e0e92f02e88e3216a6f13d682"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "reconciling",
+            "outcome": null,
+            "outcome_conflict": false,
+            "effect_status": "unknown",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 224
+            },
+            "evidence_through": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 239
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "90d6fee8-be89-48db-a374-51c54db96d9a",
+            "task_revision": 0,
+            "record_revision": 3,
+            "agent_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da",
+            "conversation_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da",
+            "owner": {
+              "kind": "task",
+              "id": "4b00f698-69aa-4284-b90a-60d8ae5646d2"
+            },
+            "background": false,
+            "kind": "model.child",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 55
+            },
+            "input_ref": {
+              "digest": "blake3:09b33655c248dc54aeed6fb8a59dde309d9a7dc88312cc9a502166097c49fcf5",
+              "bytes": 8197,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/09/b3/09b33655c248dc54aeed6fb8a59dde309d9a7dc88312cc9a502166097c49fcf5",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": null,
+              "invocation_id": "5cfa877f-9f7d-1d17-108e-4e4884a9e34c",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "310d245e-43ff-4eba-bcb1-75077dabcf25",
+                "operation_id": "6c99ce54-f570-5d89-9401-b618c4f24b42"
+              },
+              "intent_id": "90d6fee8-be89-48db-a374-51c54db96d9a",
+              "model_child_budget_usage": {
+                "reserved_tokens": 512,
+                "reserved_tool_calls": 0,
+                "steps": 1
+              },
+              "native_child": true,
+              "native_dispatch_committed": {
+                "attempts": {
+                  "310d245e-43ff-4eba-bcb1-75077dabcf25": {
+                    "commit": {
+                      "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                      "seq": 227
+                    },
+                    "invocation_id": "5cfa877f-9f7d-1d17-108e-4e4884a9e34c",
+                    "operation_id": "6c99ce54-f570-5d89-9401-b618c4f24b42",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 218
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+                  "registry_revision": 55
+                },
+                "invocation_id": "5cfa877f-9f7d-1d17-108e-4e4884a9e34c",
+                "node_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                "worker_id": "c75d440f-742a-477f-be01-02a2ccc4079c"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "0e96dbf1-97d9-038f-0bf5-c30dd71eb683",
+              "native_result_id": "583250a7-631b-63d7-b2f8-78335ccc2097"
+            },
+            "created_by_step_id": "4cdff4ca-950c-43c5-88c4-75cc6e00fa09",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:13:38.567817572Z",
+            "created_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 212
+            },
+            "updated_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 227
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "4d936341-94db-40c2-82f0-4f6f71a1c398",
+                "operation_id": "6c99ce54-f570-5d89-9401-b618c4f24b42",
+                "attempt_id": "310d245e-43ff-4eba-bcb1-75077dabcf25",
+                "source_id": "model.child.generate.v1",
+                "source_instance_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                "source_event_key": "model-request:c6175102-13dd-5c67-90b1-655d41369f70",
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:276e0d06f739c45ba69a87108154a6290f5e531092df8900b860f20efc82553d",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/27/6e/276e0d06f739c45ba69a87108154a6290f5e531092df8900b860f20efc82553d",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:model-child-v2"
+                  },
+                  "symbol": "model.child.generate.v1",
+                  "schema": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": null,
+                "normalized_ref": {
+                  "digest": "blake3:9a569f96c7e8e77b688bf44276e67b4dd14a06533d1c5a8563372911684128b6",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/9a/56/9a569f96c7e8e77b688bf44276e67b4dd14a06533d1c5a8563372911684128b6",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "observed_at": "2026-11-21T22:13:51.146029147Z",
+                "received_commit": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 239
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:276e0d06f739c45ba69a87108154a6290f5e531092df8900b860f20efc82553d",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/27/6e/276e0d06f739c45ba69a87108154a6290f5e531092df8900b860f20efc82553d",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "actual_bytes": 560,
+                "sha256": "7ed69a74ede3b51f1db53affdab14cfb8e20b95f96bc0e60ac1034b754fe79ee",
+                "body": {
+                  "effective": {
+                    "api_version": null,
+                    "max_tokens": 512,
+                    "native_options": {},
+                    "profile_id": "local.openai.chat_completions",
+                    "profile_revision": 4,
+                    "provider_binding": {
+                      "allow_invalid_certs": false,
+                      "base_url": "http://10.10.10.11:8000",
+                      "default_max_tokens": 8192,
+                      "kind": "local",
+                      "model": "swift-qwen3.8-27b-nvfp4",
+                      "request_timeout_ms": 600000,
+                      "serializer_revision": 4
+                    }
+                  },
+                  "purpose": "child",
+                  "request_id": "c6175102-13dd-5c67-90b1-655d41369f70",
+                  "response": null,
+                  "status": "failed",
+                  "termination": {
+                    "kind": "unknown",
+                    "length": false,
+                    "max_tokens": null,
+                    "output_tokens": null,
+                    "stop_reason": null
+                  }
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:9a569f96c7e8e77b688bf44276e67b4dd14a06533d1c5a8563372911684128b6",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/9a/56/9a569f96c7e8e77b688bf44276e67b4dd14a06533d1c5a8563372911684128b6",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "actual_bytes": 492,
+                "sha256": "4755c00326c03b2e202770ea67100e2ece04f2f873f4c26d08dda3dc08896aa4",
+                "body": {
+                  "complete": false,
+                  "output_ref": null,
+                  "provider_binding": {
+                    "allow_invalid_certs": false,
+                    "base_url": "http://10.10.10.11:8000",
+                    "default_max_tokens": 8192,
+                    "kind": "local",
+                    "model": "swift-qwen3.8-27b-nvfp4",
+                    "request_timeout_ms": 600000,
+                    "serializer_revision": 4
+                  },
+                  "question": null,
+                  "reply": null,
+                  "request_id": "c6175102-13dd-5c67-90b1-655d41369f70",
+                  "schema_version": 1,
+                  "step_index": 0,
+                  "stop_reason": "",
+                  "task_id": "90d6fee8-be89-48db-a374-51c54db96d9a",
+                  "text": "",
+                  "text_truncated": false,
+                  "tool_calls": [],
+                  "usage": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": []
+        },
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+            "record_revision": 1,
+            "task_id": "cc640b2f-3a47-4fdb-b50b-6b109af8a48b",
+            "logical_key": "native-handler",
+            "operation_name": "host.printf.v1",
+            "input_schema_version": 1,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:fa88422c66c572895b320ac64aceef8cf9c8d4c38af09d697b7114341e0a7bec",
+              "bytes": 43,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/fa/88/fa88422c66c572895b320ac64aceef8cf9c8d4c38af09d697b7114341e0a7bec",
+              "codec": {
+                "name": "host-printf-frozen-input",
+                "major": 1,
+                "digest": "blake3:246f4f275709de7f0d63460aec5264777fb023d50000be62ee620a4ee18bbc62"
+              }
+            },
+            "input_digest": "blake3:fa88422c66c572895b320ac64aceef8cf9c8d4c38af09d697b7114341e0a7bec",
+            "contract_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:fb13573daca3cdb239b2b6d9616802338489cb957e9ad9665a907f9a47f18058",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:host-printf-v1"
+                },
+                "symbol": "host.printf.execute",
+                "schema": {
+                  "name": "host-printf-observation-v1",
+                  "major": 1,
+                  "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:87b73d6fab0d9e4d3aaa346e569be67fe685692de5d92a3261d69d5509b132fd",
+              "bytes": 247,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/87/b7/87b73d6fab0d9e4d3aaa346e569be67fe685692de5d92a3261d69d5509b132fd",
+              "codec": {
+                "name": "host-printf-binding",
+                "major": 1,
+                "digest": "blake3:8238daf8e3ca5d1e398e9c20ef2c563f9dc9c8e80efa1d64527f8e45ca5d0bbd"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "cc640b2f-3a47-4fdb-b50b-6b109af8a48b",
+              "delegation_revision": 0,
+              "decision_ref": "4cdff4ca-950c-43c5-88c4-75cc6e00fa09"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "bytes": 56,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/01/ec/01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "codec": {
+                "name": "host-printf-acceptance",
+                "major": 1,
+                "digest": "blake3:993abedb26f0f4b10e8f36e118c0647fd6a13410e3d7a524695b72585188c448"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "bytes": 72,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/af/14/af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "codec": {
+                "name": "host-printf-retry",
+                "major": 1,
+                "digest": "blake3:bdf777a89a6d2e2113aab17d480f412f5c19c35f4323041d6777157311e18279"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "resolved",
+            "outcome": "succeeded",
+            "outcome_conflict": false,
+            "effect_status": "none",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 223
+            },
+            "evidence_through": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 226
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "cc640b2f-3a47-4fdb-b50b-6b109af8a48b",
+            "task_revision": 0,
+            "record_revision": 4,
+            "agent_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da",
+            "conversation_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da",
+            "owner": {
+              "kind": "task",
+              "id": "4b00f698-69aa-4284-b90a-60d8ae5646d2"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:09b33655c248dc54aeed6fb8a59dde309d9a7dc88312cc9a502166097c49fcf5",
+              "bytes": 8197,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/09/b3/09b33655c248dc54aeed6fb8a59dde309d9a7dc88312cc9a502166097c49fcf5",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": null,
+              "invocation_id": "e67f2806-b0ab-8ab6-5e7f-b9b7da4e031a",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+                "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f"
+              },
+              "intent_id": "cc640b2f-3a47-4fdb-b50b-6b109af8a48b",
+              "native_child": true,
+              "native_dispatch_committed": {
+                "attempts": {
+                  "41e1e059-98d2-4f27-94f3-09b0470ed863": {
+                    "commit": {
+                      "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                      "seq": 223
+                    },
+                    "invocation_id": "26224196-f8d1-f7a7-995d-f1d83bb66626",
+                    "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 231
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+                  "registry_revision": 1
+                },
+                "invocation_id": "e67f2806-b0ab-8ab6-5e7f-b9b7da4e031a",
+                "node_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                "worker_id": "c75d440f-742a-477f-be01-02a2ccc4079c"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+              "native_recovery": true,
+              "native_result_id": "64da9172-2136-9ea2-3cd6-eebef0f9deea",
+              "native_settlement_only": true
+            },
+            "created_by_step_id": "4cdff4ca-950c-43c5-88c4-75cc6e00fa09",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:13:39.666407707Z",
+            "created_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 212
+            },
+            "updated_commit": {
+              "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+              "seq": 231
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "b9e79a2e-7697-450c-bb7c-a256a3db3b96",
+                "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+                "source_id": "host.printf.v1",
+                "source_instance_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                "source_event_key": null,
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:af064bc7355c2a6a314f79854e6c198fe1783ceadd5c4737eb95d2bd0da9b208",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/af/06/af064bc7355c2a6a314f79854e6c198fe1783ceadd5c4737eb95d2bd0da9b208",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:host-printf-v1"
+                  },
+                  "symbol": "host.printf.execute",
+                  "schema": {
+                    "name": "host-printf-observation-v1",
+                    "major": 1,
+                    "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": "postcondition_verified",
+                "normalized_ref": {
+                  "digest": "blake3:3667a9524d95f57f1c64972ce0a153cdd09eff7ab875b179246619c115324056",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/36/67/3667a9524d95f57f1c64972ce0a153cdd09eff7ab875b179246619c115324056",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "observed_at": "2026-11-21T22:13:45.362431013Z",
+                "received_commit": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 226
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:af064bc7355c2a6a314f79854e6c198fe1783ceadd5c4737eb95d2bd0da9b208",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/af/06/af064bc7355c2a6a314f79854e6c198fe1783ceadd5c4737eb95d2bd0da9b208",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "actual_bytes": 171,
+                "sha256": "310f32165d0b71e6d829b493efa4ffc4122d2239f7c52e4ae3ee291d8b58723b",
+                "body": {
+                  "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                  "exit_code": 0,
+                  "stdout_b64": "UzEtNzdmNmE0MmMwZjM4",
+                  "stderr_b64": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:3667a9524d95f57f1c64972ce0a153cdd09eff7ab875b179246619c115324056",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/36/67/3667a9524d95f57f1c64972ce0a153cdd09eff7ab875b179246619c115324056",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "actual_bytes": 114,
+                "sha256": "ab701be4d13c87224dfdc2083e5a7a000c094e3e59ff1d103fa092801347de58",
+                "body": {
+                  "exit_code": 0,
+                  "stdout_utf8": "S1-77f6a42c0f38",
+                  "stderr_utf8": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": [
+            {
+              "marker": {
+                "admission": {
+                  "action_id": "6dfc6881-46c1-9fc1-893a-db3d11b69645",
+                  "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+                  "branch_id": "e9fd9fbb-77e0-4595-8c09-12f086cf1a9a",
+                  "conflict_aliases": [
+                    "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/revision/1"
+                  ],
+                  "conflict_key": "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                  "controller_epoch": 2,
+                  "expected_head_revision": null,
+                  "expected_parent": null,
+                  "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                  "payload_ref": {
+                    "bytes": 8357,
+                    "codec": {
+                      "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                      "major": 1,
+                      "name": "commit-admission"
+                    },
+                    "digest": "blake3:2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                    "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/2e/fc/2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                    "media_type": "application/json",
+                    "store_namespace": "commit-authority"
+                  },
+                  "required_unconsumed": [
+                    "task/4b00f698-69aa-4284-b90a-60d8ae5646d2/revision/0"
+                  ],
+                  "schema_version": 1,
+                  "software_generation": "seed",
+                  "subject_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da"
+                },
+                "committed_at": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 225
+                },
+                "grant": {
+                  "admission": {
+                    "action_id": "6dfc6881-46c1-9fc1-893a-db3d11b69645",
+                    "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+                    "branch_id": "e9fd9fbb-77e0-4595-8c09-12f086cf1a9a",
+                    "conflict_aliases": [
+                      "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/revision/1"
+                    ],
+                    "conflict_key": "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                    "controller_epoch": 2,
+                    "expected_head_revision": null,
+                    "expected_parent": null,
+                    "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                    "payload_ref": {
+                      "bytes": 8357,
+                      "codec": {
+                        "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                        "major": 1,
+                        "name": "commit-admission"
+                      },
+                      "digest": "blake3:2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                      "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/2e/fc/2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                      "media_type": "application/json",
+                      "store_namespace": "commit-authority"
+                    },
+                    "required_unconsumed": [
+                      "task/4b00f698-69aa-4284-b90a-60d8ae5646d2/revision/0"
+                    ],
+                    "schema_version": 1,
+                    "software_generation": "seed",
+                    "subject_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da"
+                  },
+                  "grant_id": "control:11:blake3:89f0d9a372a9880f404a6621f4f474c574b15b3fb946f8b1171a4b7d799cdd2e",
+                  "proof": {
+                    "durability": {
+                      "acknowledgements": [
+                        {
+                          "accepted": true,
+                          "ballot": {
+                            "proposer": "fc9eaf65-7f01-4a15-b447-bbc2856409ad",
+                            "term": 2
+                          },
+                          "configuration_digest": "blake3:be20cb766c88cea7ee06980eb0d207f5f701c380ea4cf6439a1d29ac06dbb203",
+                          "configuration_revision": 1,
+                          "entry_digest": "blake3:89f0d9a372a9880f404a6621f4f474c574b15b3fb946f8b1171a4b7d799cdd2e",
+                          "index": 11,
+                          "observed_term": 2,
+                          "prefix_digest": "blake3:65a7f7bba234b20d9b1f7b324e40f5008b4d7c77fd45520b0709041a878cdc48",
+                          "reason": "durably_accepted",
+                          "responder_id": "fc9eaf65-7f01-4a15-b447-bbc2856409ad",
+                          "schema": 3
+                        }
+                      ],
+                      "ballot": {
+                        "proposer": "fc9eaf65-7f01-4a15-b447-bbc2856409ad",
+                        "term": 2
+                      }
+                    },
+                    "index": 11,
+                    "kind": "admission",
+                    "payload": {
+                      "admission": {
+                        "action_id": "6dfc6881-46c1-9fc1-893a-db3d11b69645",
+                        "attempt_id": "41e1e059-98d2-4f27-94f3-09b0470ed863",
+                        "branch_id": "e9fd9fbb-77e0-4595-8c09-12f086cf1a9a",
+                        "conflict_aliases": [
+                          "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/revision/1"
+                        ],
+                        "conflict_key": "task/cc640b2f-3a47-4fdb-b50b-6b109af8a48b/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                        "controller_epoch": 2,
+                        "expected_head_revision": null,
+                        "expected_parent": null,
+                        "operation_id": "5cb6d439-bdb3-df5f-85ee-f8ef5d32098f",
+                        "payload_ref": {
+                          "bytes": 8357,
+                          "codec": {
+                            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                            "major": 1,
+                            "name": "commit-admission"
+                          },
+                          "digest": "blake3:2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/2e/fc/2efc10e10d826c7084747e57d2c03a3440d23240fd8dce03524ec66863d29ebc",
+                          "media_type": "application/json",
+                          "store_namespace": "commit-authority"
+                        },
+                        "required_unconsumed": [
+                          "task/4b00f698-69aa-4284-b90a-60d8ae5646d2/revision/0"
+                        ],
+                        "schema_version": 1,
+                        "software_generation": "seed",
+                        "subject_id": "9c8617e7-10b7-4bc5-bb38-062d2d7926da"
+                      }
+                    },
+                    "schema": 3,
+                    "term": 2
+                  },
+                  "replayed": false
+                },
+                "logical_result": {
+                  "ledger_id": "543c99ea-f9f8-4f9e-85b1-c970e65707dd",
+                  "seq": 223
+                },
+                "transition_ref": {
+                  "bytes": 45613,
+                  "codec": {
+                    "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                    "major": 4,
+                    "name": "store-native-arm-transition"
+                  },
+                  "digest": "blake3:7b02cc20ee38b06ec2fd137370cb14132e328d0efaccf9203d9939b3e7212582",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/7b/02/7b02cc20ee38b06ec2fd137370cb14132e328d0efaccf9203d9939b3e7212582",
+                  "media_type": "application/json",
+                  "store_namespace": "commit-authority"
+                }
+              },
+              "transition_ref": {
+                "bytes": 45613,
+                "codec": {
+                  "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                  "major": 4,
+                  "name": "store-native-arm-transition"
+                },
+                "digest": "blake3:7b02cc20ee38b06ec2fd137370cb14132e328d0efaccf9203d9939b3e7212582",
+                "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-002/installation/cas/7b/02/7b02cc20ee38b06ec2fd137370cb14132e328d0efaccf9203d9939b3e7212582",
+                "media_type": "application/json",
+                "store_namespace": "commit-authority"
+              },
+              "actual_bytes": 45613,
+              "sha256": "64815af0a296f1b524da49ff97dde0b5ee46cf64b8dbdff0fc54c9a012a4772d",
+              "plan_task_implementation": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "attempt": "attempt-003",
+      "summary_sha256": "60c0fb8e6fe8ddba8a4a5f284198dcd02427fa353afbcd82df27fa2110487e06",
+      "summary": {
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "checks": {
+          "startup_paused_before_inference": true,
+          "input_accepted_before_inference": true,
+          "browser_first_input_from_composer": true,
+          "browser_first_durable_receipt": true,
+          "browser_first_input_mode_matches_capability": true,
+          "browser_no_page_errors": true,
+          "browser_cleanup_complete": true,
+          "final_shutdown_clean": false,
+          "one_child_of_each_requested_kind": true,
+          "finite_model_child_succeeded": false,
+          "child_model_matches_requested_binding": false,
+          "native_host_process_exact_result": false,
+          "native_effect_observed_once": false,
+          "both_children_have_attempt_and_e1": false,
+          "committed_output_after_child_results": false
+        },
+        "started_at": null,
+        "finished_at": "2026-11-21T22:16:47Z",
+        "elapsed_seconds": 174.1769650830247
+      },
+      "shutdowns": [
+        {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "started": {
+            "utc": "2026-11-21T22:16:46.472619+00:00",
+            "monotonic_ns": 217568133438005
+          },
+          "signal_calls": [],
+          "group_cleanup": {
+            "pgid": 1131664,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": [],
+          "finished": {
+            "utc": "2026-11-21T22:16:46.473339+00:00",
+            "monotonic_ns": 217568134138693
+          }
+        }
+      ],
+      "debts": [
+        {
+          "raw": "{\"schema_version\":1,\"receipt_id\":\"73077a34-b2a1-4740-9819-2044e1485717\",\"operation_id\":\"ba7a74d0-7a87-666f-f1a1-f7439c339fc8\",\"attempt_id\":\"89a475b8-4b5b-4292-853a-5326dbb6f263\",\"received_commit\":{\"ledger_id\":\"b1abb45e-e88b-4485-8fdd-dc3a65aced3e\",\"seq\":405},\"reason\":\"invalid direct native fact: CAS closure byte budget exceeded\"}",
+          "sha256": "a28b1de6b2ad47097aca376e9bfc45bf048a4becb90b64d9dc8832d1a091c87f",
+          "decoded": {
+            "schema_version": 1,
+            "receipt_id": "73077a34-b2a1-4740-9819-2044e1485717",
+            "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+            "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+            "received_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 405
+            },
+            "reason": "invalid direct native fact: CAS closure byte budget exceeded"
+          }
+        }
+      ],
+      "task_results": 0,
+      "native_materializations": 0,
+      "operations": [
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "ac54203d-316e-553b-bc20-21d1d252b670",
+            "record_revision": 1,
+            "task_id": "ff8d9733-8dd9-4b57-ae2a-0f77e55e3273",
+            "logical_key": "model-child-step:0",
+            "operation_name": "model.child.generate.v1",
+            "input_schema_version": 2,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:c6f5f74898ff0f2648ac979b1565caab69ab0ca79935e8d196618b18a79153fe",
+              "bytes": 5931,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/c6/f5/c6f5f74898ff0f2648ac979b1565caab69ab0ca79935e8d196618b18a79153fe",
+              "codec": {
+                "name": "model-child-step-input",
+                "major": 2,
+                "digest": "blake3:b4f6c5ceadda61ba63349f824b58b34955b5c86982e1e4b67025f44f2a9e4771"
+              }
+            },
+            "input_digest": "blake3:c6f5f74898ff0f2648ac979b1565caab69ab0ca79935e8d196618b18a79153fe",
+            "contract_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:81c8a088db7618833804b12c827eadeb707877707e4680329bd9edcaa2a10a66",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:model-child-v2"
+                },
+                "symbol": "model.child.generate.v1",
+                "schema": {
+                  "name": "model-child-provider-result",
+                  "major": 1,
+                  "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:96a23cf190d572487b4abc40f1f6d5b1dc5f6d52df3b9246a5a54c42b73a9216",
+              "bytes": 933,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/96/a2/96a23cf190d572487b4abc40f1f6d5b1dc5f6d52df3b9246a5a54c42b73a9216",
+              "codec": {
+                "name": "model-child-resource-binding",
+                "major": 1,
+                "digest": "blake3:b06344da74f3b8a18183cd043f3f3d4cdc929887a5a45735caa81ac96cfc444a"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "ff8d9733-8dd9-4b57-ae2a-0f77e55e3273",
+              "delegation_revision": 0,
+              "decision_ref": "449d0aa0-1ded-457b-bb0a-82bca424aacc"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "bytes": 102,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/01/3d/013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c",
+              "codec": {
+                "name": "model-child-acceptance",
+                "major": 1,
+                "digest": "blake3:a84c09fe541730bbd5ba19ebfb80b758d35c7890ee449824fd2994736e125ed1"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "bytes": 104,
+              "media_type": "application/json",
+              "store_namespace": "model-child-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/43/07/430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a",
+              "codec": {
+                "name": "model-child-retry",
+                "major": 1,
+                "digest": "blake3:33fa3bdfff4e386e1e2ea33a4ca89ad9797a485e0e92f02e88e3216a6f13d682"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "reconciling",
+            "outcome": null,
+            "outcome_conflict": false,
+            "effect_status": "unknown",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 402
+            },
+            "evidence_through": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 417
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "ff8d9733-8dd9-4b57-ae2a-0f77e55e3273",
+            "task_revision": 0,
+            "record_revision": 3,
+            "agent_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5",
+            "conversation_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5",
+            "owner": {
+              "kind": "task",
+              "id": "4acbe467-290f-4dfb-abb2-978c43327ebd"
+            },
+            "background": false,
+            "kind": "model.child",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 55
+            },
+            "input_ref": {
+              "digest": "blake3:8bbb311a6c3d7ca413aae75e494e3a88ebb02a5536c5e6581c6009696ba26739",
+              "bytes": 7626,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/8b/bb/8bbb311a6c3d7ca413aae75e494e3a88ebb02a5536c5e6581c6009696ba26739",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": null,
+              "invocation_id": "ab4163ed-d648-fa29-c7a7-9a0a38a78816",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "866da004-6835-4e5b-b31b-34388a282f5b",
+                "operation_id": "ac54203d-316e-553b-bc20-21d1d252b670"
+              },
+              "intent_id": "ff8d9733-8dd9-4b57-ae2a-0f77e55e3273",
+              "model_child_budget_usage": {
+                "reserved_tokens": 512,
+                "reserved_tool_calls": 0,
+                "steps": 1
+              },
+              "native_child": true,
+              "native_dispatch_committed": {
+                "attempts": {
+                  "866da004-6835-4e5b-b31b-34388a282f5b": {
+                    "commit": {
+                      "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                      "seq": 406
+                    },
+                    "invocation_id": "ab4163ed-d648-fa29-c7a7-9a0a38a78816",
+                    "operation_id": "ac54203d-316e-553b-bc20-21d1d252b670",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 398
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "de5bdc7a-ae54-45d5-948c-125f515f866d",
+                  "registry_revision": 55
+                },
+                "invocation_id": "ab4163ed-d648-fa29-c7a7-9a0a38a78816",
+                "node_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                "worker_id": "1394a77a-77b2-4553-8fa2-0d5fa5d80817"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "5bff8ce8-6fbf-d06b-0fdb-41974db50386",
+              "native_result_id": "53a29fb3-7786-a85b-4715-adebb56962f0"
+            },
+            "created_by_step_id": "449d0aa0-1ded-457b-bb0a-82bca424aacc",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:16:28.999917946Z",
+            "created_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 389
+            },
+            "updated_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 406
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "eb5a0c33-2b97-4917-80ba-72f70645011f",
+                "operation_id": "ac54203d-316e-553b-bc20-21d1d252b670",
+                "attempt_id": "866da004-6835-4e5b-b31b-34388a282f5b",
+                "source_id": "model.child.generate.v1",
+                "source_instance_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                "source_event_key": "model-request:3abf1d41-a60e-5204-931e-0d13c4981ded",
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:57158cdb16316cd2f8bed7ac71a58a41e2a30c4555b075977892a370499e1557",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/57/15/57158cdb16316cd2f8bed7ac71a58a41e2a30c4555b075977892a370499e1557",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:model-child-v2"
+                  },
+                  "symbol": "model.child.generate.v1",
+                  "schema": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": null,
+                "normalized_ref": {
+                  "digest": "blake3:043dff7471e30751c5b5abebe3742a9b6b32a6a49ab381869cdfd102ae812ef2",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/04/3d/043dff7471e30751c5b5abebe3742a9b6b32a6a49ab381869cdfd102ae812ef2",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "observed_at": "2026-11-21T22:16:45.579392743Z",
+                "received_commit": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 417
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:57158cdb16316cd2f8bed7ac71a58a41e2a30c4555b075977892a370499e1557",
+                  "bytes": 560,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/57/15/57158cdb16316cd2f8bed7ac71a58a41e2a30c4555b075977892a370499e1557",
+                  "codec": {
+                    "name": "model-child-provider-result",
+                    "major": 1,
+                    "digest": "blake3:44de3168d4308aea3f52468b11e0cdc6bfb9b23714009ae7f2a4a3e18c27b926"
+                  }
+                },
+                "actual_bytes": 560,
+                "sha256": "6a57e3b59a374c7d011d4f696326a692baa8e004fa08dce09bc06d4a1d9c5128",
+                "body": {
+                  "effective": {
+                    "api_version": null,
+                    "max_tokens": 512,
+                    "native_options": {},
+                    "profile_id": "local.openai.chat_completions",
+                    "profile_revision": 4,
+                    "provider_binding": {
+                      "allow_invalid_certs": false,
+                      "base_url": "http://10.10.10.11:8000",
+                      "default_max_tokens": 8192,
+                      "kind": "local",
+                      "model": "swift-qwen3.8-27b-nvfp4",
+                      "request_timeout_ms": 600000,
+                      "serializer_revision": 4
+                    }
+                  },
+                  "purpose": "child",
+                  "request_id": "3abf1d41-a60e-5204-931e-0d13c4981ded",
+                  "response": null,
+                  "status": "failed",
+                  "termination": {
+                    "kind": "unknown",
+                    "length": false,
+                    "max_tokens": null,
+                    "output_tokens": null,
+                    "stop_reason": null
+                  }
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:043dff7471e30751c5b5abebe3742a9b6b32a6a49ab381869cdfd102ae812ef2",
+                  "bytes": 492,
+                  "media_type": "application/json",
+                  "store_namespace": "model-child-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/04/3d/043dff7471e30751c5b5abebe3742a9b6b32a6a49ab381869cdfd102ae812ef2",
+                  "codec": {
+                    "name": "model-child-step-record",
+                    "major": 1,
+                    "digest": "blake3:d07bdcf596837b0e51116d0d0ac67fc07d215cbf39f68e3605e84510abb5bb71"
+                  }
+                },
+                "actual_bytes": 492,
+                "sha256": "d49f84968ac38bb9b85f5fa30ae89e0840a5d0f59f05352c38d9454cfdc00f1c",
+                "body": {
+                  "complete": false,
+                  "output_ref": null,
+                  "provider_binding": {
+                    "allow_invalid_certs": false,
+                    "base_url": "http://10.10.10.11:8000",
+                    "default_max_tokens": 8192,
+                    "kind": "local",
+                    "model": "swift-qwen3.8-27b-nvfp4",
+                    "request_timeout_ms": 600000,
+                    "serializer_revision": 4
+                  },
+                  "question": null,
+                  "reply": null,
+                  "request_id": "3abf1d41-a60e-5204-931e-0d13c4981ded",
+                  "schema_version": 1,
+                  "step_index": 0,
+                  "stop_reason": "",
+                  "task_id": "ff8d9733-8dd9-4b57-ae2a-0f77e55e3273",
+                  "text": "",
+                  "text_truncated": false,
+                  "tool_calls": [],
+                  "usage": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": []
+        },
+        {
+          "operation": {
+            "record_schema_version": 1,
+            "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+            "record_revision": 1,
+            "task_id": "5e54132a-e211-47e4-a4f8-5b3c24cfd866",
+            "logical_key": "native-handler",
+            "operation_name": "host.printf.v1",
+            "input_schema_version": 1,
+            "output_schema_version": 1,
+            "final_input_ref": {
+              "digest": "blake3:017b04d1ed7c69ab9ad9e65f53b02c43bdfd66f16fdef3eb8e87a9856c23f225",
+              "bytes": 43,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/01/7b/017b04d1ed7c69ab9ad9e65f53b02c43bdfd66f16fdef3eb8e87a9856c23f225",
+              "codec": {
+                "name": "host-printf-frozen-input",
+                "major": 1,
+                "digest": "blake3:246f4f275709de7f0d63460aec5264777fb023d50000be62ee620a4ee18bbc62"
+              }
+            },
+            "input_digest": "blake3:017b04d1ed7c69ab9ad9e65f53b02c43bdfd66f16fdef3eb8e87a9856c23f225",
+            "contract_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "contract_digest": "blake3:fb13573daca3cdb239b2b6d9616802338489cb957e9ad9665a907f9a47f18058",
+              "receipt_reader_ref": {
+                "artifact": {
+                  "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "locator": "builtin:host-printf-v1"
+                },
+                "symbol": "host.printf.execute",
+                "schema": {
+                  "name": "host-printf-observation-v1",
+                  "major": 1,
+                  "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                }
+              }
+            },
+            "resource_bindings_ref": {
+              "digest": "blake3:4899454744978c53804cc4c8698a539397b88874fa6db35945f5a7e90afaf94b",
+              "bytes": 247,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/48/99/4899454744978c53804cc4c8698a539397b88874fa6db35945f5a7e90afaf94b",
+              "codec": {
+                "name": "host-printf-binding",
+                "major": 1,
+                "digest": "blake3:8238daf8e3ca5d1e398e9c20ef2c563f9dc9c8e80efa1d64527f8e45ca5d0bbd"
+              }
+            },
+            "authority_ref": {
+              "delegation_id": "5e54132a-e211-47e4-a4f8-5b3c24cfd866",
+              "delegation_revision": 0,
+              "decision_ref": "449d0aa0-1ded-457b-bb0a-82bca424aacc"
+            },
+            "acceptance_predicate_ref": {
+              "digest": "blake3:01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "bytes": 56,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/01/ec/01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d",
+              "codec": {
+                "name": "host-printf-acceptance",
+                "major": 1,
+                "digest": "blake3:993abedb26f0f4b10e8f36e118c0647fd6a13410e3d7a524695b72585188c448"
+              }
+            },
+            "retry_contract_ref": {
+              "digest": "blake3:af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "bytes": 72,
+              "media_type": "application/json",
+              "store_namespace": "host-native-effects",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/af/14/af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29",
+              "codec": {
+                "name": "host-printf-retry",
+                "major": 1,
+                "digest": "blake3:bdf777a89a6d2e2113aab17d480f412f5c19c35f4323041d6777157311e18279"
+              }
+            },
+            "checkpoint_scope_ref": null,
+            "state": "resolved",
+            "outcome": "succeeded",
+            "outcome_conflict": false,
+            "effect_status": "none",
+            "retry_of": null,
+            "compensates": null,
+            "possible_duplicate_of": [],
+            "prepared_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 401
+            },
+            "evidence_through": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 405
+            }
+          },
+          "task": {
+            "record_schema_version": 1,
+            "task_id": "5e54132a-e211-47e4-a4f8-5b3c24cfd866",
+            "task_revision": 0,
+            "record_revision": 4,
+            "agent_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5",
+            "conversation_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5",
+            "owner": {
+              "kind": "task",
+              "id": "4acbe467-290f-4dfb-abb2-978c43327ebd"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+              "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:8bbb311a6c3d7ca413aae75e494e3a88ebb02a5536c5e6581c6009696ba26739",
+              "bytes": 7626,
+              "media_type": "application/json",
+              "store_namespace": "decisions",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/8b/bb/8bbb311a6c3d7ca413aae75e494e3a88ebb02a5536c5e6581c6009696ba26739",
+              "codec": {
+                "name": "StepDecision",
+                "major": 9,
+                "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": null,
+              "invocation_id": "18e0a8b8-bd5a-4493-5b82-4cb2b5f74e9c",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "external:last_operation": {
+                "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+                "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8"
+              },
+              "intent_id": "5e54132a-e211-47e4-a4f8-5b3c24cfd866",
+              "native_child": true,
+              "native_dispatch_committed": {
+                "attempts": {
+                  "89a475b8-4b5b-4292-853a-5326dbb6f263": {
+                    "commit": {
+                      "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                      "seq": 401
+                    },
+                    "invocation_id": "b5fb586c-6f83-c5be-2162-12965e9f3526",
+                    "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                    "task_revision": 0
+                  }
+                },
+                "schema_version": 2
+              },
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 409
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                  "plugin_id": "6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1",
+                  "registry_revision": 1
+                },
+                "invocation_id": "18e0a8b8-bd5a-4493-5b82-4cb2b5f74e9c",
+                "node_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                "worker_id": "1394a77a-77b2-4553-8fa2-0d5fa5d80817"
+              },
+              "native_implementation_artifact": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "subject_decision",
+              "native_operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+              "native_recovery": true,
+              "native_result_id": "802da9c5-68c0-d209-3522-04dff3b557b9",
+              "native_settlement_only": true
+            },
+            "created_by_step_id": "449d0aa0-1ded-457b-bb0a-82bca424aacc",
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T22:16:22.679427788Z",
+            "created_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 389
+            },
+            "updated_commit": {
+              "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+              "seq": 409
+            }
+          },
+          "implementation": {
+            "reference": {
+              "bytes": 90162848,
+              "codec": {
+                "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                "major": 1,
+                "name": "native-executable"
+              },
+              "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+              "media_type": "application/octet-stream",
+              "store_namespace": "native-implementation"
+            },
+            "actual_bytes": 90162848,
+            "sha256": "8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1",
+            "exceeds_e1_byte_budget": true
+          },
+          "receipts": [
+            {
+              "receipt": {
+                "record_schema_version": 1,
+                "receipt_id": "73077a34-b2a1-4740-9819-2044e1485717",
+                "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+                "source_id": "host.printf.v1",
+                "source_instance_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                "source_event_key": null,
+                "producer_epoch": 2,
+                "producer_schema_version": "1",
+                "raw_ref": {
+                  "digest": "blake3:40aee2bd2ad1f2ad4e3bb7010850bb2f93db2e0f1d460d717f7bc4d40002bab3",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/40/ae/40aee2bd2ad1f2ad4e3bb7010850bb2f93db2e0f1d460d717f7bc4d40002bab3",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "decoder_ref": {
+                  "artifact": {
+                    "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                    "locator": "builtin:host-printf-v1"
+                  },
+                  "symbol": "host.printf.execute",
+                  "schema": {
+                    "name": "host-printf-observation-v1",
+                    "major": 1,
+                    "digest": "blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1"
+                  }
+                },
+                "decode_status": "decoded",
+                "observation_level": "postcondition_verified",
+                "normalized_ref": {
+                  "digest": "blake3:1de4605f212bfd97f14d58d1eb7a39c2960a70b9a81af0d7eb751a36eacf186f",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/1d/e4/1de4605f212bfd97f14d58d1eb7a39c2960a70b9a81af0d7eb751a36eacf186f",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "observed_at": "2026-11-21T22:16:35.335747230Z",
+                "received_commit": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 405
+                }
+              },
+              "raw_ref": {
+                "reference": {
+                  "digest": "blake3:40aee2bd2ad1f2ad4e3bb7010850bb2f93db2e0f1d460d717f7bc4d40002bab3",
+                  "bytes": 171,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/40/ae/40aee2bd2ad1f2ad4e3bb7010850bb2f93db2e0f1d460d717f7bc4d40002bab3",
+                  "codec": {
+                    "name": "host-printf-observation",
+                    "major": 1,
+                    "digest": "blake3:d6f78677a0a95c677cdd33012b36c51269e4d7e1da50a4b3bdeef382146ecf35"
+                  }
+                },
+                "actual_bytes": 171,
+                "sha256": "a7b265144b49ec76735e8c7906fe149027bce77b67416df8f021ed92b23000fc",
+                "body": {
+                  "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                  "exit_code": 0,
+                  "stdout_b64": "UzEtNTRiOWEwYjk4NDMw",
+                  "stderr_b64": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              },
+              "normalized_ref": {
+                "reference": {
+                  "digest": "blake3:1de4605f212bfd97f14d58d1eb7a39c2960a70b9a81af0d7eb751a36eacf186f",
+                  "bytes": 114,
+                  "media_type": "application/json",
+                  "store_namespace": "host-native-effects",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/1d/e4/1de4605f212bfd97f14d58d1eb7a39c2960a70b9a81af0d7eb751a36eacf186f",
+                  "codec": {
+                    "name": "host-printf-result",
+                    "major": 1,
+                    "digest": "blake3:1fd1c66bf6e1bcae269fae25ac24cd9855a97b56eb12247f9839c19203de3d50"
+                  }
+                },
+                "actual_bytes": 114,
+                "sha256": "97f67c24f8f1a638a596358a641a6bfb5734346811a348f7f59f1a145a9cadec",
+                "body": {
+                  "exit_code": 0,
+                  "stdout_utf8": "S1-54b9a0b98430",
+                  "stderr_utf8": "",
+                  "exact_postcondition": true,
+                  "transport_error": null
+                }
+              }
+            }
+          ],
+          "arm_materializations": [
+            {
+              "marker": {
+                "admission": {
+                  "action_id": "9700c424-e243-78c7-ad4b-05a40a002c97",
+                  "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+                  "branch_id": "1e4ce2b7-cb17-4211-ab62-095b3d10f561",
+                  "conflict_aliases": [
+                    "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/revision/1"
+                  ],
+                  "conflict_key": "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                  "controller_epoch": 2,
+                  "expected_head_revision": null,
+                  "expected_parent": null,
+                  "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                  "payload_ref": {
+                    "bytes": 8850,
+                    "codec": {
+                      "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                      "major": 1,
+                      "name": "commit-admission"
+                    },
+                    "digest": "blake3:7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                    "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/7b/55/7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                    "media_type": "application/json",
+                    "store_namespace": "commit-authority"
+                  },
+                  "required_unconsumed": [
+                    "task/4acbe467-290f-4dfb-abb2-978c43327ebd/revision/0"
+                  ],
+                  "schema_version": 1,
+                  "software_generation": "seed",
+                  "subject_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5"
+                },
+                "committed_at": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 404
+                },
+                "grant": {
+                  "admission": {
+                    "action_id": "9700c424-e243-78c7-ad4b-05a40a002c97",
+                    "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+                    "branch_id": "1e4ce2b7-cb17-4211-ab62-095b3d10f561",
+                    "conflict_aliases": [
+                      "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/revision/1"
+                    ],
+                    "conflict_key": "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                    "controller_epoch": 2,
+                    "expected_head_revision": null,
+                    "expected_parent": null,
+                    "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                    "payload_ref": {
+                      "bytes": 8850,
+                      "codec": {
+                        "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                        "major": 1,
+                        "name": "commit-admission"
+                      },
+                      "digest": "blake3:7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                      "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/7b/55/7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                      "media_type": "application/json",
+                      "store_namespace": "commit-authority"
+                    },
+                    "required_unconsumed": [
+                      "task/4acbe467-290f-4dfb-abb2-978c43327ebd/revision/0"
+                    ],
+                    "schema_version": 1,
+                    "software_generation": "seed",
+                    "subject_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5"
+                  },
+                  "grant_id": "control:13:blake3:fa8a394b03de0e7c18967c25a2f259f54c81886f672408168a393271120d4d16",
+                  "proof": {
+                    "durability": {
+                      "acknowledgements": [
+                        {
+                          "accepted": true,
+                          "ballot": {
+                            "proposer": "8720fcf8-b776-4e61-bac1-27aa02460fd0",
+                            "term": 2
+                          },
+                          "configuration_digest": "blake3:efbde79f39cef13e557a34b80a6aff6168afbb29345e778d865560ee0728a7e4",
+                          "configuration_revision": 1,
+                          "entry_digest": "blake3:fa8a394b03de0e7c18967c25a2f259f54c81886f672408168a393271120d4d16",
+                          "index": 13,
+                          "observed_term": 2,
+                          "prefix_digest": "blake3:97ca145ecfbf45ad53de55732f27a12dd50207acd4b50f752f8bf54d613ca873",
+                          "reason": "durably_accepted",
+                          "responder_id": "8720fcf8-b776-4e61-bac1-27aa02460fd0",
+                          "schema": 3
+                        }
+                      ],
+                      "ballot": {
+                        "proposer": "8720fcf8-b776-4e61-bac1-27aa02460fd0",
+                        "term": 2
+                      }
+                    },
+                    "index": 13,
+                    "kind": "admission",
+                    "payload": {
+                      "admission": {
+                        "action_id": "9700c424-e243-78c7-ad4b-05a40a002c97",
+                        "attempt_id": "89a475b8-4b5b-4292-853a-5326dbb6f263",
+                        "branch_id": "1e4ce2b7-cb17-4211-ab62-095b3d10f561",
+                        "conflict_aliases": [
+                          "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/revision/1"
+                        ],
+                        "conflict_key": "task/5e54132a-e211-47e4-a4f8-5b3c24cfd866/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+                        "controller_epoch": 2,
+                        "expected_head_revision": null,
+                        "expected_parent": null,
+                        "operation_id": "ba7a74d0-7a87-666f-f1a1-f7439c339fc8",
+                        "payload_ref": {
+                          "bytes": 8850,
+                          "codec": {
+                            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                            "major": 1,
+                            "name": "commit-admission"
+                          },
+                          "digest": "blake3:7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/7b/55/7b551e53b8a6f7c2b31bce23a9ba54ec2555b78879e06c8336491a4211c22e75",
+                          "media_type": "application/json",
+                          "store_namespace": "commit-authority"
+                        },
+                        "required_unconsumed": [
+                          "task/4acbe467-290f-4dfb-abb2-978c43327ebd/revision/0"
+                        ],
+                        "schema_version": 1,
+                        "software_generation": "seed",
+                        "subject_id": "1a4ebbd8-5858-47c3-9878-61236b9155e5"
+                      }
+                    },
+                    "schema": 3,
+                    "term": 2
+                  },
+                  "replayed": false
+                },
+                "logical_result": {
+                  "ledger_id": "b1abb45e-e88b-4485-8fdd-dc3a65aced3e",
+                  "seq": 401
+                },
+                "transition_ref": {
+                  "bytes": 46464,
+                  "codec": {
+                    "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                    "major": 4,
+                    "name": "store-native-arm-transition"
+                  },
+                  "digest": "blake3:42dc9100070b19f48513e2d422d31966230ce6be627b9bb7f0e1184164f699a5",
+                  "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/42/dc/42dc9100070b19f48513e2d422d31966230ce6be627b9bb7f0e1184164f699a5",
+                  "media_type": "application/json",
+                  "store_namespace": "commit-authority"
+                }
+              },
+              "transition_ref": {
+                "bytes": 46464,
+                "codec": {
+                  "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988",
+                  "major": 4,
+                  "name": "store-native-arm-transition"
+                },
+                "digest": "blake3:42dc9100070b19f48513e2d422d31966230ce6be627b9bb7f0e1184164f699a5",
+                "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-0c6b013e/attempt-003/installation/cas/42/dc/42dc9100070b19f48513e2d422d31966230ce6be627b9bb7f0e1184164f699a5",
+                "media_type": "application/json",
+                "store_namespace": "commit-authority"
+              },
+              "actual_bytes": 46464,
+              "sha256": "374c914963b803ba501c659fdebebda3587d2dfc084340999cf004569f1e1c41",
+              "plan_task_implementation": {
+                "bytes": 90162848,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "locator": "native:executable/blake3:e82ff277b370eb3b1d040c55fa1651293c2da905faeae03328313b8e3e4503a3",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "interpretation": {
+    "observed": "All three completed attempts retain one printf E1 seal debt with the exact reason CAS closure byte budget exceeded, zero T2 task results, and zero native evidence materializations. Each printf raw/normalized observation is successful with exit_code=0, exact_postcondition=true and its own marker. Each model-child generation's retained terminal is Unknown with no completed output.",
+    "required_bulk": "Each actual paired native.arm transition v4 names the same registered native-executable ObjectRef of 90,162,848 bytes. Each attempt's copied CAS artifact was streamed through SHA256 and matches the frozen release SHA256 8765fb320736ec0d1cd0c3e454fc3a3855d0959442230d1490344ca5dae12ff1.",
+    "source_inference": "Current E1 sealing and reading traverse the complete referenced T1/control proof graph under a 67,108,864-byte limit. This required object alone exceeds that limit by 23,053,984 bytes. The recorded debt is a continuation-proof capacity refusal, not evidence that printf failed or that disk IO failed.",
+    "limits": "Post-exit read-only records. No original operation was replayed, no debt was rewritten, and the failed denominator remains 0/3. A separate pre-choice predecessor-drift error also occurred and is being diagnosed independently."
+  }
+}

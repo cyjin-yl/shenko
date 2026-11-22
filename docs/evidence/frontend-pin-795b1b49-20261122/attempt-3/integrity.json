@@ -1,0 +1,27 @@
+{
+  "host-exit.txt": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r3/exit.txt",
+    "bytes": 40,
+    "sha256": "35bdee18175a504a62bbd159899120ab31c71cb76ba92c76829fe63d99abce26"
+  },
+  "host-host.log": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r3/host.log",
+    "bytes": 589,
+    "sha256": "e7e7747e05bfb48a4c7fd20660f314ded42dd12ddf2d14e1960ea73a7b1ec4fc"
+  },
+  "host-container-image.txt": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r3/container-image.txt",
+    "bytes": 72,
+    "sha256": "4e37df3be17f69180eae38be60ef64743ec0a670c635c13439fa0e59a767d827"
+  },
+  "container-exit.txt": {
+    "path": "/var/idw-target/daily-web-pin-795b1b49-r3/exit.txt",
+    "bytes": 45,
+    "sha256": "c5be9d73a57369c4c3443d84921ec19788f90ad659a5b23149fcf3e048e2ddae"
+  },
+  "container-container.log": {
+    "path": "/var/idw-target/daily-web-pin-795b1b49-r3/container.log",
+    "bytes": 492,
+    "sha256": "1474a51202d6e5d4a9fbedeabf2f59f5a00cfdd1f1de8b511b9b8959a2800835"
+  }
+}

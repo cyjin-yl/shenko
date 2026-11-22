@@ -1,0 +1,163 @@
+{
+  "scope": "real child process/loopback HTTP and driver cleanup only; no model or product startup claim",
+  "driver_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+  "probe_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+  "fixture_sha256": "224d066be4d65a8e3e8ba68c6a027af75d6938010847de8ceafb51b0fa94b25c",
+  "runs": [
+    {
+      "name": "timeout",
+      "startup_timeout_seconds": 1,
+      "error_type": "TimeoutError",
+      "error": "Shenko did not expose a bound subject within 1 seconds",
+      "notes": [],
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:42:37Z",
+        "startup_timeout_seconds": 1,
+        "ready": false,
+        "pid": 5,
+        "elapsed_seconds": 1.024291016999996,
+        "error": {
+          "type": "TimeoutError",
+          "message": "Shenko did not expose a bound subject within 1 seconds"
+        }
+      },
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "interrupted": false,
+        "group_cleanup": {
+          "pgid": 5,
+          "required": false,
+          "forced": false,
+          "signals": [],
+          "complete": true,
+          "after_parent": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "remaining": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "parent_reaped": true
+        },
+        "errors": []
+      },
+      "elapsed_including_cleanup": 1.0769593589993747
+    },
+    {
+      "name": "ready",
+      "startup_timeout_seconds": 3,
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:42:38Z",
+        "startup_timeout_seconds": 3,
+        "ready": true,
+        "pid": 6,
+        "subject_id": "startup-boundary-fixture-only",
+        "elapsed_seconds": 1.6505739869990066
+      },
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "interrupted": false,
+        "group_cleanup": {
+          "pgid": 6,
+          "required": false,
+          "forced": false,
+          "signals": [],
+          "complete": true,
+          "after_parent": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "remaining": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "parent_reaped": true
+        },
+        "errors": []
+      },
+      "elapsed_including_cleanup": 1.704924753999876
+    },
+    {
+      "name": "timeout-retention-failure",
+      "startup_timeout_seconds": 1,
+      "error_type": "TimeoutError",
+      "error": "Shenko did not expose a bound subject within 1 seconds",
+      "notes": [
+        "startup observation could not be saved: [Errno 21] Is a directory: '/workspace/scratch/0e9f736f5ffa/startup-boundary-experiment-20261122/timeout-retention-failure/first.startup.json'; {'schema_version': 1, 'phase': 'first', 'started_at': '2026-11-21T18:42:39Z', 'startup_timeout_seconds': 1, 'ready': False, 'pid': 7, 'elapsed_seconds': 1.0107367079999676, 'error': {'type': 'TimeoutError', 'message': 'Shenko did not expose a bound subject within 1 seconds'}}"
+      ],
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:42:39Z",
+        "startup_timeout_seconds": 1,
+        "ready": false,
+        "pid": 7,
+        "elapsed_seconds": 1.0107367079999676,
+        "error": {
+          "type": "TimeoutError",
+          "message": "Shenko did not expose a bound subject within 1 seconds"
+        }
+      },
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "interrupted": false,
+        "group_cleanup": {
+          "pgid": 7,
+          "required": false,
+          "forced": false,
+          "signals": [],
+          "complete": true,
+          "after_parent": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "remaining": {
+            "live_pids": [],
+            "zombie_pids": [],
+            "live_thread_ids": [],
+            "alive": false
+          },
+          "parent_reaped": true
+        },
+        "errors": []
+      },
+      "elapsed_including_cleanup": 1.0622566620004363
+    }
+  ],
+  "cli": [
+    {
+      "script": "real_single_node_journey.py",
+      "help_exit": 0,
+      "zero_timeout_exit": 2,
+      "error": "real_single_node_journey.py: error: --repeat, --timeout and --startup-timeout must be positive"
+    },
+    {
+      "script": "real_protocol_observation.py",
+      "help_exit": 0,
+      "zero_timeout_exit": 2,
+      "error": "real_protocol_observation.py: error: --timeout and --startup-timeout must be positive"
+    }
+  ],
+  "checks_passed": true
+}

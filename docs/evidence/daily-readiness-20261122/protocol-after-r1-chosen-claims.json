@@ -1,0 +1,711 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T19:45:27.049Z",
+  "run_id": "protocol-after-r1",
+  "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+  "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+  "method": "Read-only stopped installations. Exact indexed action_id in Store and Node, no scan of object BLOBs; Node control entry read via blobopen capped at 1MiB. Each actual entry 1733 bytes. Database files intentionally not fully hashed.",
+  "cases": [
+    {
+      "case": "case-02",
+      "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+      "reads": "Closed installation; mode=ro; indexed action rows only; no runtime/library open; control log blob capped at 1MiB",
+      "prepared_transitions": [
+        {
+          "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+          "input_digest": "blake3:53951d04385dba7c61e447565c28e0bb511a738b08617fbbb112d69a8ebb5d0d",
+          "admission": {
+            "schema_version": 1,
+            "subject_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86",
+            "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+            "conflict_key": "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/claim/0",
+            "conflict_aliases": [
+              "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/b0fc84e9-33b8-43cb-bd79-f76a6bf3d7fc/revision/0"
+            ],
+            "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/30/a7/30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          },
+          "result_commit": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "seq": 172
+          },
+          "transition_ref": {
+            "digest": "blake3:7bce0bb7a7ba0c1bf6d4c75ecbe3ac902ab93b34c8c27eab3dae4d159f8b3e5a",
+            "bytes": 25784,
+            "media_type": "application/json",
+            "store_namespace": "commit-authority",
+            "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/7b/ce/7bce0bb7a7ba0c1bf6d4c75ecbe3ac902ab93b34c8c27eab3dae4d159f8b3e5a",
+            "codec": {
+              "name": "store-native-claim-transition",
+              "major": 1,
+              "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+            }
+          }
+        }
+      ],
+      "materialization_count": 0,
+      "node_admissions": [
+        {
+          "conflict_key": "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/claim/0",
+          "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+          "idx": 7,
+          "data": {
+            "schema_version": 1,
+            "subject_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86",
+            "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+            "conflict_key": "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/claim/0",
+            "conflict_aliases": [
+              "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/b0fc84e9-33b8-43cb-bd79-f76a6bf3d7fc/revision/0"
+            ],
+            "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/30/a7/30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          }
+        }
+      ],
+      "control_entries": [
+        {
+          "idx": 7,
+          "term": 2,
+          "kind": "admission",
+          "serialized_bytes": 1733,
+          "sha256": "3a729503b04e5e3d6fd2feccaee8a087d08bce5dd0496b1aa0cc7091fe7e3ebd",
+          "keys": [
+            "schema",
+            "index",
+            "term",
+            "kind",
+            "payload",
+            "durability"
+          ],
+          "schema": 3,
+          "durability": {
+            "ballot": {
+              "term": 2,
+              "proposer": "cfd53546-a6ee-4f40-b8c8-e1f8e2e04150"
+            },
+            "acknowledgements": [
+              {
+                "schema": 3,
+                "responder_id": "cfd53546-a6ee-4f40-b8c8-e1f8e2e04150",
+                "ballot": {
+                  "term": 2,
+                  "proposer": "cfd53546-a6ee-4f40-b8c8-e1f8e2e04150"
+                },
+                "index": 7,
+                "entry_digest": "blake3:115d2df92c47019d631776466696e11f1c51120b38d2753c0ec411671aa984b5",
+                "prefix_digest": "blake3:a2386553b115ac3b56648ef22275f4b236b122120ced381ffec7f532892b9012",
+                "configuration_revision": 1,
+                "configuration_digest": "blake3:c55738d002bb1ebfc4a00016b432410b7f6f5dd5eb034dd2d17e94dc9eeda541",
+                "accepted": true,
+                "observed_term": 2,
+                "reason": "durably_accepted"
+              }
+            ]
+          },
+          "payload_admission": {
+            "action_id": "73fc903d-9a40-6318-9819-3408c8e3509e",
+            "attempt_id": null,
+            "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+            "conflict_aliases": [
+              "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/revision/0"
+            ],
+            "conflict_key": "task/7b14b638-19dc-4599-afb4-a238a0b0c10b/claim/0",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 7173,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/30/a7/30a76f2d3e66f13ed5e3d4ee64f8ab84aa8db07b264023e08bd4e004a2c5e0b6",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/b0fc84e9-33b8-43cb-bd79-f76a6bf3d7fc/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86"
+          },
+          "payload_object_count": 0
+        }
+      ],
+      "elapsed_seconds": 0.014913252991391346
+    },
+    {
+      "case": "case-03",
+      "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+      "reads": "Closed installation; mode=ro; indexed action rows only; no runtime/library open; control log blob capped at 1MiB",
+      "prepared_transitions": [
+        {
+          "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+          "input_digest": "blake3:0d5682a9b5ce0fecf36ad688935cc7e684a4eb4baa8c686687ee8865c6f2d7a8",
+          "admission": {
+            "schema_version": 1,
+            "subject_id": "48f59302-510c-420e-9fac-26b3e86d1073",
+            "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+            "conflict_key": "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/claim/0",
+            "conflict_aliases": [
+              "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/de934ad4-af65-4d48-b2d4-6d1c8f76e4d1/revision/0"
+            ],
+            "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/ff/c0/ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          },
+          "result_commit": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "seq": 115
+          },
+          "transition_ref": {
+            "digest": "blake3:d9edce3d7e0ed8415cf2a33399842db918788bb1851bbb11c95a3920d7cd0bc2",
+            "bytes": 25784,
+            "media_type": "application/json",
+            "store_namespace": "commit-authority",
+            "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/d9/ed/d9edce3d7e0ed8415cf2a33399842db918788bb1851bbb11c95a3920d7cd0bc2",
+            "codec": {
+              "name": "store-native-claim-transition",
+              "major": 1,
+              "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+            }
+          }
+        }
+      ],
+      "materialization_count": 0,
+      "node_admissions": [
+        {
+          "conflict_key": "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/claim/0",
+          "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+          "idx": 7,
+          "data": {
+            "schema_version": 1,
+            "subject_id": "48f59302-510c-420e-9fac-26b3e86d1073",
+            "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+            "conflict_key": "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/claim/0",
+            "conflict_aliases": [
+              "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/de934ad4-af65-4d48-b2d4-6d1c8f76e4d1/revision/0"
+            ],
+            "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/ff/c0/ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          }
+        }
+      ],
+      "control_entries": [
+        {
+          "idx": 7,
+          "term": 2,
+          "kind": "admission",
+          "serialized_bytes": 1733,
+          "sha256": "551ed03918342e498608de3f68fcdc53e3bf60b650f082db5740eacf68844bf0",
+          "keys": [
+            "schema",
+            "index",
+            "term",
+            "kind",
+            "payload",
+            "durability"
+          ],
+          "schema": 3,
+          "durability": {
+            "ballot": {
+              "term": 2,
+              "proposer": "bebaeb3b-b2dd-4aee-9156-2d919f90683a"
+            },
+            "acknowledgements": [
+              {
+                "schema": 3,
+                "responder_id": "bebaeb3b-b2dd-4aee-9156-2d919f90683a",
+                "ballot": {
+                  "term": 2,
+                  "proposer": "bebaeb3b-b2dd-4aee-9156-2d919f90683a"
+                },
+                "index": 7,
+                "entry_digest": "blake3:6704c1938764e6cfbe7dc0e022997efc265fe7367768cb1db24c0b32c0a875a0",
+                "prefix_digest": "blake3:950ab60a0d6be379d2c0fdfef97cc402a70d5d0fdd2539f9b960b6e845b27901",
+                "configuration_revision": 1,
+                "configuration_digest": "blake3:9c8767ef7369da033b3401b971e7eed9ceef306d7e067b994e243bd82b3b7c5e",
+                "accepted": true,
+                "observed_term": 2,
+                "reason": "durably_accepted"
+              }
+            ]
+          },
+          "payload_admission": {
+            "action_id": "e00d3e53-f362-4c11-8aa4-5e0bf5146282",
+            "attempt_id": null,
+            "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+            "conflict_aliases": [
+              "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/revision/0"
+            ],
+            "conflict_key": "task/2705e1dd-dd91-4ba7-b111-1da7f1f4ea48/claim/0",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 7173,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/ff/c0/ffc06eef5ce3bd6a525662bd88cdf3720edf134490af3b48d599822804059025",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/de934ad4-af65-4d48-b2d4-6d1c8f76e4d1/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "48f59302-510c-420e-9fac-26b3e86d1073"
+          },
+          "payload_object_count": 0
+        }
+      ],
+      "elapsed_seconds": 0.011141240014694631
+    },
+    {
+      "case": "case-07",
+      "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+      "reads": "Closed installation; mode=ro; indexed action rows only; no runtime/library open; control log blob capped at 1MiB",
+      "prepared_transitions": [
+        {
+          "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+          "input_digest": "blake3:4f94375c647573d4f78c077ac8734a2e0f0d677d693cad305ed83fb07a87f5bc",
+          "admission": {
+            "schema_version": 1,
+            "subject_id": "0054a728-c1d9-489d-bf7d-9dd91677774d",
+            "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+            "conflict_key": "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/claim/0",
+            "conflict_aliases": [
+              "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/c8387cfa-e455-4c58-9989-5534e4b4d078/revision/0"
+            ],
+            "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/62/95/629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          },
+          "result_commit": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "seq": 107
+          },
+          "transition_ref": {
+            "digest": "blake3:fe2c16ca62fcbd773f39c9a16874fb470c05c8104b6e993eaa6b90caada8820a",
+            "bytes": 25784,
+            "media_type": "application/json",
+            "store_namespace": "commit-authority",
+            "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/fe/2c/fe2c16ca62fcbd773f39c9a16874fb470c05c8104b6e993eaa6b90caada8820a",
+            "codec": {
+              "name": "store-native-claim-transition",
+              "major": 1,
+              "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+            }
+          }
+        }
+      ],
+      "materialization_count": 0,
+      "node_admissions": [
+        {
+          "conflict_key": "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/claim/0",
+          "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+          "idx": 7,
+          "data": {
+            "schema_version": 1,
+            "subject_id": "0054a728-c1d9-489d-bf7d-9dd91677774d",
+            "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+            "conflict_key": "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/claim/0",
+            "conflict_aliases": [
+              "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/revision/0"
+            ],
+            "required_unconsumed": [
+              "task/c8387cfa-e455-4c58-9989-5534e4b4d078/revision/0"
+            ],
+            "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+            "expected_parent": null,
+            "expected_head_revision": null,
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "operation_id": null,
+            "attempt_id": null,
+            "payload_ref": {
+              "digest": "blake3:629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "bytes": 7173,
+              "media_type": "application/json",
+              "store_namespace": "commit-authority",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/62/95/629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "codec": {
+                "name": "commit-admission",
+                "major": 1,
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+              }
+            }
+          }
+        }
+      ],
+      "control_entries": [
+        {
+          "idx": 7,
+          "term": 2,
+          "kind": "admission",
+          "serialized_bytes": 1733,
+          "sha256": "308548d465c883a552dc582fc87b7cc697db7f84d4f54c8c7df272d89f4500e4",
+          "keys": [
+            "schema",
+            "index",
+            "term",
+            "kind",
+            "payload",
+            "durability"
+          ],
+          "schema": 3,
+          "durability": {
+            "ballot": {
+              "term": 2,
+              "proposer": "04b0ee7d-96e9-4243-a856-42057eb34064"
+            },
+            "acknowledgements": [
+              {
+                "schema": 3,
+                "responder_id": "04b0ee7d-96e9-4243-a856-42057eb34064",
+                "ballot": {
+                  "term": 2,
+                  "proposer": "04b0ee7d-96e9-4243-a856-42057eb34064"
+                },
+                "index": 7,
+                "entry_digest": "blake3:fed2ee0c8f6f49df549f8eff3f37db4e4c1d8b1db6ab7e09aec990e0d254a357",
+                "prefix_digest": "blake3:5d485ec1e52c79f6dcfe1e443dc383974c0a5db3fe68d59523a574b1b721ee82",
+                "configuration_revision": 1,
+                "configuration_digest": "blake3:2642d5ed22909b40827a2f76e713cd86286de22a86c1d096b6ada51315a4817b",
+                "accepted": true,
+                "observed_term": 2,
+                "reason": "durably_accepted"
+              }
+            ]
+          },
+          "payload_admission": {
+            "action_id": "758a94d5-ea07-cc3f-7a0d-1086e97e3863",
+            "attempt_id": null,
+            "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+            "conflict_aliases": [
+              "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/revision/0"
+            ],
+            "conflict_key": "task/76bb8378-be4a-451d-9824-6bc8f1399cf6/claim/0",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 7173,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/62/95/629500941653556102c84d8613a1b36276334703d972ea3a7d7a436e44684c4a",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/c8387cfa-e455-4c58-9989-5534e4b4d078/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "0054a728-c1d9-489d-bf7d-9dd91677774d"
+          },
+          "payload_object_count": 0
+        }
+      ],
+      "elapsed_seconds": 0.010727898014010862
+    }
+  ],
+  "branch_forks": [
+    {
+      "case": "case-02",
+      "fork_ref": {
+        "digest": "blake3:f29f6e4a20b91a108699899a7be0611f7fe919d7b95fa00861d2fa7a408a6c7b",
+        "bytes": 1579,
+        "media_type": "application/json",
+        "store_namespace": "subject_branch",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/f2/9f/f29f6e4a20b91a108699899a7be0611f7fe919d7b95fa00861d2fa7a408a6c7b",
+        "codec": {
+          "name": "subject_branch_fork",
+          "major": 1,
+          "digest": "blake3:d97b20729516e52732b0d5259267cd5c4912b3ecf6d04e2ed410d11ac149303e"
+        }
+      },
+      "sha256": "d986b1913f08a6b788b1734d55f2b85133203d996a0b80472f602a4a17e3d85b",
+      "bytes": 1579,
+      "fork": {
+        "schema_version": 2,
+        "agent_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86",
+        "branch_id": "98c7c0e7-0908-326a-32ef-96c032e4b111",
+        "parent_head": {
+          "agent_id": "2f4acb37-0a12-4689-9d2f-b1667a4e9b86",
+          "branch_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+          "subject_root_task_id": "b0fc84e9-33b8-43cb-bd79-f76a6bf3d7fc",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "genesis_id": "0368dec2-1c61-4f0f-84c9-4ae18c6a7421"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+          "committed_at": {
+            "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+            "seq": 166
+          },
+          "next_step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 4
+        },
+        "parent_snapshot_id": "blake3:4c3ce8fc15326c395450a97b42eb5c4c542eb3e2dde33fa2d5f4f01cc12b3de4",
+        "parent_history_leaf": 7,
+        "parent_history_count": 7,
+        "parent_history_digest": "blake3:0a9fd06d8e7bc5ac19f50347e5303f5ad0512237f55f40e2304ca1d8e2ecbdec",
+        "parent_note_revision": null,
+        "inherited_inputs": [
+          {
+            "source_step_id": "b69c0058-4c80-4512-b442-b9fb75170587",
+            "source_event_id": "a49f2c97-a69b-4aaa-bbfc-5ee72a9484a0",
+            "raw_event_id": "508cc398-8e7e-4cf2-9e71-cfa3ac02e6d8",
+            "session_id": "cc9706e1-120a-44c2-b835-d2cbb30782d6",
+            "seq": 5
+          }
+        ],
+        "root_task_id": "1c01b64e-9896-413e-b537-a8d3c5f7b8af",
+        "first_step_id": "6774988d-5f4d-4117-b6ff-67ef38a1b9ea",
+        "created_commit": {
+          "ledger_id": "b31ce642-4f81-40dc-b77e-f6f9658305d8",
+          "seq": 182
+        },
+        "reason": "selected-plan recovery unavailable: control:7:blake3:115d2df92c47019d631776466696e11f1c51120b38d2753c0ec411671aa984b5"
+      }
+    },
+    {
+      "case": "case-03",
+      "fork_ref": {
+        "digest": "blake3:62c8d31e1501a75d46dd0bf64e0d96190bec79b5f90b00dc5c704684524cb2f2",
+        "bytes": 1329,
+        "media_type": "application/json",
+        "store_namespace": "subject_branch",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/62/c8/62c8d31e1501a75d46dd0bf64e0d96190bec79b5f90b00dc5c704684524cb2f2",
+        "codec": {
+          "name": "subject_branch_fork",
+          "major": 1,
+          "digest": "blake3:d97b20729516e52732b0d5259267cd5c4912b3ecf6d04e2ed410d11ac149303e"
+        }
+      },
+      "sha256": "4ad732bde212ac0c5163b008fa354897afa69468a138cc5d8ea128c447963505",
+      "bytes": 1329,
+      "fork": {
+        "schema_version": 2,
+        "agent_id": "48f59302-510c-420e-9fac-26b3e86d1073",
+        "branch_id": "c8e0cbbb-42aa-3905-7749-be193e361de5",
+        "parent_head": {
+          "agent_id": "48f59302-510c-420e-9fac-26b3e86d1073",
+          "branch_id": "5ee9becf-0e2e-4c91-81e4-e6148de06674",
+          "subject_root_task_id": "de934ad4-af65-4d48-b2d4-6d1c8f76e4d1",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "genesis_id": "14648e91-26bf-471a-80cf-95dcb7504896"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+          "committed_at": {
+            "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+            "seq": 110
+          },
+          "next_step_id": "265fb9fa-91cb-4306-8a08-1e521363adc3",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 4
+        },
+        "parent_snapshot_id": "blake3:dd384c117fe1840c1bad6dba6dc627c1ec6326e5ff0241f71d43fc0e646bcc53",
+        "parent_history_leaf": 6,
+        "parent_history_count": 6,
+        "parent_history_digest": "blake3:5fd10736dd5e086ee441801f35dfdb0c9b259c7da57fb8c921d1526500f21c81",
+        "parent_note_revision": null,
+        "root_task_id": "aa717172-5514-429d-8186-f5cc4e31607f",
+        "first_step_id": "cc248ba3-62c1-43f0-b479-96901dbbfc16",
+        "created_commit": {
+          "ledger_id": "20179db2-8ba8-4ba7-90b5-81e9ac6fef4d",
+          "seq": 124
+        },
+        "reason": "selected-plan recovery unavailable: control:7:blake3:6704c1938764e6cfbe7dc0e022997efc265fe7367768cb1db24c0b32c0a875a0"
+      }
+    },
+    {
+      "case": "case-07",
+      "fork_ref": {
+        "digest": "blake3:043bcc842a8f2a31d6a34f0645ec6cfffa3b5b3cdba4523320490af5a9d69989",
+        "bytes": 1579,
+        "media_type": "application/json",
+        "store_namespace": "subject_branch",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/04/3b/043bcc842a8f2a31d6a34f0645ec6cfffa3b5b3cdba4523320490af5a9d69989",
+        "codec": {
+          "name": "subject_branch_fork",
+          "major": 1,
+          "digest": "blake3:d97b20729516e52732b0d5259267cd5c4912b3ecf6d04e2ed410d11ac149303e"
+        }
+      },
+      "sha256": "ddb673f70a608faedb92c75eda862ff414479c4271ab356f0dfb448d1f93e68c",
+      "bytes": 1579,
+      "fork": {
+        "schema_version": 2,
+        "agent_id": "0054a728-c1d9-489d-bf7d-9dd91677774d",
+        "branch_id": "aeaed194-c2b3-68f3-3fa4-3681bb019e5d",
+        "parent_head": {
+          "agent_id": "0054a728-c1d9-489d-bf7d-9dd91677774d",
+          "branch_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+          "subject_root_task_id": "c8387cfa-e455-4c58-9989-5534e4b4d078",
+          "controller_epoch": 2,
+          "software_generation": "seed",
+          "genesis_ref": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "genesis_id": "59e0eb4a-f06d-43cb-89a9-d15368056b54"
+          },
+          "committed_step_no": 1,
+          "committed_step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+          "committed_at": {
+            "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+            "seq": 101
+          },
+          "next_step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+          "mode": "active",
+          "mode_reason_ref": null,
+          "record_revision": 4
+        },
+        "parent_snapshot_id": "blake3:e7f6ac3295bdc27c80c0cd920eb6fdef5b7666140a49262ab10f82b75d3f4b3b",
+        "parent_history_leaf": 9,
+        "parent_history_count": 9,
+        "parent_history_digest": "blake3:d931159602acc090ba0039602d8a27e0a837c9cf879cab2f1e0e27e2d1d3b2a4",
+        "parent_note_revision": null,
+        "inherited_inputs": [
+          {
+            "source_step_id": "e68ad1b0-321f-4044-b362-df81743914d8",
+            "source_event_id": "a7c9738c-18ed-4b22-b88d-b55a0afe457a",
+            "raw_event_id": "5039d6ab-14eb-44c9-9daa-4796ae95e1ed",
+            "session_id": "70eb0dcb-7be0-4ba1-b60f-d7b6e773686d",
+            "seq": 7
+          }
+        ],
+        "root_task_id": "faa3586e-5d97-4d4c-a867-0ba5dbe616e0",
+        "first_step_id": "e6fe4768-f1cf-480d-93cb-5ac5e06c57eb",
+        "created_commit": {
+          "ledger_id": "7c63d1ec-f0b5-4e73-b210-06ff82853053",
+          "seq": 116
+        },
+        "reason": "selected-plan recovery unavailable: control:7:blake3:fed2ee0c8f6f49df549f8eff3f37db4e4c1d8b1db6ab7e09aec990e0d254a357"
+      }
+    }
+  ]
+}

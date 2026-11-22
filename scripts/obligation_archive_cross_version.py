@@ -2,7 +2,7 @@
 """Drive the historical two-binary archive protocol proof for schema 5 <-> 6.
 
 This tool remains pinned to those historical formats; it does not verify the
-repository's current schema-7 writer.
+repository's current archive writer.
 
 The consumer program is `crates/shenko-store/examples/obligation_archive_consumer.rs`.
 It is compiled twice by the parent:

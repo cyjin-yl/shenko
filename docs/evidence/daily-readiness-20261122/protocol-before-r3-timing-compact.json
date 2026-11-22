@@ -1,0 +1,1014 @@
+{
+  "schema_version": 1,
+  "run_id": "protocol-before-r3",
+  "observed_at": "2026-11-21T19:12:38Z",
+  "batch": {
+    "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+    "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+    "startup_timeout_seconds": 300,
+    "requested_runs": 8,
+    "attempted_runs": 8,
+    "unattempted_runs": 0,
+    "completed_observations": 8,
+    "protocol_passed_runs": 1,
+    "canonical_case_table_sha256": "d7b9f0a2dfddffda823f1154e54fc6a5f0eef4c99445f6a40b5f9ccdea87359a",
+    "finished_at": "2026-11-21T19:12:26Z",
+    "errors": []
+  },
+  "fixed_identity": {
+    "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+    "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+    "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+    "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+    "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+    "model": "swift-qwen3.8-27b-nvfp4",
+    "model_url": "http://10.10.10.11:8000",
+    "startup_timeout_seconds": 300,
+    "phase_timeout_seconds": 900,
+    "configured_local_request_timeout_ms": "600000",
+    "request_path_timing": true
+  },
+  "full_observation": {
+    "file": "protocol-before-r3-timing.json",
+    "bytes": 181792,
+    "sha256": "a3e0f73d0167a83f2012922b3e04a6eda56a396152cf73a7d6be8dd50a0072d2"
+  },
+  "descriptive_counts": {
+    "completed_cases": 8,
+    "first_request_check_all_true": 6,
+    "original_summary_protocol_passed": 1,
+    "first_r0_codes": [
+      {
+        "case": "case-02",
+        "code": "MODEL_RESULT_INCOMPLETE"
+      },
+      {
+        "case": "case-07",
+        "code": "MODEL_RESULT_INCOMPLETE"
+      }
+    ],
+    "scope_count": 1164,
+    "complete_count": 1162,
+    "incomplete_count": 2,
+    "invalid_event_count": 0,
+    "drops": [
+      {
+        "case": "case-01",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-02",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-03",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-04",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-05",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-06",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-07",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-08",
+        "observed_dropped_events": []
+      }
+    ],
+    "note": "Completed fixed eight-case batch. Raw first-request checks are separate from cleanup-inclusive original protocol_passed; neither is a full native/child/restart journey."
+  },
+  "cases": [
+    {
+      "case": "case-01",
+      "case_id": "multiply-17-29",
+      "request_id": "eb4c5541-820c-483f-a5b4-246d3717c5b7",
+      "step_id": "06564272-0324-4420-ab07-2c909e7350ff",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 3153,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 18:47:53"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 89
+          },
+          "created_at": "2026-11-21 18:49:04"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 94
+          },
+          "created_at": "2026-11-21 18:49:56"
+        }
+      },
+      "startup_seconds": 80.21858954601339,
+      "elapsed_seconds": 241.73207621500478,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 146,
+        "complete_count": 146,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.runtime.log",
+          "bytes": 110186,
+          "sha256": "a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 48579323,
+          "p50_us": 48579323,
+          "p95_us": 48579323,
+          "max_us": 48579323,
+          "self_sample_count": 1,
+          "self_total_us": 524159
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 74072219,
+          "p50_us": 7766272,
+          "p95_us": 47346063,
+          "max_us": 47346063,
+          "self_sample_count": 4,
+          "self_total_us": 74072219
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 19,
+          "inclusive_total_us": 368,
+          "p50_us": 0,
+          "p95_us": 169,
+          "max_us": 169,
+          "self_sample_count": 19,
+          "self_total_us": 368
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-02",
+      "case_id": "multiply-28-34",
+      "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+      "step_id": "98f86b82-dd72-4859-997d-8bf419ba5b57",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "length",
+          "max_tokens": 4096,
+          "output_tokens": 4096,
+          "length": true
+        },
+        "step_state": "retired",
+        "rejection": {
+          "code": "MODEL_RESULT_INCOMPLETE",
+          "line": null,
+          "correction": {
+            "prior_pinned_corrections": 0,
+            "replacement": {
+              "mode": "pinned_correction"
+            }
+          }
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 18:51:51"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 25
+          },
+          "created_at": "2026-11-21 18:53:06"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 28
+          },
+          "created_at": "2026-11-21 18:53:09"
+        }
+      },
+      "startup_seconds": 75.98139103798894,
+      "elapsed_seconds": 179.4114986930217,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 88,
+        "complete_count": 88,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/first.runtime.log",
+          "bytes": 65828,
+          "sha256": "881d1dbf38b537f9580b88c543aeeb3ea7981c1d746b2c75852ff643e2008bbe"
+        },
+        "subject_prepare_s1": null,
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 3,
+          "inclusive_total_us": 16690519,
+          "p50_us": 5084753,
+          "p95_us": 8110172,
+          "max_us": 8110172,
+          "self_sample_count": 3,
+          "self_total_us": 16690519
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 11,
+          "inclusive_total_us": 262,
+          "p50_us": 1,
+          "p95_us": 152,
+          "max_us": 152,
+          "self_sample_count": 11,
+          "self_total_us": 262
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-03",
+      "case_id": "multiply-46-27",
+      "request_id": "ab6402c7-edfc-4a00-a754-c0a19a087db9",
+      "step_id": "a9985f79-4323-4097-9701-6ac58da73288",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2953,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 18:54:51"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 64
+          },
+          "created_at": "2026-11-21 18:56:01"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 68
+          },
+          "created_at": "2026-11-21 18:56:36"
+        }
+      },
+      "startup_seconds": 76.99003579499549,
+      "elapsed_seconds": 217.19755251400056,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 131,
+        "complete_count": 131,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/first.runtime.log",
+          "bytes": 98031,
+          "sha256": "fc7201590943f8377ce442a405bab3e1bb4c8c47c03cfdf19293a1e7b95d8c0a"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 32709662,
+          "p50_us": 32709662,
+          "p95_us": 32709662,
+          "max_us": 32709662,
+          "self_sample_count": 1,
+          "self_total_us": 643419
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 59169805,
+          "p50_us": 9542549,
+          "p95_us": 31184293,
+          "max_us": 31184293,
+          "self_sample_count": 4,
+          "self_total_us": 59169805
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 16,
+          "inclusive_total_us": 913,
+          "p50_us": 3,
+          "p95_us": 317,
+          "max_us": 317,
+          "self_sample_count": 16,
+          "self_total_us": 913
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-04",
+      "case_id": "multiply-63-18",
+      "request_id": "21f145a6-0fa1-46d2-b84e-c02a811472b8",
+      "step_id": "066f16f9-3323-47b5-9057-057b1caa4799",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1787,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 18:58:21"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 102
+          },
+          "created_at": "2026-11-21 18:59:31"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 107
+          },
+          "created_at": "2026-11-21 19:00:16"
+        }
+      },
+      "startup_seconds": 69.97472726099659,
+      "elapsed_seconds": 216.2551650319947,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 140,
+        "complete_count": 140,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/first.runtime.log",
+          "bytes": 106599,
+          "sha256": "74b8ab4e5d8afe4bc60da025e9c299e3944a01b86c854a07fd05ab3ab13b7328"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 44226597,
+          "p50_us": 44226597,
+          "p95_us": 44226597,
+          "max_us": 44226597,
+          "self_sample_count": 1,
+          "self_total_us": 717535
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 63135578,
+          "p50_us": 8369709,
+          "p95_us": 42457290,
+          "max_us": 42457290,
+          "self_sample_count": 4,
+          "self_total_us": 63135578
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 18,
+          "inclusive_total_us": 882,
+          "p50_us": 0,
+          "p95_us": 432,
+          "max_us": 432,
+          "self_sample_count": 18,
+          "self_total_us": 882
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-05",
+      "case_id": "multiply-42-57",
+      "request_id": "2559eb47-bd42-4fff-b3d9-575011ea197e",
+      "step_id": "4a1ac1da-5133-4f23-a452-7c50de22ec3f",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2650,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 19:01:56"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 206
+          },
+          "created_at": "2026-11-21 19:03:45"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 212
+          },
+          "created_at": "2026-11-21 19:05:14"
+        }
+      },
+      "startup_seconds": 68.54591075898497,
+      "elapsed_seconds": 325.7635904949857,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 245,
+        "complete_count": 243,
+        "incomplete_count": 2,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/first.runtime.log",
+          "bytes": 188022,
+          "sha256": "362855f3c4eba345952da27300802836192dc2316e6a2992b7ce74e6576623cf"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 86151773,
+          "p50_us": 86151773,
+          "p95_us": 86151773,
+          "max_us": 86151773,
+          "self_sample_count": 1,
+          "self_total_us": 469897
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 5,
+          "inclusive_total_us": 125979915,
+          "p50_us": 14033674,
+          "p95_us": 84440270,
+          "max_us": 84440270,
+          "self_sample_count": 5,
+          "self_total_us": 125979915
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 30,
+          "inclusive_total_us": 875,
+          "p50_us": 1,
+          "p95_us": 146,
+          "max_us": 345,
+          "self_sample_count": 30,
+          "self_total_us": 875
+        },
+        "incomplete_scopes": [
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 234,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287951440282,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a"
+            },
+            "status": "incomplete"
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 245,
+            "phase": "control.seal_pages",
+            "parent_id": 234,
+            "started_unix_us": 1795287951773200,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a"
+            },
+            "status": "incomplete"
+          }
+        ]
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "16d13a10-228c-43a5-b863-3e2e8c6b557f",
+          "step_id": "22789730-dd63-4e7a-85c3-cc8e09170e09",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+              "seq": 217
+            },
+            "created_at": "2026-11-21 19:05:35"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+              "seq": 219
+            },
+            "created_at": "2026-11-21 19:05:36"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ]
+    },
+    {
+      "case": "case-06",
+      "case_id": "multiply-73-16",
+      "request_id": "bbb05f7c-d3a8-4482-962a-35d1eb44dacc",
+      "step_id": "6e5a8104-7099-4189-b3ab-be49672bf8f7",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1176,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:07:18"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 109
+          },
+          "created_at": "2026-11-21 19:08:35"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 112
+          },
+          "created_at": "2026-11-21 19:08:42"
+        }
+      },
+      "startup_seconds": 67.75367819299572,
+      "elapsed_seconds": 167.99009489099262,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 119,
+        "complete_count": 119,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/first.runtime.log",
+          "bytes": 90822,
+          "sha256": "5328af6d9fcbdc6dce7667ef950239a760eb6fe6659a1c114e86c961a49e1d6e"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 6405800,
+          "p50_us": 6405800,
+          "p95_us": 6405800,
+          "max_us": 6405800,
+          "self_sample_count": 1,
+          "self_total_us": 144281
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 4,
+          "inclusive_total_us": 16506924,
+          "p50_us": 1988728,
+          "p95_us": 6519091,
+          "max_us": 6519091,
+          "self_sample_count": 4,
+          "self_total_us": 16506924
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 14,
+          "inclusive_total_us": 652,
+          "p50_us": 0,
+          "p95_us": 354,
+          "max_us": 354,
+          "self_sample_count": 14,
+          "self_total_us": 652
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-07",
+      "case_id": "multiply-84-25",
+      "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+      "step_id": "406198f9-b2e6-45eb-a599-ca9c07d4b49f",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "length",
+          "max_tokens": 4096,
+          "output_tokens": 4096,
+          "length": true
+        },
+        "step_state": "retired",
+        "rejection": {
+          "code": "MODEL_RESULT_INCOMPLETE",
+          "line": null,
+          "correction": {
+            "prior_pinned_corrections": 0,
+            "replacement": {
+              "mode": "pinned_correction"
+            }
+          }
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:09:05"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 26
+          },
+          "created_at": "2026-11-21 19:11:25"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 29
+          },
+          "created_at": "2026-11-21 19:11:25"
+        }
+      },
+      "startup_seconds": 15.50473473200691,
+      "elapsed_seconds": 160.74334724299842,
+      "original_protocol_passed": false,
+      "shutdown": {
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "clean": false,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 100,
+        "complete_count": 100,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/first.runtime.log",
+          "bytes": 72656,
+          "sha256": "8a6e3a749b046aae462fb2d8412280a84dd3289805581a21cbde142830d5b67e"
+        },
+        "subject_prepare_s1": null,
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 3,
+          "inclusive_total_us": 1988370,
+          "p50_us": 613284,
+          "p95_us": 993927,
+          "max_us": 993927,
+          "self_sample_count": 3,
+          "self_total_us": 1988370
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 13,
+          "inclusive_total_us": 12,
+          "p50_us": 0,
+          "p95_us": 4,
+          "max_us": 4,
+          "self_sample_count": 13,
+          "self_total_us": 12
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": []
+    },
+    {
+      "case": "case-08",
+      "case_id": "multiply-56-39",
+      "request_id": "39cd1ba9-9402-4a4d-839b-4626dd891e51",
+      "step_id": "e028bb01-abba-42ee-aa7c-8c11713c812c",
+      "first_request": {
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1095,
+          "length": false
+        },
+        "step_state": "committed",
+        "rejection": null,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true,
+        "request_armed": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:11:42"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 127
+          },
+          "created_at": "2026-11-21 19:12:07"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 130
+          },
+          "created_at": "2026-11-21 19:12:15"
+        }
+      },
+      "startup_seconds": 11.457036526990123,
+      "elapsed_seconds": 58.54869913600851,
+      "original_protocol_passed": true,
+      "shutdown": {
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "clean": true,
+        "group_complete": true,
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        }
+      },
+      "timing": {
+        "scope_count": 195,
+        "complete_count": 195,
+        "incomplete_count": 0,
+        "invalid_events": [],
+        "observed_dropped_events": [],
+        "log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/first.runtime.log",
+          "bytes": 160701,
+          "sha256": "aad89f2d34700f3b392f30cbd0809d3f570c488023ae8c4ccf6022f4cd509354"
+        },
+        "subject_prepare_s1": {
+          "phase": "subject.prepare_s1",
+          "count": 1,
+          "inclusive_total_us": 7897194,
+          "p50_us": 7897194,
+          "p95_us": 7897194,
+          "max_us": 7897194,
+          "self_sample_count": 1,
+          "self_total_us": 114007
+        },
+        "control_seal_pages_whole_log": {
+          "phase": "control.seal_pages",
+          "count": 8,
+          "inclusive_total_us": 17273646,
+          "p50_us": 1002471,
+          "p95_us": 7597101,
+          "max_us": 7597101,
+          "self_sample_count": 8,
+          "self_total_us": 17273646
+        },
+        "sqlite_mutex_wait_whole_log": {
+          "phase": "sqlite.mutex_wait",
+          "count": 23,
+          "inclusive_total_us": 25963,
+          "p50_us": 0,
+          "p95_us": 6,
+          "max_us": 25932,
+          "self_sample_count": 23,
+          "self_total_us": 25963
+        },
+        "incomplete_scopes": []
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "609bcf45-873e-4db1-b76c-931c212ce372",
+          "step_id": "0261d76b-94a7-46fc-b4ca-f6e800cb581b",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+              "seq": 136
+            },
+            "created_at": "2026-11-21 19:12:20"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+              "seq": 145
+            },
+            "created_at": "2026-11-21 19:12:23"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    "All eight completed cases retain the first request chosen from the frozen first.ledger; later correction successes and shutdown Unknown outcomes do not replace its verdict.",
+    "Raw checks passed in six of eight first requests; original cleanup-inclusive protocol_passed remains one of eight. This is S0/S1 admission evidence only, not child/native completion or restart acceptance.",
+    "Timing summarizes each closed runtime log, including startup, S1 and shutdown tail. Phase maxima may belong to different graph preparations. Parent and child inclusive durations must not be added.",
+    "There are 1164 observed scopes, 1162 complete and two incomplete shutdown-tail scopes in case-05; no invalid events or explicit drop counters were observed. No missing tail duration is imputed.",
+    "Commit-log timestamps have one-second resolution and record Store boundaries; the armed-to-terminal interval is not a measured physical-send/provider-only duration.",
+    "Startup and S1 preparation vary substantially within the same frozen binary/configuration. No causal claim about environment, compiler profile or the separately authored directory-batch change follows from this batch.",
+    "The new directory-batch commit is not included in either binary of the currently running protocol-format comparison."
+  ]
+}

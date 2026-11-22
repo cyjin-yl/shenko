@@ -1,0 +1,31 @@
+{
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "observed_at": "2026-11-21T22:10:09.702924+00:00",
+  "files": [
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e/real_single_node_journey.py",
+      "source": "/tank/shared/projects/shenko/worktrees/daily-readiness-20261122/scripts/real_single_node_journey.py",
+      "bytes": 54139,
+      "sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d"
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e/real_browser_witness.py",
+      "source": "/tank/shared/projects/shenko/worktrees/daily-readiness-20261122/scripts/real_browser_witness.py",
+      "bytes": 22907,
+      "sha256": "429d831acf7d597f91bc829856536dcc7afa9959702ed77ffd6fb0af05c7cbc5"
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e/summarize_request_timing.py",
+      "source": "/tank/shared/projects/shenko/worktrees/daily-readiness-20261122/scripts/summarize_request_timing.py",
+      "bytes": 8491,
+      "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7"
+    },
+    {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-0c6b013e/sample-environment.py",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/sample-environment.py",
+      "bytes": 8703,
+      "sha256": "6b07d0bae686fa6ac7850e0a6ddefe2330baca0e2469baeb04301e5d73b665fd"
+    }
+  ],
+  "reference_observer": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/manifest.json"
+}

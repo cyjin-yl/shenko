@@ -1,0 +1,29 @@
+{
+  "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+  "files": [
+    {
+      "source_path": "scripts/real_single_node_journey.py",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/real_single_node_journey.py",
+      "bytes": 54139,
+      "sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d"
+    },
+    {
+      "source_path": "scripts/real_browser_witness.py",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/real_browser_witness.py",
+      "bytes": 22907,
+      "sha256": "429d831acf7d597f91bc829856536dcc7afa9959702ed77ffd6fb0af05c7cbc5"
+    },
+    {
+      "source_path": "scripts/summarize_request_timing.py",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/summarize_request_timing.py",
+      "bytes": 8491,
+      "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7"
+    },
+    {
+      "source_path": "docs/evidence/daily-readiness-20261122/sample-environment.py",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cdf71091/sample-environment.py",
+      "bytes": 8703,
+      "sha256": "6b07d0bae686fa6ac7850e0a6ddefe2330baca0e2469baeb04301e5d73b665fd"
+    }
+  ]
+}

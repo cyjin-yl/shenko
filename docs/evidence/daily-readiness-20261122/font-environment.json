@@ -1,0 +1,27 @@
+{
+  "observed_at": "2026-11-21T20:59:38.080775+00:00",
+  "package": "fonts-noto-cjk 1:20220127+repack1-1",
+  "files": [
+    {
+      "path": "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+      "bytes": 20050760,
+      "sha256": "faa5f3656a78b2e2d450d27fe8382c778bc2b6bb5ea29c986664a6a435056ceb"
+    },
+    {
+      "path": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+      "bytes": 19484784,
+      "sha256": "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a"
+    },
+    {
+      "path": "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+      "bytes": 27290960,
+      "sha256": "a5d4b046c127da3d7c72f98b46c41489cd29bf52abfdf18aba920903e920d4ac"
+    },
+    {
+      "path": "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+      "bytes": 26297400,
+      "sha256": "a04178ec485dffdff7cc0c0c20e1fce9202d7e2160d805e8e44a4c8841c58481"
+    }
+  ],
+  "scope": "browser-only font environment added after original cdf71091 failed batch; original screenshots unchanged; no model or application source change"
+}

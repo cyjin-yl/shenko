@@ -30,6 +30,17 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def committed_output_frame(row, step_id, commit_ref, content):
+    message = row.get("message", {})
+    return bool(row.get("direction") == "received"
+        and message.get("schema_version") == 2 and message.get("type") == "timeline_part"
+        and message.get("message_id") == step_id and message.get("step_id") == step_id
+        and message.get("commit_ref") == commit_ref and message.get("content") == content
+        and message.get("part_id") in {"text/0", f"text/0@{commit_ref}"}
+        and message.get("chunk_seq") == 0
+        and message.get("committed_only") is True and message.get("terminal") is True)
+
+
 class BrowserWitness:
     def __init__(self, evidence_dir, url):
         self.directory = evidence_dir / "browser"
@@ -171,18 +182,46 @@ class BrowserWitness:
         sent = await self.wait_for(lambda row: row.get("direction") == "sent"
                                   and row.get("message", {}).get("type") == "submit", after=origin)
         submission = sent["message"]
+        hello = next((row for row in reversed(self.controls)
+            if row.get("direction") == "received" and row.get("socket_id") == sent["socket_id"]
+            and row["index"] < sent["index"] and row.get("message", {}).get("type") == "hello"), None)
+        capabilities = hello["message"].get("capabilities", {}) if hello else {}
+        # The unified Send handler prefers steer only when this socket's hello
+        # advertises it. Later capabilities frames negotiate surfaces; they do
+        # not replace these input-mode capabilities.
+        expected_mode = "steer" if capabilities.get("steer") is True else "append"
+        self.observations[f"{phase}_input_mode"] = {
+            "socket_id": sent["socket_id"], "hello_index": hello["index"] if hello else None,
+            "capabilities": capabilities, "expected_mode": expected_mode,
+            "submitted_mode": submission.get("mode"),
+        }
+        self.checks[f"browser_{phase}_input_mode_matches_capability"] = bool(
+            hello and hello["message"].get("schema_version") == 2
+            and capabilities.get("append") is True and capabilities.get("durable_input_receipts") is True
+            and submission.get("mode") == expected_mode)
         if (submission.get("content") != content or submission.get("subject_id") != subject
-                or submission.get("schema_version") != 2 or submission.get("mode") != "append"
-                or not submission.get("submission_id") or not submission.get("message_id")):
+                or submission.get("schema_version") != 2
+                or not self.checks[f"browser_{phase}_input_mode_matches_capability"]
+                or not all(isinstance(submission.get(key), str) and submission[key]
+                           for key in ("submission_id", "message_id"))):
             raise AssertionError("browser submitted a different input or subject")
         self.checks[f"browser_{phase}_input_from_composer"] = True
         self.submission_keys.add("submission." + submission["submission_id"])
         receipt = await self.wait_for(lambda row: row.get("direction") == "received"
+            and row.get("socket_id") == sent["socket_id"]
             and row.get("message", {}).get("type") == "receipt"
             and row["message"].get("submission_id") == submission["submission_id"]
             and row["message"].get("stage") == "accepted", after=sent["index"])
+        accepted = receipt["message"]
+        placement = accepted.get("placement", {})
+        self.observations[f"{phase}_input_mode"]["accepted_receipt"] = accepted
         self.checks[f"browser_{phase}_durable_receipt"] = bool(
-            receipt["message"].get("accepted_commit") and receipt["message"].get("event_id"))
+            accepted.get("schema_version") == 2 and accepted.get("durability") == "durable"
+            and accepted.get("accepted_commit") and accepted.get("event_id")
+            and accepted.get("mode") == submission["mode"] and accepted.get("replayed") is False
+            and placement.get("requested") == submission["mode"] and placement.get("actual") == "next_boundary")
+        if not self.checks[f"browser_{phase}_durable_receipt"]:
+            raise AssertionError("browser input receipt differs from its actual mode or durable placement")
         await self.capture(f"{phase}-submitted")
         return submission
 
@@ -220,20 +259,37 @@ class BrowserWitness:
         self.captures.append(phase)
         return state
 
-    async def observe_output(self, phase, step_id, markers):
+    async def observe_output(self, phase, committed_output, markers):
+        step = committed_output["step"]
+        step_id = step["step_id"]
+        commit = step["commit_ref"]
+        commit_ref = f"{commit['ledger_id']}/{commit['seq']}"
+        content = committed_output["decision"]["output"]["text"]
         self.checks[f"browser_{phase}_committed_output"] = False
-        await self.page.locator('nav[aria-label="视图"]').get_by_text("Inspect", exact=True).click()
-        output = self.page.locator(f'.timeline [data-message-id="{step_id}"] .entry-body')
+        await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="Inspect", exact=True).click()
+        observation = {"step_id": step_id, "commit_ref": commit_ref}
+        self.observations[f"{phase}_output"] = observation
         try:
-            await output.first.wait_for(state="visible")
+            # A matching streamed body can arrive before this page receives
+            # the committed projection. An independent socket is not proof
+            # that the actual browser has received and rendered that commit.
+            receipt = await self.wait_for(lambda row: committed_output_frame(
+                row, step_id, commit_ref, content), timeout=15)
+            part_id = receipt["message"]["part_id"]
+            observation["committed_frame"] = {"index": receipt["index"],
+                "socket_id": receipt["socket_id"], "part_id": part_id}
+            output = self.page.locator(f'.timeline [data-message-id="{step_id}"]'
+                f'[data-part-id="{part_id}"][data-commit-ref="{commit_ref}"]'
+                '[data-committed="true"] .entry-body')
+            await output.wait_for(state="visible")
             texts = await output.all_inner_texts()
             self.checks[f"browser_{phase}_committed_output"] = any(
                 all(marker in text for marker in markers) for text in texts)
-            self.observations[f"{phase}_output"] = {"step_id": step_id, "rendered_parts": texts}
+            observation["rendered_parts"] = texts
         except Exception as error:
-            self.observations[f"{phase}_output"] = {"step_id": step_id, "error": str(error)}
+            observation["error"] = str(error)
         await self.capture(f"{phase}-output")
-        await self.page.locator('nav[aria-label="视图"]').get_by_text("对话", exact=True).click()
+        await self.page.locator('nav[aria-label="视图"]').get_by_role("button", name="对话", exact=True).click()
 
     async def prepare_restart(self, draft):
         await self.editor().fill(draft)
@@ -310,16 +366,53 @@ class BrowserWitness:
     async def finish_journey(self):
         # Replay can arrive after hello and after the first paint. Recheck the
         # original facts after the continued model result, on the same page.
+        # observe_output just switched from Inspect back to the conversation.
+        # Compiled bubbles mount their content after that click returns. Wait
+        # within the existing 15-second UI boundary for the same strict
+        # identity/count/text predicate, then retain a fresh DOM observation.
+        self.checks["browser_existing_messages_retained_once_at_finish"] = False
+        expected = [{"key": row["key"], "text": row["text"]}
+                    for row in self.before_restart["rows"] if row["stable_fact"]]
+        rendering = {"timeout_seconds": 15, "ready": False}
+        self.observations["final_conversation_render"] = rendering
+        started = time.monotonic()
+        try:
+            await self.page.wait_for_function("""expected => {
+                const rows = [...document.querySelectorAll('.im-scroll .im-msg[data-message-key]')];
+                return expected.length > 0 && expected.every(old => {
+                    const matches = rows.filter(row => row.dataset.messageKey === old.key);
+                    return matches.length === 1 &&
+                        (matches[0].querySelector('.im-line') ?? matches[0]).innerText === old.text;
+                });
+            }""", arg=expected, timeout=15000)
+            rendering["ready"] = True
+        finally:
+            rendering["elapsed_seconds"] = time.monotonic() - started
         state = await self.capture("journey-finished")
         self.checks["browser_existing_messages_retained_once_at_finish"] = self.stable_messages_match(state)
 
-    async def close(self):
+    async def close(self, *, capture_timeout=15, cleanup_timeout=10):
         errors = []
+        interruptions = []
+        pending_interrupt = None
+        cleanup = {"capture_timeout_seconds": capture_timeout, "owner_timeout_seconds": cleanup_timeout}
+
+        def failed(stage, error):
+            nonlocal pending_interrupt
+            errors.append(f"{stage}: {type(error).__name__}: {error}")
+            if not isinstance(error, Exception):
+                if pending_interrupt is None:
+                    pending_interrupt = error
+                interruptions.append({"stage": stage, "type": type(error).__name__, "message": str(error)})
+
         if self.page is not None and not self.page.is_closed():
             try:
-                await self.capture("final")
-            except Exception as error:
-                errors.append(f"final browser capture: {error}")
+                async with asyncio.timeout(capture_timeout):
+                    await self.capture("final")
+                cleanup["final_capture"] = "complete"
+            except BaseException as error:
+                cleanup["final_capture"] = "failed"
+                failed("final browser capture", error)
         self.checks["browser_no_page_errors"] = not self.page_errors
         stream_parts = self.counts[("received", "stream_part")]
         self.observations["streaming"] = {"observed": stream_parts > 0, "received_stream_parts": stream_parts,
@@ -329,12 +422,30 @@ class BrowserWitness:
                                        ("driver", self.driver, "stop")]:
             if owner is not None:
                 try:
-                    await getattr(owner, operation)()
-                except Exception as error:
-                    errors.append(f"{name} cleanup: {error}")
+                    async with asyncio.timeout(cleanup_timeout):
+                        await getattr(owner, operation)()
+                    cleanup[name] = "complete"
+                except BaseException as error:
+                    cleanup[name] = "failed"
+                    failed(f"{name} cleanup", error)
+            else:
+                cleanup[name] = "not_created"
+        try:
+            self.log.close()
+        except BaseException as error:
+            failed("browser event log close", error)
+        # A timed-out/cancelled close is unknown, even if a later owner's close
+        # returns. Never report that the browser was cleaned up normally.
+        self.checks["browser_cleanup_complete"] = not errors
         report = {"checks": self.checks, "observations": self.observations, "errors": errors,
-                  "page_errors": self.page_errors,
+                  "page_errors": self.page_errors, "cleanup": cleanup, "interruptions": interruptions,
                   "scope": "one live page and owned CLI/model journey; no physical device, screen-reader, long-run or full UI acceptance"}
-        save(self.directory / "summary.json", report)
-        self.log.close()
+        try:
+            save(self.directory / "summary.json", report)
+        except BaseException as error:
+            failed("browser summary retention", error)
+            self.checks["browser_cleanup_complete"] = False
+        if pending_interrupt is not None:
+            pending_interrupt.shenko_browser_cleanup = report
+            raise pending_interrupt
         return report

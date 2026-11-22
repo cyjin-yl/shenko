@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+  "startup_timeout_seconds": 300,
+  "requested_runs": 3,
+  "runs": [
+    {
+      "attempt": 1,
+      "directory": "attempt-001",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "summary_sha256": "ca06e3f35cf99792a0efa94ab4e49cc1009208348ab14290579468f8f1cb3d34",
+      "exit_code": 1,
+      "elapsed_seconds": 137.5589433379937
+    },
+    {
+      "attempt": 2,
+      "directory": "attempt-002",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "summary_sha256": "16231285c1e25477cb645df887cc9fba0af52850847610c7afccc3ea662b6af5",
+      "exit_code": 1,
+      "elapsed_seconds": 100.92404507298488
+    },
+    {
+      "attempt": 3,
+      "directory": "attempt-003",
+      "completed": true,
+      "passed": false,
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "summary_sha256": "f8c97004dfd630937688f1131d3bedd7e6951f9b3252620f315cf977ac51a2b2",
+      "exit_code": 1,
+      "elapsed_seconds": 89.83925954499864
+    }
+  ],
+  "passed": false,
+  "errors": [],
+  "started_at": "2026-11-21T20:47:52Z",
+  "attempted_runs": 3,
+  "completed_runs": 3,
+  "passed_runs": 0,
+  "failed_runs": 3,
+  "unattempted_runs": 0,
+  "success_rate": 0.0,
+  "binary_sha256": "e1bec856a805687d18250907a39ff999bcf76cfc224f569dba961847ef59459b",
+  "model_card": {
+    "id": "swift-qwen3.8-27b-nvfp4",
+    "object": "model",
+    "owned_by": "vllm",
+    "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+    "parent": null,
+    "max_model_len": 409600
+  },
+  "model_card_non_identity_fields": [
+    "permission",
+    "created"
+  ],
+  "model_url": "http://10.10.10.11:8000",
+  "finished_at": "2026-11-21T20:53:22Z"
+}

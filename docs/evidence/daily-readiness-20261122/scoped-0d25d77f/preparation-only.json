@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "pid": 1607710,
+  "process_exit_code": 0,
+  "completed": [
+    "verified bundle",
+    "fetched branch",
+    "pushed head 0d25d77fde4b96ecbc3a8af88baeee9fadaf362f",
+    "checked out detached candidate"
+  ],
+  "scope_started": false,
+  "release_started": false,
+  "evidence": "No scoped-0d25d77f or release-0d25d77f output directories existed after the process finished. Output ended after checkout.",
+  "cause": "Host command fed bash through a here-document; the docker-inspect ssh command lacked -n and consumed the remaining script input. Use a standalone host script and ssh -n for commands requiring no stdin.",
+  "product_tested": false
+}

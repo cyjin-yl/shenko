@@ -1,0 +1,191 @@
+{
+  "kind": "rust_workspace_outer_harness_audit",
+  "run_id": 44952886247,
+  "job_id": 136994486924,
+  "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+  "raw_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-5f1e426a/rust.log",
+    "bytes": 552973,
+    "sha256": "7f89c55c853b07789ff16c27ccab9454460d79d33f9752402cfb0d9b6d218990",
+    "lines": 6536
+  },
+  "command": [
+    2465,
+    "##[group]Run cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log"
+  ],
+  "checkout": [
+    [
+      522,
+      "HEAD is now at 3d6c1f43 Merge 5f1e426a047390159f038bf58b6d19948ab4ffc9 into f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42"
+    ],
+    [
+      525,
+      "3d6c1f436ba00082ba132a37217fca574cfa3bf0"
+    ]
+  ],
+  "outer_summary": {
+    "cargo_targets": 158,
+    "executable_targets": 125,
+    "doctest_targets": 33,
+    "result_rows": 157,
+    "passed": 1238,
+    "failed": 2,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 0,
+    "non_libtest_skip_targets": 1
+  },
+  "nested_summary": {
+    "result_rows": 19,
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 131
+  },
+  "validation": {
+    "stray": [],
+    "mismatches": [],
+    "outer_filtered": [],
+    "outer_non_ok": [
+      [
+        5660,
+        "FAILED",
+        47,
+        2,
+        0,
+        0,
+        0,
+        19.21
+      ]
+    ],
+    "missing_results": [],
+    "explicit_non_ok": []
+  },
+  "method": "Use final libtest result in each Cargo Running/Doc-tests target. Retain earlier subprocess results separately; verify first running-N count against outer result. Preserve separate harness=false SKIP.",
+  "explicit_long_proofs": [],
+  "explicit_preparations": [],
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247",
+  "job_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486924",
+  "event": "pull_request",
+  "run_attempt": 1,
+  "head_branch": "feat/daily-readiness-20261122",
+  "job_conclusion": "failure",
+  "started_at": "2026-11-21T21:42:04Z",
+  "completed_at": "2026-11-21T22:00:40Z",
+  "audit_file": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-5f1e426a/rust-outer-audit.json",
+    "bytes": 70091,
+    "sha256": "2df27a867359c96d3fcee5d6448593b90652698af8cbebf0601dabb58d9bcf0a"
+  },
+  "failed_test_lines": [
+    "2026-11-21T21:57:15.4569483Z test canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart ... FAILED",
+    "2026-11-21T21:57:18.5742634Z test canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker ... FAILED"
+  ],
+  "artifacts": {
+    "total_count": 5,
+    "artifacts": [
+      {
+        "id": 14727390538,
+        "node_id": "MDg6QXJ0aWZhY3QxNDcyNzM5MDUzOA==",
+        "name": "dsh-native-evidence",
+        "size_in_bytes": 8765,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14727390538",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14727390538/zip",
+        "expired": false,
+        "digest": "sha256:2c640e45de25270cc7d364f2a6807079ba9573c362f586fdcfee287ab3922a10",
+        "created_at": "2026-11-21T21:58:54Z",
+        "updated_at": "2026-11-21T21:58:54Z",
+        "expires_at": "2027-02-19T21:42:01Z",
+        "workflow_run": {
+          "id": 44952886247,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9"
+        }
+      },
+      {
+        "id": 14726937617,
+        "node_id": "MDg6QXJ0aWZhY3QxNDcyNjkzNzYxNw==",
+        "name": "rust-evidence",
+        "size_in_bytes": 1014390831,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726937617",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726937617/zip",
+        "expired": false,
+        "digest": "sha256:ddfc5d1242683a54dd66078bd276f236b95fb155fda124b03ff3c72a2c811e08",
+        "created_at": "2026-11-21T22:00:36Z",
+        "updated_at": "2026-11-21T22:00:36Z",
+        "expires_at": "2027-02-19T21:42:01Z",
+        "workflow_run": {
+          "id": 44952886247,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9"
+        }
+      },
+      {
+        "id": 14726530920,
+        "node_id": "MDg6QXJ0aWZhY3QxNDcyNjUzMDkyMA==",
+        "name": "web-rebuild-evidence",
+        "size_in_bytes": 2476170,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726530920",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726530920/zip",
+        "expired": false,
+        "digest": "sha256:52b055e7a27af92a43fe6777782990f339b3d6c33d20eb9c4782b05366f5d7e8",
+        "created_at": "2026-11-21T21:43:42Z",
+        "updated_at": "2026-11-21T21:43:42Z",
+        "expires_at": "2027-02-19T21:42:01Z",
+        "workflow_run": {
+          "id": 44952886247,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9"
+        }
+      },
+      {
+        "id": 14726331485,
+        "node_id": "MDg6QXJ0aWZhY3QxNDcyNjMzMTQ4NQ==",
+        "name": "kernel-boundary-evidence",
+        "size_in_bytes": 231,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726331485",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726331485/zip",
+        "expired": false,
+        "digest": "sha256:6951ce790aeb7b9f339211906c93e65259a71c305aa1c97082a4bbe8ae5f7557",
+        "created_at": "2026-11-21T21:42:35Z",
+        "updated_at": "2026-11-21T21:42:35Z",
+        "expires_at": "2027-02-19T21:42:01Z",
+        "workflow_run": {
+          "id": 44952886247,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9"
+        }
+      },
+      {
+        "id": 14726183907,
+        "node_id": "MDg6QXJ0aWZhY3QxNDcyNjE4MzkwNw==",
+        "name": "clippy-ratchet-evidence",
+        "size_in_bytes": 2998232,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726183907",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14726183907/zip",
+        "expired": false,
+        "digest": "sha256:0fb8e50cc0f30e077eb9a1a675d1c275b2e496cce17ea29634ccbb44adb8ecad",
+        "created_at": "2026-11-21T21:48:22Z",
+        "updated_at": "2026-11-21T21:48:22Z",
+        "expires_at": "2027-02-19T21:42:01Z",
+        "workflow_run": {
+          "id": 44952886247,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9"
+        }
+      }
+    ]
+  },
+  "artifact_verification_scope": "GitHub API identity and digest metadata; artifact ZIPs are not downloaded by this Rust collector."
+}

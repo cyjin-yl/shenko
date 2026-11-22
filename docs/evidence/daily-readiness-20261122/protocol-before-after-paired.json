@@ -1,0 +1,1294 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T19:30:10Z",
+  "case_table_sha256": "d7b9f0a2dfddffda823f1154e54fc6a5f0eef4c99445f6a40b5f9ccdea87359a",
+  "identities": {
+    "before": {
+      "run_id": "protocol-before-r3",
+      "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+      "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+      "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+      "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+      "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+      "model": "swift-qwen3.8-27b-nvfp4",
+      "model_url": "http://10.10.10.11:8000",
+      "startup_timeout_seconds": 300,
+      "phase_timeout_seconds": 900,
+      "configured_local_request_timeout_ms": "600000",
+      "request_path_timing": true,
+      "binary_bytes": 89865568,
+      "effective": {
+        "provider_binding": {
+          "kind": "local",
+          "base_url": "http://10.10.10.11:8000",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "allow_invalid_certs": false,
+          "serializer_revision": 4,
+          "default_max_tokens": 8192,
+          "request_timeout_ms": 600000
+        },
+        "profile_id": "local.openai.chat_completions",
+        "profile_revision": 4,
+        "api_version": null,
+        "max_tokens": 4096,
+        "native_options": {}
+      },
+      "all_cases_same_recorded_identity": true
+    },
+    "after": {
+      "run_id": "protocol-after-r1",
+      "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+      "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-after-protocol",
+      "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+      "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+      "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+      "model": "swift-qwen3.8-27b-nvfp4",
+      "model_url": "http://10.10.10.11:8000",
+      "startup_timeout_seconds": 300,
+      "phase_timeout_seconds": 900,
+      "configured_local_request_timeout_ms": "600000",
+      "request_path_timing": true,
+      "binary_bytes": 89869664,
+      "effective": {
+        "provider_binding": {
+          "kind": "local",
+          "base_url": "http://10.10.10.11:8000",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "allow_invalid_certs": false,
+          "serializer_revision": 4,
+          "default_max_tokens": 8192,
+          "request_timeout_ms": 600000
+        },
+        "profile_id": "local.openai.chat_completions",
+        "profile_revision": 4,
+        "api_version": null,
+        "max_tokens": 4096,
+        "native_options": {}
+      },
+      "all_cases_same_recorded_identity": true
+    },
+    "driver_source_revision": "2b9707f6",
+    "same_recorded_conditions": [
+      "driver_sha256",
+      "journey_helper_sha256",
+      "model",
+      "model_url",
+      "startup_timeout_seconds",
+      "phase_timeout_seconds",
+      "configured_local_request_timeout_ms",
+      "request_path_timing",
+      "sealed/effective model binding",
+      "effective max_tokens=4096",
+      "native_options={}",
+      "fixed eight-case table"
+    ]
+  },
+  "observations": {
+    "before": {
+      "requested": 8,
+      "completed": 8,
+      "raw_first_s1_checks": 6,
+      "original_strict_protocol_passed": 1,
+      "clean_stops": 1,
+      "scope_count": 1164,
+      "complete_scopes": 1162,
+      "incomplete_scopes": 2
+    },
+    "after": {
+      "requested": 8,
+      "completed": 8,
+      "raw_first_s1_checks": 8,
+      "original_strict_protocol_passed": 2,
+      "clean_stops": 2,
+      "scope_count": 1379,
+      "complete_scopes": 1379,
+      "incomplete_scopes": 0
+    }
+  },
+  "pairs": [
+    {
+      "case_id": "multiply-17-29",
+      "before": {
+        "case_directory": "case-01",
+        "request_id": "eb4c5541-820c-483f-a5b4-246d3717c5b7",
+        "step_id": "06564272-0324-4420-ab07-2c909e7350ff",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 3153,
+        "input_tokens": 13247,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T18:46:15Z",
+        "finished_at": "2026-11-21T18:50:16Z",
+        "startup_seconds": 80.21858954601339,
+        "subject_prepare_s1_us": 48579323,
+        "scope_count": 146,
+        "complete_scope_count": 146,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/46/15/461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+          "bytes": 395169,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/27/69/2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:afadcccf7e3c65383364923d52760ac3d6ec3d77e5ee2ef2b703c56c3e1ce8d6",
+          "bytes": 6079,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/af/ad/afadcccf7e3c65383364923d52760ac3d6ec3d77e5ee2ef2b703c56c3e1ce8d6",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.runtime.log",
+          "bytes": 110186,
+          "sha256": "a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102"
+        }
+      },
+      "after": {
+        "case_directory": "case-01",
+        "request_id": "6b614d5e-18e6-4af4-ae6d-b92d4d4f5f8c",
+        "step_id": "1040a398-d314-4563-8de9-036e002b3cf5",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1847,
+        "input_tokens": 13276,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:12:27Z",
+        "finished_at": "2026-11-21T19:14:23Z",
+        "startup_seconds": 12.468716661009239,
+        "subject_prepare_s1_us": 10451097,
+        "scope_count": 122,
+        "complete_scope_count": 122,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:25024bc3ddb592c30574bc538f3f472a378e70f291327f5e1f7a5a78cb351b7d",
+          "bytes": 61018,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/installation/cas/25/02/25024bc3ddb592c30574bc538f3f472a378e70f291327f5e1f7a5a78cb351b7d",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:2f677d709288b1ace23b4e1c3d5f476de9ba86b7a5baf262b0bd4c7d94dd0c12",
+          "bytes": 234989,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/installation/cas/2f/67/2f677d709288b1ace23b4e1c3d5f476de9ba86b7a5baf262b0bd4c7d94dd0c12",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:4774486717643196f0544d95a7d7a0ba2750d8348a4a5b590292e6fe47919eb8",
+          "bytes": 7513,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/installation/cas/47/74/4774486717643196f0544d95a7d7a0ba2750d8348a4a5b590292e6fe47919eb8",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-01/first.runtime.log",
+          "bytes": 95787,
+          "sha256": "9e616962760bc9f759f4064410e15d4b391e7028b49028a29d746f9ed335b4bb"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-28-34",
+      "before": {
+        "case_directory": "case-02",
+        "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+        "step_id": "98f86b82-dd72-4859-997d-8bf419ba5b57",
+        "status": "success",
+        "provider_stop_reason": "length",
+        "output_tokens": 4096,
+        "input_tokens": 13247,
+        "step_state": "retired",
+        "first_s1_three_checks": false,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "first_r0_code": "MODEL_RESULT_INCOMPLETE",
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T18:50:17Z",
+        "finished_at": "2026-11-21T18:53:16Z",
+        "startup_seconds": 75.98139103798894,
+        "subject_prepare_s1_us": null,
+        "scope_count": 88,
+        "complete_scope_count": 88,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/f5/3a/f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:205a210d66f082941091456183a123aaef65d9c07f3b05e83d0e4abd1be15e04",
+          "bytes": 492565,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/20/5a/205a210d66f082941091456183a123aaef65d9c07f3b05e83d0e4abd1be15e04",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": null,
+        "retry_reason_ref": {
+          "digest": "blake3:6725ed91744a3bdcb18721b981a15d3c8ee88af2dfa65c1f4f046b824fb5f45d",
+          "bytes": 1971,
+          "media_type": "application/json",
+          "store_namespace": "control_rejections",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/67/25/6725ed91744a3bdcb18721b981a15d3c8ee88af2dfa65c1f4f046b824fb5f45d",
+          "codec": {
+            "name": "ControlOutputRejection",
+            "major": 3,
+            "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+          }
+        },
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/first.runtime.log",
+          "bytes": 65828,
+          "sha256": "881d1dbf38b537f9580b88c543aeeb3ea7981c1d746b2c75852ff643e2008bbe"
+        }
+      },
+      "after": {
+        "case_directory": "case-02",
+        "request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+        "step_id": "ef51db9b-f38e-49b4-8aac-b29eac31933b",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1532,
+        "input_tokens": 13274,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:14:24Z",
+        "finished_at": "2026-11-21T19:16:21Z",
+        "startup_seconds": 11.465180555998813,
+        "subject_prepare_s1_us": 9500612,
+        "scope_count": 227,
+        "complete_scope_count": 227,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:245559e61592b870e1e55a8cee75d989958c31510d3fa3db4e982d01193eb6bd",
+          "bytes": 61017,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/24/55/245559e61592b870e1e55a8cee75d989958c31510d3fa3db4e982d01193eb6bd",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:a63f58712a5caa2917a174fcd37262ee93145942261f78885e064b5f1e78b3d2",
+          "bytes": 201839,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/a6/3f/a63f58712a5caa2917a174fcd37262ee93145942261f78885e064b5f1e78b3d2",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:23d7edd4bd2079cdb1c443002e77865c382078b523230c6b5df5b8729a052db3",
+          "bytes": 6854,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/installation/cas/23/d7/23d7edd4bd2079cdb1c443002e77865c382078b523230c6b5df5b8729a052db3",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-02/first.runtime.log",
+          "bytes": 181432,
+          "sha256": "3a3e55274b8c35f21031e657491754ad499e2a1e862bd4b65389f638e06c9c31"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-46-27",
+      "before": {
+        "case_directory": "case-03",
+        "request_id": "ab6402c7-edfc-4a00-a754-c0a19a087db9",
+        "step_id": "a9985f79-4323-4097-9701-6ac58da73288",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 2953,
+        "input_tokens": 13247,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T18:53:17Z",
+        "finished_at": "2026-11-21T18:56:54Z",
+        "startup_seconds": 76.99003579499549,
+        "subject_prepare_s1_us": 32709662,
+        "scope_count": 131,
+        "complete_scope_count": 131,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:91c392ad056779454bb25298fdc3efdc15e6262dc62e9afa38d8140eb79cbc5e",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/91/c3/91c392ad056779454bb25298fdc3efdc15e6262dc62e9afa38d8140eb79cbc5e",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:69348ce2109220b3a1a5336237a4b73ef0160ce788c90621986f8d2322c6b893",
+          "bytes": 380524,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/69/34/69348ce2109220b3a1a5336237a4b73ef0160ce788c90621986f8d2322c6b893",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:7a710de8df5eb7b6d98b1185849a92460772838af25a83774293a7fdece536a2",
+          "bytes": 6260,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/7a/71/7a710de8df5eb7b6d98b1185849a92460772838af25a83774293a7fdece536a2",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/first.runtime.log",
+          "bytes": 98031,
+          "sha256": "fc7201590943f8377ce442a405bab3e1bb4c8c47c03cfdf19293a1e7b95d8c0a"
+        }
+      },
+      "after": {
+        "case_directory": "case-03",
+        "request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+        "step_id": "d1eb8e93-21d9-4f87-97e2-64e2f0bc733e",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 3611,
+        "input_tokens": 13278,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:16:22Z",
+        "finished_at": "2026-11-21T19:19:34Z",
+        "startup_seconds": 14.089840344997356,
+        "subject_prepare_s1_us": 5595443,
+        "scope_count": 239,
+        "complete_scope_count": 239,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:25904db7d515ac72974d78e2c8370ff2e8d3d3e41751020fe5f91a1f5dd64c86",
+          "bytes": 61018,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/25/90/25904db7d515ac72974d78e2c8370ff2e8d3d3e41751020fe5f91a1f5dd64c86",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:2d328aa32f3608597b9e63bc438ce1e12948ae14fea2f75853c1b0baca52bf1f",
+          "bytes": 513957,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/2d/32/2d328aa32f3608597b9e63bc438ce1e12948ae14fea2f75853c1b0baca52bf1f",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:3e1e0da32f8aa29755310a46accfbfd9ed307ed82a97eda1748aaf07c87cce56",
+          "bytes": 6654,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/installation/cas/3e/1e/3e1e0da32f8aa29755310a46accfbfd9ed307ed82a97eda1748aaf07c87cce56",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-03/first.runtime.log",
+          "bytes": 186384,
+          "sha256": "fa2e5ca62cd7cca026028492c1e01d764cd48978db5f19c38c0f0dcdc76df2b3"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-63-18",
+      "before": {
+        "case_directory": "case-04",
+        "request_id": "21f145a6-0fa1-46d2-b84e-c02a811472b8",
+        "step_id": "066f16f9-3323-47b5-9057-057b1caa4799",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1787,
+        "input_tokens": 13245,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T18:56:55Z",
+        "finished_at": "2026-11-21T19:00:31Z",
+        "startup_seconds": 69.97472726099659,
+        "subject_prepare_s1_us": 44226597,
+        "scope_count": 140,
+        "complete_scope_count": 140,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:71941296eda86d7c842ca02d1d9bd009d2e27aa0634a6d9a734e7dbf2648f698",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/71/94/71941296eda86d7c842ca02d1d9bd009d2e27aa0634a6d9a734e7dbf2648f698",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:1594f9959f63ef4cbd07be01808d8a0075f47482feab6e91041a6367dcec8a36",
+          "bytes": 214199,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/15/94/1594f9959f63ef4cbd07be01808d8a0075f47482feab6e91041a6367dcec8a36",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:dac5f176589b273a0adb77bd2742ec5fe21779a20cb7d6cddbe500c296c85f72",
+          "bytes": 5748,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/da/c5/dac5f176589b273a0adb77bd2742ec5fe21779a20cb7d6cddbe500c296c85f72",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/first.runtime.log",
+          "bytes": 106599,
+          "sha256": "74b8ab4e5d8afe4bc60da025e9c299e3944a01b86c854a07fd05ab3ab13b7328"
+        }
+      },
+      "after": {
+        "case_directory": "case-04",
+        "request_id": "10940591-eb9e-4fe6-b5c6-fd1a84288305",
+        "step_id": "2bcec865-92b5-437c-a011-b3ff2d035851",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 2955,
+        "input_tokens": 13277,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:19:35Z",
+        "finished_at": "2026-11-21T19:21:22Z",
+        "startup_seconds": 12.08242787400377,
+        "subject_prepare_s1_us": 10049387,
+        "scope_count": 119,
+        "complete_scope_count": 119,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:8864f5ebc4b2206cee43379cd93e00576a7d9c7370886db2ac78f9ad374d01a3",
+          "bytes": 61019,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-04/installation/cas/88/64/8864f5ebc4b2206cee43379cd93e00576a7d9c7370886db2ac78f9ad374d01a3",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:ec6f789c9aac70e97504152d5b5a4adcb87f150fa150aa2033cfaae4f9b745ef",
+          "bytes": 377149,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-04/installation/cas/ec/6f/ec6f789c9aac70e97504152d5b5a4adcb87f150fa150aa2033cfaae4f9b745ef",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:3bfc9929551869717d535187fdc24cfdb2d765da57bfea31ea4769ce68a90546",
+          "bytes": 7105,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-04/installation/cas/3b/fc/3bfc9929551869717d535187fdc24cfdb2d765da57bfea31ea4769ce68a90546",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-04/first.runtime.log",
+          "bytes": 90797,
+          "sha256": "35fc655614705aefe8d660298a7c510c13d76db5a6d0b34bc789a5936a49de31"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-42-57",
+      "before": {
+        "case_directory": "case-05",
+        "request_id": "2559eb47-bd42-4fff-b3d9-575011ea197e",
+        "step_id": "4a1ac1da-5133-4f23-a452-7c50de22ec3f",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 2650,
+        "input_tokens": 13245,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:00:31Z",
+        "finished_at": "2026-11-21T19:05:57Z",
+        "startup_seconds": 68.54591075898497,
+        "subject_prepare_s1_us": 86151773,
+        "scope_count": 245,
+        "complete_scope_count": 243,
+        "incomplete_scope_count": 2,
+        "input_plan_ref": {
+          "digest": "blake3:6310c2e162ad5ec0ffa905e1a12b3b0567402c903ad9064e159ddb17119a19b1",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/63/10/6310c2e162ad5ec0ffa905e1a12b3b0567402c903ad9064e159ddb17119a19b1",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:7179933209fea5e0e093d1b3992cbab42fad591012009c1d4e674163f1e22ee7",
+          "bytes": 339124,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/71/79/7179933209fea5e0e093d1b3992cbab42fad591012009c1d4e674163f1e22ee7",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:fef9de4799d746745412d797b13f5ad779c16a0ad8a2f80303abd73a5ea16168",
+          "bytes": 7330,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/fe/f9/fef9de4799d746745412d797b13f5ad779c16a0ad8a2f80303abd73a5ea16168",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/first.runtime.log",
+          "bytes": 188022,
+          "sha256": "362855f3c4eba345952da27300802836192dc2316e6a2992b7ce74e6576623cf"
+        }
+      },
+      "after": {
+        "case_directory": "case-05",
+        "request_id": "b19febf8-d866-499e-b310-6b277258aaa8",
+        "step_id": "58a764cd-5cde-43d0-a0ef-7fd3fc84d8cc",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1743,
+        "input_tokens": 13280,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": true,
+        "clean_stop": true,
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:21:23Z",
+        "finished_at": "2026-11-21T19:22:59Z",
+        "startup_seconds": 11.857334123982582,
+        "subject_prepare_s1_us": 7968033,
+        "scope_count": 213,
+        "complete_scope_count": 213,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:815bc51e52042960ca950532031de2b1b9fb9e235b45e20fc882e11d6c45e3e5",
+          "bytes": 61018,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-05/installation/cas/81/5b/815bc51e52042960ca950532031de2b1b9fb9e235b45e20fc882e11d6c45e3e5",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:b0da63b1adb5fba07d9c50c7c0b0e499bd4c310e63dcd42e123c9cdb70ff376c",
+          "bytes": 219288,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-05/installation/cas/b0/da/b0da63b1adb5fba07d9c50c7c0b0e499bd4c310e63dcd42e123c9cdb70ff376c",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:86786453d9e459ed3e3d937282698c577017218204b33ae0c258a54c97085236",
+          "bytes": 6199,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-05/installation/cas/86/78/86786453d9e459ed3e3d937282698c577017218204b33ae0c258a54c97085236",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-05/first.runtime.log",
+          "bytes": 171485,
+          "sha256": "cccaef95519639fdbf4b09e1e76e36f821acb013f2a548ca9139128c5f10e066"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-73-16",
+      "before": {
+        "case_directory": "case-06",
+        "request_id": "bbb05f7c-d3a8-4482-962a-35d1eb44dacc",
+        "step_id": "6e5a8104-7099-4189-b3ab-be49672bf8f7",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1176,
+        "input_tokens": 13249,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:05:57Z",
+        "finished_at": "2026-11-21T19:08:45Z",
+        "startup_seconds": 67.75367819299572,
+        "subject_prepare_s1_us": 6405800,
+        "scope_count": 119,
+        "complete_scope_count": 119,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:d6f646596a48b1ca47ed9797e77f4e3e7dd1c1bba10a3d1fbcd55b7c7344a74f",
+          "bytes": 60872,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/d6/f6/d6f646596a48b1ca47ed9797e77f4e3e7dd1c1bba10a3d1fbcd55b7c7344a74f",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:50ce4b13fcde070c12c7b76fadcbe3995b1bba193948187d43b118a9ca286250",
+          "bytes": 146574,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/50/ce/50ce4b13fcde070c12c7b76fadcbe3995b1bba193948187d43b118a9ca286250",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:f7c30b1c9ed0d18867fe716e62662ecdea43c22d295374c11f522eabb77ab70f",
+          "bytes": 5524,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/f7/c3/f7c30b1c9ed0d18867fe716e62662ecdea43c22d295374c11f522eabb77ab70f",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/first.runtime.log",
+          "bytes": 90822,
+          "sha256": "5328af6d9fcbdc6dce7667ef950239a760eb6fe6659a1c114e86c961a49e1d6e"
+        }
+      },
+      "after": {
+        "case_directory": "case-06",
+        "request_id": "7a65fe88-6d3f-4208-a09f-192c074cb765",
+        "step_id": "d3c4cb38-201b-401d-a9c7-8c6290218646",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 836,
+        "input_tokens": 13274,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": true,
+        "clean_stop": true,
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:22:59Z",
+        "finished_at": "2026-11-21T19:23:59Z",
+        "startup_seconds": 11.861529350018827,
+        "subject_prepare_s1_us": 5024803,
+        "scope_count": 116,
+        "complete_scope_count": 116,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:c13480b3c8e2fef5478d647a0202bbc298a17814abd49ad6efebc7c9b7b8c85d",
+          "bytes": 61019,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-06/installation/cas/c1/34/c13480b3c8e2fef5478d647a0202bbc298a17814abd49ad6efebc7c9b7b8c85d",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:74344e45f69d857dec44ed93303ad36ccc137253963e2ace7e3fcb685585c31e",
+          "bytes": 105898,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-06/installation/cas/74/34/74344e45f69d857dec44ed93303ad36ccc137253963e2ace7e3fcb685585c31e",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:63ea99017501cba6ac2ad3733d87c570544ff6455eb9c987149d352eeae27ae7",
+          "bytes": 5180,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-06/installation/cas/63/ea/63ea99017501cba6ac2ad3733d87c570544ff6455eb9c987149d352eeae27ae7",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-06/first.runtime.log",
+          "bytes": 90930,
+          "sha256": "eee1a860bdc3c7246b4dfe88a9a68e25b579b434ca664892e2f9d3aed5c1f325"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-84-25",
+      "before": {
+        "case_directory": "case-07",
+        "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+        "step_id": "406198f9-b2e6-45eb-a599-ca9c07d4b49f",
+        "status": "success",
+        "provider_stop_reason": "length",
+        "output_tokens": 4096,
+        "input_tokens": 13245,
+        "step_state": "retired",
+        "first_s1_three_checks": false,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "first_r0_code": "MODEL_RESULT_INCOMPLETE",
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:08:46Z",
+        "finished_at": "2026-11-21T19:11:27Z",
+        "startup_seconds": 15.50473473200691,
+        "subject_prepare_s1_us": null,
+        "scope_count": 100,
+        "complete_scope_count": 100,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/49/ce/49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:753aab9f6c7a9a390cfedae1abac48df3205082682712d8de6da3c5e49302d03",
+          "bytes": 546419,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/75/3a/753aab9f6c7a9a390cfedae1abac48df3205082682712d8de6da3c5e49302d03",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": null,
+        "retry_reason_ref": {
+          "digest": "blake3:1b741f351b292f71a4c8ac85eee1b09a2418f071d2b5dc1eb9954bb298cc0c26",
+          "bytes": 1971,
+          "media_type": "application/json",
+          "store_namespace": "control_rejections",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/1b/74/1b741f351b292f71a4c8ac85eee1b09a2418f071d2b5dc1eb9954bb298cc0c26",
+          "codec": {
+            "name": "ControlOutputRejection",
+            "major": 3,
+            "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+          }
+        },
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/first.runtime.log",
+          "bytes": 72656,
+          "sha256": "8a6e3a749b046aae462fb2d8412280a84dd3289805581a21cbde142830d5b67e"
+        }
+      },
+      "after": {
+        "case_directory": "case-07",
+        "request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+        "step_id": "b6cf10c9-99d3-43a0-90b0-9d4e3e492e6c",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 3884,
+        "input_tokens": 13277,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": -15,
+        "parent_timed_out": true,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:23:59Z",
+        "finished_at": "2026-11-21T19:26:44Z",
+        "startup_seconds": 12.465176911995513,
+        "subject_prepare_s1_us": 6072678,
+        "scope_count": 227,
+        "complete_scope_count": 227,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:f8090aa1281487194dcc8bba52ac591c84b7e9f671e4a4f98db76e68af43bde3",
+          "bytes": 61019,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/f8/09/f8090aa1281487194dcc8bba52ac591c84b7e9f671e4a4f98db76e68af43bde3",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:4e2c613b36bc50efd40cd661c1c4c1239e6ceca59643221813b98c499a510fc8",
+          "bytes": 509369,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/4e/2c/4e2c613b36bc50efd40cd661c1c4c1239e6ceca59643221813b98c499a510fc8",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:c30a45d7d1247c639c4f1919546a789a21b9258d52568d9fb31ec751e59a7542",
+          "bytes": 7688,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/installation/cas/c3/0a/c30a45d7d1247c639c4f1919546a789a21b9258d52568d9fb31ec751e59a7542",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-07/first.runtime.log",
+          "bytes": 179491,
+          "sha256": "aa2e6d77aa452dc7f5c9687a80247251c7ed31cc8fef929cb168c6498d198c26"
+        }
+      }
+    },
+    {
+      "case_id": "multiply-56-39",
+      "before": {
+        "case_directory": "case-08",
+        "request_id": "39cd1ba9-9402-4a4d-839b-4626dd891e51",
+        "step_id": "e028bb01-abba-42ee-aa7c-8c11713c812c",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 1095,
+        "input_tokens": 13247,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": true,
+        "clean_stop": true,
+        "parent_exit": 0,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:11:27Z",
+        "finished_at": "2026-11-21T19:12:26Z",
+        "startup_seconds": 11.457036526990123,
+        "subject_prepare_s1_us": 7897194,
+        "scope_count": 195,
+        "complete_scope_count": 195,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:7af41aa7838d4b0b7ea6675ad2a605b44121db44e1e9812d4ba45160925bec8c",
+          "bytes": 60872,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/7a/f4/7af41aa7838d4b0b7ea6675ad2a605b44121db44e1e9812d4ba45160925bec8c",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:3a10c2a4bc2e38c6eab50f6c907425dabc8d88e3bc11661b23dde6cd56e92c89",
+          "bytes": 142536,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/3a/10/3a10c2a4bc2e38c6eab50f6c907425dabc8d88e3bc11661b23dde6cd56e92c89",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:3dbbb951191591bcd352c2771e9ead91b2f499fbfc5c3da78478f2ca05f9115e",
+          "bytes": 5929,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/3d/bb/3dbbb951191591bcd352c2771e9ead91b2f499fbfc5c3da78478f2ca05f9115e",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/first.runtime.log",
+          "bytes": 160701,
+          "sha256": "aad89f2d34700f3b392f30cbd0809d3f570c488023ae8c4ccf6022f4cd509354"
+        }
+      },
+      "after": {
+        "case_directory": "case-08",
+        "request_id": "67a9261d-9433-447d-96b0-301cebc093af",
+        "step_id": "8675535c-3b55-45df-9090-6bf2ee587248",
+        "status": "success",
+        "provider_stop_reason": "stop",
+        "output_tokens": 2391,
+        "input_tokens": 13279,
+        "step_state": "committed",
+        "first_s1_three_checks": true,
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "first_r0_code": null,
+        "original_strict_protocol_passed": false,
+        "clean_stop": false,
+        "parent_exit": 1,
+        "parent_timed_out": false,
+        "group_cleanup_complete": true,
+        "started_at": "2026-11-21T19:26:44Z",
+        "finished_at": "2026-11-21T19:28:13Z",
+        "startup_seconds": 12.473304366023513,
+        "subject_prepare_s1_us": 7535445,
+        "scope_count": 116,
+        "complete_scope_count": 116,
+        "incomplete_scope_count": 0,
+        "input_plan_ref": {
+          "digest": "blake3:416e770a90ab8684bcac1dfd63fcd43007badb2aada5fe94c0aa4940a1f8991d",
+          "bytes": 61019,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-08/installation/cas/41/6e/416e770a90ab8684bcac1dfd63fcd43007badb2aada5fe94c0aa4940a1f8991d",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:d55c31e3064551ef0df0e1773aa8e7cff9936da4594bc9a2579b71fa3229410b",
+          "bytes": 295770,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-08/installation/cas/d5/5c/d55c31e3064551ef0df0e1773aa8e7cff9936da4594bc9a2579b71fa3229410b",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:cd217a612381acdad1b5205692592fa3a7e554949acae48c19045073cb1941d7",
+          "bytes": 6216,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-08/installation/cas/cd/21/cd217a612381acdad1b5205692592fa3a7e554949acae48c19045073cb1941d7",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "runtime_log": {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-after-r1/case-08/first.runtime.log",
+          "bytes": 92186,
+          "sha256": "c0b71d744c445b39ea14d0d4a9b74514364eba62cbe81ae36915d289339dcf12"
+        }
+      }
+    }
+  ],
+  "source_evidence": [
+    {
+      "file": "protocol-before-r3-timing.json",
+      "sha256": "a3e0f73d0167a83f2012922b3e04a6eda56a396152cf73a7d6be8dd50a0072d2"
+    },
+    {
+      "file": "protocol-after-r1-timing.json",
+      "sha256": "b00e1afd763e77d8faeda7211ac290a6631f8be06934e5a635a94918068c7ba6"
+    },
+    {
+      "file": "protocol-case01-prompt-diff-evidence.json",
+      "sha256": "3f94dc8e9088af46a11c80b127cde7505c6b954688b688e50166958d15afe47f",
+      "raw_diff_sha256": "c59a931463527ff1294fd4fa87125bb219672c418c07beda75729a2b1fd0cfba"
+    }
+  ],
+  "boundaries": [
+    "Fixed eight-case sequential before/after observation, not a randomized simultaneous experiment. Each case has one first-request observation per side; 8/8 cannot establish population reliability.",
+    "Original strict results are preserved: before 1/8 and after 2/8. Raw first S1 admission checks, clean stop and later shutdown-tail work remain separate fields.",
+    "Before and after ran at different wall times. Startup and preparation already varied greatly inside the before batch. No causal latency, filesystem or compiler-effect estimate is derived.",
+    "The two retained retired before first requests were MODEL_RESULT_INCOMPLETE at 4096 tokens. They are not relabeled as multiline-JSON parser errors; after's same cases ended with stop at 1532 and 3884 tokens.",
+    "The complete raw case-01 system-prompt diff contains three inline-JSON instruction changes plus a perception timestamp and catalog revision. These dynamic differences are retained in hashes, not silently normalized out of the raw evidence.",
+    "Both binaries predate the new directory-batch publisher, typed shutdown fix and environment sampler. This observation does not measure any of those later changes.",
+    "The observed outcome is first-request/S1 admission of requested children, not completed child computation, native effect, final answer, pause/restart or duplicate-effect recovery."
+  ]
+}

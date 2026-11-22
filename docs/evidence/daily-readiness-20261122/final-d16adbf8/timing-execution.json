@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "command": [
+    "/usr/bin/python3",
+    "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8-supplement/observer/summarize_request_timing.py",
+    "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-001/first.runtime.log",
+    "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-002/first.runtime.log",
+    "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-d16adbf8/attempt-003/first.runtime.log"
+  ],
+  "exit_code": 0,
+  "tool_sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7",
+  "scope_count": 1920,
+  "complete_count": 1920,
+  "incomplete_count": 0,
+  "invalid_events": [],
+  "observed_dropped_events": [],
+  "interpretation": "Only a timing parser invocation over already closed original logs. Matched scope ends do not prove a successful operation, physical send or full journey."
+}

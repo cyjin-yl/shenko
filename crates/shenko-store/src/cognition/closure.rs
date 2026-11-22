@@ -22,6 +22,20 @@ impl Store {
         }))
     }
 
+    /// Keep required row declarations, but resolve optional bare identifiers
+    /// only when the original snapshot actually retained those objects.
+    pub(crate) fn cognition_object_roots_in_inventory(
+        &self, rows: &[CognitionRow], inventory: &BTreeSet<Digest>,
+    ) -> Vec<ObjectRef> {
+        let (mut roots, external) = declared_object_roots(rows);
+        for digest in external {
+            if inventory.contains(&digest) && let Some(object) = self.bare_object(&digest) {
+                roots.push(object);
+            }
+        }
+        roots
+    }
+
     /// Discover roots directly from bounded borrowed SQL cells, retaining the
     /// same schema authority as the owned archive rows.
     pub(crate) fn cognition_text_object_roots<'a>(
@@ -52,11 +66,24 @@ impl Store {
         max_objects: usize,
         max_bytes: u64,
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
+        self.collect_closure_inner(roots, max_objects, max_bytes, None)
+    }
+
+    pub(crate) fn collect_closure_in_inventory(
+        &self, roots: &[ObjectRef], inventory: &BTreeSet<Digest>,
+    ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
+        self.collect_closure_inner(roots, usize::MAX, u64::MAX, Some(inventory))
+    }
+
+    fn collect_closure_inner(
+        &self, roots: &[ObjectRef], max_objects: usize, max_bytes: u64,
+        inventory: Option<&BTreeSet<Digest>>,
+    ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
         // One schema-aware traversal verifies required bare-digest children
         // as well as complete ObjectRefs. Retain the strongest declaration
         // when opaque, generic JSON and required-child aliases share bytes.
         let mut objects: BTreeMap<Digest, ((bool, bool), CognitionObjectDescriptor)> = BTreeMap::new();
-        let closure = crate::roots::object_closure_with_limits(&self.cas, roots.to_vec(), max_objects, max_bytes, |object, required| {
+        let verified = |object: &ObjectRef, required: bool| {
             let priority = (required, is_json_reference(&object.media_type));
             let descriptor = || CognitionObjectDescriptor {
                 digest: object.digest.clone(),
@@ -75,7 +102,13 @@ impl Store {
                     }
                 }
             }
-        })?;
+        };
+        let closure = match inventory {
+            Some(inventory) => crate::roots::object_closure_with_inventory(
+                &self.cas, roots.to_vec(), inventory, verified),
+            None => crate::roots::object_closure_with_limits(
+                &self.cas, roots.to_vec(), max_objects, max_bytes, verified)?,
+        };
         Ok((objects.into_values().map(|(_, object)| object).collect(),
             closure.missing.into_iter().collect()))
     }
@@ -116,7 +149,11 @@ impl Store {
             locator: String::new(),
             codec: descriptor.codec.clone(),
         }));
-        let closure = crate::roots::object_closure(&self.cas, roots);
+        let closure = if manifest.schema >= 13 {
+            crate::roots::object_closure_with_inventory(&self.cas, roots, &listed, |_, _| {})
+        } else {
+            crate::roots::object_closure(&self.cas, roots)
+        };
         let mut missing = closure.missing;
         missing.extend(closure.digests.into_iter().filter(|digest| !listed.contains(digest)));
         missing.into_iter().map(|digest| CognitionGap {

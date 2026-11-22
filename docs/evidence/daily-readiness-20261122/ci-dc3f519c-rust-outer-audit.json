@@ -1,0 +1,4177 @@
+{
+  "kind": "rust_workspace_outer_harness_audit",
+  "source": {
+    "run_id": 44943382317,
+    "job_id": 136965266704,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/44943382317/job/136965266704",
+    "raw_log_remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-dc3f519c/rust.log",
+    "raw_log_bytes": 961068,
+    "raw_log_sha256": "b6e84a7b1991b0d83bc5cd6eb8e1579064d8dd36d6436fe16fbd596bcf691c04",
+    "raw_log_lines": 6526
+  },
+  "checkout": {
+    "ref": "refs/remotes/pull/384/merge",
+    "actual_merge_sha": "399d81e8b579442ae3e2e0f703e0628adaa6a7e6",
+    "pr_head_sha": "dc3f519c048f3cff7ce851ace9323b2e673f377a",
+    "base_sha": "f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42",
+    "evidence": [
+      [
+        504,
+        "[command]/usr/bin/git checkout --progress --force refs/remotes/pull/384/merge"
+      ],
+      [
+        522,
+        "HEAD is now at 399d81e8 Merge dc3f519c048f3cff7ce851ace9323b2e673f377a into f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42"
+      ],
+      [
+        524,
+        "[command]/usr/bin/git log -1 --format=%H"
+      ],
+      [
+        525,
+        "399d81e8b579442ae3e2e0f703e0628adaa6a7e6"
+      ]
+    ]
+  },
+  "command": {
+    "line": 2475,
+    "text": "cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log"
+  },
+  "parsing": {
+    "strip": "Remove the job and step tab fields, UTC timestamp and ANSI SGR prefix from each log line; retain original 1-based line numbers.",
+    "raw_result_regex": "^test result: (\\w+)\\. (\\d+) passed; (\\d+) failed; (\\d+) ignored; (\\d+) measured; (\\d+) filtered out; finished in ([0-9.]+)s$",
+    "naive_method": "Sum every libtest result line, including nested helper harness receipts.",
+    "outer_boundary_regex": "^\\s*(Running (unittests|tests/)|Doc-tests )",
+    "outer_selection": "For each Cargo target interval ending at the next Cargo Running/Doc-tests heading (or end of the workspace step), retain its final libtest result. Earlier summaries in that interval are child process receipts. Reviewed the three multi-result targets at the exact PR head: each launches current_exe with --exact and awaits/reaps its child before the outer test completes.",
+    "validation": "Each counted final result has zero filtered tests, matches the first running-N-tests declaration (passed+failed+ignored+measured), has status ok, and has a unique outer heading. All 176 result rows are assigned to a Cargo interval."
+  },
+  "raw_summary": {
+    "result_rows": 176,
+    "passed": 1259,
+    "failed": 0,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 131
+  },
+  "outer_summary": {
+    "cargo_targets": 158,
+    "cargo_executable_targets": 125,
+    "cargo_doctest_targets": 33,
+    "libtest_result_rows": 157,
+    "passed": 1240,
+    "failed": 0,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 0,
+    "non_libtest_skip_targets": 1
+  },
+  "by_kind": {
+    "unit_or_example": {
+      "result_rows": 38,
+      "passed": 819,
+      "failed": 0,
+      "ignored": 9,
+      "measured": 0,
+      "filtered": 0
+    },
+    "integration": {
+      "result_rows": 86,
+      "passed": 421,
+      "failed": 0,
+      "ignored": 2,
+      "measured": 0,
+      "filtered": 0
+    },
+    "doctest": {
+      "result_rows": 33,
+      "passed": 0,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 0
+    }
+  },
+  "excluded_nested_summary": {
+    "result_rows": 19,
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 131,
+    "groups": [
+      {
+        "header_line": 3898,
+        "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko-3c5718ad87b88b4f)",
+        "outer_result_line": 3974,
+        "excluded_result_lines": [
+          3925,
+          3945
+        ],
+        "excluded_passed": 2
+      },
+      {
+        "header_line": 5253,
+        "header": "Running tests/cognition_publication_ownership.rs (.ci/target/rust/debug/deps/cognition_publication_ownership-7f12f7fe91ce5080)",
+        "outer_result_line": 5417,
+        "excluded_result_lines": [
+          5273,
+          5281,
+          5293,
+          5303,
+          5313,
+          5324,
+          5342,
+          5351,
+          5361,
+          5368,
+          5376,
+          5386,
+          5396,
+          5406,
+          5413
+        ],
+        "excluded_passed": 15
+      },
+      {
+        "header_line": 5945,
+        "header": "Running tests/publication_cas_binding.rs (.ci/target/rust/debug/deps/publication_cas_binding-c85b49974c73745a)",
+        "outer_result_line": 5963,
+        "excluded_result_lines": [
+          5954,
+          5959
+        ],
+        "excluded_passed": 2
+      }
+    ]
+  },
+  "separate_skips": [
+    {
+      "line": 4607,
+      "text": "SKIP cognition_self_learning: set SHENKO_USE_LOCAL_MODEL=1, SHENKO_LOCAL_MODEL_URL and SHENKO_LOCAL_MODEL, and pass --binary",
+      "header_line": 4606
+    }
+  ],
+  "validation": {
+    "stray_result_rows": [],
+    "declared_count_mismatch_header_lines": [],
+    "outer_filtered_result_lines": [],
+    "outer_non_ok_result_lines": [],
+    "duplicate_outer_headers": false
+  },
+  "result_columns": [
+    "log_line",
+    "status",
+    "passed",
+    "failed",
+    "ignored",
+    "measured",
+    "filtered",
+    "finished_seconds"
+  ],
+  "target_intervals": [
+    {
+      "header_line": 3898,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko-3c5718ad87b88b4f)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          3900,
+          58
+        ],
+        [
+          3922,
+          1
+        ],
+        [
+          3942,
+          1
+        ],
+        [
+          3962,
+          1
+        ]
+      ],
+      "results": [
+        [
+          3925,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          57,
+          2.72
+        ],
+        [
+          3945,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          57,
+          0.03
+        ],
+        [
+          3974,
+          "ok",
+          56,
+          0,
+          2,
+          0,
+          0,
+          51.47
+        ]
+      ]
+    },
+    {
+      "header_line": 3976,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko-31fc58c38557ec2d)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          3978,
+          0
+        ]
+      ],
+      "results": [
+        [
+          3980,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 3982,
+      "header": "Running tests/component_process.rs (.ci/target/rust/debug/deps/component_process-f3ce1a77e117b676)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          3984,
+          1
+        ]
+      ],
+      "results": [
+        [
+          3988,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          88.44
+        ]
+      ]
+    },
+    {
+      "header_line": 3990,
+      "header": "Running tests/native_evidence_delivery.rs (.ci/target/rust/debug/deps/native_evidence_delivery-1baeb8caa5931143)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          3992,
+          2
+        ]
+      ],
+      "results": [
+        [
+          3997,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          73.38
+        ]
+      ]
+    },
+    {
+      "header_line": 3999,
+      "header": "Running tests/obelisk_lifecycle.rs (.ci/target/rust/debug/deps/obelisk_lifecycle-0c1fe2e918048812)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4001,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4004,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.61
+        ]
+      ]
+    },
+    {
+      "header_line": 4006,
+      "header": "Running tests/ssh_wasi_client.rs (.ci/target/rust/debug/deps/ssh_wasi_client-fabd74937a994f42)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4008,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4012,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          203.48
+        ]
+      ]
+    },
+    {
+      "header_line": 4014,
+      "header": "Running tests/start_boundary.rs (.ci/target/rust/debug/deps/start_boundary-1af7f5bdc1bdd827)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4016,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4020,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          7.71
+        ]
+      ]
+    },
+    {
+      "header_line": 4022,
+      "header": "Running unittests examples/obelisk_acceptance.rs (.ci/target/rust/debug/examples/obelisk_acceptance-82b3708115d2318c)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4024,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4033,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.31
+        ]
+      ]
+    },
+    {
+      "header_line": 4035,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_android-7b3a8c792737ff14)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4037,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4039,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4041,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_awareness_core-d77ae74dfb23e0e8)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4043,
+          16
+        ]
+      ],
+      "results": [
+        [
+          4061,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ]
+    },
+    {
+      "header_line": 4063,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_broker-bda42dd4f496b233)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4065,
+          31
+        ]
+      ],
+      "results": [
+        [
+          4098,
+          "ok",
+          31,
+          0,
+          0,
+          0,
+          0,
+          1.31
+        ]
+      ]
+    },
+    {
+      "header_line": 4100,
+      "header": "Running tests/kv_capability.rs (.ci/target/rust/debug/deps/kv_capability-fd4b2dbf47d35a67)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4102,
+          22
+        ]
+      ],
+      "results": [
+        [
+          4126,
+          "ok",
+          22,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4128,
+      "header": "Running tests/kv_unknown_read.rs (.ci/target/rust/debug/deps/kv_unknown_read-2aa3aa6b938550e0)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4130,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4133,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4135,
+      "header": "Running tests/provider_usage.rs (.ci/target/rust/debug/deps/provider_usage-88c20d5282a74a3c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4137,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4141,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4143,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_adapters-dbd51a7a370873da)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4145,
+          44
+        ]
+      ],
+      "results": [
+        [
+          4191,
+          "ok",
+          44,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4193,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat-99070a54b0630bdd)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4195,
+          44
+        ],
+        [
+          4236,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4243,
+          "ok",
+          44,
+          0,
+          0,
+          0,
+          0,
+          0.67
+        ]
+      ]
+    },
+    {
+      "header_line": 4245,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat_link-c56c7c28f24e192f)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4247,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4249,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4251,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_budget-112b669a27337ba2)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4253,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4255,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4257,
+      "header": "Running tests/budget_plugin.rs (.ci/target/rust/debug/deps/budget_plugin-b1b81a830348b46c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4259,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4262,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4264,
+      "header": "Running tests/store_history.rs (.ci/target/rust/debug/deps/store_history-c026d623ff5beb97)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4266,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4269,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ]
+    },
+    {
+      "header_line": 4271,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_rollover-0a947324a5c27856)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4273,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4275,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4277,
+      "header": "Running tests/notes_rollover.rs (.ci/target/rust/debug/deps/notes_rollover-1a34259d5356a87f)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4279,
+          8
+        ]
+      ],
+      "results": [
+        [
+          4289,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4291,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_snap-b9cf94352a733d6f)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4293,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4295,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4297,
+      "header": "Running tests/independent_plugins.rs (.ci/target/rust/debug/deps/independent_plugins-5066859318b4ce42)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4299,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4303,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          2.91
+        ]
+      ]
+    },
+    {
+      "header_line": 4305,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat-dbdefefda60d915c)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4307,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4309,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4311,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_mcp-f43d9a71097a263b)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4313,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4315,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4317,
+      "header": "Running tests/dsh_native.rs (.ci/target/rust/debug/deps/dsh_native-76825d5d926161ac)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4319,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4322,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          4.24
+        ]
+      ]
+    },
+    {
+      "header_line": 4324,
+      "header": "Running tests/learning_efficacy.rs (.ci/target/rust/debug/deps/learning_efficacy-237030cc365cc212)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4326,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4329,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4331,
+      "header": "Running tests/plugin_lifecycle.rs (.ci/target/rust/debug/deps/plugin_lifecycle-c9de261394d4b502)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4333,
+          19
+        ]
+      ],
+      "results": [
+        [
+          4354,
+          "ok",
+          19,
+          0,
+          0,
+          0,
+          0,
+          9.66
+        ]
+      ]
+    },
+    {
+      "header_line": 4356,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_poppy-70d54299b96dad58)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4358,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4366,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4368,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_skill-3895175ad5553579)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4370,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4372,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4374,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_context_policy-1db50915190845e0)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4376,
+          23
+        ]
+      ],
+      "results": [
+        [
+          4401,
+          "ok",
+          23,
+          0,
+          0,
+          0,
+          0,
+          0.35
+        ]
+      ]
+    },
+    {
+      "header_line": 4403,
+      "header": "Running tests/contribution_registry.rs (.ci/target/rust/debug/deps/contribution_registry-f97bc3f5f44237fb)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4405,
+          9
+        ]
+      ],
+      "results": [
+        [
+          4416,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4418,
+      "header": "Running tests/rollover_lifecycle.rs (.ci/target/rust/debug/deps/rollover_lifecycle-0419e88cd17b59a4)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4420,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4429,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4431,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_document-7684b8ce70d12b25)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4433,
+          23
+        ]
+      ],
+      "results": [
+        [
+          4458,
+          "ok",
+          23,
+          0,
+          0,
+          0,
+          0,
+          0.92
+        ]
+      ]
+    },
+    {
+      "header_line": 4460,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_evidence-3b0042898841c2be)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4462,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4468,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4470,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_evidence-57af424ef526341e)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4472,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4475,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4477,
+      "header": "Running tests/admission.rs (.ci/target/rust/debug/deps/admission-bc654e61b5718e1c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4479,
+          16
+        ]
+      ],
+      "results": [
+        [
+          4497,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4499,
+      "header": "Running tests/correction_cli.rs (.ci/target/rust/debug/deps/correction_cli-df56df025a2de008)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4501,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4507,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4509,
+      "header": "Running tests/report_cli.rs (.ci/target/rust/debug/deps/report_cli-4e89d6101b823791)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4511,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4517,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4519,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_host-5802c5f552196385)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4521,
+          64
+        ]
+      ],
+      "results": [
+        [
+          4587,
+          "ok",
+          64,
+          0,
+          0,
+          0,
+          0,
+          18.87
+        ]
+      ]
+    },
+    {
+      "header_line": 4589,
+      "header": "Running tests/awareness_efficacy.rs (.ci/target/rust/debug/deps/awareness_efficacy-aaf9b4491791cdfd)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4591,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4594,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4596,
+      "header": "Running tests/awareness_host.rs (.ci/target/rust/debug/deps/awareness_host-7a2e195c2e58d7b6)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4598,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4604,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.39
+        ]
+      ]
+    },
+    {
+      "header_line": 4606,
+      "header": "Running tests/cognition_self_learning.rs (.ci/target/rust/debug/deps/cognition_self_learning-e2f78104f6ca259c)",
+      "kind": "integration",
+      "run_declarations": [],
+      "results": []
+    },
+    {
+      "header_line": 4608,
+      "header": "Running tests/computer_use_takeover_cli.rs (.ci/target/rust/debug/deps/computer_use_takeover_cli-36a0cec0e1d68f82)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4610,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4613,
+          "ok",
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4615,
+      "header": "Running tests/computer_use_takeover_native.rs (.ci/target/rust/debug/deps/computer_use_takeover_native-4f32032242d2139d)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4617,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4620,
+          "ok",
+          0,
+          0,
+          1,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4622,
+      "header": "Running tests/desktop_native_macos_proof.rs (.ci/target/rust/debug/deps/desktop_native_macos_proof-0723246a190038b9)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4624,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4626,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4628,
+      "header": "Running tests/desktop_native_windows_proof.rs (.ci/target/rust/debug/deps/desktop_native_windows_proof-009a3244809b4b5e)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4630,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4632,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4634,
+      "header": "Running tests/network_change_fixture.rs (.ci/target/rust/debug/deps/network_change_fixture-5161cdf3a8f336b9)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4636,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4640,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 4642,
+      "header": "Running tests/perception_version_reopen.rs (.ci/target/rust/debug/deps/perception_version_reopen-06eff35da754231d)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4644,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4653,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.22
+        ]
+      ]
+    },
+    {
+      "header_line": 4655,
+      "header": "Running tests/seat_fleet_behavior.rs (.ci/target/rust/debug/deps/seat_fleet_behavior-3fe57349e6eae4e1)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4657,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4660,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4662,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_ssh-219fd45b2d613db4)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4664,
+          104
+        ]
+      ],
+      "results": [
+        [
+          4770,
+          "ok",
+          104,
+          0,
+          0,
+          0,
+          0,
+          3.08
+        ]
+      ]
+    },
+    {
+      "header_line": 4772,
+      "header": "Running tests/real_omp_seat.rs (.ci/target/rust/debug/deps/real_omp_seat-1e398efaa521ca5a)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4774,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4777,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4779,
+      "header": "Running tests/real_ssh_exec.rs (.ci/target/rust/debug/deps/real_ssh_exec-5bb52fe0a8d65238)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4781,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4784,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4786,
+      "header": "Running tests/seat_fleet.rs (.ci/target/rust/debug/deps/seat_fleet-c31b32d66f10a016)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4788,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4791,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.12
+        ]
+      ]
+    },
+    {
+      "header_line": 4793,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_identity-2cc42a065c76825b)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4795,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4798,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 4800,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_kernel-13a1626307d1b3a8)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4802,
+          12
+        ]
+      ],
+      "results": [
+        [
+          4816,
+          "ok",
+          12,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ]
+    },
+    {
+      "header_line": 4818,
+      "header": "Running tests/cordis_lifecycle.rs (.ci/target/rust/debug/deps/cordis_lifecycle-401e51399d27a898)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4820,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4826,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.03
+        ]
+      ]
+    },
+    {
+      "header_line": 4828,
+      "header": "Running tests/generation_uninstall.rs (.ci/target/rust/debug/deps/generation_uninstall-abac945e8f12f60c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4830,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4833,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ]
+    },
+    {
+      "header_line": 4835,
+      "header": "Running tests/hook_generation_lifecycle.rs (.ci/target/rust/debug/deps/hook_generation_lifecycle-418ec70863a44d09)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4837,
+          3
+        ]
+      ],
+      "results": [
+        [
+          4842,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ]
+    },
+    {
+      "header_line": 4844,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_media-5da34dc58eb75a28)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4846,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4854,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.37
+        ]
+      ]
+    },
+    {
+      "header_line": 4856,
+      "header": "Running tests/recording_controls.rs (.ci/target/rust/debug/deps/recording_controls-ad1834c7aff2858d)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4858,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4862,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ]
+    },
+    {
+      "header_line": 4864,
+      "header": "Running tests/transcript_lineage.rs (.ci/target/rust/debug/deps/transcript_lineage-62a87198d3d8390a)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4866,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4875,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.29
+        ]
+      ]
+    },
+    {
+      "header_line": 4877,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_memory-2b55dd13c8ff3990)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4879,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4887,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          2.11
+        ]
+      ]
+    },
+    {
+      "header_line": 4889,
+      "header": "Running tests/intent_flow.rs (.ci/target/rust/debug/deps/intent_flow-345f7eb1acb11c7d)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4891,
+          9
+        ]
+      ],
+      "results": [
+        [
+          4902,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0.4
+        ]
+      ]
+    },
+    {
+      "header_line": 4904,
+      "header": "Running tests/pma_contribution.rs (.ci/target/rust/debug/deps/pma_contribution-5c63f8504bb5961f)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4906,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4912,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.12
+        ]
+      ]
+    },
+    {
+      "header_line": 4914,
+      "header": "Running tests/scoped_recall.rs (.ci/target/rust/debug/deps/scoped_recall-1022e860dc9d1561)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          4916,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4919,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.13
+        ]
+      ]
+    },
+    {
+      "header_line": 4921,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_mobile-52a64f86d082740e)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4923,
+          33
+        ]
+      ],
+      "results": [
+        [
+          4958,
+          "ok",
+          33,
+          0,
+          0,
+          0,
+          0,
+          0.73
+        ]
+      ]
+    },
+    {
+      "header_line": 4960,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_node-9139f2d2657dd3f2)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          4962,
+          36
+        ]
+      ],
+      "results": [
+        [
+          5000,
+          "ok",
+          36,
+          0,
+          0,
+          0,
+          0,
+          5.02
+        ]
+      ]
+    },
+    {
+      "header_line": 5002,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_node-30ef603b549be409)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5004,
+          0
+        ]
+      ],
+      "results": [
+        [
+          5006,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5008,
+      "header": "Running tests/cognition_report.rs (.ci/target/rust/debug/deps/cognition_report-5956c6283e3a1e13)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5010,
+          3
+        ]
+      ],
+      "results": [
+        [
+          5015,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.3
+        ]
+      ]
+    },
+    {
+      "header_line": 5017,
+      "header": "Running tests/component_agreement.rs (.ci/target/rust/debug/deps/component_agreement-899d6aa70cd5e116)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5019,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5022,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.34
+        ]
+      ]
+    },
+    {
+      "header_line": 5024,
+      "header": "Running tests/partition_rejoin.rs (.ci/target/rust/debug/deps/partition_rejoin-c22caa45561fd3ab)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5026,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5032,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          8.49
+        ]
+      ]
+    },
+    {
+      "header_line": 5034,
+      "header": "Running tests/reconciliation_receipts.rs (.ci/target/rust/debug/deps/reconciliation_receipts-06959d6e54a0a40c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5036,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5039,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ]
+    },
+    {
+      "header_line": 5041,
+      "header": "Running tests/unit_uninstall_wire.rs (.ci/target/rust/debug/deps/unit_uninstall_wire-5e7d05d27adddd1f)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5043,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5046,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 5048,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_quota-4657f800c69c38ef)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5050,
+          0
+        ]
+      ],
+      "results": [
+        [
+          5052,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5054,
+      "header": "Running tests/policy_admission.rs (.ci/target/rust/debug/deps/policy_admission-e0ac2ee8ef168eec)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5056,
+          16
+        ]
+      ],
+      "results": [
+        [
+          5074,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5076,
+      "header": "Running tests/policy_planning.rs (.ci/target/rust/debug/deps/policy_planning-636c777ec85db213)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5078,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5086,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5088,
+      "header": "Running tests/quota.rs (.ci/target/rust/debug/deps/quota-4aebc2de29a3ddc5)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5090,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5098,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5100,
+      "header": "Running tests/strategy_plugins.rs (.ci/target/rust/debug/deps/strategy_plugins-7351cd2a229aaf9a)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5102,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5110,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5112,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_repl-7ed72d72ce1eb669)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5114,
+          15
+        ]
+      ],
+      "results": [
+        [
+          5131,
+          "ok",
+          15,
+          0,
+          0,
+          0,
+          0,
+          0.46
+        ]
+      ]
+    },
+    {
+      "header_line": 5133,
+      "header": "Running tests/real_python_wasi.rs (.ci/target/rust/debug/deps/real_python_wasi-3f35360cd02937a4)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5135,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5141,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5143,
+      "header": "Running tests/real_quickjs_wasi.rs (.ci/target/rust/debug/deps/real_quickjs_wasi-b81e287191e50d13)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5145,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5148,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5150,
+      "header": "Running tests/wasi_repl.rs (.ci/target/rust/debug/deps/wasi_repl-2d0c23e150609498)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5152,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5164,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.16
+        ]
+      ]
+    },
+    {
+      "header_line": 5166,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_seed-5ff07e91fe3d3825)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5168,
+          0
+        ]
+      ],
+      "results": [
+        [
+          5170,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5172,
+      "header": "Running tests/home_capability_migration.rs (.ci/target/rust/debug/deps/home_capability_migration-45e2db61d432675d)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5174,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5177,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.14
+        ]
+      ]
+    },
+    {
+      "header_line": 5179,
+      "header": "Running tests/home_checkpoint_recovery.rs (.ci/target/rust/debug/deps/home_checkpoint_recovery-a49a5de8b602198b)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5181,
+          5
+        ]
+      ],
+      "results": [
+        [
+          5188,
+          "ok",
+          5,
+          0,
+          0,
+          0,
+          0,
+          0.4
+        ]
+      ]
+    },
+    {
+      "header_line": 5190,
+      "header": "Running tests/home_recovery.rs (.ci/target/rust/debug/deps/home_recovery-f1726de94fde1b0f)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5192,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5198,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ]
+    },
+    {
+      "header_line": 5200,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_store-c4e1a34845300337)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5202,
+          39
+        ]
+      ],
+      "results": [
+        [
+          5243,
+          "ok",
+          39,
+          0,
+          0,
+          0,
+          0,
+          7.36
+        ]
+      ]
+    },
+    {
+      "header_line": 5245,
+      "header": "Running tests/cognition_memory_retirement.rs (.ci/target/rust/debug/deps/cognition_memory_retirement-09200e6dd201c6ac)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5247,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5251,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.3
+        ]
+      ]
+    },
+    {
+      "header_line": 5253,
+      "header": "Running tests/cognition_publication_ownership.rs (.ci/target/rust/debug/deps/cognition_publication_ownership-7f12f7fe91ce5080)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5255,
+          2
+        ],
+        [
+          5257,
+          1
+        ],
+        [
+          5270,
+          1
+        ],
+        [
+          5278,
+          1
+        ],
+        [
+          5290,
+          1
+        ],
+        [
+          5300,
+          1
+        ],
+        [
+          5310,
+          1
+        ],
+        [
+          5316,
+          1
+        ],
+        [
+          5321,
+          1
+        ],
+        [
+          5339,
+          1
+        ],
+        [
+          5348,
+          1
+        ],
+        [
+          5364,
+          1
+        ],
+        [
+          5373,
+          1
+        ],
+        [
+          5383,
+          1
+        ],
+        [
+          5393,
+          1
+        ],
+        [
+          5403,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5273,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5281,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5293,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5303,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5313,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5324,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5342,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5351,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5361,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.11
+        ],
+        [
+          5368,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5376,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5386,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5396,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5406,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5413,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.1
+        ],
+        [
+          5417,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.37
+        ]
+      ]
+    },
+    {
+      "header_line": 5419,
+      "header": "Running tests/cognition_replication.rs (.ci/target/rust/debug/deps/cognition_replication-331ac4e24116839c)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5421,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5431,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          1.16
+        ]
+      ]
+    },
+    {
+      "header_line": 5433,
+      "header": "Running tests/cognitive_root_chain.rs (.ci/target/rust/debug/deps/cognitive_root_chain-88b40778e1a814b3)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5435,
+          7
+        ]
+      ],
+      "results": [
+        [
+          5444,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.3
+        ]
+      ]
+    },
+    {
+      "header_line": 5446,
+      "header": "Running tests/identity_profile.rs (.ci/target/rust/debug/deps/identity_profile-42c3caefb0cfd1e3)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5448,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5451,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.08
+        ]
+      ]
+    },
+    {
+      "header_line": 5453,
+      "header": "Running tests/local_model_health_roots.rs (.ci/target/rust/debug/deps/local_model_health_roots-b40c180b536c5076)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5455,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5458,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ]
+    },
+    {
+      "header_line": 5460,
+      "header": "Running tests/media_transcript.rs (.ci/target/rust/debug/deps/media_transcript-2acde172bb1073f1)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5462,
+          9
+        ]
+      ],
+      "results": [
+        [
+          5473,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0.39
+        ]
+      ]
+    },
+    {
+      "header_line": 5475,
+      "header": "Running tests/memory_search.rs (.ci/target/rust/debug/deps/memory_search-c9e4e467ebfcf56b)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5477,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5485,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.25
+        ]
+      ]
+    },
+    {
+      "header_line": 5487,
+      "header": "Running tests/notebook_recovery.rs (.ci/target/rust/debug/deps/notebook_recovery-1090620802f69e73)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5489,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5499,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.69
+        ]
+      ]
+    },
+    {
+      "header_line": 5501,
+      "header": "Running tests/quota_store.rs (.ci/target/rust/debug/deps/quota_store-13fd73d957b2d9dd)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5503,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5515,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.4
+        ]
+      ]
+    },
+    {
+      "header_line": 5517,
+      "header": "Running tests/raw_session_writer.rs (.ci/target/rust/debug/deps/raw_session_writer-7d8d99cab847bfdf)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5519,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5522,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ]
+    },
+    {
+      "header_line": 5524,
+      "header": "Running tests/receipt_conflicts.rs (.ci/target/rust/debug/deps/receipt_conflicts-1de9ac85aa7d79e7)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5526,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5530,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.21
+        ]
+      ]
+    },
+    {
+      "header_line": 5532,
+      "header": "Running tests/research_reset_bank.rs (.ci/target/rust/debug/deps/research_reset_bank-47ae5abaee1ab75a)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5534,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5546,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.71
+        ]
+      ]
+    },
+    {
+      "header_line": 5548,
+      "header": "Running tests/retained_objects.rs (.ci/target/rust/debug/deps/retained_objects-a57cae83cd79f484)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5550,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5553,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.19
+        ]
+      ]
+    },
+    {
+      "header_line": 5555,
+      "header": "Running tests/runtime_error_journal.rs (.ci/target/rust/debug/deps/runtime_error_journal-01e6a44052fe87f7)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5557,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5561,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ]
+    },
+    {
+      "header_line": 5563,
+      "header": "Running tests/seat_lifecycle.rs (.ci/target/rust/debug/deps/seat_lifecycle-9a4741453ddeb7fe)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5565,
+          14
+        ]
+      ],
+      "results": [
+        [
+          5581,
+          "ok",
+          14,
+          0,
+          0,
+          0,
+          0,
+          0.84
+        ]
+      ]
+    },
+    {
+      "header_line": 5583,
+      "header": "Running tests/session_event_search.rs (.ci/target/rust/debug/deps/session_event_search-d470c6412abe0cca)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5585,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5589,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.11
+        ]
+      ]
+    },
+    {
+      "header_line": 5591,
+      "header": "Running tests/store_roundtrip.rs (.ci/target/rust/debug/deps/store_roundtrip-4915415032bf61d0)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5593,
+          49
+        ],
+        [
+          5595,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5646,
+          "ok",
+          49,
+          0,
+          0,
+          0,
+          0,
+          18.22
+        ]
+      ]
+    },
+    {
+      "header_line": 5648,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_subject-a4b48e59da44daff)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5650,
+          157
+        ],
+        [
+          5696,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5811,
+          "ok",
+          150,
+          0,
+          7,
+          0,
+          0,
+          53.93
+        ]
+      ]
+    },
+    {
+      "header_line": 5813,
+      "header": "Running tests/channel_boundary.rs (.ci/target/rust/debug/deps/channel_boundary-bf3758056552a233)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5815,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5825,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ]
+    },
+    {
+      "header_line": 5827,
+      "header": "Running tests/local_model_behavior.rs (.ci/target/rust/debug/deps/local_model_behavior-5445bc79166dfd13)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5829,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5832,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5834,
+      "header": "Running tests/pma_decision_settlement.rs (.ci/target/rust/debug/deps/pma_decision_settlement-686b9e9042d89251)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5836,
+          5
+        ]
+      ],
+      "results": [
+        [
+          5843,
+          "ok",
+          5,
+          0,
+          0,
+          0,
+          0,
+          0.31
+        ]
+      ]
+    },
+    {
+      "header_line": 5845,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_types-10d68d3a638c9a83)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5847,
+          17
+        ]
+      ],
+      "results": [
+        [
+          5866,
+          "ok",
+          17,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 5868,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_ui-a861fa446657bc27)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5870,
+          41
+        ]
+      ],
+      "results": [
+        [
+          5913,
+          "ok",
+          41,
+          0,
+          0,
+          0,
+          0,
+          4.92
+        ]
+      ]
+    },
+    {
+      "header_line": 5915,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_update-bbec9287c1e7910b)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5917,
+          24
+        ]
+      ],
+      "results": [
+        [
+          5943,
+          "ok",
+          24,
+          0,
+          0,
+          0,
+          0,
+          1.7
+        ]
+      ]
+    },
+    {
+      "header_line": 5945,
+      "header": "Running tests/publication_cas_binding.rs (.ci/target/rust/debug/deps/publication_cas_binding-c85b49974c73745a)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5947,
+          2
+        ],
+        [
+          5949,
+          1
+        ],
+        [
+          5951,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5954,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          5959,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.1
+        ],
+        [
+          5963,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.23
+        ]
+      ]
+    },
+    {
+      "header_line": 5965,
+      "header": "Running tests/rollback_append_node.rs (.ci/target/rust/debug/deps/rollback_append_node-336c64717ed297f6)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5967,
+          15
+        ]
+      ],
+      "results": [
+        [
+          5984,
+          "ok",
+          15,
+          0,
+          0,
+          0,
+          0,
+          0.41
+        ]
+      ]
+    },
+    {
+      "header_line": 5986,
+      "header": "Running tests/rollback_migration.rs (.ci/target/rust/debug/deps/rollback_migration-cb00805d77770a9b)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          5988,
+          3
+        ]
+      ],
+      "results": [
+        [
+          5993,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.49
+        ]
+      ]
+    },
+    {
+      "header_line": 5995,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_wasm-426f26ec45f76625)",
+      "kind": "unit_or_example",
+      "run_declarations": [
+        [
+          5997,
+          16
+        ]
+      ],
+      "results": [
+        [
+          6015,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          5.04
+        ]
+      ]
+    },
+    {
+      "header_line": 6017,
+      "header": "Running tests/checkpoint_closure.rs (.ci/target/rust/debug/deps/checkpoint_closure-a94dc2212a4aaab8)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6019,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6025,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.03
+        ]
+      ]
+    },
+    {
+      "header_line": 6027,
+      "header": "Running tests/home_mounts.rs (.ci/target/rust/debug/deps/home_mounts-7fe3c70a5f82cad8)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6029,
+          8
+        ]
+      ],
+      "results": [
+        [
+          6039,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.07
+        ]
+      ]
+    },
+    {
+      "header_line": 6041,
+      "header": "Running tests/mount_admission.rs (.ci/target/rust/debug/deps/mount_admission-78a197f113ba2262)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6043,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6049,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6051,
+      "header": "Running tests/network.rs (.ci/target/rust/debug/deps/network-e1b49017527a7d77)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6053,
+          7
+        ]
+      ],
+      "results": [
+        [
+          6062,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          1.51
+        ]
+      ]
+    },
+    {
+      "header_line": 6064,
+      "header": "Running tests/real_ssh_wasm.rs (.ci/target/rust/debug/deps/real_ssh_wasm-90fccc36873c07cc)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6066,
+          1
+        ]
+      ],
+      "results": [
+        [
+          6069,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6071,
+      "header": "Running tests/tool_artifact_roots.rs (.ci/target/rust/debug/deps/tool_artifact_roots-0f4d984ac75a1df3)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6073,
+          1
+        ]
+      ],
+      "results": [
+        [
+          6076,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ]
+    },
+    {
+      "header_line": 6078,
+      "header": "Running tests/wasm_state.rs (.ci/target/rust/debug/deps/wasm_state-5f92112d287b15dc)",
+      "kind": "integration",
+      "run_declarations": [
+        [
+          6080,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6086,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.07
+        ]
+      ]
+    },
+    {
+      "header_line": 6088,
+      "header": "Doc-tests shenko",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6090,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6092,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6094,
+      "header": "Doc-tests shenko_awareness_core",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6096,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6098,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6100,
+      "header": "Doc-tests shenko_broker",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6102,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6104,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6106,
+      "header": "Doc-tests shenko_channel_adapters",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6108,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6110,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6112,
+      "header": "Doc-tests shenko_channel_napcat",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6114,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6116,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6118,
+      "header": "Doc-tests shenko_channel_napcat_link",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6120,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6122,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6124,
+      "header": "Doc-tests shenko_compact_budget",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6126,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6128,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6130,
+      "header": "Doc-tests shenko_compact_rollover",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6132,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6134,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6136,
+      "header": "Doc-tests shenko_compact_snap",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6138,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6140,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6142,
+      "header": "Doc-tests shenko_compat",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6144,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6146,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6148,
+      "header": "Doc-tests shenko_compat_mcp",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6150,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6152,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6154,
+      "header": "Doc-tests shenko_compat_poppy",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6156,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6158,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6160,
+      "header": "Doc-tests shenko_compat_skill",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6162,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6164,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6166,
+      "header": "Doc-tests shenko_context_policy",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6168,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6170,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6172,
+      "header": "Doc-tests shenko_document",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6174,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6176,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6178,
+      "header": "Doc-tests shenko_evidence",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6180,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6182,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6184,
+      "header": "Doc-tests shenko_exec_host",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6186,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6188,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6190,
+      "header": "Doc-tests shenko_exec_ssh",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6192,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6194,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6196,
+      "header": "Doc-tests shenko_identity",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6198,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6200,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6202,
+      "header": "Doc-tests shenko_kernel",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6204,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6206,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6208,
+      "header": "Doc-tests shenko_media",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6210,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6212,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6214,
+      "header": "Doc-tests shenko_memory",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6216,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6218,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6220,
+      "header": "Doc-tests shenko_mobile",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6222,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6224,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6226,
+      "header": "Doc-tests shenko_node",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6228,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6230,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6232,
+      "header": "Doc-tests shenko_quota",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6234,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6236,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6238,
+      "header": "Doc-tests shenko_repl",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6240,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6242,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6244,
+      "header": "Doc-tests shenko_seed",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6246,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6248,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6250,
+      "header": "Doc-tests shenko_store",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6252,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6254,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6256,
+      "header": "Doc-tests shenko_subject",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6258,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6260,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6262,
+      "header": "Doc-tests shenko_types",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6264,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6266,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6268,
+      "header": "Doc-tests shenko_ui",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6270,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6272,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6274,
+      "header": "Doc-tests shenko_update",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6276,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6278,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "header_line": 6280,
+      "header": "Doc-tests shenko_wasm",
+      "kind": "doctest",
+      "run_declarations": [
+        [
+          6282,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6284,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    }
+  ],
+  "limitations": [
+    "Counts are outer libtest cases as reported by this actual workspace run, not a count of distinct behavioral scenarios or all nested subprocess executions.",
+    "The 19 excluded rows are completed nested libtest receipts already covered by their outer tests; this number does not count children that terminate without a libtest summary.",
+    "The separate harness=false cognition_self_learning consumer printed SKIP and is neither a passing libtest case nor one of the 11 libtest ignored cases.",
+    "The 33 doctest targets each reported zero tests; this is target execution evidence, not 33 passing documentation examples.",
+    "This audit does not rerun tests, certify a newer commit, or change the retained CI receipts."
+  ],
+  "source_review": {
+    "commit": "dc3f519c048f3cff7ce851ace9323b2e673f377a",
+    "files": [
+      {
+        "path": "bin/shenko/src/recovery_integration_tests.rs",
+        "sha256": "691660ec10ceee0829e3230b9733979ebb143794be7e7a2735580d855772c7b3",
+        "bytes": 110454,
+        "lines": [
+          [
+            638,
+            689
+          ],
+          [
+            958,
+            1086
+          ]
+        ],
+        "finding": "Both reopen tests spawn the same libtest executable with an exact selector, inherit status() output and await successful child termination. The two inner summaries precede the respective outer test completions."
+      },
+      {
+        "path": "crates/shenko-store/tests/cognition_publication_ownership.rs",
+        "sha256": "9ff27835c21cf2ef91aed1aa6eeb39e0da44c0efc007544d1ee961cc4d2e9781",
+        "bytes": 12293,
+        "lines": [
+          [
+            28,
+            50
+          ],
+          [
+            59,
+            99
+          ]
+        ],
+        "finding": "bounded() runs current_exe --exact/--nocapture with inherited stdout/stderr, polls and reaps the child before returning. The worker itself performs further bounded busy/free probes. Fifteen completed inner summaries belong to the two outer tests."
+      },
+      {
+        "path": "crates/shenko-update/tests/publication_cas_binding.rs",
+        "sha256": "9f16ed6eb79637380156649783df80edb01fc3b0fdfb05abdb6dc362dd1e6204",
+        "bytes": 11652,
+        "lines": [
+          [
+            85,
+            107
+          ]
+        ],
+        "finding": "Each outer publication test runs the same test selector in a bounded child with inherited stdout/stderr and waits/reaps it; the two inner summaries are not separate outer cases."
+      },
+      {
+        "path": "crates/shenko-exec-host/Cargo.toml",
+        "sha256": "3901c1e7a6377356b91bf64ad493962a5a0065c945cf0034e1f946a529195359",
+        "bytes": 2406,
+        "lines": [
+          [
+            50,
+            55
+          ]
+        ],
+        "finding": "cognition_self_learning is declared harness=false."
+      },
+      {
+        "path": "crates/shenko-exec-host/tests/cognition_self_learning.rs",
+        "sha256": "bcd3663bba275cfeea48f56b5fd153c339a5a69de9638cf52ace850ed6c44366",
+        "bytes": 19259,
+        "lines": [
+          [
+            149,
+            156
+          ]
+        ],
+        "finding": "Missing explicit real-model configuration prints SKIP and returns Ok before running the consumer; raw log line 4607 observed that branch."
+      }
+    ]
+  },
+  "prior_report": {
+    "path": "docs/evidence/nightly-environment-20261122.md",
+    "lines": [
+      274,
+      286
+    ],
+    "run_id": 44935471497,
+    "job_id": 136941006687,
+    "head_sha": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+    "actual_merge_sha": "de6e96bf914003e7f85eceaa5a144b6a69de7bfd",
+    "reported_outer_counts": {
+      "passed": 1239,
+      "failed": 0,
+      "ignored": 11
+    },
+    "reported_targets": {
+      "unit_integration": 125,
+      "doctest": 33
+    },
+    "artifact_id": 14720205594,
+    "artifact_zip_sha256": "351193bcb827a1a1f3c36ecc1baa53b52b1cc34a7838a546662f7b7642b4e0b5",
+    "provenance": "Read the existing repository report; parent identifies its 1239 as the earlier nightly agent's outer-harness count. This audit did not download or independently reparse that older run.",
+    "comparison": "The current outer count is 1240; compare it with the reported prior outer 1239. The naive current 1259 mixes outer and nested receipts and is not a comparable count."
+  }
+}

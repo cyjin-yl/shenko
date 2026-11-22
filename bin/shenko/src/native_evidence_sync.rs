@@ -84,7 +84,14 @@ pub(super) fn serve(
     for item in &page.items {
         if let NativeEvidenceAvailability::Sealed { evidence_ref } = &item.availability {
             let objects = store.native_evidence_objects(item)?;
-            node.retain_native_evidence_objects(evidence_ref, &objects)?;
+            node.retain_native_evidence_objects(evidence_ref, &objects, &mut |reference, need_objects| {
+                if need_objects {
+                    Ok(store.native_evidence_predecessor_objects(reference)?)
+                } else {
+                    store.validate_native_evidence_predecessor(reference)?;
+                    Ok(Vec::new())
+                }
+            })?;
         }
     }
     ensure!(
@@ -291,6 +298,13 @@ pub(super) fn pull(
                 NativeEvidenceAvailability::Sealed { evidence_ref } => node
                     .pull_native_evidence_objects(evidence_ref, &mut |request| {
                         rpc(peer, &request, cancel)
+                    }, &mut |reference, need_objects| {
+                        if need_objects {
+                            Ok(store.native_evidence_predecessor_objects(reference)?)
+                        } else {
+                            store.validate_native_evidence_predecessor(reference)?;
+                            Ok(Vec::new())
+                        }
                     })
                     .with_context(|| {
                         format!(

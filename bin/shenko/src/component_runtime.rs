@@ -46,6 +46,26 @@ type SelectedAuthority = (
     Arc<crate::runtime_authority::RuntimeAuthority>,
 );
 
+/// Only an explicit selection cancellation check produces this outcome.
+/// Storage, malformed data and uncertain remote effects remain real errors.
+#[derive(Debug)]
+pub(super) struct SelectionCancelled;
+
+impl std::fmt::Display for SelectionCancelled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("primary selection cancelled before its next operation")
+    }
+}
+impl std::error::Error for SelectionCancelled {}
+
+async fn join_stopped_selection(selection: tokio::task::JoinHandle<Result<SelectedAuthority>>) -> Result<()> {
+    match selection.await.context("primary selection worker failed to join")? {
+        Ok(_) => Ok(()),
+        Err(error) if error.is::<SelectionCancelled>() => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// The owner lock remains held while this process follows. It admits no
 /// subject or native consumers until a real authority/branch is selected.
 pub async fn establish_runtime(
@@ -55,7 +75,9 @@ pub async fn establish_runtime(
     runtime_id: EntityId,
     profile: &shenko_seed::ModelProfile,
     eligibility: Arc<parking_lot::RwLock<ModelEligibility>>,
+    shutdown: impl std::future::Future<Output = Result<()>>,
 ) -> Result<RuntimeSelection> {
+    tokio::pin!(shutdown);
     let profile_digest = Digest::blake3(&serde_json::to_vec(profile)?);
     let configured = profile.configured;
     let candidate = configured.then(|| eligibility.read().candidate(runtime_id, &profile_digest, None)).flatten();
@@ -151,20 +173,21 @@ pub async fn establish_runtime(
         });
         let result = tokio::select! {
             _completed = &mut selection => _completed?,
-            _stop_signal = tokio::signal::ctrl_c() => {
+            _stop_signal = &mut shutdown => {
                 cancel.cancel(); worker_cancel.cancel();
-                let _ = selection.await;
-                _stop_signal?;
+                crate::runtime_host::with_cleanup(join_stopped_selection(selection).await,
+                    _stop_signal, "host signal observation")?;
                 break Ok(None);
             },
             _ = cancel.cancelled() => {
                 worker_cancel.cancel();
-                let _ = selection.await;
+                join_stopped_selection(selection).await?;
                 break Ok(None);
             },
         };
         match result {
             Ok(selected) => break Ok(Some(selected)),
+            Err(error) if cancel.is_cancelled() && error.is::<SelectionCancelled>() => break Ok(None),
             Err(error)
                 if error.downcast_ref::<PrimaryNotSelected>().is_some()
                     || error.downcast_ref::<ComponentUnavailable>().is_some()
@@ -195,7 +218,7 @@ pub async fn establish_runtime(
             Err(error) => break Err(error),
         }
         tokio::select! {
-            _stop_signal = tokio::signal::ctrl_c() => { _stop_signal?; cancel.cancel(); break Ok(None); },
+            _stop_signal = &mut shutdown => { _stop_signal?; cancel.cancel(); break Ok(None); },
             _ = cancel.cancelled() => break Ok(None),
             _ = tokio::time::sleep(Duration::from_secs(2)) => {},
         }
@@ -266,7 +289,7 @@ pub(super) fn observe_component(
             Err(_) => {}
         }
         if cancel.is_cancelled() {
-            bail!("component observation cancelled");
+            return Err(SelectionCancelled.into());
         }
     }
     Ok(ComponentObservation {

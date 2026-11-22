@@ -1,0 +1,493 @@
+{
+  "source_revision": "be9cfe1ba9ac99f34c69fe57eea4aa369a8371e3",
+  "observed_at_utc": "2026-11-21T22:33:56.727995+00:00",
+  "scope": "Completed authority compile failure and successful unchanged process test; all top-level process fixture originals retained. Installation databases/CAS and native artifact trees remain on authorized device.",
+  "files": [
+    {
+      "path": "authority.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/authority.exit",
+      "source_bytes": 4,
+      "source_sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "bytes": 4,
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "encoding": "original"
+    },
+    {
+      "path": "authority.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/authority.log",
+      "source_bytes": 37640,
+      "source_sha256": "c94c189d5b731d062f304feee3b28974d6c02fe293fcebf4879f05eaf6a16ab3",
+      "bytes": 7799,
+      "sha256": "727d0ccc144ace449b3f80cbc17c6f29746dd755fcba6a3206763cda5010a85c",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "exit.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/exit.txt",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original"
+    },
+    {
+      "path": "finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "97a44c2ec51a60eb556cbb16d125a780a98577dcaa9e9e9a93a9670387987c93",
+      "bytes": 21,
+      "sha256": "97a44c2ec51a60eb556cbb16d125a780a98577dcaa9e9e9a93a9670387987c93",
+      "encoding": "original"
+    },
+    {
+      "path": "node.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/node.txt",
+      "source_bytes": 9,
+      "source_sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "original"
+    },
+    {
+      "path": "runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/runner.sh",
+      "source_bytes": 2183,
+      "source_sha256": "89a7b3f525b8b369bf5da2364c1d823c18e5c4af495b1a24e242ab8b45596209",
+      "bytes": 2183,
+      "sha256": "89a7b3f525b8b369bf5da2364c1d823c18e5c4af495b1a24e242ab8b45596209",
+      "encoding": "original"
+    },
+    {
+      "path": "rustc.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/rustc.txt",
+      "source_bytes": 36,
+      "source_sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary.log",
+      "source_bytes": 36109,
+      "source_sha256": "89b6812391b2228407c68e3cebbb51e56c8eb26eb5d12061f4255d1262fc2d57",
+      "bytes": 7610,
+      "sha256": "409e630d5e0b0320f0d340ab08f779b0a73863299079e866a44eaa9445e2fdd7",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/started.txt",
+      "source_bytes": 21,
+      "source_sha256": "46e8faeabc1fbf91aa92e1f8d7e81b59547dec5db11988432236e24ace0f2dc8",
+      "bytes": 21,
+      "sha256": "46e8faeabc1fbf91aa92e1f8d7e81b59547dec5db11988432236e24ace0f2dc8",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-resume-28ab33fb-7560-4bd8-8b94-7cdc6b996f1a.stderr",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-resume-28ab33fb-7560-4bd8-8b94-7cdc6b996f1a.stderr",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-resume-28ab33fb-7560-4bd8-8b94-7cdc6b996f1a.stdout",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-resume-28ab33fb-7560-4bd8-8b94-7cdc6b996f1a.stdout",
+      "source_bytes": 456,
+      "source_sha256": "49934d36669617c900f33a03049d2912f185ddc63bc6ecaa37dea877a39dd5b2",
+      "bytes": 456,
+      "sha256": "49934d36669617c900f33a03049d2912f185ddc63bc6ecaa37dea877a39dd5b2",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-31d1e955-889b-4406-bd36-030a02b00228.stderr",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-31d1e955-889b-4406-bd36-030a02b00228.stderr",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-31d1e955-889b-4406-bd36-030a02b00228.stdout",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-31d1e955-889b-4406-bd36-030a02b00228.stdout",
+      "source_bytes": 382,
+      "source_sha256": "b877274069a45233bb995d730680ad0d212e69915566e7eafb6ac1e5bbcfca8a",
+      "bytes": 382,
+      "sha256": "b877274069a45233bb995d730680ad0d212e69915566e7eafb6ac1e5bbcfca8a",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-54f30b9d-6534-40fb-8ef5-30b23b7025a9.stderr",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-54f30b9d-6534-40fb-8ef5-30b23b7025a9.stderr",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-54f30b9d-6534-40fb-8ef5-30b23b7025a9.stdout",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-54f30b9d-6534-40fb-8ef5-30b23b7025a9.stdout",
+      "source_bytes": 383,
+      "source_sha256": "3942f8a5456ee1ffdc596a65def65f6662028d9d3c3468e65cf9420b3585c651",
+      "bytes": 383,
+      "sha256": "3942f8a5456ee1ffdc596a65def65f6662028d9d3c3468e65cf9420b3585c651",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-ec66cd3a-079f-45ae-af68-385c4ed79720.stderr",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-ec66cd3a-079f-45ae-af68-385c4ed79720.stderr",
+      "source_bytes": 0,
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/control-status-ec66cd3a-079f-45ae-af68-385c4ed79720.stdout",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/control-status-ec66cd3a-079f-45ae-af68-385c4ed79720.stdout",
+      "source_bytes": 382,
+      "source_sha256": "b877274069a45233bb995d730680ad0d212e69915566e7eafb6ac1e5bbcfca8a",
+      "bytes": 382,
+      "sha256": "b877274069a45233bb995d730680ad0d212e69915566e7eafb6ac1e5bbcfca8a",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/first.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/first.log",
+      "source_bytes": 9006,
+      "source_sha256": "a9c21221cbcdb65f8ddc4176d8b68d653c8b5363853d48975e98d6176e63dd74",
+      "bytes": 2197,
+      "sha256": "7939f95fd475542335b9583d946c6736dd6770c4715aa2ecd267934afe93e5ee",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/inference-cancelled.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/inference-cancelled.txt",
+      "source_bytes": 10,
+      "source_sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "bytes": 10,
+      "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/inference-shutdown.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/inference-shutdown.json",
+      "source_bytes": 872,
+      "source_sha256": "be613024d39726fe5c5dcef5a6f728f04d201e13f4aaff2579b99c8c024d90d6",
+      "bytes": 872,
+      "sha256": "be613024d39726fe5c5dcef5a6f728f04d201e13f4aaff2579b99c8c024d90d6",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/metadata-cancelled.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/metadata-cancelled.txt",
+      "source_bytes": 10,
+      "source_sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "bytes": 10,
+      "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/metadata-stopped.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/metadata-stopped.log",
+      "source_bytes": 3066,
+      "source_sha256": "b0b8a9c7f11dafac0575dd45d7f9757982105fdecd16dc3a48105e61f5c324bc",
+      "bytes": 904,
+      "sha256": "bfcf2a37d3290e662d61c9be2eb38b9fa33747167b7ea7f40d57b500ec81f35a",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/model-000.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-000.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-001.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-001.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-002.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-002.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-003.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-003.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-004.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-004.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-005.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-005.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-006.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-006.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-007.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-007.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-008.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-008.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-009.inference-ending",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-009.inference-ending",
+      "source_bytes": 10,
+      "source_sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "bytes": 10,
+      "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-009.request.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-009.request",
+      "source_bytes": 56878,
+      "source_sha256": "f7c9ba2847f05ef11039d7f7a1d99d26c53e8d70a05c0f77ebbbdb1b609bb50d",
+      "bytes": 22572,
+      "sha256": "b28fe78ce4fc1ec91cd890110f1a657a38f433029e0a35fde8674d895413f6cf",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/model-010.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-010.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-011.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-011.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-012.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-012.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-013.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-013.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-014.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-014.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-015.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-015.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-016.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-016.request",
+      "source_bytes": 63,
+      "source_sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "bytes": 63,
+      "sha256": "35b907727c1816bc0a4e9d76fbd4c6169ebbbaefea2a0eb4e2835150eefa0add",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-017.request",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-017.request",
+      "source_bytes": 61,
+      "source_sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "bytes": 61,
+      "sha256": "a49ac9b0f42c89a70bc532f3d1edbc508a197be9910c6df0f8e104e397a76327",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-018.inference-ending",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-018.inference-ending",
+      "source_bytes": 10,
+      "source_sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "bytes": 10,
+      "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/model-018.request.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/model-018.request",
+      "source_bytes": 56878,
+      "source_sha256": "506faa7da325756849803f1533611548ff055caea77fc9b61c74838dd996e56d",
+      "bytes": 22575,
+      "sha256": "4c66bd99be268d64a5c35260ade88c5a1eeb3e24421ff01ea61d48359f1f3c73",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/recovery-stop-order.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/recovery-stop-order.json",
+      "source_bytes": 691,
+      "source_sha256": "84fc5fdcf0c83b35718cb0b8cd07d540f95a483b38d8c73a2d2a34c9011ade8c",
+      "bytes": 691,
+      "sha256": "84fc5fdcf0c83b35718cb0b8cd07d540f95a483b38d8c73a2d2a34c9011ade8c",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/recovery-stop-receipt.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/recovery-stop-receipt.json",
+      "source_bytes": 1028,
+      "source_sha256": "892d6d3f2d6cb3e8bbee48d6182558f6c59aef30e75fc7a900c5bb06dd6cd36e",
+      "bytes": 1028,
+      "sha256": "892d6d3f2d6cb3e8bbee48d6182558f6c59aef30e75fc7a900c5bb06dd6cd36e",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/recovery-stopped.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/recovery-stopped.log",
+      "source_bytes": 8862,
+      "source_sha256": "7aa5458cf710cc89508b068d65050491d0e7f1ef5523477178366816185f136b",
+      "bytes": 2200,
+      "sha256": "a7a87b441f0cdcfc158e0ec922476bedb97f481b92829f85f0b49dd1dae8f0d1",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/restarted.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/restarted.log",
+      "source_bytes": 10212,
+      "source_sha256": "410f78f872fbe05060c815c1fa851e7ff352baa7f91618bdc2901eb1185342ea",
+      "bytes": 2404,
+      "sha256": "73303e23ba47c674ad203bd0860437f685b2b909f26d66fa77250860274a50a6",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "start-boundary/result.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/result.json",
+      "source_bytes": 271,
+      "source_sha256": "b0da8b66b99f55fd270b0b6719513db536ac956aa1d60eca9044281da3d7d882",
+      "bytes": 271,
+      "sha256": "b0da8b66b99f55fd270b0b6719513db536ac956aa1d60eca9044281da3d7d882",
+      "encoding": "original"
+    },
+    {
+      "path": "start-boundary/unknown-reopened.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary/unknown-reopened.log",
+      "source_bytes": 9197,
+      "source_sha256": "4479dd03ece4167612d224ac724c92d67a63a547c92684cf29f93d33f7cbd3da",
+      "bytes": 2128,
+      "sha256": "e0f9f410ff0ce428d925162c713e72a33e55047f815f00b22fd467ecc908c65a",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "host-runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-verify-known-node-loss.sh",
+      "source_bytes": 1885,
+      "source_sha256": "7f7f864a2fead9bc350c85500c5ab525949637de2f6964b2076ef5fa5a0a44f2",
+      "bytes": 1885,
+      "sha256": "7f7f864a2fead9bc350c85500c5ab525949637de2f6964b2076ef5fa5a0a44f2",
+      "encoding": "original"
+    },
+    {
+      "path": "host.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-be9cfe1b.host.exit",
+      "source_bytes": 2,
+      "source_sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+      "encoding": "original"
+    },
+    {
+      "path": "host.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-be9cfe1b.host.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "f68fcd753c23325c6c977d3fe1151f723de3bc9fa0665afec7ded8d0b938de23",
+      "bytes": 21,
+      "sha256": "f68fcd753c23325c6c977d3fe1151f723de3bc9fa0665afec7ded8d0b938de23",
+      "encoding": "original"
+    },
+    {
+      "path": "host.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-be9cfe1b.host.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "97a44c2ec51a60eb556cbb16d125a780a98577dcaa9e9e9a93a9670387987c93",
+      "bytes": 21,
+      "sha256": "97a44c2ec51a60eb556cbb16d125a780a98577dcaa9e9e9a93a9670387987c93",
+      "encoding": "original"
+    }
+  ]
+}

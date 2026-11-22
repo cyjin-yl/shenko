@@ -849,7 +849,7 @@ fn one_unusable_subject_memory_intent_does_not_wedge_the_batch() -> Result<()> {
 
 #[test]
 fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
-    use shenko_types::{error::ShenkoError, ids::*};
+    use shenko_types::{error::{ControlPreparationRecord, ShenkoError}, ids::*};
     use std::sync::{Arc, Barrier};
     let (dir, store, agent) = initialized_subject();
     let (head, planned) = store.load_subject(agent).unwrap();
@@ -879,6 +879,7 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
     let barrier = Arc::new(Barrier::new(2));
     let barrier_a = barrier.clone();
     let head_a = head.clone();
+    let predecessor = head.clone();
     let a = std::thread::spawn(move || {
         barrier_a.wait();
         store.commit_step_and_advance_head(&step_a, &head_a, next_a)
@@ -917,6 +918,100 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
         .unwrap()
         .unwrap();
     assert_eq!(committed.commit_ref, Some(head.committed_at));
+
+    // Reuse this completed race: fresh preparation can observe the winner
+    // while the loser still holds its old head. It does not retry the failed
+    // S1, choose an admission, or acquire permission for an external effect.
+    let control_rows = || -> Result<Vec<i64>> {
+        ["commit_log", "control_prepared_transitions", "control_materializations",
+            "operations", "attempts", "evidence_receipts"].into_iter().map(|table| {
+                Ok(conn.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0))?)
+            }).collect()
+    };
+    let before_capture = control_rows()?;
+    let changed = reopened.prepare_control_predecessor(&predecessor);
+    assert!(matches!(&changed, Err(ShenkoError::ControlPreparationChanged {
+        subject_id, record: ControlPreparationRecord::SubjectHead, record_id,
+        expected_revision, actual_revision,
+    }) if *subject_id == agent && *record_id == agent
+        && *expected_revision == predecessor.record_revision.0
+        && *actual_revision == head.record_revision.0), "{changed:?}");
+    // The already tested wrong authority stays a real conflict even though
+    // it also precedes the winning S1. Revision drift cannot excuse it.
+    assert!(matches!(reopened.prepare_control_predecessor(&stale_head),
+        Err(ShenkoError::Conflict(_))));
+    assert_eq!(control_rows()?, before_capture);
+    Ok(())
+}
+
+#[test]
+fn frozen_control_predecessor_keeps_original_optional_object_membership() -> Result<()> {
+    use shenko_types::{authority::CommitAdmission, ids::EntityId, object::Digest};
+
+    // The real d16 failure named a not-yet-published child input by a nested
+    // contract_digest. Publishing those exact bytes later grew an older
+    // predecessor's reconstructed inventory, although nothing was missing.
+    let future_bytes = br#"{"kind":"finite-child-input","goal":"retained original input"}"#;
+    let future_digest = Digest::blake3(future_bytes);
+    let bootstrap = serde_json::to_vec(&serde_json::json!({"contract_digest": future_digest}))?;
+    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&bootstrap);
+    let bootstrap_ref = store.cas.seal_object(&bootstrap, "application/json", "test", "raw", 1)?.object;
+    let (head, _) = store.load_subject(agent)?;
+    let frozen = store.prepare_control_predecessor(&head)?;
+    let admission = CommitAdmission {
+        schema_version: 1, subject_id: agent, branch_id: head.branch_id.clone(),
+        conflict_key: "frozen-optional-membership".into(), conflict_aliases: Vec::new(),
+        required_unconsumed: Vec::new(), action_id: EntityId::new(),
+        expected_parent: Some(head.committed_at), expected_head_revision: Some(head.record_revision),
+        controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
+        operation_id: None, attempt_id: None, payload_ref: frozen.clone(),
+    };
+    let before = store.inspect_control_predecessor(&frozen, &admission)?;
+    let original_root = store.cas.read_object(&frozen.digest)?;
+
+    // This explicit legacy fixture uses only schema-12-representable facts.
+    // It is not a writer downgrade. The old codec keeps its original reader.
+    let mut legacy: serde_json::Value = serde_json::from_slice(&original_root)?;
+    legacy.as_object_mut().unwrap().remove("object_inventory");
+    legacy["schema_version"] = 1.into();
+    legacy["manifest"]["schema"] = 12.into();
+    let legacy = store.cas.seal_object(&serde_json::to_vec(&legacy)?, "application/json",
+        "commit-authority", "store-control-predecessor", 1)?.object;
+    assert_eq!(store.inspect_control_predecessor(&legacy, &admission)?.fingerprint, before.fingerprint);
+
+    let published = store.cas.seal_object(future_bytes, "application/json", "model-child", "frozen-input", 1)?.object;
+    assert_eq!(published.digest, future_digest);
+    let after = store.inspect_control_predecessor(&frozen, &admission)
+        .context("late optional publication must not grow an already frozen predecessor")?;
+    assert_eq!(after.fingerprint, before.fingerprint);
+    assert_eq!(store.cas.read_object(&frozen.digest)?, original_root);
+    assert_eq!(frozen.codec.major, 2);
+    assert!(store.inspect_control_predecessor(&legacy, &admission).is_err(),
+        "do not reinterpret the legacy live-discovery inventory as codec 2");
+
+    // A later capture really includes the now-published optional object.
+    // Its loss cannot be excused using the earlier capture's exclusion.
+    let later = store.prepare_control_predecessor(&head)?;
+    let later_before = store.inspect_control_predecessor(&later, &admission)?;
+    assert_ne!(later_before.fingerprint, before.fingerprint);
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
+    let path = reopened.cas.verified_object_path(&published)?;
+    std::fs::write(&path, vec![b'!'; future_bytes.len()])?;
+    assert!(reopened.inspect_control_predecessor(&later, &admission).is_err());
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
+    std::fs::write(path, future_bytes)?;
+    assert_eq!(reopened.inspect_control_predecessor(&later, &admission)?.fingerprint, later_before.fingerprint);
+
+    // The allowlist restricts bare hints only. A required typed object still
+    // fails full integrity verification; neither snapshot can omit it.
+    let bootstrap_path = reopened.cas.verified_object_path(&bootstrap_ref)?;
+    std::fs::write(&bootstrap_path, vec![b'?'; bootstrap.len()])?;
+    assert!(reopened.inspect_control_predecessor(&frozen, &admission).is_err());
+    assert!(reopened.inspect_control_predecessor(&later, &admission).is_err());
+    std::fs::write(bootstrap_path, &bootstrap)?;
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
     Ok(())
 }
 
@@ -3143,12 +3238,17 @@ struct NativeT2Fixture {
     agent: shenko_types::ids::EntityId,
     parent: shenko_store::NativeTaskClaim,
     child: Option<shenko_store::NativeTaskClaim>,
+    sibling: Option<shenko_store::NativeTaskClaim>,
     state: Arc<parking_lot::Mutex<NativeT2AuthorityState>>,
     stamp: shenko_types::authority::CommitAuthorityStamp,
 }
 
 impl NativeT2Fixture {
     fn new(with_child: bool) -> Result<Self> {
+        Self::with_tasks(with_child, false)
+    }
+
+    fn with_tasks(with_child: bool, with_sibling: bool) -> Result<Self> {
         use shenko_types::{authority::CommitAuthorityStamp, ids::EntityId, object::Digest, task::TaskOwner};
         let (dir, store, agent) = initialized_subject();
         let mut parent = recovery_task(&store, agent, 1, false);
@@ -3161,6 +3261,14 @@ impl NativeT2Fixture {
             child.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
             batch.task_upserts.push(child.clone());
             Some(child)
+        } else { None };
+        // Bootstrap all requested tasks before authority is attached. Once
+        // bound, a bare WriteBatch cannot admit a new independently owned task.
+        let sibling = if with_sibling {
+            let mut sibling = recovery_task(&store, agent, 3, false);
+            sibling.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
+            batch.task_upserts.push(sibling.clone());
+            Some(sibling)
         } else { None };
         store.commit(batch)?;
         let head = store.load_subject(agent)?.0;
@@ -3175,7 +3283,9 @@ impl NativeT2Fixture {
         let parent = store.claim_native_task(parent.task_id, parent.implementation_ref, false)?.context("parent claim")?;
         let child = child.map(|child| store.claim_native_task(child.task_id, child.implementation_ref, false))
             .transpose()?.flatten();
-        Ok(Self { dir, store, agent, parent, child, state, stamp })
+        let sibling = sibling.map(|sibling| store.claim_native_task(sibling.task_id, sibling.implementation_ref, false))
+            .transpose()?.flatten();
+        Ok(Self { dir, store, agent, parent, child, sibling, state, stamp })
     }
 
     fn reopen(&self) -> Result<Arc<Store>> {
@@ -3255,6 +3365,7 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     // chosen S1 creates these new delegation rows on that distinct ledger.
     let mut archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut archive)?;
+    let before_birth_archive = archive.clone();
     let follower = Store::open(dir.join("claim-follower.db"), dir.join("claim-follower-cas"))?;
     follower.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
     follower.attach_commit_authority(Arc::new(NativeT2Authority {
@@ -3285,6 +3396,20 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert!(imported.control_admission_applied(&birth.admission)?);
     assert!(!imported.control_admission_applied_here(&birth.admission)?);
     let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"native claim implementation"), registry_revision: 1 };
+    // A trigger can introduce a different step predicate. The direct-reader
+    // proof does not cover it, so refuse before preparing or choosing a claim.
+    let injected = rusqlite::Connection::open(dir.join("head.db"))?;
+    injected.execute_batch("CREATE TRIGGER claim_subject_dependency AFTER UPDATE ON tasks BEGIN
+        SELECT data FROM subject_steps; END;")?;
+    let grants_before = serde_json::to_value(&state.lock().grants)?;
+    let refused = source.claim_native_task(fresh_id, implementation.clone(), false);
+    injected.execute_batch("DROP TRIGGER claim_subject_dependency")?;
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("cannot narrow a trigger or view read")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(&state.lock().grants)?, grants_before);
+    assert_eq!(serde_json::to_value(source.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+    let claim_action = EntityId::derived("commit-admission-action-v1", format!("task/{fresh_id}/claim/0").as_bytes());
+    assert_eq!(injected.query_row("SELECT count(*) FROM control_prepared_transitions WHERE action_id=?1",
+        [claim_action.to_string()], |row| row.get::<_, i64>(0))?, 0);
     let fresh = source.claim_native_task(fresh_id, implementation.clone(), false)?.context("one current claim permit")?;
     let claim_grant = chosen()?;
     let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
@@ -3292,6 +3417,8 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert_eq!(envelope["action"]["kind"], "native.claim");
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
+    assert_eq!(reference.codec.major, 3);
+    assert_eq!(transition["rows"]["schema_version"], 4);
     assert_eq!(transition["plan"]["task"], serde_json::to_value(&pending)?);
     assert_eq!(transition["plan"]["birth"]["admission"], serde_json::to_value(&birth.admission)?);
     assert_eq!(transition["plan"]["invocation"], serde_json::to_value(&fresh.invocation)?);
@@ -3306,6 +3433,46 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     let watermark = source.current_commit_seq()?;
     assert!(source.claim_native_task(fresh_id, implementation.clone(), false)?.is_none());
     assert_eq!(source.current_commit_seq()?, watermark);
+    // Each refusal owns a separate real receiver: import the pre-birth archive
+    // and locally materialize the original S1 before presenting its claim.
+    // Corrupt only after recovery's initial subject read, at grant acquisition.
+    // Keep the corruption and durable reconciliation fact; restoring a JSON
+    // row would neither restore every SQL cell nor erase the observed debt.
+    // The original follower remains untouched for the successful learned path.
+    for fault in ["missing-successor", "wrong-successor-binding", "changed-creator"] {
+        let db = dir.join(format!("claim-{fault}.db"));
+        let refused_receiver = Store::open(db.clone(), dir.join(format!("claim-{fault}-cas")))?;
+        refused_receiver.import_cognition_archive(&before_birth_archive[..], &CognitionImportOptions::default())?;
+        refused_receiver.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: "native-claim-follower", stamp: None, state: Arc::clone(&state),
+        }))?;
+        assert_eq!(refused_receiver.recover_control_admission(&birth, &birth_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+        let successor = refused_receiver.load_subject(agent)?.0.next_step_id;
+        let id = if fault == "changed-creator" { step.step_id } else { successor };
+        state.lock().before_materialize = Some(Box::new(move || {
+            let connection = rusqlite::Connection::open(db)?;
+            if fault == "missing-successor" {
+                assert_eq!(connection.execute("DELETE FROM subject_steps WHERE step_id=?1", [id.to_string()])?, 1);
+            } else {
+                let data: String = connection.query_row("SELECT data FROM subject_steps WHERE step_id=?1",
+                    [id.to_string()], |row| row.get(0))?;
+                let mut current: shenko_types::subject::SubjectStep = serde_json::from_str(&data)?;
+                if fault == "changed-creator" { current.record_revision.0 += 1; }
+                else { current.step_no += 1; }
+                assert_eq!(connection.execute("UPDATE subject_steps SET data=?1 WHERE step_id=?2",
+                    rusqlite::params![serde_json::to_string(&current)?, id.to_string()])?, 1);
+            }
+            Ok(())
+        }));
+        let refused = refused_receiver.recover_control_admission(&claim_grant, &claim_objects, false);
+        assert!(state.lock().before_materialize.is_none(), "{fault}: application boundary was not reached");
+        assert!(matches!(&refused, Ok(ControlRecoveryOutcome::ReconciliationRequired)), "{fault}: {refused:?}");
+        assert!(!refused_receiver.control_admission_applied_here(&claim_grant.admission)?);
+        assert_eq!(serde_json::to_value(refused_receiver.external_task(fresh_id)?)?, serde_json::to_value(&pending)?);
+        let debts = refused_receiver.pending_control_reconciliations(agent)?;
+        assert_eq!(debts.len(), 1, "{fault}: preserve the refused chosen fact");
+        assert_eq!(debts[0].payload["grant_id"], serde_json::to_value(&claim_grant.grant_id)?);
+    }
     assert_eq!(follower.recover_control_admission(&claim_grant, &claim_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
     assert_eq!(serde_json::to_value(follower.external_task(fresh_id)?)?, serde_json::to_value(&fresh.task)?);
     assert_eq!(serde_json::to_value(follower.external_task(head.subject_root_task_id)?)?, serde_json::to_value(&parked_root)?);
@@ -3330,8 +3497,9 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     assert!(!chosen()?.replayed);
     assert!(matches!(source.external_task(retry_id)?.state, TaskState::Running { .. }));
 
-    // Even a retained grant cannot omit the typed absence dependency. The
-    // malformed plan is fatal, with no Running write or materialization marker.
+    // Even a retained grant cannot omit the typed absence dependency. Claim 3
+    // rejects the missing row-4 selector before checking the dependency image,
+    // with no Running write or materialization marker.
     let before_lost = source.external_task(lost_id)?;
     state.lock().lose_reply = true;
     let refused = source.claim_native_task(lost_id, implementation.clone(), false);
@@ -3341,17 +3509,23 @@ fn canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worke
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&lost.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
     let mut transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
-    transition["rows"]["tables"].as_array_mut().context("lost claim tables")?
-        .retain(|table| table["before"]["table"]["name"] != "operations");
+    assert_eq!(reference.codec.major, 3);
+    assert_eq!(transition["rows"]["schema_version"], 4);
+    let tables = transition["rows"]["tables"].as_array_mut().context("lost claim tables")?;
+    let operations = tables.iter().find(|table| table["before"]["table"]["name"] == "operations")
+        .context("original operation absence dependency")?;
+    assert_eq!(operations["read_selector"]["kind"], "original_operation");
+    tables.retain(|table| table["before"]["table"]["name"] != "operations");
+    assert!(tables.iter().all(|table| table["before"]["table"]["name"] != "operations"));
     let fault_ref = source.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json",
-        "commit-authority", "store-native-claim-transition", 1)?.object;
+        "commit-authority", "store-native-claim-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(fault_ref)?;
     let mut fault = lost.clone();
     fault.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json",
         "commit-authority", "commit-admission", 1)?.object;
     state.lock().grants.insert(fault.admission.conflict_key.clone(), fault.clone());
     let malformed = source.recover_control_admission(&fault, &source.admission_objects(&fault.admission.payload_ref)?, true);
-    assert!(matches!(&malformed, Err(error) if error.to_string().contains("missing operations dependency")), "{malformed:#?}");
+    assert!(matches!(&malformed, Err(error) if error.to_string().contains("native read selectors differ from the original action plan")), "{malformed:#?}");
     assert_eq!(serde_json::to_value(source.external_task(lost_id)?)?, serde_json::to_value(before_lost)?);
     assert!(!source.control_admission_applied_here(&fault.admission)?);
     state.lock().grants.insert(lost.admission.conflict_key.clone(), lost.clone());
@@ -3436,7 +3610,8 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         &step.decision_ref.as_ref().context("original decision")?.digest)?)?;
     let task_id = EntityId::new();
     let delayed_id = EntityId::new();
-    for id in [task_id, delayed_id] {
+    let independent_id = EntityId::new();
+    for id in [task_id, delayed_id, independent_id] {
         decision.delegated_task_intents.push(DelegationIntent { intent_id: id,
             goal: "Append one observed local effect".into(), system_prompt: String::new(), model: None,
             capabilities: vec![], budget_hint: None, reply_grant: None,
@@ -3491,6 +3666,12 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
         assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
+        assert_eq!(frozen["rows"]["schema_version"], 4);
+        let creator = frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
+            .find(|table| table["before"]["table"]["name"] == "subject_steps").context("creator point witness")?;
+        assert_eq!(creator["complete_read"], false);
+        assert_eq!(creator["before"]["rows"].as_object().context("creator rows")?.len(), 1);
+        assert!(creator["changes"].as_array().context("creator writes")?.is_empty());
         let conn = rusqlite::Connection::open(dir.join("head.db"))?;
         let materialized: serde_json::Value = serde_json::from_str(&conn.query_row(
             "SELECT data FROM control_materializations WHERE action_id=?1",
@@ -3506,9 +3687,59 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         }));
         Ok(())
     };
-    let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: Digest::blake3(b"bounded append implementation"), registry_revision: 1 };
+    // The same history/effect/recovery trajectory now retains a required T1
+    // implementation larger than the unchanged E1 increment budget. It must
+    // remain validated and transported as the original T1, never as new E1.
+    let implementation_bytes = shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES + 1;
+    let mut implementation_stream = std::io::Read::take(std::io::repeat(0x5a), implementation_bytes);
+    let implementation_object = source.cas.seal_reader(&mut implementation_stream,
+        "application/octet-stream", "native-implementation", "native-executable", 1)?.object;
+    assert_eq!(implementation_object.bytes, implementation_bytes);
+    let implementation_binding = source.cas.seal_object(
+        &serde_json::to_vec(&serde_json::json!({"implementation":implementation_object}))?,
+        "application/json", "native-chain", "implementation-binding", 1)?.object;
+    let implementation = ImplementationRef { plugin_id: EntityId::new(), artifact_digest: implementation_object.digest.clone(), registry_revision: 1 };
+    // A separate real Store operation can receive E1 while the target's
+    // chosen claim/T1 is waiting to materialize. Its unknown observation grants
+    // no success and no local effect, and remains outside the target witness.
+    let independent = source.claim_native_task(independent_id, implementation.clone(), false)?.context("independent source claim")?;
+    let (independent_ctx, mut independent_op, mut independent_attempt) = draft_dispatch_operation(
+        &source, &independent.invocation, "independent-observation", independent.operation_id)?;
+    assert!(source.arm_native_operation_for_dispatch(&independent_ctx, &mut independent_op, &mut independent_attempt)?.is_none());
+    let independent_raw = source.cas.seal_object(b"observation ended without a known effect",
+        "text/plain", "native-chain", "text", 1)?.object;
+    let independent_receipt = EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(),
+        operation_id: Some(independent_op.operation_id), attempt_id: Some(independent_attempt.attempt_id),
+        source_id: "independent-native-chain-observation".into(), source_instance_id: "fixture-observer".into(),
+        source_event_key: Some("independent-before-target-claim".into()), producer_epoch: Some(independent_attempt.epoch.0),
+        producer_schema_version: Some("1".into()), raw_ref: independent_raw, decoder_ref: Some(independent_attempt.implementation_ref.clone()),
+        decode_status: DecodeStatus::Decoded, observation_level: None,
+        normalized_ref: None, observed_at: Some(chrono::Utc::now()), received_commit: independent_attempt.armed_commit,
+    };
+    // Reproduce the real interleaving: capture the claim while the successor
+    // is Planned, then advance that same step through real S0/result Store
+    // writes after choose and before materialization. The head and committed
+    // creator remain unchanged. Followers deliberately retain Planned across
+    // claim, paired arm and T2, so all three learned readers face different
+    // successor progress without receiving another execution permit.
+    let progressing = Arc::clone(&source);
+    let observation = independent_receipt.clone();
+    state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        assert_eq!(successor.state, shenko_types::subject::SubjectStepState::Planned);
+        recorded_result(&progressing, &head, successor)?;
+        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
+            observation, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     let claim_started = std::time::Instant::now();
     let claim = source.claim_native_task(task_id, implementation.clone(), false)?.context("fresh source claim")?;
+    assert!(state.lock().before_materialize.is_none());
+    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(independent_receipt.receipt_id));
+    assert_eq!(source.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
+    assert_eq!(source.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::ResultRecorded);
+    assert_eq!(receiver.load_subject(agent)?.1.state, shenko_types::subject::SubjectStepState::Planned);
     let claim_grant = chosen()?;
     capacity_receipt(&source, &claim_grant, "native.claim", claim_started.elapsed())?;
     let claim_objects = source.admission_objects(&claim_grant.admission.payload_ref)?;
@@ -3519,9 +3750,35 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     // One actual local effect follows only the fresh paired T1 permit. The
     // receiver installs the original armed intent, and never obtains None.
     let (ctx, mut operation, mut attempt) = draft_dispatch_operation(&source, &claim.invocation, "native-chain", claim.operation_id)?;
+    operation.resource_bindings_ref = implementation_binding.clone();
+    let injected = rusqlite::Connection::open(dir.join("head.db"))?;
+    injected.execute_batch("CREATE VIEW indirect_native_attempts AS SELECT data FROM attempts;
+        CREATE TRIGGER arm_attempt_dependency AFTER UPDATE ON tasks BEGIN
+            SELECT data FROM indirect_native_attempts; END;")?;
+    let grants_before = serde_json::to_value(&state.lock().grants)?;
+    let refused = source.arm_native_operation_for_dispatch(&ctx, &mut operation.clone(), &mut attempt.clone());
+    injected.execute_batch("DROP TRIGGER arm_attempt_dependency; DROP VIEW indirect_native_attempts")?;
+    assert!(matches!(&refused, Err(error) if error.to_string().contains("cannot narrow a trigger or view read")), "{refused:#?}");
+    assert_eq!(serde_json::to_value(&state.lock().grants)?, grants_before);
+    assert_eq!(injected.query_row("SELECT count(*) FROM operations WHERE operation_id=?1",
+        [operation.operation_id.to_string()], |row| row.get::<_, i64>(0))?, 0);
+    let progressing = Arc::clone(&source);
+    let observation = EvidenceReceipt {
+        receipt_id: EntityId::new(), source_event_key: Some("independent-before-target-arm".into()),
+        observed_at: Some(chrono::Utc::now()), ..independent_receipt.clone()
+    };
+    let arm_receipt_id = observation.receipt_id;
+    state.lock().before_materialize = Some(Box::new(move || {
+        progressing.record_external_evidence(independent_op.operation_id, independent_attempt.attempt_id,
+            observation, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     let arm_started = std::time::Instant::now();
     let permit = source.arm_native_operation_for_dispatch(&ctx, &mut operation, &mut attempt)?;
     assert!(permit.is_none());
+    assert!(state.lock().before_materialize.is_none());
+    assert_eq!(source.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(arm_receipt_id));
+    assert_eq!(source.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     if permit.is_none() {
         let mut effect = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("effect.log"))?;
         effect.write_all(b"effect\n")?;
@@ -3532,7 +3789,44 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let arm_objects = source.admission_objects(&arm.admission.payload_ref)?;
     let envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&arm.admission.payload_ref.digest)?)?;
     let arm_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(arm_ref.codec.major, 2);
+    assert_eq!(arm_ref.codec.major, 4);
+    // Independent receivers preserve each refused chosen fact. A concurrent
+    // logical-key collision and a JSON UUID alias under another physical PK
+    // must both invalidate absence; neither failure is repaired for reuse.
+    for fault in ["logical-key", "json-uuid-alias"] {
+        let db = dir.join(format!("arm-{fault}.db"));
+        let refused_receiver = Store::open(db.clone(), dir.join(format!("arm-{fault}-cas")))?;
+        refused_receiver.import_cognition_archive(&archive[..], &CognitionImportOptions::default())?;
+        refused_receiver.attach_commit_authority(Arc::new(NativeT2Authority {
+            source: "native-chain-follower", stamp: None, state: Arc::clone(&state),
+        }))?;
+        for (grant, originals) in [(&birth, &birth_objects), (&claim_grant, &claim_objects)] {
+            assert_eq!(refused_receiver.recover_control_admission(grant, originals, false)?, ControlRecoveryOutcome::RecoveredCanonical);
+        }
+        let before = refused_receiver.external_task(task_id)?;
+        let sequence = refused_receiver.current_commit_seq()?;
+        let mut collision = operation.clone();
+        collision.operation_id = EntityId::new();
+        let physical_id = collision.operation_id;
+        let mut collision = serde_json::to_value(collision)?;
+        if fault == "json-uuid-alias" {
+            collision["operation_id"] = operation.operation_id.to_string().to_uppercase().into();
+            collision["logical_key"] = "independent-physical-row".into();
+            assert_eq!(serde_json::from_value::<OperationRecord>(collision.clone())?.operation_id, operation.operation_id);
+        }
+        state.lock().before_materialize = Some(Box::new(move || {
+            let conn = rusqlite::Connection::open(db)?;
+            conn.execute("INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq,created_at) VALUES(?1,0,?2,?3,?4)",
+                rusqlite::params![physical_id.to_string(), serde_json::to_string(&collision)?, sequence, chrono::Utc::now().to_rfc3339()])?;
+            Ok(())
+        }));
+        assert_eq!(refused_receiver.recover_control_admission(&arm, &arm_objects, false)?, ControlRecoveryOutcome::ReconciliationRequired);
+        assert!(state.lock().before_materialize.is_none());
+        assert!(!refused_receiver.control_admission_applied_here(&arm.admission)?);
+        assert_eq!(serde_json::to_value(refused_receiver.external_task(task_id)?)?, serde_json::to_value(before)?);
+        assert!(refused_receiver.external_operation_attempts(operation.operation_id)?.is_empty());
+        assert_eq!(refused_receiver.pending_control_reconciliations(agent)?.len(), 1);
+    }
     for replica in [&receiver, &blocked] {
         assert_eq!(replica.recover_control_admission(&arm, &arm_objects, false)?, ControlRecoveryOutcome::RecoveredCanonical);
         assert!(replica.arm_native_operation_for_dispatch(&ctx, &mut operation.clone(), &mut attempt.clone())?.is_some());
@@ -3574,6 +3868,34 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let original_attempt = source.external_attempt(attempt.attempt_id)?;
     assert_eq!(original_receipt.received_commit.ledger_id, source.ledger.ledger_id());
     assert_eq!(completed.evidence_through, Some(original_receipt.received_commit));
+    assert!(source.native_evidence_seal_debts(operation.operation_id)?.is_empty());
+    let marker: serde_json::Value = serde_json::from_str(&injected.query_row(
+        "SELECT data FROM native_evidence_materializations WHERE receipt_id=?1",
+        [receipt_id.to_string()], |row| row.get::<_, String>(0))?)?;
+    let evidence_ref: ObjectRef = serde_json::from_value(marker["evidence_ref"].clone())?;
+    let anchored = shenko_types::native_evidence::AnchoredNativeEvidence::decode(&evidence_ref,
+        &source.cas.read_object(&evidence_ref.digest)?).map_err(anyhow::Error::msg)?;
+    assert_eq!(evidence_ref.codec.major, shenko_types::native_evidence::NATIVE_EVIDENCE_ANCHORED_CODEC_MAJOR);
+    assert_eq!(anchored.fact_ref.codec.major, 2);
+    assert_eq!(anchored.predecessor_roots, vec![arm.admission.payload_ref.clone()]);
+    let item = shenko_types::native_evidence::NativeEvidenceItem {
+        position: shenko_types::native_evidence::NativeEvidencePosition {
+            sequence: original_receipt.received_commit.seq.0, receipt_id,
+        },
+        operation_id: operation.operation_id, attempt_id: attempt.attempt_id,
+        source_commit: original_receipt.received_commit,
+        availability: shenko_types::native_evidence::NativeEvidenceAvailability::Sealed { evidence_ref },
+    };
+    let increment = source.native_evidence_objects(&item)?;
+    assert!(increment.iter().all(|object| object.reference.digest != implementation_object.digest));
+    assert!(increment.iter().map(|object| object.reference.bytes).sum::<u64>()
+        <= shenko_types::native_evidence::NATIVE_EVIDENCE_CLOSURE_BYTES);
+    source.validate_native_evidence_predecessor(&arm.admission.payload_ref)?;
+    eprintln!("issue316-native-capacity {}", serde_json::json!({
+        "phase":"native.e1.anchored_increment", "implementation":implementation_object,
+        "envelope":anchored, "increment_objects":increment.len(),
+        "increment_bytes":increment.iter().map(|object| object.reference.bytes).sum::<u64>(),
+    }));
     let armed_task = receiver.external_task(task_id)?;
 
     // The provider's actual fact is already committed when the T2 chosen
@@ -3593,26 +3915,40 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let objects = source.admission_objects(&t2.admission.payload_ref)?;
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&t2.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(reference.codec.major, 2);
+    assert_eq!(reference.codec.major, 4);
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
     let expected_result: shenko_types::task::TaskResult = serde_json::from_value(transition["result"].clone())?;
     assert!(source.native_task_result(task_id)?.is_none());
     assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
 
-    // A chosen descriptor with an unsupported E1 reader is fatal, not a
-    // route to the old generic T2 or a receipt whose provenance was rebuilt.
-    let mut malformed = transition.clone();
-    malformed["evidence_fact"]["codec"]["major"] = 99.into();
-    let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", 2)?.object;
-    envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
-    let mut bad = t2.clone();
-    bad.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
-    state.lock().grants.insert(bad.admission.conflict_key.clone(), bad.clone());
-    let refused = receiver.recover_control_admission(&bad, &source.admission_objects(&bad.admission.payload_ref)?, false);
-    assert!(matches!(&refused, Err(error) if error.to_string().contains("unsupported typed object")), "{refused:#?}");
-    assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
-    assert_eq!(serde_json::to_value(receiver.external_task(task_id)?)?, serde_json::to_value(&armed_task)?);
-    assert!(!receiver.control_admission_applied_here(&bad.admission)?);
+    // Unsupported E1 readers and selectors naming another attempt are fatal.
+    // No fallback may reinterpret them as
+    // the original chosen T2 or reconstruct different receipt provenance.
+    for fault in ["evidence-reader", "wrong-attempt"] {
+        let mut malformed = transition.clone();
+        let expected_error = match fault {
+            "evidence-reader" => {
+                malformed["evidence_fact"]["codec"]["major"] = 99.into();
+                "unsupported typed object"
+            }
+            _ => {
+                let attempts = malformed["rows"]["tables"].as_array_mut().context("T2 tables")?.iter_mut()
+                    .find(|table| table["before"]["table"]["name"] == "attempts").context("original attempt selector")?;
+                attempts["read_selector"]["attempt_id"] = serde_json::to_value(EntityId::new())?;
+                "native read selectors differ"
+            }
+        };
+        let bad_ref = source.cas.seal_object(&serde_json::to_vec(&malformed)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
+        envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
+        let mut bad = t2.clone();
+        bad.admission.payload_ref = source.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+        state.lock().grants.insert(bad.admission.conflict_key.clone(), bad.clone());
+        let refused = receiver.recover_control_admission(&bad, &source.admission_objects(&bad.admission.payload_ref)?, false);
+        assert!(matches!(&refused, Err(error) if error.to_string().contains(expected_error)), "{fault}: {refused:#?}");
+        assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
+        assert_eq!(serde_json::to_value(receiver.external_task(task_id)?)?, serde_json::to_value(&armed_task)?);
+        assert!(!receiver.control_admission_applied_here(&bad.admission)?);
+    }
     state.lock().grants.insert(t2.admission.conflict_key.clone(), t2.clone());
 
     // A real local inbox identity conflict makes T2 refuse after the staged
@@ -3651,6 +3987,9 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     reopened.attach_commit_authority(Arc::new(NativeT2Authority { source: "native-chain-source", stamp: Some(stamp), state: Arc::clone(&state) }))?;
     let recovery_started = std::time::Instant::now();
     let recovered = reopened.resume_prepared_step_commits(agent)?;
+    assert_eq!(reopened.external_attempt(independent_attempt.attempt_id)?.final_receipt_id, Some(arm_receipt_id));
+    assert_eq!(reopened.external_operation_evidence(independent_op.operation_id)?.len(), 2);
+    assert_eq!(reopened.external_operation(independent_op.operation_id)?.effect_status, EffectStatus::Unknown);
     assert_eq!(recovered.applied, 1);
     assert!(recovered.unresolved.is_empty());
     capacity_receipt(&reopened, &t2, "native.complete.recovered", recovery_started.elapsed())?;
@@ -3689,6 +4028,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     reopened.activate_runtime_authority(&reopened.load_subject(agent)?.0)?;
     let delayed = reopened.claim_native_task(delayed_id, implementation, false)?.context("delayed source claim")?;
     let (delayed_ctx, mut delayed_op, mut delayed_attempt) = draft_dispatch_operation(&reopened, &delayed.invocation, "delayed-native-chain", delayed.operation_id)?;
+    delayed_op.resource_bindings_ref = implementation_binding;
     assert!(reopened.arm_native_operation_for_dispatch(&delayed_ctx, &mut delayed_op, &mut delayed_attempt)?.is_none());
     std::fs::write(dir.join("delayed-effect.log"), b"one delayed observation")?;
     let late_raw = reopened.cas.seal_object(&std::fs::read(dir.join("delayed-effect.log"))?, "text/plain", "native-chain", "text", 1)?.object;
@@ -3700,12 +4040,20 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let delayed_arm = chosen()?;
     let envelope: serde_json::Value = serde_json::from_slice(&reopened.cas.read_object(&delayed_arm.admission.payload_ref.digest)?)?;
     let delayed_ref: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(delayed_ref.codec.major, 2);
-    let original_path = reopened.cas.verified_object_path(&delayed_ref)?;
-    let saved_path = dir.join("temporarily-unavailable-arm");
+    assert_eq!(delayed_ref.codec.major, 4);
+    let original_path = reopened.cas.verified_object_path(&implementation_object)?;
+    let saved_path = dir.join("temporarily-unavailable-implementation");
     std::fs::rename(&original_path, &saved_path)?;
+    assert!(reopened.validate_native_evidence_predecessor(&delayed_arm.admission.payload_ref).is_err());
+    // Matching size is not integrity. Keep the same failed-proof window but
+    // leave wrong bytes under the original name for the actual E1 seal read.
+    let corrupt = std::fs::File::create(&original_path)?;
+    corrupt.set_len(implementation_object.bytes)?;
+    corrupt.sync_all()?;
+    drop(corrupt);
     let late = reopened.record_external_evidence(delayed_op.operation_id, delayed_attempt.attempt_id, late_receipt.clone(),
         Some(OperationOutcome::Succeeded), EffectStatus::Complete);
+    std::fs::remove_file(&original_path)?;
     std::fs::rename(saved_path, original_path)?;
     let late = late?;
     let retained = reopened.external_evidence(late_id)?;
@@ -3716,6 +4064,11 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     assert_eq!(debts.len(), 1);
     assert_eq!(debts[0].receipt_id, late_id);
     assert_eq!(debts[0].received_commit, retained.received_commit);
+    // The original T1 reader verifies its complete closure before the new
+    // anchored E1 seal can run; preserve that earlier typed failure as debt.
+    assert_eq!(debts[0].reason,
+        shenko_types::error::ShenkoError::ObjectClosureIncomplete { missing_count: 1 }.to_string());
+    reopened.validate_native_evidence_predecessor(&delayed_arm.admission.payload_ref)?;
     let refused = reopened.complete_native_task(&delayed, &late);
     assert!(matches!(&refused, Err(error) if error.to_string().contains("retained seal debt")), "{refused:#?}");
     assert!(reopened.native_task_result(delayed_id)?.is_none());
@@ -3999,12 +4352,49 @@ fn canonical_native_arming_keeps_original_intent_without_reissuing_execution() -
 fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart() -> Result<()> {
     use shenko_store::{ControlRecoveryOutcome, child::{NATIVE_DISPATCH, NativeDispatchTransition::{AlreadyCommitted, Won}}, cognition::CognitionImportOptions};
     use shenko_types::{authority::CommitAuthorityGrant, commit::CommitRef, evidence::*, ids::EntityId, object::ObjectRef, operation::*, task::DispatchEligibility};
-    let fixture = NativeT2Fixture::new(false)?;
-    let ctx = &fixture.parent.invocation;
+    let fixture = NativeT2Fixture::with_tasks(true, true)?;
+    let ctx = &fixture.child.as_ref().context("descendant dispatch claim")?.invocation;
+    let sibling = fixture.sibling.as_ref().context("independent dispatch observation")?;
+    let sibling_task_id = sibling.task.task_id;
+    let independent = arm_dispatch_probe(&fixture.store, &sibling.invocation, "independent-queued-operation");
+    let independent_attempt = fixture.store.external_attempt(independent.1)?;
+    let raw = fixture.store.cas.seal_object(b"independent observation ended without an effect proof",
+        "text/plain", "dispatch-test", "text", 1)?.object;
+    let receipt = EvidenceReceipt {
+        record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(independent.0), attempt_id: Some(independent.1),
+        source_id: "independent-dispatch-observer".into(), source_instance_id: "fixture".into(),
+        source_event_key: Some("independent-after-dispatch-choice".into()), producer_epoch: Some(independent_attempt.epoch.0),
+        producer_schema_version: Some("1".into()), raw_ref: raw, decoder_ref: Some(independent_attempt.implementation_ref),
+        decode_status: DecodeStatus::Decoded, observation_level: None, normalized_ref: None,
+        observed_at: Some(chrono::Utc::now()), received_commit: independent_attempt.armed_commit,
+    };
+    let receipt_id = receipt.receipt_id;
     let first = arm_dispatch_probe(&fixture.store, ctx, "fresh-model-step");
     let first_attempt = fixture.store.external_attempt(first.1)?;
     let first_operation = fixture.store.external_operation(first.0)?;
+    // One real concurrent window advances S0, a separate task's cancellation,
+    // and its late Unknown E1 after this dispatch is chosen. The target still
+    // depends on its complete parent ancestry, not every task/attempt row.
+    let progressing = Arc::clone(&fixture.store);
+    let agent = fixture.agent;
+    fixture.state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        recorded_result(&progressing, &head, successor)?;
+        progressing.request_native_cancellation(sibling_task_id, EntityId::new(), EntityId::new(),
+            "independent task stopped", shenko_types::task::AbortScope::Task)?;
+        progressing.record_external_evidence(independent.0, independent.1, receipt, None, EffectStatus::Unknown)?;
+        Ok(())
+    }));
     assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, Won);
+    assert!(fixture.state.lock().before_materialize.is_none());
+    assert_eq!(fixture.store.external_attempt(independent.1)?.final_receipt_id, Some(receipt_id));
+    assert_eq!(fixture.store.external_operation(independent.0)?.effect_status, EffectStatus::Unknown);
+    assert_eq!(fixture.store.load_subject(fixture.agent)?.1.state, shenko_types::subject::SubjectStepState::ResultRecorded);
+    let first_grant = fixture.state.lock().grants.get(&format!("attempt/{}/dispatch", first.1))
+        .cloned().context("original dispatch choice")?;
+    let ancestor = fixture.store.external_task(fixture.parent.task.task_id)?;
+    assert_eq!(first_grant.admission.required_unconsumed,
+        vec![format!("task/{}/revision/{}", ancestor.task_id, ancestor.record_revision.0)]);
     assert_eq!(fixture.store.commit_native_dispatch(ctx, first.0, first.1)?, AlreadyCommitted);
     assert_eq!(serde_json::to_value(fixture.store.external_attempt(first.1)?)?, serde_json::to_value(first_attempt)?);
     assert_eq!(serde_json::to_value(fixture.store.external_operation(first.0)?)?, serde_json::to_value(first_operation)?);
@@ -4062,7 +4452,9 @@ fn canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_r
     let mut substituted: serde_json::Value = serde_json::from_str(data.as_str().context("task JSON")?)?;
     substituted["memos"][NATIVE_DISPATCH]["attempts"][ids.1.to_string()]["commit"]["ledger_id"] = serde_json::to_value(EntityId::new())?;
     *data = serde_json::to_value(serde_json::to_string(&substituted)?)?;
-    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-dispatch-transition", 1)?.object;
+    assert_eq!(reference.codec.major, 2);
+    assert_eq!(transition["rows"]["schema_version"], 5);
+    let bad_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&transition)?, "application/json", "commit-authority", "store-native-dispatch-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(bad_ref)?;
     let mut fault: CommitAuthorityGrant = grant.clone();
     fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
@@ -4196,7 +4588,7 @@ fn canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_
     let logical_commit: shenko_types::commit::CommitRef = serde_json::from_value(original["rows"]["result_commit"].clone())?;
     let mut substituted = original;
     substituted["result"]["invocation_id"] = serde_json::to_value(EntityId::new())?;
-    let changed = fixture.store.cas.seal_object(&serde_json::to_vec(&substituted)?, "application/json", "commit-authority", "store-native-t2-transition", 1)?.object;
+    let changed = fixture.store.cas.seal_object(&serde_json::to_vec(&substituted)?, "application/json", "commit-authority", "store-native-t2-transition", reference.codec.major)?.object;
     envelope["action"]["transition_ref"] = serde_json::to_value(changed)?;
     let mut fault: CommitAuthorityGrant = grant.clone();
     fault.admission.payload_ref = fixture.store.cas.seal_object(&serde_json::to_vec(&envelope)?, "application/json", "commit-authority", "commit-admission", 1)?.object;
@@ -4237,18 +4629,43 @@ fn canonical_native_t2_keeps_original_e1_through_settlement_restart_and_foreign_
 #[test]
 fn canonical_native_t2_completing_and_finish_recover_as_separate_atomic_results() -> Result<()> {
     use shenko_store::ControlRecoveryOutcome;
-    use shenko_types::task::TaskState;
+    use shenko_types::{evidence::EvidenceReceipt, ids::EntityId,
+        operation::{EffectStatus, OperationOutcome}, subject::SubjectStepState, task::TaskState};
     let fixture = NativeT2Fixture::new(true)?;
     let child = fixture.child.as_ref().context("ordinary child")?;
     let (parent_operation, parent_evidence) = native_t2_evidence(&fixture.store, &fixture.parent)?;
-    let (child_operation, _) = native_t2_evidence(&fixture.store, child)?;
+    let (child_operation, child_evidence) = native_t2_evidence(&fixture.store, child)?;
     fixture.state.lock().lose_reply = true;
     let error = fixture.store.complete_native_task(&fixture.parent, &parent_operation).err().context("chosen Completing reply should be lost")?;
     assert!(error.to_string().contains("fixture lost chosen T2 reply"), "{error:#}");
     let completing = fixture.chosen()?;
     let objects = fixture.store.admission_objects(&completing.admission.payload_ref)?;
     assert!(fixture.store.native_task_result(fixture.parent.task.task_id)?.is_none());
+    // The selected generic T2 depends on its own E1 and on the ordinary
+    // child's task state, not that child's operation/receipt progress or the
+    // main step's S0 state. Interleave both through real Store writes while
+    // keeping that child unfinished. The original Completing must still win.
+    let progressing = Arc::clone(&fixture.store);
+    let agent = fixture.agent;
+    let receipt = EvidenceReceipt {
+        receipt_id: EntityId::new(), source_event_key: Some("second-independent-child-observation".into()),
+        observed_at: Some(chrono::Utc::now()), ..child_evidence.clone()
+    };
+    let receipt_id = receipt.receipt_id;
+    let child_attempt_id = child_evidence.attempt_id.context("child original attempt")?;
+    fixture.state.lock().before_materialize = Some(Box::new(move || {
+        let (head, successor) = progressing.load_subject(agent)?;
+        assert_eq!(successor.state, SubjectStepState::Planned);
+        recorded_result(&progressing, &head, successor)?;
+        progressing.record_external_evidence(child_operation.operation_id, child_attempt_id,
+            receipt, Some(OperationOutcome::Succeeded), EffectStatus::Complete)?;
+        Ok(())
+    }));
     assert_eq!(fixture.store.recover_control_admission(&completing, &objects, true)?, ControlRecoveryOutcome::RecoveredCanonical);
+    assert!(fixture.state.lock().before_materialize.is_none());
+    assert_eq!(fixture.store.load_subject(agent)?.1.state, SubjectStepState::ResultRecorded);
+    assert_eq!(fixture.store.external_attempt(child_attempt_id)?.final_receipt_id, Some(receipt_id));
+    let child_operation = fixture.store.external_operation(child_operation.operation_id)?;
     let parent = fixture.store.external_task(fixture.parent.task.task_id)?;
     assert!(matches!(parent.state, TaskState::Completing { .. }));
     assert!(fixture.store.native_task_result(parent.task_id)?.is_none());

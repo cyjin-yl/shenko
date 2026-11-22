@@ -30,12 +30,18 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 |---|---|
 | `hello` (v2) | `server_version` + `capabilities`（append/steer/withdraw/actions/documents/attachments/durable_input_receipts/committed_replay/streaming）+ `surface`（基线能力事实，revision 0） |
 | `capabilities` (v2) | `client_hello` 的应答：`surface` 重算（revision 递增，含 `valid_until`） |
-| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。携带流式前缀的 part 会额外发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
+| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。流式前缀与正式正文不一致时，发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
 | `stream_part` (v2) | 流式 public-text chunk（仅当真实生产者接入；`streaming:false` 时永不发送）。`step` 可为 0（尚无已提交步；客户端不得虚构）；其余 identity 与 `timeline_part` 同构 |
 | `document` (v1) | 已校验并按本连接能力降级的 SemanticDocument（见 [§3](../research/product-positioning.md#spec-3)） |
 | `document_error` (v1) | 文档块无法成为界面；原文仍可见，富层丢弃，原因可读 |
 | `identity` | 主体身份 revision 变化通知（既有） |
 | `receipt` (v2) / `submission_view` (v2) | 见 [§2](architecture.md#spec-2) |
+
+修正身份必须精确为 `text/0@${commit_ref}`，并绑定同一 `message_id=step_id`。
+它替换该消息的旧 `text/0` 流式视图（或同一提交引用的 base），清除对应旧流的
+待补分片；先收到修正或先收到旧流，以及重连重放，都保留实际 corrected part_id
+和完整提交正文。不同消息、part 或其他提交引用的事实不被替换。原流式账本不改写，
+也不把其 stream/request/attempt 身份推断到修正 part；对话与静默轮次仍按 §5.2 归类。
 
 ### 1.2 客户端 → 服务器
 
@@ -254,7 +260,18 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 记录本次从 `7521cd5` 升级到 `f29738eb6a80`。
+`web/upstream-pin.json` 当前从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
+固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
+[上游 #1682](https://github.com/Proto-UI/Proto-UI/pull/1682) 的 compiler 测试挂载时序补正。
+原 [#1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 已合入；其帧队列排空仍可能早于
+Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公开的
+`happyDOM.waitUntilComplete()`，再判断帧队列是否为空；原八轮预算、测试期限、
+四项拒绝、50/70 位置断言、29 个断言及全部 28 项测试保持。新提交只改测试和
+诊断记录，上游运行代码与 lock 字节不变；不同时引入上游 main 的其他改动。
+原 c931 Nightly 失败、受控红绿对照及未插桩的 28 项回执见
+[运行证据](../evidence/nightly-environment-20261122.md#c931526c-compiler-failure-and-mutation-delivery-fix)。
+pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
+producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
 使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
 family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
@@ -650,6 +667,14 @@ WebUI 初始只呈现主体的一条时间线和输入框。输入接入同一 s
 放置方式与 D3 的紧急程度分开。append 不是后台低优先级，不因主体永远思考而排不到；它不因自身到达打断当前主体 generation。对正在占槽的 child 是否抢占、何时处理积压及是否进入 DND，继续使用同一调度与主体政策。steer 也不因此获得管理员身份或新增工具权限。
 
 <!-- /migrated-contract: SPEC:21.12 -->
+
+### 当前统一发送入口
+
+上述迁移块保留首版原文。当前统一发送入口沿用已合入的
+[one-send 设计](https://github.com/cyjin-yl/shenko/commit/a0f008a7c262209f1b6ce6333aa5d00f8421c8a1)：
+当前连接的 `hello.capabilities.steer` 为真时请求 `steer`，否则在允许追加输入时请求
+`append`。这是当前默认发送行为的更新；实际接纳位置仍以持久回执为准，
+`steer` 的请求本身不证明已在活动模型请求内生效。
 
 <a id="spec-41-18"></a>
 <!-- migrated-contract: SPEC:41.18 -->

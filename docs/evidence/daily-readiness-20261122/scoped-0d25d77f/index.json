@@ -1,0 +1,57 @@
+[
+  {
+    "path": "authority.log.gz",
+    "bytes": 7702,
+    "sha256": "6c5b0a28a098639af5935ddd8776c01a8a7c7619777f290da615ef5b82620fc7"
+  },
+  {
+    "path": "component-order.log.gz",
+    "bytes": 7717,
+    "sha256": "a072cf4bbff48412eb3f567137ff8efd7c720047e2759ae2d5fd23b2fdf18872"
+  },
+  {
+    "path": "metadata-stopped.log.gz",
+    "bytes": 897,
+    "sha256": "e09ba8793681aed84c35b417c08dcf073021fa13219fcab617baeb3d79af5768"
+  },
+  {
+    "path": "preparation-only.json",
+    "bytes": 671,
+    "sha256": "b993787518fa86b8db5091319690aef669646dc84cae8a51d38ffd4c731faa56"
+  },
+  {
+    "path": "recovery-stop-order.json",
+    "bytes": 76,
+    "sha256": "64d8a74c25055b3866377a9bd29572933cc9151eb0ff880d424a0530faa64acd"
+  },
+  {
+    "path": "recovery-stopped.log.gz",
+    "bytes": 1981,
+    "sha256": "1ac9f4d62ae45e49aca5855ef8d0436becfbb9ecdb10a0420f4158b52771f41a"
+  },
+  {
+    "path": "result.json",
+    "bytes": 11056,
+    "sha256": "5ac570d940503f19e4341a5b6f2c43c739832761b78357046377bc54ebcd705e"
+  },
+  {
+    "path": "runner.sh",
+    "bytes": 3481,
+    "sha256": "2f35bf6db88c70a64cfc3d6c5499f2331a0ec91b14526945e801696dabbafeaa"
+  },
+  {
+    "path": "runtime-owner.log.gz",
+    "bytes": 7752,
+    "sha256": "88eabb43f1a55581e9bf25c809adec68ef16281ffeaffac97f62f174a6c62923"
+  },
+  {
+    "path": "start-boundary.log.gz",
+    "bytes": 9830,
+    "sha256": "fc809b797c4f3ad337cebfc4d23da837d3955b3d951c5ad82488d9c4148ab684"
+  },
+  {
+    "path": "summary.json",
+    "bytes": 2160,
+    "sha256": "024a6a0810c08a857daa3c5da2ab1c6739a8a502f65e0a4ef37b8eefaaa18613"
+  }
+]

@@ -1,0 +1,152 @@
+{
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "baseline_revision": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+  "changed_paths": [
+    "crates/shenko-store/tests/store_roundtrip.rs"
+  ],
+  "product_source_identical": true,
+  "previous_successes_reused": 16,
+  "previous_fixture_failures_retained": 3,
+  "rerun_labels": [
+    "native-dispatch"
+  ],
+  "reused_first_claim": {
+    "source_revision": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+    "passed": 1,
+    "failed": 0,
+    "exit": 0,
+    "log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8-r2/first-claim.log",
+    "bytes": 6981,
+    "sha256": "c88d9a20f7c8b538fffe78bec6e728d159be1985200fb0d8d3b0de6db58ef65d",
+    "first_claim_test_body_identical": true,
+    "retained_failed_dispatch_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8-r2/native-dispatch.log"
+  },
+  "reason": "Only existing fixture initialization and exact negative-control expectations changed. Product source is byte-identical to the completed 5f scoped run.",
+  "previous_results": [
+    {
+      "label": "native-chain",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/native-chain.log",
+      "bytes": 20338,
+      "sha256": "dfbfcd526cffd8be40abc2adeeddbc33919c0dc80907c0e36c3c074003871dfc",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "first-claim",
+      "passed": 0,
+      "failed": 1,
+      "exit": 101,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/first-claim.log",
+      "bytes": 7544,
+      "sha256": "9509cef8b9ce4f069a59d9f7666352d0550e5570f0b34900fb6a6b1d537b17a7",
+      "reused_success": false,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "native-dispatch",
+      "passed": 0,
+      "failed": 1,
+      "exit": 101,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/native-dispatch.log",
+      "bytes": 7166,
+      "sha256": "40ad9a201fb2b478dd8671793adb716d8fed766d9bdea5e96d00c8b4f4838c43",
+      "reused_success": false,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "legacy-arm",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/legacy-arm.log",
+      "bytes": 6857,
+      "sha256": "22e3b051a1ee4a01d8cf4b6496034822ba61d8a6b012e263ad1e7895c3bf90a5",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "generic-t2",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/generic-t2.log",
+      "bytes": 6865,
+      "sha256": "4bdccb9c91cfc723b6e20c46f328fc138334b3b7b4189357c07917b01c4c8e64",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "generic-t2-children",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/generic-t2-children.log",
+      "bytes": 6860,
+      "sha256": "9050905d3a71acd5b06b22f9d71a83d84f0d027dec9cb66e71f94c356a14703b",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "cli-printf",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/cli-printf.log",
+      "bytes": 39607,
+      "sha256": "3958c182fb260328093b29af2c0670cf1e06feff9f028f2d247489829e2e5dc7",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": [
+        [
+          "1",
+          "0"
+        ]
+      ]
+    },
+    {
+      "label": "broker-queue-stop",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/broker-queue-stop.log",
+      "bytes": 2890,
+      "sha256": "981de6e0bf0e6d0135e0e2b1ac395b54e1bc7bd9b121ee6b5ea982e4eed2a1c0",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "start-boundary",
+      "passed": 1,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/start-boundary.log",
+      "bytes": 36109,
+      "sha256": "3089f4f9efc6e34e0526bf0a2959a097faf763b90f3c459630755024c3774c77",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    },
+    {
+      "label": "archive-admission",
+      "passed": 8,
+      "failed": 0,
+      "exit": 0,
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-5f1e426a/archive-admission.log",
+      "bytes": 8321,
+      "sha256": "01d4af51b55135174bca4996a1661f6fffc60f9f0ebe10ab4c21ada7cd2c4f9b",
+      "reused_success": true,
+      "outer_summary_selection": "last summary from the single cargo target; prior subprocess summaries excluded",
+      "excluded_nested_summaries": []
+    }
+  ]
+}

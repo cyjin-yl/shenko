@@ -1,0 +1,20 @@
+{
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "branch": "feat/daily-readiness-20261122",
+  "started_at_utc": "2026-11-22T00:51:08.784120+00:00",
+  "interval_seconds": 60,
+  "max_duration_seconds": 7200,
+  "api_timeout_seconds": 45,
+  "runs": {
+    "ci": [
+      44968265233,
+      "pull_request"
+    ],
+    "nightly": [
+      44968307539,
+      "workflow_dispatch"
+    ]
+  },
+  "script_sha256": "a242accaf58464bdae34c7956ba78208c396660c9281f3b1c0d01fc183e77185",
+  "github_mutations": false
+}

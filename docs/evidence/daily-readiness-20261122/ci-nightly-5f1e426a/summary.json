@@ -1,0 +1,865 @@
+{
+  "schema_version": 1,
+  "source_revision": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+  "status": "failed",
+  "candidate_all_green": false,
+  "ci": {
+    "run_id": 44952886247,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247",
+    "event": "pull_request",
+    "jobs": [
+      {
+        "id": 136994486586,
+        "name": "docs",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:42:04Z",
+        "completed_at": "2026-11-21T21:42:41Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486586"
+      },
+      {
+        "id": 136994486801,
+        "name": "docs-migration",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:42:04Z",
+        "completed_at": "2026-11-21T21:42:41Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486801"
+      },
+      {
+        "id": 136994486829,
+        "name": "clippy-ratchet",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:42:04Z",
+        "completed_at": "2026-11-21T21:48:26Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486829"
+      },
+      {
+        "id": 136994486830,
+        "name": "kernel-boundary",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:42:03Z",
+        "completed_at": "2026-11-21T21:42:38Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486830"
+      },
+      {
+        "id": 136994486882,
+        "name": "web",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:42:04Z",
+        "completed_at": "2026-11-21T21:43:46Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486882"
+      },
+      {
+        "id": 136994486924,
+        "name": "rust",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "failure",
+        "started_at": "2026-11-21T21:42:04Z",
+        "completed_at": "2026-11-21T22:00:40Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952886247/job/136994486924"
+      }
+    ],
+    "actual_checkout": "3d6c1f436ba00082ba132a37217fca574cfa3bf0",
+    "outer_workspace": {
+      "cargo_targets": 158,
+      "executable_targets": 125,
+      "doctest_targets": 33,
+      "result_rows": 157,
+      "passed": 1238,
+      "failed": 2,
+      "ignored": 11,
+      "measured": 0,
+      "filtered": 0,
+      "non_libtest_skip_targets": 1
+    },
+    "nested_subprocesses": {
+      "result_rows": 19,
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 131
+    },
+    "failed_tests": [
+      "2026-11-21T21:57:15.4569483Z test canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart ... FAILED",
+      "2026-11-21T21:57:18.5742634Z test canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker ... FAILED"
+    ]
+  },
+  "nightly": {
+    "run_id": 44952995298,
+    "url": "https://github.com/cyjin-yl/shenko/actions/runs/44952995298",
+    "event": "workflow_dispatch",
+    "dispatch_attempts": 1,
+    "jobs": [
+      {
+        "id": 136994835449,
+        "name": "nightly-compiler-full",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "success",
+        "started_at": "2026-11-21T21:43:20Z",
+        "completed_at": "2026-11-21T21:53:54Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952995298/job/136994835449"
+      },
+      {
+        "id": 136994835659,
+        "name": "nightly-rust-long",
+        "head_sha": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "status": "completed",
+        "conclusion": "failure",
+        "started_at": "2026-11-21T21:43:20Z",
+        "completed_at": "2026-11-21T22:04:02Z",
+        "html_url": "https://github.com/cyjin-yl/shenko/actions/runs/44952995298/job/136994835659"
+      }
+    ],
+    "actual_checkout": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+    "outer_workspace": {
+      "cargo_targets": 158,
+      "executable_targets": 125,
+      "doctest_targets": 33,
+      "result_rows": 157,
+      "passed": 1237,
+      "failed": 3,
+      "ignored": 11,
+      "measured": 0,
+      "filtered": 0,
+      "non_libtest_skip_targets": 1
+    },
+    "nested_subprocesses": {
+      "result_rows": 19,
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 131
+    },
+    "failed_tests": [
+      "2026-11-21T21:56:21.2427148Z test public_start_pause_survives_process_reopen_and_resume_alone_admits_inference ... FAILED",
+      "2026-11-21T21:57:39.8884793Z test canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart ... FAILED",
+      "2026-11-21T21:57:42.9622297Z test canonical_first_claim_preserves_s1_birth_and_never_reissues_a_recovered_worker ... FAILED"
+    ],
+    "explicit_long_proofs": [
+      {
+        "command_line": 4590,
+        "command": "##[group]Run python3 scripts/ci/ignored_test.py --package shenko-subject --name loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator",
+        "outer_result": [
+          5360,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.99
+        ],
+        "nested_results": [
+          [
+            5327,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.12
+          ],
+          [
+            5331,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.13
+          ],
+          [
+            5337,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.11
+          ],
+          [
+            5343,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.21
+          ],
+          [
+            5349,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.11
+          ],
+          [
+            5355,
+            "ok",
+            1,
+            0,
+            0,
+            0,
+            156,
+            0.17
+          ]
+        ],
+        "source_revision_lines": [
+          [
+            4612,
+            "SHENKO_SOURCE_REVISION: 5f1e426a047390159f038bf58b6d19948ab4ffc9"
+          ]
+        ],
+        "receipt": {
+          "raw_line": 5357,
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-5f1e426a/partition-receipt-from-job-log.json",
+          "bytes": 230210,
+          "sha256": "2e7635f0e1af8c9b742e1d35eca4fd6bfb5a1a5b0dfea730d4b6c3e0ebd1ad7f",
+          "state": "passed",
+          "check_count": 17,
+          "checks": [
+            {
+              "check": "fresh_root",
+              "passed": true
+            },
+            {
+              "check": "origin_commits_one_open_obligation",
+              "passed": true
+            },
+            {
+              "check": "peers_fork_one_origin",
+              "passed": true
+            },
+            {
+              "check": "peer_a_settles_completed",
+              "passed": true
+            },
+            {
+              "check": "peer_b_settles_cancelled",
+              "passed": true
+            },
+            {
+              "check": "settlements_overlap_in_process_lifetimes",
+              "passed": true
+            },
+            {
+              "check": "peers_compete_on_one_obligation",
+              "passed": true
+            },
+            {
+              "check": "peer-a_archive_is_genuine_current_format",
+              "passed": true
+            },
+            {
+              "check": "peer-b_archive_is_genuine_current_format",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_refused_as_one_unit",
+              "passed": true
+            },
+            {
+              "check": "refusal_publishes_no_rows_in_a",
+              "passed": true
+            },
+            {
+              "check": "converged_store_accepts_the_winning_settlement",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_after_convergence_never_replaces",
+              "passed": true
+            },
+            {
+              "check": "competing_settlement_refused_over_replicated_facts",
+              "passed": true
+            },
+            {
+              "check": "relay_preserves_typed_settlements",
+              "passed": true
+            },
+            {
+              "check": "archives_are_byte_stable",
+              "passed": true
+            },
+            {
+              "check": "every_store_reopens_and_validates",
+              "passed": true
+            }
+          ],
+          "failed_checks": [],
+          "scope": "Source-level obligation partition settlement proof: real parser, Store, CAS and archive code, two independent OS processes settling from one committed origin with a rendezvous barrier, archive exchange, unit refusal, convergence, sticky terminal state, relay and reopen. Not a power-loss, distributed-installation, network, or model-efficacy proof; no provider request is made.",
+          "limits": [
+            "peers are byte copies of one quiesced store, so they share the origin ledger identity and incarnation",
+            "the content store may gain unreferenced sealed objects during a refused import; no fact is published",
+            "no model, provider or network is involved; the authored control text is parsed by the real parser"
+          ]
+        }
+      },
+      {
+        "command_line": 5387,
+        "command": "##[group]Run python3 scripts/ci/native_ssh_memory_helper.py run --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay",
+        "outer_result": [
+          5418,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          53,
+          2.05
+        ],
+        "nested_results": [],
+        "source_revision_lines": [
+          [
+            5409,
+            "SHENKO_SOURCE_REVISION: 5f1e426a047390159f038bf58b6d19948ab4ffc9"
+          ]
+        ]
+      },
+      {
+        "command_line": 5420,
+        "command": "##[group]Run python3 scripts/ci/native_ssh_memory_helper.py run --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper",
+        "outer_result": [
+          5451,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          53,
+          0.88
+        ],
+        "nested_results": [],
+        "source_revision_lines": [
+          [
+            5442,
+            "SHENKO_SOURCE_REVISION: 5f1e426a047390159f038bf58b6d19948ab4ffc9"
+          ]
+        ]
+      }
+    ],
+    "helper_prepare_is_test": false
+  },
+  "compiler": {
+    "job_id": 136994835449,
+    "pin": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+    "suites": {
+      "passed": 183,
+      "failed": 0,
+      "skipped": 2
+    },
+    "tests": {
+      "passed": 2913,
+      "failed": 0,
+      "skipped": 9
+    },
+    "duration_seconds": 584.39,
+    "sandbox_receipt": {
+      "status": "passed",
+      "candidate": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+      "uid": 1001,
+      "node": "v24.22.1",
+      "runnerImage": "ubuntu24",
+      "runnerImageVersion": "20261116.133.1",
+      "executablePath": "/usr/bin/google-chrome",
+      "chromiumSandbox": true,
+      "startedAt": "2026-11-21T21:43:53.511Z",
+      "upstream": {
+        "repository": "https://github.com/Proto-UI/Proto-UI.git",
+        "commit": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+        "migrated_from": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
+        "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+        "packages": [
+          "@proto.ui/adapter-react@0.3.0-alpha.2",
+          "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
+          "@proto.ui/cli@0.3.0-alpha.2"
+        ],
+        "adopted_families": [
+          "button",
+          "textarea",
+          "scroll-area",
+          "collapsible",
+          "drawer",
+          "toggle-group",
+          "input",
+          "separator",
+          "toggle"
+        ],
+        "compiler": {
+          "status": "build_time_compiled",
+          "runtime_imported": false,
+          "profile": "react-dom-source-v1",
+          "package": "packages/compiler/package.json",
+          "entry": "packages/compiler/src/index.ts",
+          "exports_source_only": true,
+          "public_package_selection": false,
+          "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+          "prototypes": [
+            "transport-badge",
+            "message-bubble"
+          ],
+          "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
+        }
+      },
+      "executableVersion": "Google Chrome 157.0.8103.78",
+      "playwright": "1.58.2",
+      "browserVersion": "157.0.8103.78",
+      "sandboxStatus": "Sandbox Status\nLayer 1 Sandbox\tNamespace\nPID namespaces\tYes\nNetwork namespaces\tYes\nSeccomp-BPF sandbox\tYes\nSeccomp-BPF sandbox supports TSYNC\tYes\nPtrace Protection with Yama LSM (Broker)\tYes\nPtrace Protection with Yama LSM (Non-broker)\tNo\n\nYou are adequately sandboxed.",
+      "finishedAt": "2026-11-21T21:44:03.407Z"
+    },
+    "artifact_id": 14726860970,
+    "artifact_sha256": "a004aa58733063d3e172ab0ee8d9b119a02dd76791696e649d6e7da659a4320e",
+    "whole_zip_digest_independently_verified": true
+  },
+  "extra_nightly_start_boundary_failure": {
+    "name": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+    "observed_error": "original request cancellation was not observed before cleanup SIGINT",
+    "order": [
+      {
+        "elapsed_ms": 0,
+        "event": "original_inference_post_held"
+      },
+      {
+        "elapsed_ms": 31,
+        "event": "authority_changed_and_process_continued"
+      }
+    ],
+    "journey_passed": false,
+    "source_observation_window_seconds": 3,
+    "phase_boundary": "The marker wait failed before the fixture recorded or sent its cleanup SIGINT. The retained original runtime log has neither INFERENCE_OBSERVATION_STOPPED nor the host SIGINT marker.",
+    "transport_ending": "model-018.inference-ending contains client_eof after fixture cleanup; this is not evidence that cancellation was observed inside the pre-SIGINT barrier.",
+    "request_and_campaign_binding_limits": "The original order file records elapsed values 0 and 31 ms; it does not record absolute campaign timestamps or the request UUID. The original held POST bytes are retained without inventing these missing fields.",
+    "diagnosis_status": "Requires source and synchronization diagnosis; no retry, timeout change, or successful followup is claimed by this receipt."
+  },
+  "integrity": {
+    "raw_job_logs": [
+      {
+        "name": "ci-rust.log.gz",
+        "raw_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-5f1e426a/rust.log",
+        "raw_bytes": 552973,
+        "raw_sha256": "7f89c55c853b07789ff16c27ccab9454460d79d33f9752402cfb0d9b6d218990",
+        "gzip_bytes": 115110,
+        "gzip_sha256": "fce38acf7ee2fef9d4a98232f7f03f0894c51e1bdd94c881856eb5664a871957"
+      },
+      {
+        "name": "nightly-rust.log.gz",
+        "raw_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-5f1e426a/rust.log",
+        "raw_bytes": 706437,
+        "raw_sha256": "f9107eee9ee789f099b264c7891f99222ad2e3196419ac84ace9b1d1460c0fd5",
+        "gzip_bytes": 111636,
+        "gzip_sha256": "350499899b25f303607dcafa1b576d0ff0231758a4ba7868010ce5feccd4f773"
+      }
+    ],
+    "partition_raw_bytes": 230210,
+    "partition_raw_sha256": "2e7635f0e1af8c9b742e1d35eca4fd6bfb5a1a5b0dfea730d4b6c3e0ebd1ad7f",
+    "selected_native_artifact": {
+      "artifact_id": 14726079773,
+      "artifact_metadata_digest": "sha256:cc8f23d712146349e523d8c89e8e75b76c280370a37b99aead8e42a535b6b432",
+      "source_revision": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+      "verification_scope": "Selected ZIP members read with CRC checking and individually SHA256 hashed; complete ZIP digest not independently checked.",
+      "artifact_zip_bytes": 1114301173,
+      "range_requests": 4,
+      "range_downloaded_bytes": 1216380,
+      "selected": [
+        {
+          "path": "start-boundary/control-resume-55828dfb-ea2d-4de9-bb05-1bc4cd0043e9.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "crc32": "00000000"
+        },
+        {
+          "path": "start-boundary/control-resume-55828dfb-ea2d-4de9-bb05-1bc4cd0043e9.stdout",
+          "bytes": 456,
+          "sha256": "71f68c12070de2f98a84f714d93e1cefa22437ecddd3d80688cbd8a8d2d4f7b9",
+          "crc32": "acae97e1"
+        },
+        {
+          "path": "start-boundary/control-status-4bbe153e-1b50-47ac-870d-ced98dd804e4.stdout",
+          "bytes": 382,
+          "sha256": "3a77e9b40436269fb682197e52adcc324ba00a5e5a89d3680dad5bb27f2ef54b",
+          "crc32": "2b0212f2"
+        },
+        {
+          "path": "start-boundary/control-status-4bbe153e-1b50-47ac-870d-ced98dd804e4.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "crc32": "00000000"
+        },
+        {
+          "path": "start-boundary/control-status-74395d9b-5bd3-4025-a9a3-bdd8e56e69b3.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "crc32": "00000000"
+        },
+        {
+          "path": "start-boundary/control-status-74395d9b-5bd3-4025-a9a3-bdd8e56e69b3.stdout",
+          "bytes": 382,
+          "sha256": "3a77e9b40436269fb682197e52adcc324ba00a5e5a89d3680dad5bb27f2ef54b",
+          "crc32": "2b0212f2"
+        },
+        {
+          "path": "start-boundary/control-status-c78b9f1e-f402-40c1-9df4-b2e014dffbcf.stderr",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "crc32": "00000000"
+        },
+        {
+          "path": "start-boundary/control-status-c78b9f1e-f402-40c1-9df4-b2e014dffbcf.stdout",
+          "bytes": 383,
+          "sha256": "1fffa452884eb874bcf1cab4ad05c2ddb4f08d97788fa8f0effb3365bfc4b5dc",
+          "crc32": "0a31d9c6"
+        },
+        {
+          "path": "start-boundary/first.log",
+          "bytes": 9006,
+          "sha256": "7f19069ac7da01bd1e1419e15e6b066f68fe261f01068e2d37c2ecb2e99426e3",
+          "crc32": "d04155f6"
+        },
+        {
+          "path": "start-boundary/inference-cancelled.txt",
+          "bytes": 10,
+          "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+          "crc32": "d04df078"
+        },
+        {
+          "path": "start-boundary/inference-shutdown.json",
+          "bytes": 872,
+          "sha256": "3e8520733b2054576523e9d6cfb63a082a05cc7874dd1e8ce7b6294e1288b4d7",
+          "crc32": "c9ad7b86"
+        },
+        {
+          "path": "start-boundary/metadata-cancelled.txt",
+          "bytes": 10,
+          "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+          "crc32": "d04df078"
+        },
+        {
+          "path": "start-boundary/metadata-stopped.log",
+          "bytes": 3066,
+          "sha256": "3e9c82cbb8b3957526c8f247489b86655b41bef4d2ec80636bcee301f0f2058b",
+          "crc32": "1b2fb621"
+        },
+        {
+          "path": "start-boundary/model-000.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-001.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-002.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-004.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-003.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-005.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-006.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-008.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-007.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-009.inference-ending",
+          "bytes": 10,
+          "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+          "crc32": "d04df078"
+        },
+        {
+          "path": "start-boundary/model-010.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-009.request",
+          "bytes": 56878,
+          "sha256": "8b2276a7bec8f51f5affc2ce8691b4dfe2927a41e6e223e2f8c11ca66e38ef61",
+          "crc32": "931cfa0b"
+        },
+        {
+          "path": "start-boundary/model-011.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-012.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-013.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-015.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-014.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-017.request",
+          "bytes": 61,
+          "sha256": "212f1dfad4019101d9461988e532e7537408b60530dcd7fa4ba6031717482b1b",
+          "crc32": "f1838182"
+        },
+        {
+          "path": "start-boundary/model-016.request",
+          "bytes": 63,
+          "sha256": "679e42e9fe3d788e33b207c8f79bdc8059145dd8b10cf1372e346384172a3b4a",
+          "crc32": "8ef03c4e"
+        },
+        {
+          "path": "start-boundary/model-018.inference-ending",
+          "bytes": 10,
+          "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b",
+          "crc32": "d04df078"
+        },
+        {
+          "path": "start-boundary/model-018.request",
+          "bytes": 56876,
+          "sha256": "b4b5e1e0a2ef3735ef629bf26c50a90559b163b81e76a3f6185eb51a9e654749",
+          "crc32": "da6b8b2b"
+        },
+        {
+          "path": "start-boundary/recovery-stop-order.json",
+          "bytes": 162,
+          "sha256": "0e89e67f7de049d880a5829ae1f9316e9e56e4dc4934c49191d4b49695144e59",
+          "crc32": "477d4985"
+        },
+        {
+          "path": "start-boundary/recovery-stopped.log",
+          "bytes": 7549,
+          "sha256": "f1f7f24ce8750404e9d143143e7bb0b25ea267e673012d797f6803115a755a39",
+          "crc32": "f3534f2a"
+        },
+        {
+          "path": "start-boundary/restarted.log",
+          "bytes": 9923,
+          "sha256": "1bcd04ea046936c7d7b05df8f7fc55f862b3db2eb15db396dedcdb035ec005ff",
+          "crc32": "9031f964"
+        },
+        {
+          "path": "start-boundary/result.json",
+          "bytes": 10595,
+          "sha256": "6558c2e7581e31c356e48cc1ef79e5d5d79a747ae8cfca738fb3f13c6928d92d",
+          "crc32": "460ccee2"
+        },
+        {
+          "path": "start-boundary/unknown-reopened.log",
+          "bytes": 8908,
+          "sha256": "c8f89b44b4cde9c00bcf62159a60715a3d768213c6644ce02794c6fc425fd2e4",
+          "crc32": "f28115ab"
+        }
+      ]
+    },
+    "method": "Final libtest summary per Cargo Running/Doc-tests target, first running-N checked; nested summaries and harness=false SKIP remain separate. Explicit long proofs remain separate from workspace counts."
+  },
+  "scope_and_limits": [
+    "This candidate failed both CI and Nightly Rust workspace gates. Subsequent source fixes and their runs cannot change these results.",
+    "CI ran the actual PR merge checkout; Nightly ran the exact branch candidate. Both identities are retained.",
+    "Nineteen nested workspace subprocess summaries are not added to the outer denominator. The configured real-model harness reports SKIP and is not counted as passed.",
+    "The partition proof passed 17 checks and has six nested process summaries; those are not seven independent selected tests. The helper preparation command is not a test.",
+    "The full compiler source pin and assertions were unchanged in this run. Its sandbox receipt reflects the hosted runner and does not describe the Rust container.",
+    "The native artifact complete ZIP digest is GitHub metadata only. Selected fixture members were fetched by bounded HTTP ranges, CRC checked, and individually SHA256 hashed; the compiler complete ZIP was independently downloaded and hashed.",
+    "These offline/control-process regressions do not establish real-model daily readiness, a 7/30-day run, or complete S1-S5 acceptance.",
+    "No model call, cargo test, build, or workflow retry was started while collecting this evidence."
+  ],
+  "retained_files": [
+    {
+      "path": "README.md",
+      "bytes": 6157,
+      "sha256": "7d482bbdb0e627b5730c92a49f451f45e8908b238bfa7f2421831bfc113bcb05"
+    },
+    {
+      "path": "ci-jobs.json",
+      "bytes": 18782,
+      "sha256": "c6eb90629860256cb6361ad6f10daf4cd67bacd634e2f7062497fa69b71d53a0"
+    },
+    {
+      "path": "ci-rust-outer-audit.json",
+      "bytes": 70091,
+      "sha256": "2df27a867359c96d3fcee5d6448593b90652698af8cbebf0601dabb58d9bcf0a"
+    },
+    {
+      "path": "ci-rust-summary.json",
+      "bytes": 7426,
+      "sha256": "339d1b5316a3ed66d426a28bf2fb4f8717aa0c05ea9c6b3973c68da100fcd832"
+    },
+    {
+      "path": "ci-rust.log.gz",
+      "bytes": 115110,
+      "sha256": "fce38acf7ee2fef9d4a98232f7f03f0894c51e1bdd94c881856eb5664a871957"
+    },
+    {
+      "path": "compiler-summary.json",
+      "bytes": 6195,
+      "sha256": "b395c12618921b425872f0c45757e348726e7580775b864398a26e7d7d87bff4"
+    },
+    {
+      "path": "dispatch/dispatch-attempt.json",
+      "bytes": 376,
+      "sha256": "30ece832f6b05cedaa21629c5513488a80a72ab572914682402c6c57677282d4"
+    },
+    {
+      "path": "dispatch/dispatch-result.json",
+      "bytes": 483,
+      "sha256": "169588661d3112fb2151ecba751ef53ba6c64df11747d43602afbb874c525ba1"
+    },
+    {
+      "path": "dispatch/dispatch-run-observed.json",
+      "bytes": 12119,
+      "sha256": "a4b9d5ec4b853b4758d50db3420e53bd27f96ee358c67671dbfcf562cbcd728b"
+    },
+    {
+      "path": "dispatch/preflight-branch-final.json",
+      "bytes": 414,
+      "sha256": "f44941f810ad10521dfa526070285c908df9361cb9e216488d82fb1bf10598a8"
+    },
+    {
+      "path": "dispatch/preflight-pr.json",
+      "bytes": 18188,
+      "sha256": "a34a81f98ff2b71a8eb0c89cbeafc5e9273d908146be44bee876c69bc157d36d"
+    },
+    {
+      "path": "dispatch/preflight-runs.json",
+      "bytes": 36,
+      "sha256": "a2790a384d7d281e7395679000c35d27768d89dbd7052f725b8f4688beb59915"
+    },
+    {
+      "path": "dispatch/preflight-workflow.json",
+      "bytes": 456,
+      "sha256": "aae30b950b8b35c32b399d37c315300b5a3bdf94d1611f3bdf7eb7269b3ee23e"
+    },
+    {
+      "path": "nightly-jobs.json",
+      "bytes": 7634,
+      "sha256": "9023d33b60714d581c1ef2fcd74fcb83d17a4abf8b1f4e72e0803f4d073539de"
+    },
+    {
+      "path": "nightly-partition-receipt.json.gz",
+      "bytes": 11556,
+      "sha256": "11012399164fc08ce8790db1f633a94b81eccef360b851479220508c894dfb57"
+    },
+    {
+      "path": "nightly-rust-outer-audit.json",
+      "bytes": 76085,
+      "sha256": "6130d60334461663d81a2d4adf9461c48ee672459a03d446afd8cb2175301813"
+    },
+    {
+      "path": "nightly-rust-summary.json",
+      "bytes": 10465,
+      "sha256": "af9b0337cefeddb1b6512d31f4dfc69bb96c5f9ac92f8b2e96a80a65c2c302c5"
+    },
+    {
+      "path": "nightly-rust.log.gz",
+      "bytes": 111636,
+      "sha256": "350499899b25f303607dcafa1b576d0ff0231758a4ba7868010ce5feccd4f773"
+    },
+    {
+      "path": "raw-log-transfer.json",
+      "bytes": 737,
+      "sha256": "829bbbb80ad2c70c82bd0a820a56dfb3e300f4d599cdd8051e375327416c6af4"
+    },
+    {
+      "path": "start-boundary/artifact-metadata.json",
+      "bytes": 710,
+      "sha256": "48a01f920506f1f6e2e9d19ab53580d456e517f0475c610f93e2cf4a0217a84f"
+    },
+    {
+      "path": "start-boundary/model-018.inference-ending",
+      "bytes": 10,
+      "sha256": "66a839cf6532f6955429454472c2aba2ac2173c35bb6141d28b50f8025777a9b"
+    },
+    {
+      "path": "start-boundary/model-018.request.gz",
+      "bytes": 22568,
+      "sha256": "4326cd916f9a4cff3e00ca8b042d39196fed885ffd41a46a64d5909778b1852b"
+    },
+    {
+      "path": "start-boundary/recovery-stop-order.json",
+      "bytes": 162,
+      "sha256": "0e89e67f7de049d880a5829ae1f9316e9e56e4dc4934c49191d4b49695144e59"
+    },
+    {
+      "path": "start-boundary/recovery-stopped.log.gz",
+      "bytes": 1762,
+      "sha256": "63a3b2e641fb1a5afe79240c1b7c090987d735c10b697a388bd2642070cf3feb"
+    },
+    {
+      "path": "start-boundary/result.json",
+      "bytes": 10595,
+      "sha256": "6558c2e7581e31c356e48cc1ef79e5d5d79a747ae8cfca738fb3f13c6928d92d"
+    },
+    {
+      "path": "start-boundary/selection.json",
+      "bytes": 8339,
+      "sha256": "4b0e6d959dc5fd52469911c00a03d00882c8e1525ab5458ac2951881772a8531"
+    }
+  ]
+}
