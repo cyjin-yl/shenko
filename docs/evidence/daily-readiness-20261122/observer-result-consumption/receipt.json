@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "scope": "Observer regression on original closed-run evidence, not a model execution or a changed original journey verdict.",
+  "base_revision": "529486d888705208d4ba668dc05537a87d382a93",
+  "baseline_journey_source": {
+    "bytes": 54139,
+    "sha256": "8cef7a4e495c2076b8e9e79eb06e6080eb9ada4e7a7f8576c5ad5c54b893ba8d"
+  },
+  "checked_source_files": {
+    "scripts/real_single_node_journey.py": {
+      "bytes": 61497,
+      "sha256": "2a0e804b32d81a52ef4db89ee9cd6f13d141144cf759e37c146e873c527afc65"
+    },
+    "scripts/real_single_node_journey_test.py": {
+      "bytes": 12138,
+      "sha256": "9665a56827a4773c9290c2b92d5f3c15b192e96903fe66a40ec1da5be6cefbec"
+    },
+    "scripts/fixtures/journey-output-consumption/cases.json": {
+      "bytes": 274012,
+      "sha256": "2448cd38f4a57bbb82904a0894f8e517a5c02036162ee3a8d293853063a2d688"
+    },
+    "scripts/fixtures/journey-output-consumption/attempt-001.input-plan.json.gz": {
+      "bytes": 29006,
+      "sha256": "b1b9e52b23377f2c6324b68a8c4c46fa232b6a69c17cd2c8d40ad658b22f0c40"
+    },
+    "scripts/fixtures/journey-output-consumption/attempt-002.input-plan.json.gz": {
+      "bytes": 26212,
+      "sha256": "590ef4e02a52250b796e2b76452f2a4ecf41eefcebffc8a2ae7336d53785846c"
+    }
+  },
+  "before_after_original_cases": [
+    {
+      "case": "unconsumed",
+      "original_attempt": "attempt-002",
+      "original_journey_passed": false,
+      "before": {
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": true,
+        "child_model_matches_requested_binding": true,
+        "native_host_process_exact_result": true,
+        "native_effect_observed_once": true,
+        "both_children_have_attempt_and_e1": true,
+        "committed_output_after_child_results": true
+      },
+      "after": {
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": true,
+        "child_model_matches_requested_binding": true,
+        "native_host_process_exact_result": true,
+        "native_effect_observed_once": true,
+        "both_children_have_attempt_and_e1": true,
+        "committed_output_after_child_results": true,
+        "committed_output_consumed_original_child_results": false
+      },
+      "before_all": true,
+      "after_all": false
+    },
+    {
+      "case": "consumed",
+      "original_attempt": "attempt-001",
+      "original_journey_passed": false,
+      "before": {
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": true,
+        "child_model_matches_requested_binding": true,
+        "native_host_process_exact_result": true,
+        "native_effect_observed_once": true,
+        "both_children_have_attempt_and_e1": true,
+        "committed_output_after_child_results": true
+      },
+      "after": {
+        "one_child_of_each_requested_kind": true,
+        "finite_model_child_succeeded": true,
+        "child_model_matches_requested_binding": true,
+        "native_host_process_exact_result": true,
+        "native_effect_observed_once": true,
+        "both_children_have_attempt_and_e1": true,
+        "committed_output_after_child_results": true,
+        "committed_output_consumed_original_child_results": true
+      },
+      "before_all": true,
+      "after_all": true
+    }
+  ],
+  "test": {
+    "started_at": "2026-11-22T00:43:07.425263+00:00",
+    "finished_at": "2026-11-22T00:43:07.796645+00:00",
+    "command": [
+      "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+      "-I",
+      "scripts/real_single_node_journey_test.py"
+    ],
+    "python": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+    "elapsed_seconds": 0.3703110860005836,
+    "exit_code": 0,
+    "raw_log": {
+      "path": "unittest.log.gz",
+      "encoding": "gzip",
+      "bytes": 55,
+      "sha256": "1bd07a2c6ed7a923e0e981273df951e31e4d23968d350e4ee281f047231adf90",
+      "decoded_bytes": 102,
+      "decoded_sha256": "0d018037a4ab9a51aa817e1769f837c4b2cfe71bfa2bed267fd304ee2c2f3919"
+    },
+    "new_test_functions": 1,
+    "total_test_functions_executed": 4
+  },
+  "limits": [
+    "Original model results/payload bytes were not changed by the comparison.",
+    "The new unit test labels decoded-input perturbations explicitly; they are not Store seals or real provider results.",
+    "Original d16 full journeys remain failed.",
+    "The existing CAS length reader does not independently recompute BLAKE3."
+  ]
+}

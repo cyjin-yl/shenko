@@ -12,7 +12,10 @@ to delegate a finite model child that computes
 the task, operation, attempt, E1, result, and committed decision ledgers without
 writing them. A matching piece of model text alone cannot pass: both real child
 results and their evidence must exist, and the reported output must commit
-after those results. The first new main request must be created after the input's
+after those results. The selected answer's own sealed request must also have
+consumed both original T2 results. A request sealed before either result cannot
+qualify merely because its later S1 text mentions `437` and the marker.
+The first new main request must be created after the input's
 accepted commit. Its sealed input plan must bind the same subject, branch, step,
 request and accepted event, and its actual user-message payload must include
 the complete submitted text.
@@ -27,7 +30,9 @@ same input identity, and asks the model to continue the preceding task from its
 existing context. The result checks the original input event/commit identity,
 subject and branch identity, retained task results, and a newly committed answer.
 The continued input is likewise durably accepted before releasing that pause,
-and must enter the first new frozen model request. No model output, successful
+and must enter the first new frozen model request. The selected continued
+answer must itself read both original results and this exact accepted resume
+message, whether as new input or its actual sealed history. No model output, successful
 task, or receipt is supplied by the driver.
 
 `start --pause-at-start <request-UUID>` is an optional startup control. The
@@ -111,6 +116,31 @@ postcondition-verified receipt bound to its result. Extra failed or unstarted
 tasks/attempts still fail this strict journey; their complete records remain
 available for diagnosing refusal, retries and unknown effects.
 
+The output-consumption gate binds the committed step, its active request,
+the recorded request attempt and their exact input-plan reference. It reads
+that immutable plan and requires the two complete original `TaskResult` values
+in its actual provider payload, with their runtime tool-result and event
+identities. Each result must also have a matching sealed `native-child` event
+or an original tool-result history row in the same scope at or before the
+plan's sealed `leaf_seq`. A later row in the final snapshot cannot fill an
+earlier request's missing input. One result may be old history while the other
+is new; two new events are not required. A selected inbox event without the
+corresponding actual payload is insufficient. `first_output_input` and
+`restart_output_input` in the summary record the selected request, input-plan
+reference, result identities and matched payload/history positions.
+
+This is a causal evidence check, not a semantic keyword classifier. Independent
+review still reads the actual committed answer and original provider output.
+The observer's CAS reader retains its existing length check; it does not
+independently recompute BLAKE3. Preserve the full original CAS bytes and the
+independent audit's byte hashes. The motivating real `d16adbf8/attempt-002`
+committed a waiting answer after both T2s, although its earlier sealed request
+had neither result; the old existence/text gate incorrectly selected it. That
+run remains failed. The preserved observer regression also uses the real
+`attempt-001` seal that did read both originals.
+The [original-case comparison and regression receipt](../evidence/daily-readiness-20261122/observer-result-consumption/receipt.json)
+binds the exact checked source and fixture bytes; it is not another model run.
+
 Recovery compares the original child operation/attempt rows and complete stored
 result/receipt rows from the first successful answer through the paused boundary
 and final shutdown snapshot. New tasks, operations, attempts or receipts cannot
@@ -132,9 +162,11 @@ receipt: durable acceptance, matching requested mode, and `next_boundary`
 placement at this journey's clean pause. It does not change the composer or
 force a mode, and does not claim an active-generation steering/replay test.
 
-`python3 -I scripts/real_single_node_journey_test.py` checks only the driver's
-reexecution detection and failed-attempt accounting with synthetic records.
-It does not execute a model or satisfy the journey itself.
+`python3 -I scripts/real_single_node_journey_test.py` checks the driver's owned
+cleanup, reexecution detection, failed-attempt accounting and output-consumption
+gate. The last uses preserved real seals plus explicitly labelled input
+perturbations; the other bookkeeping checks use synthetic records. It does not
+execute a model or satisfy the journey itself.
 
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
 with workflow dispatch or by adding the PR label `run-real-model`. Adding that
