@@ -945,6 +945,77 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() -> Result<()> {
 }
 
 #[test]
+fn frozen_control_predecessor_keeps_original_optional_object_membership() -> Result<()> {
+    use shenko_types::{authority::CommitAdmission, ids::EntityId, object::Digest};
+
+    // The real d16 failure named a not-yet-published child input by a nested
+    // contract_digest. Publishing those exact bytes later grew an older
+    // predecessor's reconstructed inventory, although nothing was missing.
+    let future_bytes = br#"{"kind":"finite-child-input","goal":"retained original input"}"#;
+    let future_digest = Digest::blake3(future_bytes);
+    let bootstrap = serde_json::to_vec(&serde_json::json!({"contract_digest": future_digest}))?;
+    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&bootstrap);
+    let bootstrap_ref = store.cas.seal_object(&bootstrap, "application/json", "test", "raw", 1)?.object;
+    let (head, _) = store.load_subject(agent)?;
+    let frozen = store.prepare_control_predecessor(&head)?;
+    let admission = CommitAdmission {
+        schema_version: 1, subject_id: agent, branch_id: head.branch_id.clone(),
+        conflict_key: "frozen-optional-membership".into(), conflict_aliases: Vec::new(),
+        required_unconsumed: Vec::new(), action_id: EntityId::new(),
+        expected_parent: Some(head.committed_at), expected_head_revision: Some(head.record_revision),
+        controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
+        operation_id: None, attempt_id: None, payload_ref: frozen.clone(),
+    };
+    let before = store.inspect_control_predecessor(&frozen, &admission)?;
+    let original_root = store.cas.read_object(&frozen.digest)?;
+
+    // This explicit legacy fixture uses only schema-12-representable facts.
+    // It is not a writer downgrade. The old codec keeps its original reader.
+    let mut legacy: serde_json::Value = serde_json::from_slice(&original_root)?;
+    legacy.as_object_mut().unwrap().remove("object_inventory");
+    legacy["schema_version"] = 1.into();
+    legacy["manifest"]["schema"] = 12.into();
+    let legacy = store.cas.seal_object(&serde_json::to_vec(&legacy)?, "application/json",
+        "commit-authority", "store-control-predecessor", 1)?.object;
+    assert_eq!(store.inspect_control_predecessor(&legacy, &admission)?.fingerprint, before.fingerprint);
+
+    let published = store.cas.seal_object(future_bytes, "application/json", "model-child", "frozen-input", 1)?.object;
+    assert_eq!(published.digest, future_digest);
+    let after = store.inspect_control_predecessor(&frozen, &admission)
+        .context("late optional publication must not grow an already frozen predecessor")?;
+    assert_eq!(after.fingerprint, before.fingerprint);
+    assert_eq!(store.cas.read_object(&frozen.digest)?, original_root);
+    assert_eq!(frozen.codec.major, 2);
+    assert!(store.inspect_control_predecessor(&legacy, &admission).is_err(),
+        "do not reinterpret the legacy live-discovery inventory as codec 2");
+
+    // A later capture really includes the now-published optional object.
+    // Its loss cannot be excused using the earlier capture's exclusion.
+    let later = store.prepare_control_predecessor(&head)?;
+    let later_before = store.inspect_control_predecessor(&later, &admission)?;
+    assert_ne!(later_before.fingerprint, before.fingerprint);
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas"))?;
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
+    let path = reopened.cas.verified_object_path(&published)?;
+    std::fs::write(&path, vec![b'!'; future_bytes.len()])?;
+    assert!(reopened.inspect_control_predecessor(&later, &admission).is_err());
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
+    std::fs::write(path, future_bytes)?;
+    assert_eq!(reopened.inspect_control_predecessor(&later, &admission)?.fingerprint, later_before.fingerprint);
+
+    // The allowlist restricts bare hints only. A required typed object still
+    // fails full integrity verification; neither snapshot can omit it.
+    let bootstrap_path = reopened.cas.verified_object_path(&bootstrap_ref)?;
+    std::fs::write(&bootstrap_path, vec![b'?'; bootstrap.len()])?;
+    assert!(reopened.inspect_control_predecessor(&frozen, &admission).is_err());
+    assert!(reopened.inspect_control_predecessor(&later, &admission).is_err());
+    std::fs::write(bootstrap_path, &bootstrap)?;
+    assert_eq!(reopened.inspect_control_predecessor(&frozen, &admission)?.fingerprint, before.fingerprint);
+    Ok(())
+}
+
+#[test]
 fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() -> Result<()> {
     use shenko_types::{ids::*, subject::*};
     let (dir, store, agent) = initialized_subject();

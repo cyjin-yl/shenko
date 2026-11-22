@@ -626,7 +626,18 @@ pub(crate) fn object_closure_with(
     on_verified: impl FnMut(&ObjectRef, bool),
 ) -> RootObjects {
     let mut budget = ClosureBudget::default();
-    object_closure_visit(cas, roots, &mut budget, None, false, on_verified)
+    object_closure_visit(cas, roots, &mut budget, None, false, None, on_verified)
+}
+
+/// Rebuild a frozen inventory without promoting a later-arriving bare digest
+/// hint into an old snapshot. Typed ObjectRefs and schema-required children
+/// still traverse and verify normally, even when absent from this inventory.
+pub(crate) fn object_closure_with_inventory(
+    cas: &ContentStore, roots: Vec<ObjectRef>, inventory: &BTreeSet<Digest>,
+    on_verified: impl FnMut(&ObjectRef, bool),
+) -> RootObjects {
+    object_closure_visit(cas, roots, &mut ClosureBudget::default(), None, false,
+        Some(inventory), on_verified)
 }
 
 /// The same schema-aware traversal with finite transport inventory limits.
@@ -643,7 +654,7 @@ pub(crate) fn object_closure_with_limits(
         limits: if max_objects == usize::MAX && max_bytes == u64::MAX { None } else { Some((max_objects, max_bytes)) },
         ..Default::default()
     };
-    let closure = object_closure_visit(cas, roots, &mut budget, None, false, on_verified);
+    let closure = object_closure_visit(cas, roots, &mut budget, None, false, None, on_verified);
     if let Some(error) = budget.error { bail!(error); }
     Ok(closure)
 }
@@ -661,14 +672,14 @@ pub(crate) fn object_closure_increment_with_limits(
 ) -> Result<RootObjects> {
     let mut base = BTreeSet::new();
     let mut unlimited = ClosureBudget::default();
-    let predecessor = object_closure_visit(cas, predecessors, &mut unlimited, None, true, |object, _| {
+    let predecessor = object_closure_visit(cas, predecessors, &mut unlimited, None, true, None, |object, _| {
         base.insert(shenko_types::native_evidence::NativeEvidenceObjectIdentity::from(object));
     });
     if !predecessor.missing.is_empty() {
         bail!("anchored E1 predecessor closure is missing or corrupt");
     }
     let mut budget = ClosureBudget { limits: Some((max_objects, max_bytes)), ..Default::default() };
-    let closure = object_closure_visit(cas, roots, &mut budget, Some(&base), true, on_verified);
+    let closure = object_closure_visit(cas, roots, &mut budget, Some(&base), true, None, on_verified);
     if let Some(error) = budget.error { bail!(error); }
     Ok(closure)
 }
@@ -728,6 +739,7 @@ fn object_closure_visit(
     budget: &mut ClosureBudget,
     predecessors: Option<&BTreeSet<shenko_types::native_evidence::NativeEvidenceObjectIdentity>>,
     exact_aliases: bool,
+    optional_inventory: Option<&BTreeSet<Digest>>,
     mut on_verified: impl FnMut(&ObjectRef, bool),
 ) -> RootObjects {
     let mut out = RootObjects::default();
@@ -878,6 +890,9 @@ fn object_closure_visit(
         crate::cognition::collect_references(&json, &mut nested, &mut external);
         queue.extend(nested);
         for digest in external {
+            if optional_inventory.is_some_and(|inventory| !inventory.contains(&digest)) {
+                continue;
+            }
             if let Some(object) = bare_object(cas, &digest) {
                 queue.push_back(object);
             }

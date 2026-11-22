@@ -59,6 +59,11 @@ struct Predecessor {
     manifest: CognitionManifest,
     row_count: usize,
     object_count: usize,
+    /// Codec 2 freezes digest membership, including optional bare hints that
+    /// were available at capture. Later CAS publication cannot grow this set.
+    /// Codec 1 retains its original live-discovery reader and has no such field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    object_inventory: Option<Vec<Digest>>,
     root_count: usize,
     derivative_count: usize,
     rows: ObjectRef,
@@ -193,12 +198,15 @@ impl Store {
         let _pages = crate::timing::Phase::new("control.seal_pages");
         let row_count = manifest.rows.len();
         let object_count = manifest.objects.len();
+        let inventory = manifest.objects.iter().map(|object| object.digest.clone()).collect::<BTreeSet<_>>();
+        ensure!(inventory.len() == object_count, "snapshot repeats an object identity");
         let derivative_count = manifest.derivatives.len();
-        // Index direct references, never the recursively expanded object
-        // inventory. Re-indexing old control wrapper pages in each new
-        // snapshot would turn the index itself into a growing workload.
+        // Page-index direct references, not the expanded object inventory.
+        // Codec 2 separately retains its digest membership without creating
+        // another tree of wrapper pages. That root metadata still grows with
+        // object count; this is a frozen-evidence fix, not constant-cost capture.
         let mut roots = BTreeMap::new();
-        for mut reference in self.cognition_object_roots(&manifest.rows).0 {
+        for mut reference in self.cognition_object_roots_in_inventory(&manifest.rows, &inventory) {
             reference.locator.clear();
             let key = Digest::blake3(&serde_json::to_vec(&reference)?).0;
             roots.insert(key.clone(), Entry { key, value: reference });
@@ -208,7 +216,7 @@ impl Store {
         // The partially moved export retains its publication lease through
         // this entire call. Pending child references stay inside the graph
         // builder; the ordinary durable root seal follows the child barrier.
-        Ok(self.cas.seal_graph_root("application/json", "commit-authority", ROOT_CODEC, 1, |graph| {
+        Ok(self.cas.seal_graph_root("application/json", "commit-authority", ROOT_CODEC, 2, |graph| {
             let rows = std::mem::take(&mut manifest.rows).into_iter().map(|row| {
                 Ok(Entry { key: format!("{}\u{1f}{}", row.table, row.key),
                     value: write_control_value(graph, &row, "store-control-row")? })
@@ -219,8 +227,9 @@ impl Store {
                     value: write_control_value(graph, &frame, "store-control-derivative")? })
             }).collect::<Result<Vec<_>>>()?;
             let root = Predecessor {
-                schema_version: 1, head: head.clone(), manifest,
+                schema_version: 2, head: head.clone(), manifest,
                 row_count, object_count, root_count, derivative_count,
+                object_inventory: Some(inventory.into_iter().collect()),
                 rows: write_control_tree(graph, "rows", rows, 0)?,
                 roots: write_control_tree(graph, "roots", roots, 0)?,
                 derivatives: write_control_tree(graph, "derivatives", derivatives, 0)?,
@@ -267,14 +276,26 @@ impl Store {
             operation_id: admission.operation_id, attempt_id: admission.attempt_id,
             ..Default::default()
         });
-        let root: Predecessor = self.read_control_value(reference, ROOT_CODEC)?;
-        ensure!(root.schema_version == 1 && admission.schema_version == 1
+        ensure!(reference.codec.name == ROOT_CODEC && matches!(reference.codec.major, 1 | 2)
+            && reference.media_type == "application/json", "unsupported snapshot object type");
+        let root: Predecessor = serde_json::from_slice(&self.verified_control_bytes(reference)?)?;
+        ensure!(root.schema_version == reference.codec.major && admission.schema_version == 1
             && root.head.agent_id == admission.subject_id && root.head.branch_id == admission.branch_id
             && root.head.controller_epoch == admission.controller_epoch
             && root.head.software_generation == admission.software_generation
             && admission.expected_parent.is_none_or(|parent| parent == root.head.committed_at)
             && admission.expected_head_revision.is_none_or(|revision| revision == root.head.record_revision),
             "snapshot does not bind the original ordered action");
+        let inventory = match (root.schema_version, root.object_inventory.as_ref()) {
+            (1, None) => None,
+            (2, Some(objects)) => {
+                ensure!(root.manifest.schema >= 13 && objects.len() == root.object_count
+                    && objects.windows(2).all(|pair| pair[0] < pair[1]),
+                    "snapshot inventory count, order or capability differs");
+                Some(objects.iter().cloned().collect::<BTreeSet<_>>())
+            }
+            _ => anyhow::bail!("snapshot inventory does not match its codec"),
+        };
         let mut manifest = root.manifest;
         ensure!(manifest.rows.is_empty() && manifest.objects.is_empty() && manifest.derivatives.is_empty()
             && manifest.files.is_empty() && manifest.file_origins.is_empty() && manifest.git_history.is_none(),
@@ -289,8 +310,14 @@ impl Store {
                 "root tree key differs from its typed reference");
             Ok(entry.value)
         }).collect::<Result<Vec<_>>>()?;
-        let (objects, missing) = crate::timing::measure("control.inspect_closure", || self.collect_closure(&roots))?;
+        let (objects, missing) = crate::timing::measure("control.inspect_closure", || match &inventory {
+            Some(inventory) => self.collect_closure_in_inventory(&roots, inventory),
+            None => self.collect_closure(&roots),
+        })?;
         ensure!(missing.is_empty() && objects.len() == root.object_count, "snapshot object closure is incomplete");
+        ensure!(inventory.as_ref().is_none_or(|expected|
+            objects.iter().map(|object| &object.digest).eq(expected.iter())),
+            "snapshot object identities differ from the frozen inventory");
         manifest.objects = objects;
         manifest.derivatives = self.read_control_tree("derivatives", &root.derivatives, root.derivative_count)?.into_iter().map(|entry| {
             let frame: CognitionDerivative = self.read_control_value(&entry.value, "store-control-derivative")?;

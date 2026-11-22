@@ -30,7 +30,9 @@ fn generic_json_recovery_preserves_verified_bytes_and_archive_facts() -> Result<
         roots.push(source.cas.seal_object(bytes, media_type, "test", codec, 1)?.object);
     }
     let session = EntityId::new();
-    let data = serde_json::to_string(&serde_json::json!({"objects": &roots}))?;
+    let late_bytes = b"optional object published only on the receiving side";
+    let late_digest = Digest::blake3(late_bytes);
+    let data = serde_json::to_string(&serde_json::json!({"objects": &roots, "contract_digest": late_digest}))?;
     let mut batch = WriteBatch::new();
     batch.raw_session_upserts.push(RawSession {
         session_id: session, agent_id: EntityId::new(),
@@ -65,6 +67,10 @@ fn generic_json_recovery_preserves_verified_bytes_and_archive_facts() -> Result<
     drop(export);
     drop(source);
     let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+    // A bare checksum absent at capture cannot make the original archive
+    // incomplete merely because this receiver already holds those bytes.
+    let late = receiver.cas.seal_object(late_bytes, "text/plain", "test", "raw", 1)?.object;
+    assert_eq!(late.digest, late_digest);
     let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
     assert!(imported.ack(EntityId::new()).verified);
     drop(receiver);
@@ -499,7 +505,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         memory_root: Some(memory), include_git_history: false, ..Default::default()
     };
     let native = source.export_cognition(&options)?;
-    assert_eq!(native.manifest.schema, 12, "the current fork/history producer declares its native readers");
+    assert_eq!(native.manifest.schema, 13, "the current fork/history producer declares its native readers");
     for class in ["subject_branch_forks", "subject_head_history"] {
         assert!(native.manifest.fact_classes.iter().any(|declared| declared == class));
     }
@@ -519,7 +525,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             "historical archive cannot claim later dialogue or fork/history membership"
         } else if case == "current-partial-family" {
             malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
-            "schema-12 archive requires fork/history membership"
+            "schema-13 archive requires fork/history membership"
         } else if matches!(case, "reserved-eight" | "reserved-nine") {
             malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
             "unsupported cognition archive schema"
@@ -606,14 +612,14 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     let relay = reopened.export_cognition(&CognitionSnapshotOptions {
         memory_root: Some(receiver_memory), include_git_history: false, ..Default::default()
     })?;
-    assert_eq!(relay.manifest.schema, 12);
+    assert_eq!(relay.manifest.schema, 13);
     assert!(relay.manifest.blocking_gaps().is_empty());
     assert!(relay.manifest.objects.iter().any(|declared| declared.digest == object.digest));
-    // This fixture contains only facts representable by the native7 and 11
+    // This fixture contains only facts representable by the native7 and 12
     // fork/history formats. Reuse the previous-writer compatibility window for
-    // 11 -> 12; schema 10 keeps its original reader rules. These explicit older
+    // 12 -> 13; schemas 10 and 11 keep their original reader rules. These explicit older
     // inputs are not a current-writer downgrade or a compatibility export path.
-    for schema in [7, 11] {
+    for schema in [7, 12] {
         let mut legacy = source.export_cognition(&options)?;
         legacy.manifest.schema = schema;
         legacy.manifest.fingerprint = fingerprint_of_manifest(&legacy.manifest);
@@ -629,11 +635,11 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         assert_eq!(legacy_receiver.cas.read_object(&object.digest)?.as_slice(), bytes);
         assert_eq!(legacy_receiver.session_events_range(session, 0, i64::MAX)?[0].data, data);
         assert_eq!(fs::read(legacy_memory.join("remote.txt"))?, b"original remote file");
-        if schema == 11 {
+        if schema == 12 {
             let relayed = legacy_receiver.export_cognition(&CognitionSnapshotOptions {
                 memory_root: Some(legacy_memory), include_git_history: false, ..Default::default()
             })?;
-            assert_eq!(relayed.manifest.schema, 12);
+            assert_eq!(relayed.manifest.schema, 13);
             assert!(relayed.manifest.blocking_gaps().is_empty());
         }
     }
