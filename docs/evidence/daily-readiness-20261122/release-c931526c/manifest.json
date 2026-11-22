@@ -1,0 +1,19 @@
+{
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-c931526c",
+  "bytes": 90370560,
+  "sha256": "1ad2899f2c7dff3c0cd5123a16d3dfbb893a9cc8ba85996d5f16a8023c0eeba1",
+  "started_at_utc": "2026-11-22T00:46:07Z",
+  "finished_at_utc": "2026-11-22T00:53:22Z",
+  "profile": "release",
+  "command": [
+    "cargo",
+    "build",
+    "--offline",
+    "--locked",
+    "--release",
+    "-p",
+    "shenko",
+    "-j4"
+  ]
+}
