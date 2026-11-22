@@ -375,6 +375,17 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
     if (this.viewport?.getExposes().following.get() === 'paused') this.emitAnchor();
   };
 
+  private onContentFocus = () => {
+    if (!this.active) return;
+    // Tab navigation can natively scroll a message action into view without
+    // wheel/pointer input. The App owns that content interaction and its
+    // stable anchor; the shared scroller still owns the follow lease.
+    this.restoreOnMaterialization = false;
+    this.viewport?.getExposes().pauseFollowing();
+    this.rememberAnchor();
+    this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
+  };
+
   render() {
     const { node, projection, emit } = this.props;
     const entries = node.props.entries as UiNode[];
@@ -402,7 +413,7 @@ export class TimelineSurface extends React.Component<TimelineSurfaceProps, { ann
         >
           <MessageRoot className="timeline-root" a11yLabel={t('timeline.label')} newContentCount={node.props.new_count}>
             <ReadingViewport className="timeline-viewport" ref={this.bindViewport}>
-              <div className="timeline-column" ref={this.bindContent}>
+              <div className="timeline-column" ref={this.bindContent} onFocusCapture={this.onContentFocus}>
                 <SubmissionHistory node={node} emit={emit} />
                 {entries.length === 0
                   ? <EmptyTimeline connection={projection.connection} demo={projection.source === 'demo'} name={name} />

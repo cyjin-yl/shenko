@@ -151,6 +151,59 @@ async function journey(tab, width) {
     const tail = await settledEnd(page, selector, rowSelector);
     check('append follows the actual tail and retains composer focus', await editor.evaluate((node) => node === document.activeElement), tail);
 
+    // Move from the composer with native sequential focus navigation. Never
+    // assign a scroll offset or directly focus the historical message action.
+    // Geometry observes the browser's movement; it does not produce it.
+    let keyboardDeparture;
+    let backwardTabs = 0;
+    let previousHistoricalAction = false;
+    for (; backwardTabs < 96; backwardTabs++) {
+      await page.keyboard.press('Shift+Tab');
+      await page.waitForTimeout(40);
+      const inMessage = await page.locator(selector).evaluate((outer, rowSelector) => {
+        const focused = document.activeElement;
+        return focused instanceof HTMLElement && outer.contains(focused)
+          && !!focused.closest(rowSelector) && focused.matches('button,a[href],summary,input,textarea,select,[tabindex]');
+      }, rowSelector);
+      const facts = await measure(page, selector, rowSelector);
+      const historicalAction = inMessage && facts.endGap > 100;
+      // Two consecutive historical focus stops make the forward Tab below
+      // return to a known historical action rather than the newest row.
+      if (historicalAction && previousHistoricalAction) { keyboardDeparture = facts; break; }
+      previousHistoricalAction = historicalAction;
+    }
+    check('trusted Shift+Tab reaches a historical message action away from the tail', !!keyboardDeparture,
+      { backwardTabs: backwardTabs + 1, before: tail, after: keyboardDeparture });
+    for (const direction of ['Shift+Tab', 'Tab']) {
+      if (direction === 'Tab') {
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(100);
+      }
+      const focusedBefore = await capture(page, run, `keyboard-${direction}-departed`, selector, rowSelector);
+      const focusedAction = await page.locator(selector).evaluate((outer, rowSelector) => {
+        const focused = document.activeElement;
+        window.__readingKeyboardTarget = focused;
+        return focused instanceof HTMLElement && outer.contains(focused)
+          && !!focused.closest(rowSelector) && focused.matches('button,a[href],summary,input,textarea,select,[tabindex]');
+      }, rowSelector);
+      check(`trusted ${direction} retains focus within a historical message`, focusedAction && focusedBefore.endGap > 100,
+        focusedBefore);
+      await append();
+      const focusedAfter = await capture(page, run, `keyboard-${direction}-append`, selector, rowSelector);
+      check(`append preserves ${direction} focus and its reader anchor`,
+        await page.evaluate(() => document.activeElement === window.__readingKeyboardTarget)
+          && focusedBefore.key === focusedAfter.key && Math.abs(focusedBefore.offset - focusedAfter.offset) <= 2,
+        { before: focusedBefore, after: focusedAfter });
+    }
+    const keyboardJump = page.locator('.jump-latest').getByRole('button').first();
+    await keyboardJump.focus();
+    await keyboardJump.press('Enter');
+    await settledEnd(page, selector, rowSelector);
+    await append();
+    await settledEnd(page, selector, rowSelector);
+    check('explicit resume after content focus follows appends and keeps the resume control focused',
+      await keyboardJump.evaluate((node) => node === document.activeElement), await measure(page, selector, rowSelector));
+
     await page.locator(selector).hover();
     await page.mouse.wheel(0, -520);
     await page.waitForTimeout(200);

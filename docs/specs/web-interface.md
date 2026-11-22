@@ -609,14 +609,6 @@ Alma 发布归档主线固定为 [e22723b7c6ca8bb74c3bd1ed32e76df790c9d5ba](http
 
 在跟随状态下按合并后的内容增长更新位置，不为每个 token 重新启动一段长 smooth-scroll 动画。滚动动画中用户操作应立即接管；键盘导航、搜索定位、文本选择和输入框焦点都不能被自动跟随夺走。移动软键盘/visual viewport 改变时，保持正在编辑的输入位置和当前阅读锚点。
 
-当前 Inspect 与 IM 消费共享 Shadcn MessageScroller 的 `following`、
-`pauseFollowing()`、`jumpToEnd()`，不再各自按像素阈值维护 follow 状态机。
-稳定 message/part 锚点、选区、持久阅读模式与主体身份仍由 Shenko 拥有；
-组合关闭通用 anchor compensation，避免两个恢复者同时改变位置。重开时原始
-持久 key 保留到真实 reader 输入接管，不能被早到的 HTTP/replay fallback 覆盖。
-主体切换会退休旧阅读 owner；订阅、observer、timer 与 frame 只可作用于当前
-epoch。恢复按钮在保持键盘焦点时继续存在，随后失焦才按 follow 状态隐藏。
-
 ### Markdown 与代码块的稳定呈现
 
 渲染器明确区分已稳定块和仍可能被后继字符补全的尾部块。增量只修改受影响的块；新 token 不卸载重建整个消息、整个历史列表或所有代码块。格式变化确实影响当前尾部时，允许正确的语义转换，但必须保持无关已稳定内容的身份、选区与阅读锚点。
@@ -675,6 +667,17 @@ epoch。恢复按钮在保持键盘焦点时继续存在，随后失焦才按 fo
 来源：REF-MAGPIE、REF-ALMA、REF-USER（U41/R131）、REF-DESIGN。用户提供的体验描述是产品目标；官方文档与发布归档是已核对参照，尚未对这些产品或 Shenko 做流式性能实测。所有门槛为待实施的本产品验收；默认首页另遵循 [§21.12](web-interface.md#spec-21-12) 的唯一主体时间线。
 
 <!-- /migrated-contract: SPEC:21.11 -->
+
+### 当前实现说明：共享 follow-tail（2026-11-22）
+
+当前 Inspect 与 IM 消费共享 Shadcn MessageScroller 的 `following`、
+`pauseFollowing()`、`jumpToEnd()`，不再各自按像素阈值维护 follow 状态机。
+稳定 message/part 锚点、选区、持久阅读模式与主体身份仍由 Shenko 拥有；
+组合关闭通用 anchor compensation，避免两个恢复者同时改变位置。重开时原始
+持久 key 保留到真实 reader 输入接管，不能被早到的 HTTP/replay fallback 覆盖。
+主体切换会退休旧阅读 owner；订阅、observer、timer 与 frame 只可作用于当前
+epoch。恢复按钮在保持键盘焦点时继续存在，随后失焦才按 follow 状态隐藏。
+消息正文中的控件接收焦点时（包括 Tab / Shift+Tab 导航）暂停共享 follow 并记录阅读锚点；输入区保留正常跟随，恢复按钮独立执行显式恢复。
 
 <a id="spec-21-12"></a>
 <!-- migrated-contract: SPEC:21.12 -->

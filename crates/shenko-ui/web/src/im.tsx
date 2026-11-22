@@ -329,7 +329,9 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }, { p
       }}>
       <MessageRoot a11yLabel={t('conversation.label')}>
         <ReadingViewport className="im-scroll" ref={this.bindViewport}>
-          <div ref={this.bindContent}>{this.props.children}</div>
+          {/* Focused message actions are reader interaction, including Tab's
+              native scroll. Composer and resume controls own separate focus. */}
+          <div ref={this.bindContent} onFocusCapture={this.beginBackfill}>{this.props.children}</div>
         </ReadingViewport>
       </MessageRoot>
       {(this.state.paused || this.state.jumpFocused) && <div className="jump-latest"

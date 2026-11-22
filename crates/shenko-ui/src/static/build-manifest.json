@@ -9,8 +9,8 @@
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-complete.json",
-      "receipt_sha256": "ab028486ffe6a460ac81b23997b7902f1311ea5df4171cd549a92e218bf6acd4"
+      "receipt_path": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-node24221.json",
+      "receipt_sha256": "e0324ee62ba83735883aeaccfcadb5f4b56aa1eccf2bb38b783ba70fe726d581"
     }
   },
   "packages": [
@@ -190,22 +190,22 @@
     ]
   },
   "toolchain": {
-    "node": "v24.22.3",
+    "node": "v24.22.1",
     "pnpm": "10.32.1",
     "esbuild": "0.25.12",
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
   "web_root": "/workspace/scratch/eb30117f7b2a/shenko-sprint7/crates/shenko-ui/web",
-  "built_at": "2026-11-22T17:40:20.752Z",
+  "built_at": "2026-11-22T17:56:01.726Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1164221,
-      "sha256": "9d70e56862ed61b02eaf9cc480f0b3f682aec89a9f2771ce7820d060f698f4c3"
+      "bytes": 1164508,
+      "sha256": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb"
     },
     "chunks/chunk-O3OVBR66.js": {
       "bytes": 65273,
