@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "files": [
+    {
+      "path": "runner.sh",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/runner.sh",
+      "raw_bytes": 4759,
+      "raw_sha256": "b890255b4d968205f8b676e2736311574e9e258e4c831a60e9f41932cb44b0aa",
+      "mtime_ns": 1795304537201465000,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 4759,
+      "sha256": "b890255b4d968205f8b676e2736311574e9e258e4c831a60e9f41932cb44b0aa"
+    },
+    {
+      "path": "build.log.gz",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/build.log",
+      "raw_bytes": 39292,
+      "raw_sha256": "bce1a0016c190263bf25886a21030e78e3f6c0743f318180d1353d9daa4b143f",
+      "mtime_ns": 1795305015464151600,
+      "stable_during_export": true,
+      "encoding": "gzip",
+      "bytes": 7770,
+      "sha256": "58f683951b91f6c0613901e09c8516e17beacef3af0fa9372c4b4665fca745cc"
+    },
+    {
+      "path": "started.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/started.txt",
+      "raw_bytes": 21,
+      "raw_sha256": "02e5c1a1910852a9ec8304725a49f69a7453154176bb1b0fe4e23af909a13403",
+      "mtime_ns": 1795304537299470300,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 21,
+      "sha256": "02e5c1a1910852a9ec8304725a49f69a7453154176bb1b0fe4e23af909a13403"
+    },
+    {
+      "path": "manifest.json",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/manifest.json",
+      "raw_bytes": 511,
+      "raw_sha256": "c175240d635cd27be869a6410ab2025a19f50cba1cb6b92f84d231e309092388",
+      "mtime_ns": 1795305017560264200,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 511,
+      "sha256": "c175240d635cd27be869a6410ab2025a19f50cba1cb6b92f84d231e309092388"
+    },
+    {
+      "path": "node.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/node.txt",
+      "raw_bytes": 9,
+      "raw_sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "mtime_ns": 1795304537298470400,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81"
+    },
+    {
+      "path": "cargo.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/cargo.txt",
+      "raw_bytes": 36,
+      "raw_sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503",
+      "mtime_ns": 1795304537293470200,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 36,
+      "sha256": "9950bbb2d5c3417b1a068f0e81f6d3cac991a363193bdf2a22d447f5acf8b503"
+    },
+    {
+      "path": "finished.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/finished.txt",
+      "raw_bytes": 21,
+      "raw_sha256": "22b51ef6e75226472080219b485a523f2866c96f71914580ea3d0e579255c41c",
+      "mtime_ns": 1795305015568157200,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 21,
+      "sha256": "22b51ef6e75226472080219b485a523f2866c96f71914580ea3d0e579255c41c"
+    },
+    {
+      "path": "rustc.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/rustc.txt",
+      "raw_bytes": 36,
+      "raw_sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "mtime_ns": 1795304537247467800,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376"
+    },
+    {
+      "path": "exit.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8/exit.txt",
+      "raw_bytes": 2,
+      "raw_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_ns": 1795305015566157000,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "preflight.json",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/release-d16adbf8-preflight.json",
+      "raw_bytes": 4857,
+      "raw_sha256": "82d5aa7ac6c6afb65c03a0138e91cbd4b95ac1b402546b1a057a9536ad99b197",
+      "mtime_ns": 1795304537192464600,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 4857,
+      "sha256": "82d5aa7ac6c6afb65c03a0138e91cbd4b95ac1b402546b1a057a9536ad99b197"
+    },
+    {
+      "path": "host/started.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/build-reviewed-d16adbf8.host.started.txt",
+      "raw_bytes": 21,
+      "raw_sha256": "704d213215249b312876044c8b10ea0ce6c2ab7077603747334e09b891b90025",
+      "mtime_ns": 1795304535997400600,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 21,
+      "sha256": "704d213215249b312876044c8b10ea0ce6c2ab7077603747334e09b891b90025"
+    },
+    {
+      "path": "host/finished.txt",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/build-reviewed-d16adbf8.host.finished.txt",
+      "raw_bytes": 21,
+      "raw_sha256": "07b986a1727df55e25976fd40cc602caaf9ec08069bace028617fe52d13a731d",
+      "mtime_ns": 1795305017585265400,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 21,
+      "sha256": "07b986a1727df55e25976fd40cc602caaf9ec08069bace028617fe52d13a731d"
+    },
+    {
+      "path": "host/exit",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/build-reviewed-d16adbf8.host.exit",
+      "raw_bytes": 2,
+      "raw_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_ns": 1795305017583265500,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "host/runner.sh",
+      "source_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-build-reviewed-candidate.sh",
+      "raw_bytes": 2267,
+      "raw_sha256": "956d4e5db0d7b7949e0214f083c80c294193f136cf84055a9cca94d2c41dc923",
+      "mtime_ns": 1795303200943697700,
+      "stable_during_export": true,
+      "encoding": "identity",
+      "bytes": 2267,
+      "sha256": "956d4e5db0d7b7949e0214f083c80c294193f136cf84055a9cca94d2c41dc923"
+    }
+  ]
+}
