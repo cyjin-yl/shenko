@@ -1,0 +1,9 @@
+{
+  "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "ci_run_id": 44963143476,
+  "nightly_run_id": 44963198484,
+  "ci_event": "pull_request",
+  "nightly_event": "workflow_dispatch",
+  "nightly_dispatch_performed_by_collector": false,
+  "collection_started_at_utc": "20261121T234550.097009Z"
+}
