@@ -2205,9 +2205,61 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() -
     drop(subject);
     drop(store);
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
-    let subject = state(store.clone(), agent).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
     assert_eq!(subject.step.step_id, rejection.replacement_step_id);
     anyhow::ensure!(serde_json::to_vec(&super::frozen_input(&store, &subject.step)?)? == corrected_input_bytes);
+    // Continue the same R0/reopen trajectory with the exact malformed UUID
+    // emitted in c931/002's second rejected disposition. Its JSON is closed
+    // and its required fields exist; the actual typed cause must reach the
+    // new immutable feedback instead of blaming JSON-object syntax again.
+    let malformed_control = r#"[dispose] {"event_id":"a87df7e3-8be6-4f70-9740-8e5e","disposition":"acknowledged","reason":"两个 child 的真实回执已到达并已在正文报告：19×23=437，原样回显 S1-ba1031563f9a"}"#;
+    let malformed_json = malformed_control.strip_prefix("[dispose] ").context("control body")?;
+    assert!(serde_json::from_str::<serde_json::Value>(malformed_json)?.is_object());
+    let typed_cause = serde_json::from_str::<shenko_types::output::DispositionSpec>(malformed_json)
+        .err().context("malformed UUID must remain invalid")?;
+    assert!(matches!(typed_cause.classify(), serde_json::error::Category::Data));
+    let expected_reason = format!("dispose JSON field/type error: {typed_cause}");
+    // The same typed reader still rejects unknown fields and incomplete JSON.
+    let unknown_field = serde_json::json!({
+        "event_id":event.event_id, "disposition":"acknowledged", "unexpected":true,
+    }).to_string();
+    assert!(crate::authored_controls::parse_disposition(&unknown_field, 1).is_err());
+    assert!(crate::authored_controls::parse_disposition(r#"{"event_id":"#, 1).is_err());
+    let typed_parent_ref = subject.step.input_plan_ref.clone().context("typed rejection's parent input")?;
+    let typed_parent_bytes = super::read_sealed(&store, &typed_parent_ref)?;
+    let typed_step_id = record_result(&store, &mut subject, malformed_control);
+    let typed_step = subject.step.clone();
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await?.is_none());
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert_eq!(subject.head.committed_at, head.committed_at);
+    assert!(store.event_disposition_commit(agent, event.event_id)?.is_none());
+    assert!(store.committed_intents(None, None, 8)?.is_empty());
+    let typed_retired = store.get_step(&head.branch_id, typed_step_id)?.context("typed retired step")?;
+    assert_eq!(typed_retired.state, SubjectStepState::Retired);
+    assert_eq!(typed_retired.model_result_ref, typed_step.model_result_ref);
+    assert_eq!(typed_retired.model_outcome_ref, typed_step.model_outcome_ref);
+    assert_eq!(typed_retired.input_plan_ref, typed_step.input_plan_ref);
+    assert_eq!(super::read_sealed(&store, typed_retired.model_result_ref.as_ref().context("original typed output")?)?,
+        malformed_control.as_bytes());
+    let typed_rejection: ControlOutputRejection = serde_json::from_slice(&super::read_sealed(
+        &store, typed_retired.retry_reason_ref.as_ref().context("typed rejection record")?)?)?;
+    assert_eq!(typed_rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(typed_rejection.error.details["line"], 1);
+    assert_eq!(typed_rejection.error.details["reason"].as_str(), Some(expected_reason.as_str()));
+    let typed_correction = super::frozen_input(&store, &subject.step)?;
+    assert_eq!(typed_correction.events[0].event_id, event.event_id);
+    let tail = &typed_correction.payload.messages;
+    assert_eq!(correction_text(&tail[tail.len() - 2]), malformed_control);
+    assert_eq!(correction_text(tail.last().context("typed feedback")?),
+        shenko_store::control_rejection_feedback(&typed_rejection));
+    assert_eq!(super::read_sealed(&store, &typed_parent_ref)?, typed_parent_bytes);
+    let typed_correction_bytes = serde_json::to_vec(&typed_correction)?;
+    drop((subject, store));
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+    let subject = state(store.clone(), agent)?;
+    assert_eq!(subject.step.step_id, typed_rejection.replacement_step_id);
+    assert_eq!(serde_json::to_vec(&super::frozen_input(&store, &subject.step)?)?, typed_correction_bytes);
     // Close/reopen before dispatch retains the correction. A terminal result
     // of the NEW request can now settle the original input exactly once.
     let mut corrected = subject.step.clone();

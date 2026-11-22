@@ -144,3 +144,37 @@ manifest 与批次摘要记录配置；每个安装的 `first.startup.json` 保�
 `permission` 元数据不参与身份比较；完整响应仍保存。模型 card 不是内存权重的证明，实际
 服务启动配置、模板和权重哈希应由部署证据另行绑定。前后报告还必须核对同一场景表哈希、
 model card、请求时限与 sealed/effective 配置；任一批次不足 8 个已观察样本时明确保留缺口。
+
+## Typed-control rejection diagnostics / 类型化控制拒绝诊断
+
+`c931526c` 的真实浏览器批次 `final-c931526c-observer-e537896f` 第 002 次尝试，
+两份原始 TaskResult 已在主体请求 `c7065033-5454-4ce0-9886-59f5b3aa960b` 的实际
+sealed payload 中。该 payload 提供完整事件 ID
+`a87df7e3-8be6-4f70-97d1-610088bd4e5e`；模型的完整响应却写出
+`a87df7e3-8be6-4f70-9740-8e5e`。后一个字符串在此请求输入中未出现。
+原 R0 严格拒绝了控制，但将所有 typed JSON 反序列化错误归成
+`dispose requires one JSON object`。下一请求 `95842485-ec36-4a64-8ed2-5b8cd6045a72`
+确实收到该反馈和原完整 ID，却把问题解释成括号未闭合，并保留同一非法 UUID。
+它的 JSON 对象已闭合且必需字段齐全，仍被拒绝；没有产生成功的结果报告 S1。
+
+这两份原输入的 SHA256 分别为
+`5912063a03d2c3152486919aa79c86300ccfee118e9eeaf61c42d519d53741b2` 和
+`d51fe83bbcbef4fb5ab3441e149fd68a772e1f630dbb8183a9b0fbcd74af3b75`；第二次完整
+provider wire 的 SHA256 为
+`6c4b173a544780eab4e28ffd2da452bc8c7d25ccf3b8d969999051a1dad784b1`，提取的
+content 为 `cc8b31086e1a7a3dd56ff46d862349db59604dae50fbfece7dcc6b8f25731553`。
+原始 R0、provider 响应、Unknown 和该批次失败分母保持原样。
+
+产品修正由 `authored_controls` 的共享 helper 保留同一次 `serde_json::from_str<T>`
+的错误类别和原错误详情，放入原有 `CONTROL_PROTOCOL_INVALID` 的 `reason`；例如
+字段类型错误现在以 `dispose JSON field/type error:` 开头，后接实际 serde 原因。
+syntax、incomplete 和 read 类别也保留其实际原因。八类 authored-control 的 typed
+结构与后续语义校验不变；不会修补 ID、接纳未知字段、增加重试、生成动作或调整预算。
+
+现有 `frozen_input_survives_shutdown_rejection_and_recorded_result_reopen` 机制回归
+延续原安装的 R0/reopen 轨迹，将第二个实际非法控制经过真实 parser、R0 持久化和
+下一份 frozen feedback，并检查原输入/输出不变、重开后反馈保留、原合法控制仍只提交
+一次。该 fixture 不调用 provider；未知字段和未完成 JSON 仍必须拒绝。这个改动提交时
+尚未取得该扩展的实际执行回执，也未取得新诊断的真实模型纠错成功率。随后保持同一模型、
+4096 主体输出预算与 900 秒阶段边界的完整旅程必须独立记录结果；不能由诊断更准确
+推断模型一定会纠正，也不能把后续整个候选的结果归因于这一处文字变化。
