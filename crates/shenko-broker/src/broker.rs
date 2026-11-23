@@ -339,6 +339,18 @@ impl BrokerHandle {
         self.registry.serves_model(&self.binding, model)
     }
 
+    /// Ask the exact bound runtime to translate an explicit effort request.
+    /// This is a local contract lookup, not a generation, metadata probe,
+    /// reservation or permission to reinterpret an existing request seal.
+    pub fn resolve_effort(&self, requested: &str)
+        -> std::result::Result<crate::effort::ProviderEffort, crate::effort::EffortResolutionError>
+    {
+        self.registry.runtime_for(&self.binding)
+            .ok_or(crate::effort::EffortResolutionError::ProviderUnavailable)?
+            .resolve_effort(requested)
+            .ok_or(crate::effort::EffortResolutionError::Unsupported)
+    }
+
     /// Restore an original armed request before admitting any new inference.
     /// Repeated recovery and live requests cannot count the same identity twice.
     pub fn recover_unknown(&self, request_id: EntityId) -> Result<()> {
