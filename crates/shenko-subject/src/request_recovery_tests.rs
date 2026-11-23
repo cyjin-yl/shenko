@@ -1225,3 +1225,195 @@ async fn expired_wait_does_not_pin_a_reopened_subject_to_its_missing_original_mo
     broker_task.await.unwrap();
     server.abort();
 }
+
+async fn serve_effort_original(
+    listener: TcpListener,
+    wire: tokio::sync::oneshot::Sender<serde_json::Value>,
+    release: tokio::sync::oneshot::Receiver<()>,
+) {
+    let (mut socket, _) = listener.accept().await.unwrap();
+    wire.send(read_wire(&mut socket).await).unwrap();
+    release.await.unwrap();
+    let body = serde_json::json!({
+        "id":"effort-original", "type":"message", "role":"assistant", "model":"quota-alternate",
+        "content":[{"type":"text", "text":OBSERVING}], "stop_reason":"end_turn",
+        "usage":{"input_tokens":31, "output_tokens":17}
+    }).to_string();
+    socket.write_all(format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len(),
+    ).as_bytes()).await.unwrap();
+    socket.shutdown().await.unwrap();
+}
+
+/// Actual AnthropicProvider serialization, Store/S0, hook stop, durable quota
+/// admission and receipt recovery. A changed priced effort must refuse the
+/// original seal before admission; a restored policy can send that same seal.
+/// Its late terminal then survives a policy change and absent original runtime.
+#[tokio::test]
+async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
+    use shenko_broker::effort::{AnthropicEffort, ProviderEffort};
+    use shenko_kernel::hooks::HookPointId;
+    let (dir, store, agent) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(serve_effort_original(listener, wire_tx, release_rx));
+    let (runner, handle) = Broker::with_anthropic_provider(
+        shenko_broker::provider::AnthropicProvider::with_endpoint(
+            "quota-effort-fixture".into(), endpoint, "quota-alternate",
+        ), 1,
+    ).unwrap();
+    let broker_task = tokio::spawn(runner.run());
+    let binding = handle.binding().clone();
+    let mut policy = preseal_policy();
+    policy.profiles.truncate(1);
+    let costs = policy.profiles[0].cost_per_request.clone();
+    policy.profiles[0].effort_levels = vec![shenko_quota::EffortLevel {
+        effort: "high".into(), cost_per_request: costs,
+    }];
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    // Reuse the real StopUnit fixture. The same handler/graph later clears;
+    // no test-only production callback or replacement graph admits the seal.
+    let (hooks, _registration, failing) = super::stop_registry(HookPointId::SUBJECT_BEFORE_INFERENCE);
+    let hooks = Arc::new(hooks);
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone())
+        .with_model_capabilities(Some(ProviderCapabilities {
+            binding: binding.clone(), max_context_tokens: Some(32768), vision: None,
+        })).with_hooks(hooks.clone());
+    subject.max_tokens = 73;
+    let implicit_profile = subject.bind_context_profile().unwrap();
+    let stopped = tokio::time::timeout(Duration::from_secs(5),
+        execute_step(1, &[], &mut subject, &CancellationToken::new()),
+    ).await.unwrap().unwrap_err();
+    assert!(stopped.to_string().contains("stopped the unit"));
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    let step_id = subject.step.step_id;
+    let seal = subject.step.input_plan_ref.clone().unwrap();
+    let sealed_bytes = store.cas.read_object(&seal.digest).unwrap();
+    let input = super::super::frozen_input(&store, &subject.step).unwrap();
+    let effort = input.provider_selection.quota.as_ref().unwrap().effort.as_ref().unwrap();
+    assert_eq!(effort.requested, "high");
+    assert_eq!(effort.native, ProviderEffort::AnthropicMessages { level: AnthropicEffort::High });
+    assert_eq!(input.payload.native_options["output_config"]["effort"], "high");
+    assert_eq!(input.payload.max_tokens, Some(73));
+    assert_eq!(input.context.reserved_output_tokens, 73);
+    assert_ne!(input.context.profile_digest, implicit_profile,
+        "explicit effort participates in context identity before preparation");
+    assert_eq!(input.provider_binding.as_ref(), Some(&binding));
+    assert_eq!(store.quota_pacer().unwrap().reservations().count(), 0);
+
+    failing.store(false, std::sync::atomic::Ordering::SeqCst);
+    policy.revision += 1;
+    policy.profiles[0].effort_levels[0].effort = "medium".into();
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let changed = tokio::time::timeout(Duration::from_secs(5),
+        execute_step(1, &[], &mut subject, &CancellationToken::new()),
+    ).await.unwrap().unwrap_err();
+    let shenko_types::error::ShenkoError::Protocol(changed) = changed else {
+        panic!("a new effort price cannot reinterpret the old native seal");
+    };
+    assert_eq!(changed.code, "QUOTA_EFFORT_BINDING_MISMATCH");
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert_eq!(subject.step.input_plan_ref.as_ref(), Some(&seal));
+    assert_eq!(store.quota_pacer().unwrap().reservations().count(), 0);
+    assert!(store.subject_request_attempts_for_step(agent, step_id).unwrap().is_empty());
+
+    policy.revision += 1;
+    policy.profiles[0].effort_levels[0].effort = "high".into();
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    subject.max_tokens = 901;
+    let cancel = CancellationToken::new();
+    let mut execution = Box::pin(execute_step(1, &[], &mut subject, &cancel));
+    let wire = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::select! {
+            _response = wire_rx => _response.expect("the Messages wire delivered no body"),
+            _ = &mut execution => panic!("the original high-effort seal ended before its Messages wire"),
+        }
+    }).await.expect("the exact original high-effort seal must reach Messages HTTP");
+    assert_eq!(wire["model"], "quota-alternate");
+    assert_eq!(wire["max_tokens"], 73);
+    assert_eq!(wire["output_config"], input.payload.native_options["output_config"]);
+    assert_eq!(wire["output_config"]["effort"], "high");
+    cancel.cancel();
+    assert!(tokio::time::timeout(Duration::from_secs(5), &mut execution).await.unwrap().unwrap().is_none());
+    drop(execution);
+    let attempt = store.subject_request_attempt(input.request_id).unwrap().unwrap();
+    assert_eq!(attempt.input_plan_ref, seal);
+    assert_eq!(attempt.state, SubjectRequestState::Dispatched);
+    let send = attempt.send_id.unwrap();
+    let admission = store.quota_pacer().unwrap().reservation(&send).unwrap().admission.clone();
+    assert_eq!(handle.active_count(), 1, "the cancelled waiter does not release the original send");
+
+    policy.revision += 1;
+    policy.profiles[0].effort_levels[0].effort = "medium".into();
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if store.subject_request_attempt(input.request_id).unwrap().unwrap().state == SubjectRequestState::Terminal { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("the original receipt owner retains the late terminal");
+    let terminal = store.subject_request_attempt(input.request_id).unwrap().unwrap().terminal.unwrap();
+    let result: InferenceResult = serde_json::from_slice(&store.cas.read_object(
+        &terminal.result_ref.as_ref().unwrap().digest,
+    ).unwrap()).unwrap();
+    assert_eq!(result.effective.native_options, input.payload.native_options);
+    assert_eq!(result.effective.max_tokens, 73);
+    handle.request_stop();
+    tokio::time::timeout(Duration::from_secs(5), broker_task).await.unwrap().unwrap();
+    drop((subject, handle, store));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let (_offline, handle) = Broker::offline().unwrap();
+    super::super::restore_inference_accounting(&reopened, agent, &handle).unwrap();
+    let mut resumed = state(reopened.clone(), agent).unwrap().with_broker(handle.clone()).with_hooks(hooks);
+    resumed.max_tokens = 999;
+    assert!(tokio::time::timeout(Duration::from_secs(5),
+        execute_step(1, &[], &mut resumed, &CancellationToken::new()),
+    ).await.unwrap().unwrap().is_some());
+    let committed = reopened.get_step(&resumed.head.branch_id, step_id).unwrap().unwrap();
+    assert_eq!(committed.input_plan_ref.as_ref(), Some(&seal));
+    assert_eq!(committed.active_request_id, Some(input.request_id));
+    assert_eq!(reopened.cas.read_object(&seal.digest).unwrap(), sealed_bytes);
+    assert_eq!(reopened.subject_request_attempts_for_step(agent, step_id).unwrap().len(), 1);
+    assert_eq!(reopened.quota_pacer().unwrap().reservation(&send).unwrap().admission, admission);
+    assert_eq!(handle.active_count(), 0);
+    assert_eq!(resumed.head.committed_step_no, 1);
+    assert_eq!(resumed.step.step_no, 2);
+}
+
+#[tokio::test]
+async fn quota_known_effort_on_unmapped_runtime_refuses_before_s0() {
+    use shenko_broker::{admission::CapacityProvenance, native_provider::NativeBackendProvider,
+        profile::native_backends, resource::{ResourceDomain, ResourceDomainIdentity}};
+    let (_dir, store, agent) = fixture();
+    let runtime = NativeBackendProvider::new(native_backends::strata(
+        "http://127.0.0.1:1", "quota-alternate", "effort-unmapped",
+    ), None).unwrap();
+    let domain = ResourceDomain::new(ResourceDomainIdentity {
+        domain_id:"effort-unmapped".into(), engine_identity:"effort-unmapped".into(),
+        engine_incarnation:None, epoch:1,
+    }, 1, CapacityProvenance::Unknown, None, CapacityProvenance::Unknown);
+    let (_runner, handle) = Broker::with_runtime(Arc::new(runtime), domain).unwrap();
+    let mut policy = preseal_policy();
+    policy.profiles.truncate(1);
+    policy.profiles[0].effort_levels = vec![shenko_quota::EffortLevel {
+        effort:"high".into(), cost_per_request:policy.profiles[0].cost_per_request.clone(),
+    }];
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let error = execute_step(1, &[], &mut subject, &CancellationToken::new()).await.unwrap_err();
+    let shenko_types::error::ShenkoError::Protocol(error) = error else {
+        panic!("a known name on an unmapped runtime must fail as unsupported");
+    };
+    assert_eq!(error.code, "QUOTA_EFFORT_BINDING_UNSUPPORTED");
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert!(subject.step.input_plan_ref.is_none());
+    assert!(store.subject_request_attempts_for_step(agent, subject.step.step_id).unwrap().is_empty());
+    assert_eq!(store.quota_pacer().unwrap().reservations().count(), 0);
+    assert!(store.quota_attempts("wire-fixture", "preseal-quota").unwrap().is_empty());
+    assert_eq!(handle.active_count(), 0);
+}

@@ -1108,10 +1108,15 @@ pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, S
     if state.context_model_capabilities().as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
         return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
     }
-    let profile_digest = Digest::blake3(&serde_json::to_vec(&(
+    let mut profile_digest = Digest::blake3(&serde_json::to_vec(&(
         binding, state.context_model_capabilities(), &stable_system_prompt(state), state.max_tokens,
         "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
     ))?);
+    if let Some(effort) = state.context_effort() {
+        // Implicit historical profiles retain their exact digest. An explicit
+        // effort is a new semantic profile before any projection/worker runs.
+        profile_digest = Digest::blake3(&serde_json::to_vec(&(profile_digest, effort))?);
+    }
     let current_generation = registry.ledger().model_generation().map_err(storage)?;
     let profile_matches = registry.ledger().model_profile().map_err(storage)?
         .is_some_and(|(generation, profile)|
@@ -1883,6 +1888,10 @@ pub(super) fn prepare_context(
     }
     let selected_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("selected projection has no trustworthy token estimate"))?;
+    if let Some(effort) = state.context_effort() {
+        effort.apply(&mut payload.native_options)
+            .map_err(|error| ShenkoError::conflict(format!("selected effort cannot enter the request: {error}")))?;
+    }
     // The prepared contributions are collected BEFORE the final budget
     // check, so their cost is charged together with the context and the
     // tool cost and can never be added after the check.

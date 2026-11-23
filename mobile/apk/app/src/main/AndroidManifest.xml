@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android's own installer permission. The user still approves each
+         request; this declaration grants nothing by itself. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Granted by the user-installed Shizuku manager; we never declare it. -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
@@ -29,6 +32,31 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Ordinary same-package replacement UI. Private: only this app can
+             open it, and only its own notification PendingIntent can deliver
+             a correlated system confirmation. -->
+        <activity
+            android:name=".activation.InstallerActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop" />
+
+        <!-- Durable PackageInstaller status. It never writes activation
+             authority and never starts a replacement runtime. -->
+        <receiver
+            android:name=".activation.InstallerStatusReceiver"
+            android:exported="false" />
+
+        <!-- Delivered by the OS to the newly installed package. A restart is
+             a recorded request, not a node-readiness claim. -->
+        <receiver
+            android:name=".activation.PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".ShenkoNodeService"

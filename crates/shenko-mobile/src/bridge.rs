@@ -138,6 +138,45 @@ pub enum BridgeOp {
     },
     /// Accessibility human-activity feed: events observed after a timestamp.
     HumanActivityAfter { after_ms: i64 },
+    /// Request ordinary same-package installation of already-frozen APK bytes.
+    ///
+    /// This is a `PackageInstaller` operation: the device creates one install
+    /// session, streams exactly the verified bytes into it and commits it with
+    /// a frozen, correlated status callback. It is not an activation selector
+    /// write, an epoch advance, a runtime-owner admission or a node-readiness
+    /// claim, and it needs no root, Shizuku or Dhizuku grant.
+    ///
+    /// `candidate_apk_path` must name a file inside the app's own private
+    /// data directory; a path outside it is refused. The expected identity is
+    /// frozen by the caller: the device refuses a candidate that is not this
+    /// package, does not advance the version code, carries a different signing
+    /// certificate, ships no supported ABI member, or whose streamed bytes
+    /// differ from the declared digest.
+    ActivationRestart {
+        request_digest: String,
+        candidate_apk_path: String,
+        expected_package: String,
+        expected_version_code: u64,
+        expected_signer_sha256: String,
+        expected_apk_sha256: String,
+        expected_apk_bytes: u64,
+        /// One `abi=sha256` entry per frozen ABI member, comma separated.
+        expected_native_sha256: String,
+    },
+    /// Observe only the exact previously enrolled installer attempt.
+    ///
+    /// A missing session, a lost response or an interrupted
+    /// `createSession`/record gap stays Unknown; the device never attributes
+    /// an unenrolled OS session to this request by package name.
+    ActivationStatus { request_digest: String },
+    /// Ask the system to abandon only the exact enrolled session. Absence of a
+    /// session, or a callback that never arrived, keeps the installation
+    /// outcome Unknown.
+    ActivationAbandon { request_digest: String },
+    /// Enumerate this installer package's OS-owned sessions as facts. Listing
+    /// a session is not an installation result, ownership claim or permission
+    /// to run a successor.
+    ActivationSessionState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +279,9 @@ impl SocketBridge {
 
     fn op_timeout(op: &BridgeOp) -> Duration {
         match op {
+            // Creating, streaming, fsyncing and committing an install session
+            // is bounded by the device; the deadline covers a stuck caller.
+            BridgeOp::ActivationRestart { .. } => Duration::from_secs(120),
             BridgeOp::ShellExec { timeout_secs, .. } => {
                 Duration::from_secs(u64::from(*timeout_secs).saturating_add(15).min(90))
             }
@@ -794,6 +836,111 @@ mod tests {
             position: 0,
         };
         assert_eq!(read_frame(&mut reader, 64).unwrap(), payload);
+    }
+
+    /// The frozen installer request reaches the device with one flat `op`
+    /// discriminator and its sibling arguments, preserving the private path
+    /// (including non-ASCII file names) and every expected identity field.
+    #[test]
+    fn socket_installer_carries_frozen_identity_and_flat_arguments() {
+        let response = serde_json::json!({
+            "ok": true, "state": "commit_requested",
+            "request_digest": "sha256:request", "session_id": 17,
+            "attempt_id": "attempt", "attempt_enrolled": true,
+            "session_actionable": true, "terminal_confirmed": false,
+            "outcome_unknown": true,
+        });
+        let (result, request) = exchange(
+            BridgeOp::ActivationRestart {
+                request_digest: "sha256:request".into(),
+                candidate_apk_path:
+                    "/data/user/0/org.shenko.node/files/installer-candidates/更新.apk".into(),
+                expected_package: "org.shenko.node".into(),
+                expected_version_code: 12,
+                expected_signer_sha256: "signer".into(),
+                expected_apk_sha256: "apk".into(),
+                expected_apk_bytes: 1234,
+                expected_native_sha256: "arm64-v8a=native,armeabi-v7a=native32".into(),
+            },
+            response.clone(),
+        );
+        assert_eq!(request["op"], "activation_restart");
+        assert_eq!(
+            request["candidate_apk_path"],
+            "/data/user/0/org.shenko.node/files/installer-candidates/更新.apk"
+        );
+        assert_eq!(request["request_digest"], "sha256:request");
+        assert_eq!(request["expected_package"], "org.shenko.node");
+        assert_eq!(request["expected_version_code"], 12);
+        assert_eq!(request["expected_signer_sha256"], "signer");
+        assert_eq!(request["expected_apk_sha256"], "apk");
+        assert_eq!(request["expected_apk_bytes"], 1234);
+        assert_eq!(
+            request["expected_native_sha256"],
+            "arm64-v8a=native,armeabi-v7a=native32"
+        );
+        assert_eq!(result.unwrap(), response);
+    }
+
+    /// Status, cancel and enumeration must target the exact enrolled request;
+    /// an unknown outcome must survive verbatim instead of becoming a success
+    /// or a null result.
+    #[test]
+    fn socket_installer_status_and_session_state_preserve_unknown_outcomes() {
+        let unknown = serde_json::json!({"ok":true,"state":"session_enrollment_unknown",
+            "attempt_enrolled":true,"terminal_confirmed":false,"outcome_unknown":true,
+            "open_session_ids":[31,32]});
+        let (result, request) = exchange(
+            BridgeOp::ActivationStatus {
+                request_digest: "sha256:request".into(),
+            },
+            unknown.clone(),
+        );
+        assert_eq!(request["op"], "activation_status");
+        assert_eq!(request["request_digest"], "sha256:request");
+        assert_eq!(result.unwrap(), unknown);
+
+        let listing = serde_json::json!({"ok":true,"active":true,
+            "sessions":[{"session_id":31,"app_package":"org.shenko.node",
+                "installer_package":"org.shenko.node","is_active":true}]});
+        let (result, request) = exchange(BridgeOp::ActivationSessionState, listing.clone());
+        assert_eq!(request["op"], "activation_session_state");
+        assert!(request.get("request_digest").is_none());
+        assert_eq!(result.unwrap(), listing);
+
+        let (result, request) = exchange(
+            BridgeOp::ActivationAbandon {
+                request_digest: "sha256:request".into(),
+            },
+            serde_json::json!({"ok":true,"state":"abandon_requested",
+                "attempt_enrolled":true,"terminal_confirmed":false}),
+        );
+        assert_eq!(request["op"], "activation_abandon");
+        assert_eq!(request["request_digest"], "sha256:request");
+        assert!(result.is_ok());
+    }
+
+    /// A device refusal keeps its condition token, kind and retry semantics:
+    /// the node must not reinterpret an installer denial as a transient error
+    /// or as permission it already holds.
+    #[test]
+    fn socket_installer_refusal_keeps_denied_condition_and_retry_state() {
+        let response = serde_json::json!({"ok":false,"error":{"kind":"denied",
+            "condition":"installer_permission_denied", "retryable":false,
+            "message":"installer_permission_denied: allow this app to request installation in Android settings"}});
+        let (result, _) = exchange(
+            BridgeOp::ActivationStatus {
+                request_digest: "sha256:request".into(),
+            },
+            response,
+        );
+        let error = result.unwrap_err();
+        assert_eq!(error.kind, BridgeErrorKind::Denied);
+        assert!(!error.retryable);
+        assert_eq!(
+            error.message,
+            "installer_permission_denied: allow this app to request installation in Android settings"
+        );
     }
 }
 

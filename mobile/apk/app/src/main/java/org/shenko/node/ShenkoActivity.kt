@@ -45,6 +45,18 @@ class ShenkoActivity : Activity() {
                     }
                 }
             })
+            // Ordinary same-package replacement only. The installer never
+            // writes activation authority and never starts a replacement
+            // runtime from a confirmed session.
+            addView(Button(this@ShenkoActivity).apply {
+                setText(R.string.node_install_update)
+                setOnClickListener {
+                    startActivity(Intent(
+                        this@ShenkoActivity,
+                        org.shenko.node.activation.InstallerActivity::class.java,
+                    ))
+                }
+            })
         })
         // Configuration changes keep the existing service and native owner.
         if (state == null) startNode()
