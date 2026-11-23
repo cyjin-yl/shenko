@@ -581,12 +581,14 @@ pub fn evaluate_egress(
     if plugin_declarations.is_empty() {
         return EgressDecision::denied(EgressDenialCode::UndeclaredPlugin);
     }
+    let mut saw_capability = false;
     let mut saw_protocol = false;
     let mut saw_host = false;
     for declaration in &plugin_declarations {
         if declaration.capability_id != request.capability_id {
             continue;
         }
+        saw_capability = true;
         let declaration_digest = declaration.digest();
         for (scope_index, scope) in declaration.scopes.iter().enumerate() {
             if scope.protocol != request.protocol {
@@ -611,7 +613,9 @@ pub fn evaluate_egress(
             };
         }
     }
-    let code = if !saw_protocol {
+    let code = if !saw_capability {
+        EgressDenialCode::UndeclaredCapability
+    } else if !saw_protocol {
         EgressDenialCode::ProtocolNotDeclared
     } else if !saw_host {
         EgressDenialCode::HostNotDeclared
