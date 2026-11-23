@@ -122,9 +122,14 @@ pub(crate) async fn install_native_definitions(
         .await?;
     document::install(supervisor, Arc::clone(store), node_sync::open_node(data_dir, store)?).await?;
     // Reachability is observed, not assumed: one bounded probe of a declared
-    // endpoint with per-stage measured timings and no persistent state.
+    // endpoint with per-stage measured timings and no persistent state. The
+    // handler receives the root policy so every attempt is admitted against the
+    // egress its own installed definition declared.
     let net_probe_handler: Arc<dyn shenko_kernel::task::NativeTaskHandler> =
-        Arc::new(shenko_exec_host::NetProbeHandler::new(Arc::clone(store)));
+        Arc::new(shenko_exec_host::NetProbeHandler::new(
+            Arc::clone(store),
+            Arc::clone(&supervisor.policy),
+        ));
     let _native_net_probe_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, net_probe_handler)
         .await?;

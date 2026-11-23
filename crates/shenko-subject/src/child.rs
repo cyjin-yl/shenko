@@ -1869,5 +1869,94 @@ fn register_native_definition(
         teardown_runtime.withdraw_provider(&teardown_provider);
     })
     .map_err(std::io::Error::other)?;
+    bind_egress_declarations(ctx, handler, &descriptor)
+}
+
+/// Register the egress one native definition's implementation declared.
+///
+/// The draft names the capability and the scope; the installing definition
+/// supplies its own plugin identity, so a handler cannot declare reachability
+/// under another plugin. Registering, handing the authority to the handler and
+/// withdrawing on teardown all happen in this generation, so a retired
+/// definition cannot keep using the scope it used to have.
+///
+/// A missing root policy does not fail the installation: the definition is
+/// still a fact of this runtime, but it has no declaration in force, so every
+/// egress attempt it makes is refused. That is the same fail-closed outcome as
+/// a declaration that was never written, and the warning says which it was.
+fn bind_egress_declarations(
+    ctx: &Context,
+    handler: &dyn NativeTaskHandler,
+    descriptor: &NativeTaskDescriptor,
+) -> Result<(), std::io::Error> {
+    let drafts = handler.egress_declarations();
+    if drafts.is_empty() {
+        return Ok(());
+    }
+    let policy = match ctx.try_service::<shenko_kernel::policy::PluginPolicyRegistry>() {
+        Ok(policy) => policy,
+        Err(error) => {
+            tracing::warn!(
+                kind = %descriptor.kind,
+                %error,
+                "native definition declares egress but no root policy registry is published; its egress is refused"
+            );
+            return Ok(());
+        }
+    };
+    let offered: std::collections::BTreeSet<String> = handler
+        .capabilities()
+        .into_iter()
+        .map(|capability| capability.capability_id)
+        .collect();
+    let plugin_id = descriptor.implementation_ref.plugin_id;
+    let mut handles = Vec::new();
+    for draft in drafts {
+        let capability_id = draft.capability_id.clone();
+        if !offered.contains(&capability_id) {
+            for handle in &handles {
+                policy.withdraw_declaration(handle);
+            }
+            return Err(std::io::Error::other(format!(
+                "native definition {} declares egress for capability {} it does not offer",
+                descriptor.kind, capability_id
+            )));
+        }
+        let handle = match policy.declare(draft.bind(plugin_id)) {
+            Ok(handle) => handle,
+            Err(error) => {
+                for handle in &handles {
+                    policy.withdraw_declaration(handle);
+                }
+                return Err(std::io::Error::other(format!(
+                    "native definition {} egress declaration for {} was refused: {error}",
+                    descriptor.kind, capability_id
+                )));
+            }
+        };
+        if let Err(error) = handler.bind_egress(plugin_id, &handle.authority()) {
+            policy.withdraw_declaration(&handle);
+            for registered in &handles {
+                policy.withdraw_declaration(registered);
+            }
+            return Err(std::io::Error::other(format!(
+                "native definition {} did not bind the egress authority of {}: {error}",
+                descriptor.kind, capability_id
+            )));
+        }
+        handles.push(handle);
+    }
+    let teardown_policy = policy.clone();
+    let teardown_handles = handles.clone();
+    if let Err(error) = ctx.effect_sync(move || {
+        for handle in &teardown_handles {
+            teardown_policy.withdraw_declaration(handle);
+        }
+    }) {
+        for handle in &handles {
+            policy.withdraw_declaration(handle);
+        }
+        return Err(std::io::Error::other(error));
+    }
     Ok(())
 }
