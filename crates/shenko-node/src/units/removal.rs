@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
 use super::codec::MAX_TEXT_BYTES;
-use super::installation::{StoredVersion, now, string_list};
+use super::installation::{StoredVersion, bump_unit_selection_revision, now, string_list};
 use super::materialization::{MaterializationFact, RetainedPath, retire_package_directory};
 use super::resolution::dependent_edges;
 
@@ -321,6 +321,7 @@ impl Node {
                     tx.execute("DELETE FROM unit_current WHERE unit_id=?1", [unit_id])?;
                 }
             }
+            bump_unit_selection_revision(&tx, unit_id)?;
         }
         let evidence = json!({
             "was_current": was_current,

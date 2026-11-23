@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{BackendCapabilitySnapshot, ProviderBinding, ProviderCapabilities};
+use crate::{
+    BackendCapabilitySnapshot, ProviderBinding, ProviderCapabilityDeclaration,
+    ProviderCapabilities,
+};
 use crate::request::{InferenceResult, InferenceStatus, TerminationKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,12 +21,24 @@ pub struct BindingProbe {
     pub usability: BindingUsability,
     pub reason: String,
     pub capabilities: Option<ProviderCapabilities>,
+    /// What the installed implementation and this probe declared about
+    /// streaming, cache and quota surfaces. A fact neither declared stays
+    /// unknown; a probe cannot promote one from a model name or family.
+    pub declaration: ProviderCapabilityDeclaration,
     /// Complete probe evidence, never a generated-model response.
     pub snapshot: Option<BackendCapabilitySnapshot>,
 }
 
-pub(crate) fn classify_probe(binding: ProviderBinding, snapshot: BackendCapabilitySnapshot) -> BindingProbe {
+pub(crate) fn classify_probe(
+    binding: ProviderBinding,
+    declared: ProviderCapabilityDeclaration,
+    snapshot: BackendCapabilitySnapshot,
+) -> BindingProbe {
     let observed_at = chrono::Utc::now();
+    let declaration = ProviderCapabilityDeclaration::with_observation(
+        &declared,
+        &ProviderCapabilityDeclaration::from_snapshot(&snapshot),
+    );
     let metadata = crate::broker::capabilities_from_snapshot(&binding, &snapshot);
     let (usability, reason, capabilities) = match metadata {
         Ok(capabilities) => (BindingUsability::Available,
@@ -44,7 +59,15 @@ pub(crate) fn classify_probe(binding: ProviderBinding, snapshot: BackendCapabili
             (usability, format!("configured model metadata not established: {error}; explicit_refusal={explicit_refusal}; complete_model_list={complete_list}"), None)
         }
     };
-    BindingProbe { binding, observed_at, usability, reason, capabilities, snapshot: Some(snapshot) }
+    BindingProbe {
+        binding,
+        observed_at,
+        usability,
+        reason,
+        capabilities,
+        declaration,
+        snapshot: Some(snapshot),
+    }
 }
 
 /// A malformed prompt, local cancellation, timeout or unknown execution is

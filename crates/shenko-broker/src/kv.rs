@@ -189,6 +189,22 @@ impl ResidencyIdentity {
     }
 }
 
+/// Input and cache counters reported for one completed request.
+///
+/// Missing counters stay unknown; an explicit zero is a reported value. These
+/// counters retain the provider's accounting convention without clamping or
+/// inferring physical residency, continuity with an earlier request or billing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReportedKvUsage {
+    pub request_id: EntityId,
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_read_tokens: Option<u64>,
+    #[serde(default)]
+    pub cache_write_tokens: Option<u64>,
+}
+
 /// One context lease inside the residency pool.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextLease {
@@ -199,12 +215,19 @@ pub struct ContextLease {
     pub state: LeaseState,
     /// The units this context needs to stay resident.
     pub required_units: u64,
-    /// The upper bound of the prefix that can be reused instead of replayed.
+    /// The conservative reuse allowance for planning. Zero can mean no cache
+    /// counter was reported; it does not establish an observed cache miss.
     #[serde(default)]
     pub reusable_units: u64,
-    /// The units that must be recomputed when the context is rebuilt.
+    /// The planned rebuild units after the reuse allowance, not a measurement
+    /// of uncached prefill or physical occupancy.
     #[serde(default)]
     pub recompute_units: u64,
+    /// The latest completed request observed for this context, independently
+    /// of whether its input count could renew the lease's planning demand.
+    /// Historical leases and contexts with no observation keep this absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_usage: Option<ReportedKvUsage>,
     /// Estimated probability that this context is used again soon.
     pub return_probability: f64,
     /// Higher priority contexts keep their residency longer.
@@ -234,6 +257,7 @@ impl ContextLease {
             required_units,
             reusable_units: 0,
             recompute_units: required_units,
+            reported_usage: None,
             return_probability: 0.5,
             priority: 0,
             retention: Retention {
@@ -420,12 +444,15 @@ pub struct LeaseDemand {
     pub side: LeaseSide,
     /// The units the context needs resident.
     pub window_units: u64,
-    /// The prefix the backend actually reported as reused on this call. It is
-    /// an observation about one completion, never proof that the backend still
-    /// retains KV after the context was released.
+    /// The conservative reuse allowance, bounded by reported input when derived
+    /// from a completion. Zero may reflect an unreported cache counter; this
+    /// allowance never proves continued physical retention.
     pub reusable_units: u64,
-    /// The units that must be recomputed.
+    /// The planned rebuild units after the reuse allowance.
     pub recompute_units: u64,
+    /// Optional request-scoped evidence, independent of this planning demand.
+    /// A demand without an observation does not erase an earlier report.
+    pub reported_usage: Option<ReportedKvUsage>,
     pub return_probability: f64,
     pub priority: u8,
     /// The identity this handle is valid under.
@@ -967,6 +994,10 @@ impl KvAllocator {
         lease.required_units = demand.window_units;
         lease.reusable_units = demand.reusable_units;
         lease.recompute_units = demand.recompute_units;
+        if let Some(reported_usage) = demand.reported_usage {
+            lease.reported_usage = Some(reported_usage);
+            lease.lease_revision += 1;
+        }
         lease.return_probability = demand.return_probability;
         lease.priority = demand.priority;
         lease.identity = demand.identity;
@@ -1011,7 +1042,14 @@ impl KvAllocator {
                 // The refused context must not erase the accounting of the
                 // context that was already there: restore it as it was and
                 // re-plan, instead of silently over-committing.
-                if let Some(previous) = previous {
+                if let Some(mut previous) = previous {
+                    // A refused demand cannot erase what the completed request
+                    // reported. Only its observation changes; custody and the
+                    // previously admitted demand stay with the old lease.
+                    if let Some(reported_usage) = demand.reported_usage {
+                        previous.reported_usage = Some(reported_usage);
+                        previous.lease_revision += 1;
+                    }
                     pool.leases.insert(previous.context_id.clone(), previous);
                 }
                 let available_units = capacity.saturating_sub(pool.occupied_units());
