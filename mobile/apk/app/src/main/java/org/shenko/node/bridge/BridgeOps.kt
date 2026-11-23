@@ -37,8 +37,79 @@ object BridgeOps {
             "shell_exec" -> shellExec(context, request)
             "db_snapshot" -> dbSnapshot(context, request)
             "human_activity_after" -> humanActivityAfter(request)
+            // Ordinary same-package replacement. The device verifies the
+            // frozen candidate, creates one session, streams the verified
+            // bytes and commits it; the system still requires the user's
+            // confirmation. No root/Shizuku/Dhizuku path is involved.
+            "activation_restart" -> installerOperation {
+                org.shenko.node.activation.ActivationController.install(
+                    context,
+                    request.getString("request_digest"),
+                    request.getString("candidate_apk_path"),
+                    request.getString("expected_package"),
+                    request.getLong("expected_version_code"),
+                    request.getString("expected_signer_sha256"),
+                    request.getString("expected_apk_sha256"),
+                    request.getLong("expected_apk_bytes"),
+                    request.getString("expected_native_sha256"),
+                )
+            }
+            "activation_status" -> installerOperation {
+                org.shenko.node.activation.ActivationController.status(
+                    context,
+                    request.getString("request_digest"),
+                )
+            }
+            "activation_abandon" -> installerOperation {
+                org.shenko.node.activation.ActivationController.abandon(
+                    context,
+                    request.getString("request_digest"),
+                )
+            }
+            "activation_session_state" -> installerOperation {
+                org.shenko.node.activation.ActivationController.sessionState(context)
+            }
             else -> error("unsupported", "unknown op", false)
         }
+
+    /**
+     * Bridge answer for an installer operation.
+     *
+     * The condition token is both a stable `error.condition` field and the
+     * prefix of the human message, so a node that only knows the protocol's
+     * `kind`/`message`/`retryable` fields still receives the exact refusal.
+     * Nothing here reclassifies a refusal as success or as retryable.
+     */
+    private inline fun installerOperation(operation: () -> JSONObject): JSONObject =
+        try {
+            operation()
+        } catch (failure: org.shenko.node.activation.InstallerFailure) {
+            installerError(failure.kind, failure.condition, failure.message ?: failure.condition)
+        } catch (failure: org.json.JSONException) {
+            installerError(
+                "unsupported",
+                "installer_request_invalid",
+                "the installer request is missing or malformed: ${failure.message.orEmpty().take(512)}",
+            )
+        } catch (failure: java.io.IOException) {
+            installerError("io", "installer_io", failure.message ?: "installer I/O failed")
+        } catch (failure: Exception) {
+            installerError(
+                "internal",
+                "installer_internal",
+                "installer dispatch failed: ${failure.javaClass.simpleName}: ${failure.message.orEmpty().take(512)}",
+            )
+        }
+
+    private fun installerError(kind: String, condition: String, message: String): JSONObject =
+        JSONObject().put("ok", false).put(
+            "error",
+            JSONObject()
+                .put("kind", kind)
+                .put("condition", condition)
+                .put("message", "$condition: ${message.take(2048)}")
+                .put("retryable", false),
+        )
 
     // ------------------------------------------------------------------
     // Probe / capability list
