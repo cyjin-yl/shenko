@@ -189,7 +189,7 @@ impl EgressAdmission {
 /// One refused egress attempt, carrying the receipt the refusal produced.
 #[derive(Debug, Clone)]
 pub struct PolicyDenial {
-    receipt: PolicyReceipt,
+    receipt: Box<PolicyReceipt>,
 }
 
 impl PolicyDenial {
@@ -200,7 +200,7 @@ impl PolicyDenial {
     }
 
     pub fn receipt(&self) -> &PolicyReceipt {
-        &self.receipt
+        self.receipt.as_ref()
     }
 }
 
@@ -380,7 +380,7 @@ impl PluginPolicyRegistry {
         if receipt.is_allowed() {
             Ok(EgressAdmission { receipt })
         } else {
-            Err(PolicyDenial { receipt })
+            Err(PolicyDenial { receipt: Box::new(receipt) })
         }
     }
 }
