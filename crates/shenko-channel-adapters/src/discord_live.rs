@@ -220,12 +220,12 @@ impl DiscordLiveCredentials {
             )));
         }
         let bot_user_id = read(BOT_USER_ID_ENV);
-        if let Some(id) = &bot_user_id {
-            if !is_snowflake(id) {
-                return Err(DiscordLiveSkip::invalid(format!(
-                    "live Discord acceptance not run: {BOT_USER_ID_ENV} must be a Discord snowflake when it is set"
-                )));
-            }
+        if let Some(id) = &bot_user_id
+            && !is_snowflake(id)
+        {
+            return Err(DiscordLiveSkip::invalid(format!(
+                "live Discord acceptance not run: {BOT_USER_ID_ENV} must be a Discord snowflake when it is set"
+            )));
         }
         let api_base = read(API_BASE_ENV).unwrap_or_else(|| DEFAULT_API_BASE.to_string());
         let api_base = api_base.trim_end_matches('/').to_string();
@@ -235,16 +235,15 @@ impl DiscordLiveCredentials {
             )));
         }
         let gateway_url = read(GATEWAY_URL_ENV);
-        if let Some(url) = &gateway_url {
-            if !(url.starts_with("wss://")
+        if let Some(url) = &gateway_url
+            && !(url.starts_with("wss://")
                 || url.starts_with("ws://")
                 || url.starts_with("https://")
                 || url.starts_with("http://"))
-            {
-                return Err(DiscordLiveSkip::invalid(format!(
-                    "live Discord acceptance not run: {GATEWAY_URL_ENV} must be a ws(s) or http(s) endpoint"
-                )));
-            }
+        {
+            return Err(DiscordLiveSkip::invalid(format!(
+                "live Discord acceptance not run: {GATEWAY_URL_ENV} must be a ws(s) or http(s) endpoint"
+            )));
         }
         let timeout = match read(TIMEOUT_ENV) {
             Some(text) => match text.parse::<u64>() {
@@ -1113,7 +1112,8 @@ impl DiscordLiveReceipt {
             return self;
         }
         if self.failures.is_empty() {
-            if let Err(detail) = self.validate_mandatory() {
+            let mandatory = self.validate_mandatory();
+            if let Err(detail) = mandatory {
                 self.failures.push(DiscordLiveFailure {
                     stage: "receipt".to_string(),
                     kind: DiscordLiveFailureKind::Incomplete,
@@ -1455,7 +1455,19 @@ struct GatewayProbe {
 }
 
 impl GatewayProbe {
+    /// The observed gateway facts and the refusal travel together so the caller
+    /// can record what it saw; the pair is boxed because the facts are large.
     async fn connect(
+        client: &mut LiveClient,
+        deadline: Instant,
+        expected_bot_user_id: &str,
+    ) -> Result<Self, Box<(DiscordLiveGatewayFacts, DiscordLiveError)>> {
+        GatewayProbe::connect_inner(client, deadline, expected_bot_user_id)
+            .await
+            .map_err(Box::new)
+    }
+
+    async fn connect_inner(
         client: &mut LiveClient,
         deadline: Instant,
         expected_bot_user_id: &str,
@@ -1680,8 +1692,8 @@ impl GatewayProbe {
                         ),
                     });
                 }
-                message = socket.next() => {
-                    match message {
+                _message = socket.next() => {
+                    match _message {
                         None => break Err(DiscordLiveError::Unknown {
                             detail: "the gateway closed the connection before the probe message arrived".to_string(),
                         }),
@@ -1753,7 +1765,7 @@ impl GatewayProbe {
                             let code: u16 = frame.code.into();
                             facts.close_code = Some(code);
                             facts.close_meaning = Some(close_meaning(code).to_string());
-                            break Err(close_error(code, &frame.reason.to_string()));
+                            break Err(close_error(code, &frame.reason));
                         }
                         Some(Ok(Message::Close(None))) => break Err(DiscordLiveError::Unknown {
                             detail: "the gateway closed the connection without a close code".to_string(),
@@ -1804,7 +1816,7 @@ async fn next_json_frame(
             Some(Ok(Message::Binary(_))) => continue,
             Some(Ok(Message::Close(Some(frame)))) => {
                 let code: u16 = frame.code.into();
-                return Err(close_error(code, &frame.reason.to_string()));
+                return Err(close_error(code, &frame.reason));
             }
             Some(Ok(Message::Close(None))) => {
                 return Err(DiscordLiveError::Unknown {
@@ -1937,18 +1949,18 @@ async fn run_stages(
             },
         ));
     }
-    if let Some(expected) = credentials.configured_bot_user_id() {
-        if expected != account.user_id.as_str() {
-            return Err((
-                "identity",
-                DiscordLiveError::Refused {
-                    detail: format!(
-                        "the token belongs to {}, but {BOT_USER_ID_ENV} names {expected}",
-                        account.user_id
-                    ),
-                },
-            ));
-        }
+    if let Some(expected) = credentials.configured_bot_user_id()
+        && expected != account.user_id.as_str()
+    {
+        return Err((
+            "identity",
+            DiscordLiveError::Refused {
+                detail: format!(
+                    "the token belongs to {}, but {BOT_USER_ID_ENV} names {expected}",
+                    account.user_id
+                ),
+            },
+        ));
     }
     receipt.account = Some(account.clone());
 
@@ -1974,7 +1986,8 @@ async fn run_stages(
     // 4. Gateway: discover, connect, identify and wait for READY.
     let mut probe = match GatewayProbe::connect(client, deadline, &account.user_id).await {
         Ok(probe) => probe,
-        Err((facts, error)) => {
+        Err(failure) => {
+            let (facts, error) = *failure;
             receipt.gateway = Some(facts);
             return Err(("gateway", error));
         }
@@ -2519,7 +2532,7 @@ pub fn discord_capabilities() -> ChannelCapabilities {
 fn introspect_capabilities(channel: &DiscordLiveChannelFacts) -> DiscordLiveCapabilityIntrospection {
     let declared = discord_capabilities();
     let direct_or_group = channel.audience_shape;
-    let mut checks = vec![
+    let checks = vec![
         DiscordLiveCapabilityCheck {
             capability: "direct".to_string(),
             declared: declared.direct,

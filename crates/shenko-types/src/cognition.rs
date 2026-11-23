@@ -780,19 +780,19 @@ impl Attitude {
         for reason in &self.reasons {
             validate_reason(reason)?;
         }
-        if let Some(AttitudeConfidence::Stated { value }) = self.confidence {
-            if !value.is_finite() {
-                return Err(ShenkoError::conflict(
-                    "attitude confidence must be a finite value",
-                ));
-            }
+        if let Some(AttitudeConfidence::Stated { value }) = self.confidence
+            && !value.is_finite()
+        {
+            return Err(ShenkoError::conflict(
+                "attitude confidence must be a finite value",
+            ));
         }
-        if let Some(hint) = &self.knowledge_kind_hint {
-            if hint.trim().is_empty() {
-                return Err(ShenkoError::conflict(
-                    "a knowledge kind hint is either absent or nonempty",
-                ));
-            }
+        if let Some(hint) = &self.knowledge_kind_hint
+            && hint.trim().is_empty()
+        {
+            return Err(ShenkoError::conflict(
+                "a knowledge kind hint is either absent or nonempty",
+            ));
         }
         self.provenance.validate()?;
         self.scope.validate()?;
@@ -802,12 +802,12 @@ impl Attitude {
                     "an attitude TTL must name the ledger clock it is recorded on",
                 ));
             }
-            if let Some(commit) = self.provenance.origin_commit {
-                if ttl.ledger_id() != commit.ledger_id {
-                    return Err(ShenkoError::conflict(
-                        "an attitude TTL must use the same ledger clock as its origin commit",
-                    ));
-                }
+            if let Some(commit) = self.provenance.origin_commit
+                && ttl.ledger_id() != commit.ledger_id
+            {
+                return Err(ShenkoError::conflict(
+                    "an attitude TTL must use the same ledger clock as its origin commit",
+                ));
             }
         }
         Ok(())

@@ -131,10 +131,10 @@ fn live_discord_acceptance() {
                     .unwrap_or("<none>"),
                 receipt.elapsed_ms
             );
-            if let Ok(path) = std::env::var(shenko_channel_adapters::discord_live::RECEIPT_ENV) {
-                if !path.trim().is_empty() {
-                    eprintln!("receipt: {path}");
-                }
+            if let Ok(path) = std::env::var(shenko_channel_adapters::discord_live::RECEIPT_ENV)
+                && !path.trim().is_empty()
+            {
+                eprintln!("receipt: {path}");
             }
         }
         DiscordLiveStatus::Failed => {

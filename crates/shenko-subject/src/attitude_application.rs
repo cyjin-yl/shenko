@@ -253,7 +253,7 @@ pub fn plan_attitude_application(
 
     let mut shown_attitudes = 0;
     while shown_attitudes < attitudes.len() {
-        let candidate = attitude_section(step_no, ledger.as_ref(), attitudes, shown_attitudes + 1);
+        let candidate = attitude_section(step_no, ledger.as_ref(), attitudes, shown_attitudes + 1)?;
         if candidate.len() > ATTITUDE_SECTION_BYTES {
             break;
         }
@@ -261,7 +261,7 @@ pub fn plan_attitude_application(
     }
     let mut shown_metapackages = 0;
     while shown_metapackages < metapackages.len() {
-        let candidate = metapackage_section(step_no, metapackages, shown_metapackages + 1);
+        let candidate = metapackage_section(step_no, metapackages, shown_metapackages + 1)?;
         if candidate.len() > METAPACKAGE_SECTION_BYTES {
             break;
         }
@@ -269,18 +269,18 @@ pub fn plan_attitude_application(
     }
 
     let mut page = build_page(step_no, ledger.as_ref(), attitudes, metapackages,
-        shown_attitudes, shown_metapackages);
+        shown_attitudes, shown_metapackages)?;
     // The subsection budgets keep the block small, but the total bound is the
     // contract. Drop whole entries (never an identity) until it holds.
     while page.text.len() > MAX_ATTITUDE_APPLICATION_BYTES && shown_metapackages > 0 {
         shown_metapackages -= 1;
         page = build_page(step_no, ledger.as_ref(), attitudes, metapackages,
-            shown_attitudes, shown_metapackages);
+            shown_attitudes, shown_metapackages)?;
     }
     while page.text.len() > MAX_ATTITUDE_APPLICATION_BYTES && shown_attitudes > 0 {
         shown_attitudes -= 1;
         page = build_page(step_no, ledger.as_ref(), attitudes, metapackages,
-            shown_attitudes, shown_metapackages);
+            shown_attitudes, shown_metapackages)?;
     }
     if page.text.len() > MAX_ATTITUDE_APPLICATION_BYTES {
         return Err(ShenkoError::conflict(format!(
@@ -513,13 +513,13 @@ fn build_page(
     metapackages: &[AppliedMetapackage],
     shown_attitudes: usize,
     shown_metapackages: usize,
-) -> AttitudeApplication {
+) -> Result<AttitudeApplication, ShenkoError> {
     let mut text = String::from(HEADER);
     if !attitudes.is_empty() {
-        text.push_str(&attitude_section(step_no, ledger, attitudes, shown_attitudes));
+        text.push_str(&attitude_section(step_no, ledger, attitudes, shown_attitudes)?);
     }
     if !metapackages.is_empty() {
-        text.push_str(&metapackage_section(step_no, metapackages, shown_metapackages));
+        text.push_str(&metapackage_section(step_no, metapackages, shown_metapackages)?);
     }
     let receipt = receipt_of(
         step_no,
@@ -531,9 +531,11 @@ fn build_page(
     );
     text.push('\n');
     text.push_str(RECEIPT_PREFIX);
-    text.push_str(&serde_json::to_string(&receipt).expect("attitude application receipt serializes"));
+    text.push_str(&serde_json::to_string(&receipt).map_err(|error| {
+        ShenkoError::conflict(format!("attitude application receipt serializes: {error}"))
+    })?);
     text.push('\n');
-    AttitudeApplication { text, receipt }
+    Ok(AttitudeApplication { text, receipt })
 }
 
 fn receipt_of(
@@ -586,16 +588,16 @@ fn attitude_section(
     ledger: Option<&AttitudeLedgerFacts>,
     attitudes: &[AppliedAttitude],
     shown: usize,
-) -> String {
+) -> Result<String, ShenkoError> {
     let total = attitudes.len();
     let start = start_index(step_no, total);
     let mut text = String::from(ATTITUDE_HEADER);
     for (offset, attitude) in rotated(attitudes, start).take(shown).enumerate() {
-        text.push_str(&attitude_line(start + offset, attitude));
+        text.push_str(&attitude_line(start + offset, attitude)?);
         text.push('\n');
     }
     text.push_str(&attitude_footer(step_no, ledger, total, start, shown));
-    text
+    Ok(text)
 }
 
 fn attitude_footer(
@@ -626,12 +628,12 @@ fn attitude_footer(
     footer
 }
 
-fn metapackage_section(step_no: u64, metapackages: &[AppliedMetapackage], shown: usize) -> String {
+fn metapackage_section(step_no: u64, metapackages: &[AppliedMetapackage], shown: usize) -> Result<String, ShenkoError> {
     let total = metapackages.len();
     let start = start_index(step_no, total);
     let mut text = String::from(METAPACKAGE_HEADER);
     for (offset, metapackage) in rotated(metapackages, start).take(shown).enumerate() {
-        text.push_str(&metapackage_line(start + offset, metapackage));
+        text.push_str(&metapackage_line(start + offset, metapackage)?);
         text.push('\n');
     }
     if shown >= total {
@@ -648,7 +650,7 @@ fn metapackage_section(step_no: u64, metapackages: &[AppliedMetapackage], shown:
     text
 }
 
-fn attitude_line(index: usize, attitude: &AppliedAttitude) -> String {
+fn attitude_line(index: usize, attitude: &AppliedAttitude) -> Result<String, ShenkoError> {
     let mut value = json!({
         "index": index,
         "attitude_id": attitude.attitude_id,
@@ -693,10 +695,12 @@ fn attitude_line(index: usize, attitude: &AppliedAttitude) -> String {
             value["revisions"] = json!({"unresolved": true, "detail": detail});
         }
     }
-    serde_json::to_string(&value).expect("attitude application line serializes")
+    serde_json::to_string(&value).map_err(|error| {
+        ShenkoError::conflict(format!("attitude application line serializes: {error}"))
+    })
 }
 
-fn metapackage_line(index: usize, metapackage: &AppliedMetapackage) -> String {
+fn metapackage_line(index: usize, metapackage: &AppliedMetapackage) -> Result<String, ShenkoError> {
     let dependencies: Vec<Value> = metapackage
         .dependencies
         .iter()
@@ -736,7 +740,9 @@ fn metapackage_line(index: usize, metapackage: &AppliedMetapackage) -> String {
     if metapackage.dependencies_omitted > 0 {
         value["dependencies_omitted"] = json!(metapackage.dependencies_omitted);
     }
-    serde_json::to_string(&value).expect("metapackage application line serializes")
+    serde_json::to_string(&value).map_err(|error| {
+        ShenkoError::conflict(format!("metapackage application line serializes: {error}"))
+    })
 }
 
 fn rotated<T>(values: &[T], start: usize) -> impl Iterator<Item = &T> {
