@@ -1462,16 +1462,6 @@ impl GatewayProbe {
         deadline: Instant,
         expected_bot_user_id: &str,
     ) -> Result<Self, Box<(DiscordLiveGatewayFacts, DiscordLiveError)>> {
-        GatewayProbe::connect_inner(client, deadline, expected_bot_user_id)
-            .await
-            .map_err(Box::new)
-    }
-
-    async fn connect_inner(
-        client: &mut LiveClient,
-        deadline: Instant,
-        expected_bot_user_id: &str,
-    ) -> Result<Self, (DiscordLiveGatewayFacts, DiscordLiveError)> {
         let credentials = Arc::clone(&client.credentials);
         let mut facts = DiscordLiveGatewayFacts {
             intents: credentials.intents(),
@@ -1486,7 +1476,7 @@ impl GatewayProbe {
                     facts.max_concurrency = info.max_concurrency;
                     info.url
                 }
-                Err(error) => return Err((facts, error)),
+                Err(error) => return Err(Box::new((facts, error))),
             },
         };
         let url = connect_url(&gateway);
@@ -1494,7 +1484,7 @@ impl GatewayProbe {
 
         let wait = match remaining(deadline, "opening the Discord gateway") {
             Ok(wait) => wait,
-            Err(error) => return Err((facts, error)),
+            Err(error) => return Err(Box::new((facts, error))),
         };
         let (mut socket, _) = match tokio::time::timeout(
             wait,
@@ -1504,35 +1494,35 @@ impl GatewayProbe {
         {
             Ok(Ok(pair)) => pair,
             Ok(Err(error)) => {
-                return Err((
+                return Err(Box::new((
                     facts,
                     DiscordLiveError::Unknown {
                         detail: redacted_detail(&format!("gateway connect failed: {error}")),
                     },
-                ))
+                )))
             }
             Err(_) => {
-                return Err((
+                return Err(Box::new((
                     facts,
                     DiscordLiveError::Unknown {
                         detail: "gateway connect exceeded the configured timeout".to_string(),
                     },
-                ))
+                )))
             }
         };
         facts.connected = true;
 
         let (hello, _) = match next_json_frame(&mut socket, deadline).await {
             Ok(frame) => frame,
-            Err(error) => return Err((facts, error)),
+            Err(error) => return Err(Box::new((facts, error))),
         };
         if hello.get("op").and_then(Value::as_i64) != Some(10) {
-            return Err((
+            return Err(Box::new((
                 facts,
                 DiscordLiveError::Refused {
                     detail: "the gateway did not open with a HELLO frame".to_string(),
                 },
-            ));
+            )));
         }
         let interval_ms = hello
             .get("d")
@@ -1558,18 +1548,18 @@ impl GatewayProbe {
             .send(Message::Text(identify.to_string().into()))
             .await
         {
-            return Err((
+            return Err(Box::new((
                 facts,
                 DiscordLiveError::Unknown {
                     detail: redacted_detail(&format!("gateway identify failed: {error}")),
                 },
-            ));
+            )));
         }
 
         loop {
             let (frame, _) = match next_json_frame(&mut socket, deadline).await {
                 Ok(frame) => frame,
-                Err(error) => return Err((facts, error)),
+                Err(error) => return Err(Box::new((facts, error))),
             };
             let opcode = frame.get("op").and_then(Value::as_i64);
             match opcode {
@@ -1586,14 +1576,14 @@ impl GatewayProbe {
                             .and_then(Value::as_str)
                             .unwrap_or_default();
                         if user != expected_bot_user_id {
-                            return Err((
+                            return Err(Box::new((
                                 facts,
                                 DiscordLiveError::Refused {
                                     detail: format!(
                                         "the gateway session speaks as {user}, but the token probe reported {expected_bot_user_id}"
                                     ),
                                 },
-                            ));
+                            )));
                         }
                         facts.session_established = true;
                         facts.session_id_present = frame
@@ -1611,30 +1601,30 @@ impl GatewayProbe {
                         .await
                         .is_err()
                     {
-                        return Err((
+                        return Err(Box::new((
                             facts,
                             DiscordLiveError::Unknown {
                                 detail: "gateway heartbeat failed during the handshake"
                                     .to_string(),
                             },
-                        ));
+                        )));
                     }
                 }
                 Some(7) => {
-                    return Err((
+                    return Err(Box::new((
                         facts,
                         DiscordLiveError::Unknown {
                             detail: "the gateway asked for a reconnect before READY".to_string(),
                         },
-                    ))
+                    )))
                 }
                 Some(9) => {
-                    return Err((
+                    return Err(Box::new((
                         facts,
                         DiscordLiveError::Refused {
                             detail: "the platform refused the gateway session".to_string(),
                         },
-                    ))
+                    )))
                 }
                 _ => {}
             }
