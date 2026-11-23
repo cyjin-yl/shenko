@@ -39,11 +39,14 @@
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde::{Deserialize, Serialize};
+use shenko_store::Store;
 use shenko_store::cas::ContentStore;
+use shenko_store::roots::{CasWriteFence, SqliteWriteLease, pinned_objects, referenced_objects};
 use shenko_types::object::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::checkpoint::{HomeCheckpointStore, STORE_NAMESPACE as CHECKPOINT_STORE_NAMESPACE};
 use crate::cow::{BranchBusy, BranchRoots, BranchStore, BranchWriter, COW_STORE_NAMESPACE};
@@ -56,6 +59,9 @@ pub const REGISTRY_FORMAT: &str = "shenko-cas-roots/1";
 pub const PRODUCER_RECORD_FORMAT: &str = "shenko-cas-roots/producer/1";
 /// The home/COW producer's id. One subsystem, one producer entry.
 pub const HOME_COW_PRODUCER: &str = "home-cow";
+/// The Store ledger producer's id: one installation database and every CAS
+/// object its durable rows still reach.
+pub const STORE_LEDGER_PRODUCER: &str = "store-ledger";
 /// CAS prefixes used by the CAS itself while a writer is publishing. They are
 /// never objects and never collectable; their presence blocks reclamation.
 const STAGING_PREFIXES: [&str; 2] = [".object-", ".stream-"];
@@ -588,6 +594,24 @@ impl<'a> CasGc<'a> {
                 ),
             });
         }
+        // Live reader pins are exclusions rather than producer roots: a
+        // bounded reader that already resolved these objects must keep them
+        // alive until it drops its pin. They are read here, in the same plan
+        // as the producer roots. Acquiring a pin needs the shared CAS lease,
+        // so a producer that holds the exclusive fence also prevents a new
+        // pin from appearing after this read; a pin released afterwards keeps
+        // its objects reachable for this run, and only a later run can
+        // collect them.
+        let pinned = match pinned_objects(self.cas) {
+            Ok(pinned) => pinned,
+            Err(error) => {
+                return Err(GcRefusal {
+                    reason: GcRefusalReason::RegistryInvalid,
+                    detail: format!("read live reader pins: {error:#}"),
+                });
+            }
+        };
+        roots.extend(pinned.digests);
         let objects: BTreeSet<Digest> = match self.cas.object_digests() {
             Ok(objects) => objects.into_iter().collect(),
             Err(error) => {
@@ -597,7 +621,7 @@ impl<'a> CasGc<'a> {
                 });
             }
         };
-        for digest in &roots {
+        for digest in roots.iter().chain(pinned.missing.iter()) {
             if !objects.contains(digest) {
                 return Err(GcRefusal {
                     reason: GcRefusalReason::ReachableMissing {
@@ -839,6 +863,94 @@ impl CasRootProducer for HomeCowRoots<'_> {
             roots.held_exclusions.extend(branch_roots.into_exclusions());
         }
         roots.observed_at_unix_ms = now_unix_ms();
+        Ok(roots)
+    }
+}
+
+/// The Store ledger producer: every CAS object one installation database
+/// still reaches.
+///
+/// Unlike the home/COW producer this one has no directory to walk; the durable
+/// ledger rows are the record. It therefore owns the installation's
+/// *exclusive* CAS fence and one exclusive SQLite write lease for its whole
+/// life, so no Store publication can seal an object and name it after the
+/// roots were read. A deduplicated seal keeps the old modification time, so
+/// age alone cannot exclude it. `enumerate` reads through the lease's own
+/// connection (the read-only excluded entry), and the same exclusions stay
+/// held while the collector deletes, because the caller keeps this value alive
+/// until [`CasGc::reclaim`] returns.
+///
+/// The caller declares the complete CAS namespace set this installation may
+/// seal into. An instance that omitted a namespace it writes would let that
+/// namespace's objects look unreachable, so [`CasGc::adopt_registry`] refuses
+/// any declaration that does not cover the registry exactly.
+pub struct StoreLedgerRoots {
+    cas: Arc<ContentStore>,
+    namespaces: &'static [&'static str],
+    /// Declared before the fence so it is released first on drop. Both must
+    /// outlive the last delete; the order only decides whether a writer that
+    /// wakes between the two drops sees a SQLite busy error or waits for the
+    /// CAS fence. It never observes a half-released boundary.
+    lease: SqliteWriteLease,
+    _fence: CasWriteFence,
+}
+
+impl StoreLedgerRoots {
+    /// Take the installation's exclusive CAS fence and an exclusive SQLite
+    /// write lease on `database` *before* any root is read.
+    ///
+    /// `database` must be the database of the live Store whose CAS this is.
+    /// `wait_ms` bounds how long a live CAS writer may delay the fence; zero
+    /// refuses immediately, which is what a collector inside a task wants.
+    ///
+    /// Keep the returned value alive until reclamation has finished deleting.
+    pub fn exclusive(
+        store: &Store,
+        database: &Path,
+        namespaces: &'static [&'static str],
+        wait_ms: u64,
+    ) -> Result<Self> {
+        ensure!(
+            !namespaces.is_empty(),
+            "CAS_ROOT_REGISTRY_INVALID: the Store producer must declare at least one CAS namespace"
+        );
+        let cas = Arc::clone(&store.cas);
+        let fence = CasWriteFence::acquire(cas.base(), wait_ms)?;
+        let lease = SqliteWriteLease::try_acquire(database)?;
+        Ok(Self {
+            cas,
+            namespaces,
+            lease,
+            _fence: fence,
+        })
+    }
+
+    /// The database this producer excludes.
+    pub fn database(&self) -> &Path {
+        self.lease.db_path()
+    }
+}
+
+impl CasRootProducer for StoreLedgerRoots {
+    fn producer_id(&self) -> &'static str {
+        STORE_LEDGER_PRODUCER
+    }
+
+    fn namespace_claims(&self) -> &'static [&'static str] {
+        self.namespaces
+    }
+
+    fn enumerate(&self) -> Result<ProducerRoots> {
+        let mut roots = ProducerRoots::new(STORE_LEDGER_PRODUCER, self.namespaces);
+        let objects = referenced_objects(self.lease.connection(), &self.cas)?;
+        // One ledger root set, audited as one closure.
+        roots.closures = 1;
+        roots.roots.extend(objects.digests);
+        // A digest the ledger still names but the CAS already lost is a
+        // refusal, not an omission. `CasGc::plan` turns the extra root into
+        // CAS_ROOT_OBJECT_MISSING, so a store whose closure is already broken
+        // is never collected.
+        roots.roots.extend(objects.missing);
         Ok(roots)
     }
 }
