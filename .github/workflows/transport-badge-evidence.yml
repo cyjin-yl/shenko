@@ -1,0 +1,130 @@
+name: Transport badge application evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/sprint1-props-shenko-20261124]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: transport-badge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    # The normal CI web producer, including its independent byte/provenance
+    # comparison. A changed CSS source cannot borrow the old main build.
+    runs-on: ubuntu-24.04
+    container: node:24.22.1-bookworm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Trust the checked-out workspace in the container shell
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install the normal rebuild driver prerequisites
+        run: |
+          apt-get update
+          apt-get install --yes --no-install-recommends python3
+      - name: Preserve committed bytes and check out the exact upstream pin
+        run: python3 scripts/ci/web_assets.py prepare
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: crates/shenko-ui/web/package.json
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: |
+            crates/shenko-ui/web/pnpm-lock.yaml
+            .ci/web/proto-ui/pnpm-lock.yaml
+      - name: Verify the optional DSH tool bridge with its pinned runtime
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund --prefix adapters/dsh
+          npm test --prefix adapters/dsh 2>&1 | tee .ci/web/dsh-test.log
+      - name: Build the real public closure, typecheck, test and independently rebuild
+        run: python3 scripts/ci/web_assets.py check
+      - name: Retain expected and rebuilt bytes, sources, provenance and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-web-build-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            .ci/web/*.json
+            .ci/web/*.log
+            .ci/web/committed
+            .ci/web/source/src/static
+            .ci/web/source/web/generated
+          if-no-files-found: error
+          retention-days: 30
+
+  native-application:
+    needs: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SHENKO_PRODUCT_BASE: ${{ github.sha }}
+      SHENKO_BUILD_RUN: ${{ github.run_id }}
+    steps:
+      - name: Initialize evidence in the assigned runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/shenko-transport-evidence"
+          printf 'TRANSPORT_EVIDENCE_DIR=%s\n' "$RUNNER_TEMP/shenko-transport-evidence" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Bind the completed normal build to this application source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRANSPORT_EVIDENCE_DIR"
+          gh api "repos/cyjin-yl/shenko/actions/runs/$SHENKO_BUILD_RUN" > "$TRANSPORT_EVIDENCE_DIR/producer-run.json"
+          gh api "repos/cyjin-yl/shenko/actions/runs/$SHENKO_BUILD_RUN/jobs" > "$TRANSPORT_EVIDENCE_DIR/producer-jobs.json"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const read = name => JSON.parse(readFileSync(`${process.env.TRANSPORT_EVIDENCE_DIR}/${name}`));
+          const run = read('producer-run.json');
+          assert.equal(run.head_sha, process.env.SHENKO_PRODUCT_BASE);
+          assert.equal(String(run.id), process.env.GITHUB_RUN_ID);
+          // This workflow is still executing its consumer. Only the completed
+          // required producer is accepted here; the overall run is not called green.
+          const producer = read('producer-jobs.json').jobs.find(job => job.name === 'web');
+          assert.equal(producer?.status, 'completed');
+          assert.equal(producer?.conclusion, 'success');
+          JS
+      - name: Read the exact successful producer comparison and input hashes
+        uses: actions/download-artifact@v4
+        with:
+          name: transport-web-build-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.TRANSPORT_EVIDENCE_DIR }}/producer-build
+      - name: Install the pinned browser client and identify the native sandboxed browser
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/transport-browser" --ignore-scripts --save-exact --no-audit --no-fund playwright-core@1.58.2
+          cp "$RUNNER_TEMP/transport-browser/package.json" "$RUNNER_TEMP/transport-browser/package-lock.json" "$TRANSPORT_EVIDENCE_DIR/"
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          echo "CHROMIUM_EXECUTABLE=$CHROME" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/transport-browser/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
+          "$CHROME" --version > "$TRANSPORT_EVIDENCE_DIR/browser-version.txt"
+      - name: Observe real connection updates, node continuity, paint and retirement
+        run: node scripts/web_transport_badge_journey.mjs
+      - name: Preserve the exact input, browser observations and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-badge-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.TRANSPORT_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
