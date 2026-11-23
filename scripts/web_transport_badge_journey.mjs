@@ -29,6 +29,7 @@ const receipt = {
     backend_or_deployment: false, physical_input_or_at: false,
     public_handle: 'The actual App does not expose the badge handle; no hidden handle identity is inferred.',
     external_slots: 'The authored badge has no external slot; its existing authored dot child is observed.',
+    pixels: 'Automatic checks observe visibility, geometry and computed styles. Saved screenshots require separate independent visual review.',
     retirement: 'Synthetic pagehide on the still-live page exercises the real installed application cleanup; it is not a trusted OS/page lifecycle claim.',
   },
 };
@@ -145,6 +146,7 @@ try {
       const node = document.querySelector(selector);
       return node?.textContent === label && node.getAttribute('data-pui-style')?.split(/\s+/).includes(`shenko-status-${state}`);
     }, { selector: chipSelector, state, label });
+    const [rootVisible, dotVisible] = await Promise.all([chip.isVisible(), chip.locator(dotSelector).isVisible()]);
     const observation = await chip.evaluate((node, { initialRoot, initialDot, dotSelector }) => {
       const dot = node.querySelector(dotSelector), bounds = node.getBoundingClientRect();
       return { text: node.textContent, tokens: node.getAttribute('data-pui-style'), sameRoot: node === initialRoot,
@@ -153,8 +155,8 @@ try {
         theme: document.documentElement.dataset.theme, bounds: { width: bounds.width, height: bounds.height },
         dotBounds: dot ? { width: dot.getBoundingClientRect().width, height: dot.getBoundingClientRect().height } : null };
     }, { initialRoot, initialDot, dotSelector });
-    receipt.observations.push({ name, expected: { state, label }, at: new Date().toISOString(), ...observation });
-    check(`${name}: label, tone and the original authored nodes remain visible`, observation.text === label && observation.sameRoot && observation.sameDot && observation.rootConnected && observation.dotConnected && observation.bounds.width > 0 && observation.bounds.height > 0 && observation.dotBounds?.width > 0 && observation.dotBounds?.height > 0, observation);
+    receipt.observations.push({ name, expected: { state, label }, at: new Date().toISOString(), rootVisible, dotVisible, ...observation });
+    check(`${name}: label, tone and the original authored nodes remain visible`, rootVisible && dotVisible && observation.text === label && observation.sameRoot && observation.sameDot && observation.rootConnected && observation.dotConnected && observation.bounds.width > 0 && observation.bounds.height > 0 && observation.dotBounds?.width > 0 && observation.dotBounds?.height > 0, { rootVisible, dotVisible, ...observation });
     await persist();
     return observation;
   }
@@ -164,12 +166,12 @@ try {
     const before = routes.length;
     await routes.at(-1).close({ code: 1012, reason: `observer reconnect ${cycle}` });
     const reconnecting = await observe(`cycle-${cycle}-reconnecting`, 'reconnecting', 'Reconnecting');
-    check(`cycle-${cycle}: the painted dot changes with the network tone`, reconnecting.color !== connected.color, { connected: connected.color, reconnecting: reconnecting.color });
+    check(`cycle-${cycle}: the computed dot color changes with the network tone`, reconnecting.color !== connected.color, { connected: connected.color, reconnecting: reconnecting.color });
     if (cycle === 1) await page.screenshot({ path: join(output, 'reconnecting-light.png') });
     await page.waitForFunction(() => document.querySelector('[data-pui-style~="shenko-status-online"]')?.textContent === 'Connected');
     check(`cycle-${cycle}: the actual transport opened one replacement socket`, routes.length === before + 1, { before, after: routes.length });
     const restored = await observe(`cycle-${cycle}-connected`, 'online', 'Connected');
-    check(`cycle-${cycle}: original online paint returns`, restored.color === connected.color, { original: connected.color, current: restored.color });
+    check(`cycle-${cycle}: original online computed color returns`, restored.color === connected.color, { original: connected.color, current: restored.color });
   }
   await page.getByRole('button', { name: 'Switch to dark theme', exact: true }).click();
   const dark = await observe('theme-dark-connected', 'online', 'Connected');

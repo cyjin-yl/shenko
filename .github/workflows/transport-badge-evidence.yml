@@ -20,8 +20,11 @@ jobs:
     env:
       SHENKO_PRODUCT_BASE: 0e202f7aaecafc6ec761504dfb23cac437ee3e5e
       SHENKO_BUILD_RUN: '45145308858'
-      TRANSPORT_EVIDENCE_DIR: ${{ runner.temp }}/shenko-transport-evidence
     steps:
+      - name: Initialize evidence in the assigned runner
+        run: |
+          mkdir -p "$RUNNER_TEMP/shenko-transport-evidence"
+          printf 'TRANSPORT_EVIDENCE_DIR=%s\n' "$RUNNER_TEMP/shenko-transport-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
