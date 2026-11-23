@@ -1,19 +1,22 @@
 //! The runtime's own services.
 //!
-//! The assembly root owns two live registries: the hook graph and the plugin
-//! runtime registry. Both are published on the runtime's root context as
-//! ordinary Cordis services, so a plugin resolves them through the native
-//! service lookup instead of keeping its own copy or reaching for a global.
+//! The assembly root owns three live registries: the hook graph, the plugin
+//! runtime registry, and the root egress policy. All of them are published on
+//! the runtime's root context as ordinary Cordis services, so a plugin resolves
+//! them through the native service lookup instead of keeping its own copy or
+//! reaching for a global.
 //!
 //! They are published together by one plugin: a plugin that can see the hook
-//! graph can also see what the runtime currently offers, and both disappear
-//! together when the root is torn down.
+//! graph can also see what the runtime currently offers and which egress its
+//! own implementation declared, and all three disappear together when the root
+//! is torn down.
 use std::convert::Infallible;
 use std::sync::Arc;
 
 use cordis_core::{Context, Plugin, Service};
 
 use crate::hooks::HookRegistry;
+use crate::policy::PluginPolicyRegistry;
 use crate::runtime::PluginRuntime;
 
 /// The service name of the hook graph.
@@ -23,12 +26,21 @@ impl Service for HookRegistry {
     const NAME: &'static str = HOOK_REGISTRY_SERVICE;
 }
 
-/// Publishes the hook graph and the live plugin runtime registry.
+/// Publishes the hook graph, the live plugin runtime registry and the root
+/// egress policy.
 pub struct RuntimeServicesPlugin;
 
 impl Plugin for RuntimeServicesPlugin {
-    type Config = (Arc<PluginRuntime>, Arc<HookRegistry>);
-    type Input = (Arc<PluginRuntime>, Arc<HookRegistry>);
+    type Config = (
+        Arc<PluginRuntime>,
+        Arc<HookRegistry>,
+        Arc<PluginPolicyRegistry>,
+    );
+    type Input = (
+        Arc<PluginRuntime>,
+        Arc<HookRegistry>,
+        Arc<PluginPolicyRegistry>,
+    );
     type PrepareError = Infallible;
     type ApplyError = cordis_core::service::ServicePublishError;
 
@@ -43,6 +55,7 @@ impl Plugin for RuntimeServicesPlugin {
     async fn apply(&self, ctx: Context, services: &Self::Input) -> Result<(), Self::ApplyError> {
         let _runtime = ctx.provide(services.0.clone())?;
         let _hooks = ctx.provide(services.1.clone())?;
+        let _policy = ctx.provide(services.2.clone())?;
         // The registry and the graph are published together, so they are
         // bound together: a capability that appears or disappears produces a
         // `runtime.capability_changed` event in the graph.

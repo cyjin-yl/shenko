@@ -1,9 +1,10 @@
 //! Minimal host policy around the native Cordis runtime, not a plugin framework.
 //!
-//! The supervisor owns the runtime root, the live plugin registry and the
-//! generation's lifecycle state. It does not own the business services: those
-//! are native Cordis plugins that publish their own services, and the live
-//! registry they register with is resolved through the same root context.
+//! The supervisor owns the runtime root, the live plugin registry, the root
+//! egress policy and the generation's lifecycle state. It does not own the
+//! business services: those are native Cordis plugins that publish their own
+//! services, and the live registries they register with are resolved through
+//! the same root context.
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -15,6 +16,7 @@ use crate::hooks::{GenerationRetirement, HookPublication};
 use crate::lifecycle::LifecycleState;
 use crate::errors::{ErrorObservation, ErrorSink};
 use crate::plugin::PluginRegistry;
+use crate::policy::PluginPolicyRegistry;
 use crate::runtime::{GenerationRegistrations, PluginRuntime, RegistrationWithdrawal};
 use crate::services::RuntimeServicesPlugin;
 use shenko_types::ids::{EntityId, RuntimeGeneration};
@@ -61,6 +63,10 @@ pub struct Supervisor {
     /// The live hook graph. It is published on the runtime root context, so a
     /// plugin registers its handlers through the native service lookup.
     pub hooks: Arc<crate::hooks::HookRegistry>,
+    /// The root egress policy. It is published on the runtime root context and
+    /// owns the declarations of exactly the plugins this process installed;
+    /// there is no second admission path.
+    pub policy: Arc<PluginPolicyRegistry>,
     /// The single error-observation point shared by the plugin registry and
     /// the hook registry: one kernel incident, one journal entry. It is
     /// counter+stderr until the assembly attaches the store-backed sink
@@ -82,6 +88,7 @@ impl Supervisor {
             hooks: Arc::new(crate::hooks::HookRegistry::new_with_errors(Arc::clone(
                 &errors,
             ))),
+            policy: Arc::new(PluginPolicyRegistry::new()),
             errors,
         }
     }
@@ -103,14 +110,18 @@ impl Supervisor {
 
     /// Publish the runtime's own services on the root context.
     ///
-    /// After this call a plugin can resolve the live plugin registry and the
-    /// hook graph through `Context::try_service`, and both are withdrawn when
-    /// the root is torn down.
+    /// After this call a plugin can resolve the live plugin registry, the hook
+    /// graph and the root egress policy through `Context::try_service`, and all
+    /// three are withdrawn when the root is torn down.
     pub async fn publish_services(&self) -> Result<FiberHandle> {
         self.plugins
             .spawn(
                 RuntimeServicesPlugin,
-                (self.runtime.clone(), self.hooks.clone()),
+                (
+                    self.runtime.clone(),
+                    self.hooks.clone(),
+                    self.policy.clone(),
+                ),
             )
             .await
     }
