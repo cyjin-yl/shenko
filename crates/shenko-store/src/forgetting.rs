@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
-use shenko_types::object::{Digest, ObjectRef};
+use shenko_types::object::Digest;
 
 use crate::atoms::COGNITION_CONTENT_NAMESPACE;
 use crate::retained_objects::{
@@ -673,7 +673,7 @@ impl Store {
                     report.kept += 1;
                 } else {
                     report.unevaluated += 1;
-                    let (receipt_id, _) = self.record_decision_receipt(
+                    let (receipt_id, _) = self.record_decision_receipt(make_receipt(
                         agent_id,
                         digest,
                         ForgettingDecisionKind::Unevaluated,
@@ -681,7 +681,7 @@ impl Store {
                         &evidence,
                         &refs,
                         clock,
-                    )?;
+                    )?)?;
                     report.outcomes.push(ForgettingOutcome {
                         digest: digest.clone(),
                         decision: ForgettingDecisionKind::Unevaluated,
@@ -700,7 +700,7 @@ impl Store {
             if !snapshot.complete {
                 report.unevaluated += 1;
                 let reason = "retention inventory is incomplete; bytes and publication are kept";
-                let (receipt_id, _) = self.record_decision_receipt(
+                let (receipt_id, _) = self.record_decision_receipt(make_receipt(
                     agent_id,
                     digest,
                     ForgettingDecisionKind::Unevaluated,
@@ -708,7 +708,7 @@ impl Store {
                     &evidence,
                     &refs,
                     clock,
-                )?;
+                )?)?;
                 report.outcomes.push(ForgettingOutcome {
                     digest: digest.clone(),
                     decision: ForgettingDecisionKind::Unevaluated,
@@ -726,7 +726,7 @@ impl Store {
             if !refs.is_empty() {
                 report.retained += 1;
                 let reason = "a retained artifact still references this content";
-                let (receipt_id, _) = self.record_decision_receipt(
+                let (receipt_id, _) = self.record_decision_receipt(make_receipt(
                     agent_id,
                     digest,
                     ForgettingDecisionKind::Retained,
@@ -734,7 +734,7 @@ impl Store {
                     &evidence,
                     &refs,
                     clock,
-                )?;
+                )?)?;
                 report.outcomes.push(ForgettingOutcome {
                     digest: digest.clone(),
                     decision: ForgettingDecisionKind::Retained,
@@ -777,7 +777,7 @@ impl Store {
                 }
                 UnpublishOutcome::Retained { references, reason } => {
                     report.retained += 1;
-                    let (receipt_id, _) = self.record_decision_receipt(
+                    let (receipt_id, _) = self.record_decision_receipt(make_receipt(
                         agent_id,
                         digest,
                         ForgettingDecisionKind::Retained,
@@ -785,7 +785,7 @@ impl Store {
                         &evidence,
                         &references,
                         clock,
-                    )?;
+                    )?)?;
                     report.outcomes.push(ForgettingOutcome {
                         digest: digest.clone(),
                         decision: ForgettingDecisionKind::Retained,
@@ -872,12 +872,12 @@ impl Store {
         }
         let conn = self.ledger.conn.lock();
         let (sql, digest_param) = match digest {
-            Some(_) => (
+            Some(digest) => (
                 "SELECT receipt_id,receipt_key,agent_id,digest,decision,reason,evidence_json,\
                         references_json,active_ms,observed_at_ms,created_seq
                  FROM forgetting_receipts WHERE agent_id=?1 AND digest=?2
                  ORDER BY observed_at_ms DESC, receipt_id DESC LIMIT ?3",
-                Some(digest.unwrap().0.clone()),
+                Some(digest.0.clone()),
             ),
             None => (
                 "SELECT receipt_id,receipt_key,agent_id,digest,decision,reason,evidence_json,\
@@ -938,23 +938,8 @@ impl Store {
 
     fn record_decision_receipt(
         &self,
-        agent_id: EntityId,
-        digest: &Digest,
-        decision: ForgettingDecisionKind,
-        reason: &str,
-        evidence: &[ForgettingEvidence],
-        references: &[RetentionReference],
-        clock: ForgettingClock,
+        receipt: ForgettingReceipt,
     ) -> Result<(EntityId, bool), ShenkoError> {
-        let receipt = make_receipt(
-            agent_id,
-            digest,
-            decision,
-            reason,
-            evidence,
-            references,
-            clock,
-        )?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -1043,7 +1028,7 @@ impl Store {
         )?;
         let object = self.content(digest)?.map(|content| content.object);
         let Some(object) = object else {
-            let (receipt_id, _) = self.record_decision_receipt(
+            let (receipt_id, _) = self.record_decision_receipt(make_receipt(
                 agent_id,
                 digest,
                 ForgettingDecisionKind::Forgotten,
@@ -1051,7 +1036,7 @@ impl Store {
                 evidence,
                 &[],
                 clock,
-            )?;
+            )?)?;
             return Ok(UnpublishOutcome::AlreadyGone {
                 receipt_id: Some(receipt_id),
             });
@@ -1426,8 +1411,8 @@ fn make_receipt(
     origin_keys.sort();
     let key_bytes = format!(
         "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}",
-        agent_id.to_string(),
-        digest.to_string(),
+        agent_id,
+        digest,
         decision.as_str(),
         evidence_ids.join(","),
         origin_keys.join(",")

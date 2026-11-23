@@ -33,9 +33,9 @@ use std::sync::Arc;
 
 #[path = "support/subject_genesis.rs"]
 mod subject_genesis;
-#[path = "support/canonical_native.rs"]
-mod canonical_native;
-use canonical_native::{committed_candidate_with, recorded_result_with_docket};
+#[path = "support/canonical_subject.rs"]
+mod canonical_subject;
+use canonical_subject::{committed_candidate_with, recorded_result_with_docket};
 use subject_genesis::initialize_subject_in_with_route;
 
 const METAPACKAGE_UNIT: &str = "forgetting";
@@ -244,7 +244,9 @@ fn metapackage_step_restart_forgetting_receipts_and_cas_retention() -> Result<()
 
     // 1. Real Store open, real genesis.
     let store = Arc::new(Store::open(database.clone(), cas.clone())?);
-    let agent_id = initialize_subject_in_with_route(&store, b"forgetting acceptance", None)?;
+    let agent_id = initialize_subject_in_with_route(
+        &store, br#"{"task":"forgetting acceptance"}"#, None,
+    )?;
     let ledger_id = store.ledger.ledger_id();
 
     // 2. Publish the metapackage (content + adoption attitudes).

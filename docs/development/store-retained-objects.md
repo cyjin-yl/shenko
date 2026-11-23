@@ -64,6 +64,13 @@ channel and declared external locations remain separately classified. An
 unclassified location or conflicting CAS suffix is a gap. `SourceRef` may
 also carry a digest with a null locator; it remains an optional digest, while
 typed Task/Operation decoding checks their non-null `ArtifactRef` contract.
+Within the typed `cognition_attitudes.reasons_json` column, a reason's
+`SourceRef` also permits a plain source description. Its digest remains an
+optional retained edge; its locator is descriptive text and is not decoded
+as another reference carrier. This interpretation follows only the known
+reason/termination/source path. An unknown SourceRef field remains a gap and
+is scanned for visible edges. Arbitrary JSON and encoded baseline mirrors
+continue to use the conservative generic reader.
 The historical `memory_intents.content_ref` string also requires its canonical
 CAS-suffix member; an unrecognized legacy locator is an explicit gap rather
 than an empty root set. Newer memory bindings additionally carry the complete
