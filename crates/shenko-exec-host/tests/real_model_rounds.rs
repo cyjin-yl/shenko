@@ -29,8 +29,8 @@ use sha2::{Digest as Sha2Digest, Sha256};
 use shenko_awareness_core::CognitionCatalog;
 use shenko_broker::broker::Broker;
 use shenko_exec_host::{
-    CandidateBinding, CognitionReadHandler, PreparedSandbox, RoundObservationStatus,
-    SandboxRoundSpec, SandboxRuntime, run_sandbox_rounds,
+    CandidateBinding, CognitionReadHandler, PreparedSandbox, RoundInputs,
+    RoundObservationStatus, SandboxRoundSpec, SandboxRuntime, run_sandbox_rounds,
 };
 use shenko_identity::{DefaultIdentityPolicy, IdentityService};
 use shenko_kernel::Supervisor;
@@ -259,8 +259,10 @@ async fn repeated_real_model_turns_run_in_the_production_sandbox() -> Result<()>
         prepared,
         &handle,
         catalog,
-        &rounds,
-        &artifacts,
+        RoundInputs {
+            rounds: &rounds,
+            artifacts_root: &artifacts,
+        },
         candidate,
         stop,
         &RealModelRoundRuntime,

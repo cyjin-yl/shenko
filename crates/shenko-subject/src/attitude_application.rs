@@ -946,11 +946,11 @@ mod tests {
         assert_eq!(page.receipt.revisions.projected, 1);
         assert_eq!(page.receipt.revisions.unresolved, 1);
         let entries = entry_lines(&page.text);
-        let projected = *entries.iter().find(|entry| entry.get("slot").is_some()).unwrap();
+        let projected = entries.iter().find(|entry| entry.get("slot").is_some()).unwrap();
         assert_eq!(projected["revisions"]["older_versions"], json!(2));
         assert_eq!(projected["revisions"]["full_text"], Value::Null);
         assert_eq!(projected["revisions"]["taste"]["unit_id"], json!(DefaultRevisionTaste::UNIT));
-        let unresolved = *entries.iter().find(|entry| entry.get("supersedes").is_some()).unwrap();
+        let unresolved = entries.iter().find(|entry| entry.get("supersedes").is_some()).unwrap();
         assert_eq!(unresolved["revisions"]["unresolved"], json!(true));
         assert!(unresolved["revisions"]["older_versions"].is_null());
     }

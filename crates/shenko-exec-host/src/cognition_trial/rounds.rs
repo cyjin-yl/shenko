@@ -19,7 +19,7 @@
 //! judgement on the retained artifacts.
 
 use super::*;
-use anyhow::{Context as _, anyhow, ensure};
+use anyhow::{anyhow, ensure};
 use std::io::Write as _;
 
 /// The bounded contract this runner implements. It is written into the plan
@@ -372,6 +372,12 @@ fn round_verdict(
     }
 }
 
+/// The planned rounds and where their artifacts are retained.
+pub struct RoundInputs<'a> {
+    pub rounds: &'a [SandboxRoundSpec],
+    pub artifacts_root: &'a Path,
+}
+
 /// Run N sequential real-model turns in one real sandbox installation.
 ///
 /// The caller owns the broker and must drain it after this returns. The
@@ -385,12 +391,12 @@ pub async fn run_sandbox_rounds<R: SandboxRuntime>(
     prepared: PreparedSandbox,
     broker: &BrokerHandle,
     catalog: Arc<CognitionCatalog>,
-    rounds: &[SandboxRoundSpec],
-    artifacts_root: &Path,
+    inputs: RoundInputs<'_>,
     candidate: CandidateBinding,
     stop: tokio::time::Instant,
     runtime: &R,
 ) -> Result<SandboxRoundReport> {
+    let RoundInputs { rounds, artifacts_root } = inputs;
     ensure!(!rounds.is_empty(), "a repeated real-model run needs at least one round");
     ensure!(rounds.len() <= 64, "a repeated real-model run carries at most 64 rounds");
 
@@ -584,8 +590,7 @@ pub async fn run_sandbox_rounds<R: SandboxRuntime>(
                             &catalog,
                             agent,
                             &dir,
-                            &step,
-                            decision,
+                            CommittedStep { step: &step, decision },
                             runtime,
                         )? {
                             return Ok((step, output, dispositions));
