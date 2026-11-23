@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "kind": "source and rebuilt public consumer evidence; no new browser execution",
+  "originalShenkoSource": "b257cc391911e21dbdd3616f75899d1b054f4f09",
+  "integratedShenkoMain": "2c778c1832a71f68b6323c86af6c5fa9b1314b85",
+  "protoUiSource": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "protoUiIntegratedMain": "39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de",
+  "sourceInputs": {
+    "crates/shenko-ui/web/src/ui-kit.tsx": "f3d0ea9f20196c948a14ab97a7152d9eeff410ef572be6db00d59b315def880f",
+    "crates/shenko-ui/web/src/im.tsx": "fa064fe2b232732e9604c5a2ccfa9babb5fd478d0d109977be63b9ecc04857f9",
+    "crates/shenko-ui/web/src/timeline-surface.tsx": "0bd2a93ad499b4a49196cbf8846423e62c97d9a4ef00ffb7056f31bfc48b591a",
+    "crates/shenko-ui/web/src/react-renderer.tsx": "566c086fa4e13ac8f0e7a2d3583ae1b5bc478d330e4eab2724a3470942938d46",
+    "crates/shenko-ui/web/src/timeline-reducer.ts": "aac00b994ed72d3479dbeb84205c8d730aa19e247564269c3edc9c730e3771cd",
+    "crates/shenko-ui/web/src/app.css": "5ce400125a97a86886ad3c3dcf0ce956522d26ac99863342e318116e857105f1",
+    "crates/shenko-ui/web/build.mjs": "df77a4cb722977680541f3d9f3ddbbd79cfb39f66922388722476b40f7e0c6d3",
+    "crates/shenko-ui/web/upstream-pin.json": "2c2aea44febc365f4ec274bd32bdfccb7376c8dbfce1471bd4257436bf37ee23",
+    "scripts/web_reading_journey.mjs": "c17151c4ed8951230a07c542eaeb5d41d0de8901176933283a8b75267a3c1512",
+    "crates/shenko-ui/src/static/app.js": "9d70e56862ed61b02eaf9cc480f0b3f682aec89a9f2771ce7820d060f698f4c3",
+    "crates/shenko-ui/src/static/build-manifest.json": "227f9ded5442ba54399c645bc2e502953067d2fb69ccca8ee8182eb6c93d760e"
+  },
+  "results": {
+    "publicBuild": {
+      "packages": 42,
+      "phases": [
+        41,
+        1
+      ],
+      "reason": "Runtime/family public closure then CLI; both canonical public builder results retained"
+    },
+    "frontendBuild": {
+      "exitCode": 0,
+      "hashedAssets": 12,
+      "browserGraphUsesPublicExports": true
+    },
+    "types": {
+      "exitCode": 0,
+      "diagnostics": []
+    },
+    "unit": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0
+    },
+    "documentation": {
+      "exitCode": 0,
+      "errors": [],
+      "firstAttempt": "failed because required tree-sitter parsers were absent; unchanged checker passed after pinned requirements install"
+    }
+  },
+  "retainedBrowserEvidence": {
+    "shenko": "b257cc391911e21dbdd3616f75899d1b054f4f09",
+    "protoUi": "8ec14275018f98d7e23b5ad8ec7de474cf7aa3fa",
+    "journeys": 4,
+    "checksPassed": 54,
+    "url": "https://github.com/Proto-UI/Proto-UI/blob/ad39435aeb3589d3bc52de3cbd1f4cdd375cec68/internal/records/2026-11-22-sprint-7-harness.md"
+  },
+  "remaining": [
+    "Actual final-head native browser reading journeys",
+    "Independent clean checkout asset rebuild through existing CI web job",
+    "Full Rust/native/real-model and deployment acceptance are outside this bounded frontend evidence"
+  ],
+  "knownWarning": "Existing upstream native-value-lowering.ts duplicate string case warning retained; frontend build succeeded."
+}

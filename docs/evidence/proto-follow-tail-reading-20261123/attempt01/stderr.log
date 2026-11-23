@@ -1,0 +1,22 @@
+AssertionError [ERR_ASSERTION]: trusted Shift+Tab reaches a historical message action away from the tail: {"backwardTabs":97,"before":{"top":10256,"extent":10992,"viewport":736,"endGap":0,"count":62,"key":"part.[\"reading-message-29\",\"text/0\"]","offset":-145.5,"focused":"composer-input"}}
+    at check (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:136:113)
+    at journey (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:175:5)
+    at async file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:313:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+AssertionError [ERR_ASSERTION]: trusted Shift+Tab reaches a historical message action away from the tail: {"backwardTabs":97,"before":{"top":16803,"extent":17582,"viewport":779,"endGap":0,"count":62,"key":"part.[\"reading-message-30\",\"text/0\"]","offset":-234.640625,"focused":"composer-input"}}
+    at check (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:136:113)
+    at journey (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:175:5)
+    at async file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko/scripts/web_reading_journey.mjs:313:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
