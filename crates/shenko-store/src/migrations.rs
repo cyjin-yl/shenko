@@ -133,6 +133,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Evidence-based forgetting (SPEC §51.7): append-only evidence and
+    // receipt records plus the local deduplication key. Additive, own tables
+    // only; the durable deletion tombstone uses the replicated
+    // `retention_tombstones` table and no existing row or column is rewritten.
+    conn.execute_batch(crate::forgetting::FORGETTING_SCHEMA)?;
     conn.execute_batch(crate::subject_branches::SCHEMA)?;
     // Durable reconciliation cases for unknown external effects (
     // X11). Additive, own table only: it records which immutable receipts a
