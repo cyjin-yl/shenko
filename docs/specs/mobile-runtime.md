@@ -54,6 +54,89 @@ service log. No permission, installer confirmation or incoming intent extra
 changes service inputs or grants authority through this activity. Compilation requires SDK 36 for the pinned Dhizuku dependency. API 26 remains
 the minimum; the service retains its existing API-specific foreground calls.
 
+### Ordinary APK replacement
+
+The launcher exposes **Install APK update**. Its private installer Activity
+reads one document selected through Android's document picker once into a new
+`0600` file under the app's private `filesDir` (bounded at 1 GiB) and records
+the stored length and SHA-256. It keeps no persistent URI grant and does not
+read the external path again. The authenticated device bridge drives the same
+`ActivationController` through `activation_restart`, `activation_status`,
+`activation_abandon` and `activation_session_state`.
+
+Before any system session exists, the controller requires the candidate to be
+this package, to advance the installed `versionCode`, to carry the installed
+signing certificate, to ship `lib/<abi>/libshenko_android.so` for an ABI the
+device would load, and to match the declared APK length/digest and native
+member digest. A bridge-supplied candidate path must already be a regular file
+inside the app's private data directory. The request digest is durable before
+`createSession`; the bytes actually written into the session are hashed and
+compared with the frozen digest before `commit`, and the stream is fsynced. An
+identical repeated request observes the same attempt and never creates a
+second session; different expectations under the same digest are refused with
+`installer_attempt_identity_conflict`.
+
+The authenticated bridge supplies the frozen expectations from its own update
+plan. The local installer Activity derives package, version, signer and ABI
+member facts from the document the user selected (plus the installed signer);
+that binds the streamed bytes to the selected signed package, but it is not an
+external frozen-build attestation, so it does not claim archive or release
+provenance beyond the installed signing certificate.
+
+Android retains installation authority and user confirmation. The app asks the
+system for a user action where the platform supports it, posts the correlated
+confirmation from its non-exported status receiver, and can open the same
+system Intent from the installer Activity while that process still holds the
+receiver-delivered Intent; otherwise the posted notification is the path.
+Neither path confirms on the user's behalf or suppresses the OS dialog. On
+API 26–30 the platform may complete a
+same-signer update without a user action; that is the platform's decision, not
+an app bypass.
+
+Status is correlated by request digest, attempt ID, callback URI and OS
+session; a callback that does not match exactly is ignored. A missing session,
+a lost response, an interrupted `createSession`/record gap and any unenrolled
+session stay Unknown: session enumeration reports IDs as facts but never
+attributes an unenrolled session to a request by package name. Abandonment
+targets only the exact enrolled session; absence of a session is not proof of
+cancellation.
+
+An accepted system callback is still only `PackageInstaller`'s statement. It
+does not write the activation selector, advance an epoch, start a replacement
+service, establish installed-APK/loaded-JNI identity or prove node readiness.
+Those remain the package-activation contracts of
+[X05/X16/X17](self-update.md#spec-41-12) and ordinary launcher/JNI Start.
+
+`MY_PACKAGE_REPLACED` performs restart activation as a recorded *request*: the
+new process reads the installed version and signer, matches an enrolled
+successful attempt that does not already carry a restart record, writes that
+observation into the attempt record, and asks the existing node service to
+start. A missing match records
+`successor_start_not_requested` instead of auto-starting; a refused
+foreground-service start records `successor_start_refused`. Neither is node
+readiness, and neither verifies the installed base APK digest or native member.
+
+No root, Shizuku or Dhizuku grant is required or requested by this path. Its
+prerequisites are ordinary app permissions, the user's Android "install
+unknown apps" allowance for this app, and whatever confirmation the system
+itself imposes.
+
+Typed installer failures carry a stable condition token in `error.condition`
+and as the message prefix (the Rust `BridgeError` keeps `kind`, `message` and
+`retryable`, so the prefix is the token it retains): `installer_request_invalid`,
+`installer_candidate_not_private`, `installer_candidate_absent`,
+`installer_candidate_oversized`, `installer_package_mismatch`,
+`installer_version_mismatch`, `installer_version_not_advanced`,
+`installer_signer_mismatch`, `installer_abi_missing`,
+`installer_native_manifest_invalid`, `installer_candidate_digest_mismatch`,
+`installer_native_mismatch`, `installer_permission_denied`,
+`installer_attempt_identity_conflict`, `installer_session_create_failed`,
+`installer_stream_failed`, `installer_commit_unknown`,
+`installer_session_unresolved`, `installer_abandon_failed`,
+`installer_session_query_failed`, `installer_record_invalid` and
+`installer_io`; a stale or mismatched system confirmation additionally reports
+`installer_confirmation_stale`.
+
 ## 2. Node portability ([§5.4](nodes.md#spec-5-4))
 
 The node core never gains OS gates: `shenko-node` uses only `cfg(unix)`
@@ -120,9 +203,11 @@ in `authority_used`.
   lifecycle). It is not a grant and never elevates any operation.
 
 Ops: `probe`, `capability_list`, `screen_capture`, `input_batch`,
-`shell_exec`, `db_snapshot`, `human_activity_after`. The Rust vocabulary is
-the `BridgeOp` enum in `crates/shenko-mobile/src/bridge.rs`; Kotlin dispatch
-is `DeviceBridgeServer`/`BridgeOps`.
+`shell_exec`, `db_snapshot`, `human_activity_after`, and the ordinary
+replacement ops `activation_restart`, `activation_status`,
+`activation_abandon`, `activation_session_state`. The Rust vocabulary is the
+`BridgeOp` enum in `crates/shenko-mobile/src/bridge.rs`; Kotlin dispatch is
+`DeviceBridgeServer`/`BridgeOps`.
 
 All three shell mechanisms use the same process capture: stdout and stderr
 are drained concurrently while the process runs, retaining at most 4 MiB of
@@ -181,6 +266,14 @@ fact about material, independent of ciphertext readability).
   reports `unsupported`.
 - `shenko-node` network exposure on-device is the UI server port only; there
   is no outbound assumption beyond the existing channel adapters.
+- The ordinary-replacement installer is source only. No Android target was
+  compiled here and no emulator or device was used, so notification delivery
+  of the system confirmation, `PackageInstaller` callback extras and session
+  enumeration behavior across API 26–36, foreground-service start refusal
+  after `MY_PACKAGE_REPLACED`, and the system's own confirmation policy
+  (especially API 26–30 updates that the platform may complete without a user
+  action) remain unverified. Installer success is never treated as
+  installed-byte or loaded-JNI verification.
 
 ## 8. Native proof recipe (verification gate)
 
@@ -204,6 +297,14 @@ fact about material, independent of ciphertext readability).
    `external_takeover_revoked_lease`; db snapshot of an app whose db is not
    directly readable → `snapshot_recovered_copy` with uncertainty, never
    `snapshot_consistent`.
+7. Installer: build a higher-version, same-signer APK; from the launcher choose
+   it, grant this app the Android install permission, request installation and
+   confirm in the system dialog. Verify one session is created and streamed,
+   the attempt record reaches `success`, and `MY_PACKAGE_REPLACED` records
+   `successor_start_requested` or `successor_start_refused`. Repeat the same
+   request → no second session; cancel an enrolled session → the outcome stays
+   Unknown without a terminal callback; a foreign-signer, downgraded or
+   wrong-digest candidate is refused before `createSession`.
 
 <a id="spec-24-5"></a>
 <!-- migrated-contract: SPEC:24.5 -->
