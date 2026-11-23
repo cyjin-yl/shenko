@@ -280,12 +280,19 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 当前固定到 Proto-UI `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68`，
-它整合 main `39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
-并保留上一 pin `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
-这是 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 的候选依赖，
-尚未冒充已合入主线或完成最终浏览器验收；迁移与真实运行边界见
-[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)。
+`web/upstream-pin.json` 当前固定到 Sprint 2 整合候选
+`5cb80eb937f20982dd7dc8cbc93a90e91d665c31`，上一消费版本是
+`6a9b575fbe744ccb2f54d1e45336ccc195f401f1`。它仍是明确固定的开发候选，
+不称为已发布版本。新的源码、普通 producer、严格类型、既有测试、正常资源
+构建与浏览器结果分别绑定，见[本次消费记录](../evidence/sprint2-consumer-integration-5cb80eb9/README.md)；
+修改 pin 本身不提供这些检查的成功证据。
+
+此前 `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68` 整合 main
+`39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
+并保留 `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
+那次 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 候选
+的迁移与真实运行边界仍见[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)，
+不能把旧候选的回执重新标成当前版本的验收。
 
 上一 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
 固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
@@ -300,10 +307,12 @@ Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公�
 pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
 producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
-使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
+使用摘要为 `6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8`
+的上游 `pnpm-lock.yaml`，与上一消费候选的锁字节相同。界面采用的 shadcn
 family：button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
-separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
+separator（日期分隔）、resizable（Inspector）、tree（Tasks 与 Playground）。
+tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 双重 Tab 停靠。
 
 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
@@ -323,8 +332,8 @@ compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图
 
 ### compiler：构建期编译 Shenko 自己的 Prototype
 
-该 pin 的 `@proto.ui/compiler` 是私有源码包：`exports` 只有
-`./src/index.ts`，没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
+该 pin 的 `@proto.ui/compiler` 是私有源码包：默认导出指向
+`./src/index.ts`，另有源码 `./browser` 入口；没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
 当包产物导入，也不能假装存在运行期编译器。现行路径是**构建期编译**
 （`web/compiler.mjs`）：
 
@@ -1227,9 +1236,10 @@ HTML 产物通过已有 WorkFrame 的 adopted-page 读取路径打开；没有�
 `surface_id/source/subject_id`，主体变化会退休旧 Root、回调和物理项，
 而主流宿主及编辑器仍由现有布局拥有。
 
-此接线提供 Proto-UI #523 所缺的两个真实应用域。当前消费的上游候选
-仍是 `6a9b575fbe744ccb2f54d1e45336ccc195f401f1`；它不是后续 main
-或其他候选的验收。上游 `C-TREE-HIERARCHY-0001` 的 draft 状态、
+此接线提供 Proto-UI #523 所缺的两个真实应用域。该次接线证据冻结在
+`6a9b575fbe744ccb2f54d1e45336ccc195f401f1`；它不是后续 main
+或其他候选的验收。后续 pin 与新证据单独列在上面的 Proto-UI pin 一节。
+上游 `C-TREE-HIERARCHY-0001` 的 draft 状态、
 #678 的非 lazy／非选择 proposal 与现行 API 对齐、全宿主及实际 AT
 等独立条件不由本增量宣布通过。具体源码、输入、失败与真实浏览器
 回执由本次 Tree 证据记录绑定；既有 #522 Inspector 记录保持自己的

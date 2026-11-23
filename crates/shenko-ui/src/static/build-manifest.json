@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
-    "previous_reviewed_commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+    "commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+    "previous_reviewed_commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
     "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
-    "source_checkout": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-inspector-proto-4deb",
+    "source_checkout": "/workspace/scratch/b2027510c911/s2-compiler",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/continuation-s7-inspector-4deb/public-packages-01.json",
-      "receipt_sha256": "e154f9e5a3df7e80af42f1ef413fc5927694f092275a4ed4c3211d48b8a4fc5b"
+      "receipt_path": "/workspace/scratch/b2027510c911/shenko-s2-workflow/producer-01/public-build.json",
+      "receipt_sha256": "995902870dcee3c340d610bf88f528b2e3e83f1e65a4df95cc28ed23c778cf8e"
     }
   },
   "packages": [
@@ -135,13 +135,13 @@
     "package": "packages/compiler",
     "package_sha256": "1664972b337d48996e9a40d32095ba0b65677d3a5ea7f1c2374ef00b546ed37b",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "fb3ddedd6527cba0ae09b8baf61eef64cba81df5db969a60604a25452c83313f",
-    "source_tree_sha256": "b282908a2e76ad96bbae6e3b122c68f947cab124de6f292d42ceb186ba24aa8e",
+    "entry_sha256": "70599eb52802956381ba1982632fd4a14303df1aeccd9b6260436b9668a6f071",
+    "source_tree_sha256": "ed12506e8152aa778d12917ab3929cb0cda615e5f763d0076f8383fb3b37b487",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "f7dc6d74f9c661a47a958ffe0bf8b87ec2d71a2362f6101b1c3cac8328632385",
-      "bytes": 3304845,
+      "sha256": "7198e9aaee28658e4d610b96f29167710b88076deadba67e2e4c36682df8a836",
+      "bytes": 4049750,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -171,14 +171,14 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "ce4065dc7438363c7702ee27855cdd2e3120e540dc89b5285679fce945e87c3c",
+        "generated_sha256": "f356aaf05cd15943acaa553b1c68209541b2c066deac0f63dfc080235fe5f59f",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "eeb637d8d1f7a26ed17449f7954c96a40099f9714718486621c11a1cbd871961",
-        "compiler_ir_version": 7,
+        "provenance_sha256": "05eddbdd2902f706f7979bb41de48c488ad91f592bfea8cea390343ee4caaba4",
+        "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
       },
@@ -190,14 +190,14 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "eeeef24405e8abaca36cd29b8236de8a7bde44514eb49c3d21df36a37e4deecc",
+        "generated_sha256": "aabfca3a098431a061c15c2032aa9bd85c3744099e2449afa1db927995b85a24",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "2c64778f9fd85ea6445e59c16874bc0ce163548ca92dc6c77a3edf24f2dc2be7",
-        "compiler_ir_version": 7,
+        "provenance_sha256": "4b4aec482fc2c6924e767d1149ae2d62163b7a900d80a6fdff7a060ef47ff85f",
+        "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
       }
@@ -210,16 +210,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-tree-4deb/crates/shenko-ui/web",
-  "built_at": "2026-11-23T17:07:43.580Z",
+  "web_root": "/workspace/scratch/b2027510c911/Shenko/crates/shenko-ui/web",
+  "built_at": "2026-11-23T20:50:56.201Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1232104,
-      "sha256": "3fa29a035a1d7b8a782123f0089ddc6549b39af06411bb6c2783d3bc024cffb5"
+      "bytes": 1241779,
+      "sha256": "eda33a9901ae55f3533a32077e2cf148091e5f7357b7d537c7df054d05d94ab1"
     },
     "chunks/chunk-CCOEKU5G.js": {
       "bytes": 66321,
@@ -250,8 +250,8 @@
       "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
     },
     "licenses/SHADCN-NOTICES.md": {
-      "bytes": 8656,
-      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
+      "bytes": 8853,
+      "sha256": "fd8f2d99a6cc9642d902d63e623cc25f27e90a53bbd494ee77b91b982f2ecfcd"
     },
     "licenses/REACT-LICENSE": {
       "bytes": 1088,

@@ -2,7 +2,7 @@
  * Build-time Proto-UI compiler seam.
  *
  * The reviewed Proto-UI pin (web/upstream-pin.json) carries a *private*
- * `@proto.ui/compiler` package that exports only `./src/index.ts`: it has no
+ * `@proto.ui/compiler` package whose default export is `./src/index.ts`: it has no
  * built `dist`, it is not part of the pinned `scripts/build/public-packages.mjs`
  * selection, and no published compiler profile exists. Shenko therefore cannot
  * import the compiler through a package artifact and must not pretend a

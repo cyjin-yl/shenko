@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
-  "migrated_from": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+  "migrated_from": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
   "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",
@@ -30,7 +30,7 @@
     "entry": "packages/compiler/src/index.ts",
     "exports_source_only": true,
     "public_package_selection": false,
-    "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+    "upstream_visibility": "private source package; default export ./src/index.ts; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
     "prototypes": [
       "transport-badge",
       "message-bubble"
