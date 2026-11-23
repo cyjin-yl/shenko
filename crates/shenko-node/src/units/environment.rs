@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use super::capabilities::{
     HostRequirement, PackageDeclaration, declaration_document, declared_package_capabilities,
 };
-use super::installation::{InstalledUnit, now};
+use super::installation::{InstalledUnit, bump_unit_selection_revision, now};
 use super::resolution::{
     DependencyStrength, EdgeStatus, ResolvedDependency, compare_versions, edge_matches_spec,
     selection_matches, selection_of,
@@ -55,12 +55,13 @@ pub const MAX_ENVIRONMENT_MEMBERS: usize = 256;
 /// Generations and activations are append-only keys whose zero-padded numeric
 /// suffix orders them exactly as `u64` ordering does.
 const ENVIRONMENT_SELECTOR_KEY: &str = "unit_environment.selector";
+const ENVIRONMENT_SELECTOR_REVISION_KEY: &str = "unit_environment.selector_revision";
 const ENVIRONMENT_GENERATION_GLOB: &str = "unit_environment.generation.*";
 const ENVIRONMENT_GENERATION_PREFIX: &str = "unit_environment.generation.";
 const ENVIRONMENT_ACTIVATION_GLOB: &str = "unit_environment.activation.*";
 const ENVIRONMENT_ACTIVATION_PREFIX: &str = "unit_environment.activation.";
 
-fn environment_generation_key(generation: u64) -> String {
+pub(super) fn environment_generation_key(generation: u64) -> String {
     format!("{ENVIRONMENT_GENERATION_PREFIX}{generation:020}")
 }
 
@@ -215,6 +216,17 @@ pub(super) fn read_environment_selector(conn: &Connection) -> Result<Option<Envi
         .transpose()
 }
 
+/// Existing selectors retain their revision without a read-time rewrite.
+/// The additional fence is written only with a real environment activation.
+pub(super) fn read_environment_revision(conn: &Connection) -> Result<u64> {
+    let selected = read_environment_selector(conn)?.map(|selector| selector.revision);
+    let retained: Option<u64> = read_environment_document(conn, ENVIRONMENT_SELECTOR_REVISION_KEY)?
+        .map(|data| serde_json::from_str(&data)).transpose()?;
+    ensure!(retained.is_none() || selected.is_none() || retained == selected,
+        "UNIT_ENVIRONMENT_CORRUPT: selector and retained revision disagree");
+    Ok(retained.or(selected).unwrap_or(0))
+}
+
 fn read_environment_generation(
     conn: &Connection,
     generation: u64,
@@ -248,7 +260,7 @@ fn latest_environment_generation(conn: &Connection) -> Result<Option<u64>> {
 /// The closure identity: blake3 over the canonical document (sorted roots and
 /// members). Two environments that pin the same versions have the same digest,
 /// whatever order the caller listed them in.
-fn environment_closure_digest(
+pub(super) fn environment_closure_digest(
     roots: &[String],
     members: &[EnvironmentMember],
     version: u32,
@@ -312,6 +324,12 @@ impl Node {
     /// that never activated a generation reports `None` and is not mutated.
     pub fn environment_selector(&self) -> Result<Option<EnvironmentSelector>> {
         read_environment_selector(&self.conn)
+    }
+
+    /// Read the current publication fence, including legacy selectors whose
+    /// revision predates the separate retained counter.
+    pub fn environment_selection_revision(&self) -> Result<u64> {
+        read_environment_revision(&self.conn)
     }
 
     /// One recorded generation, exactly as it was prepared.
@@ -423,6 +441,10 @@ impl Node {
         // the linearization point of the activation itself.
         let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         let updated_at = now();
+        let actual_revision = read_environment_revision(&tx)?;
+        ensure!(actual_revision == expected_revision,
+            "UNIT_ENVIRONMENT_CONFLICT: selector revision is {actual_revision}, caller expected {expected_revision}");
+        let next_revision = expected_revision.checked_add(1).context("environment revision exhausted")?;
         // The selector document is rewritten only when it still carries the
         // revision the caller read: read and write happen in one immediate
         // transaction, so a concurrent activation either wins the whole
@@ -439,14 +461,14 @@ impl Node {
                     selector.generation != generation,
                     "UNIT_ENVIRONMENT_ALREADY_ACTIVE: generation {generation} is the current environment; nothing was changed"
                 );
-                (Some(selector.generation), expected_revision + 1)
+                (Some(selector.generation), next_revision)
             }
             None => {
                 ensure!(
                     expected_revision == 0,
                     "UNIT_ENVIRONMENT_CONFLICT: this installation has no environment selector; the expected revision must be 0"
                 );
-                (None, 1)
+                (None, next_revision)
             }
         };
         let selector = EnvironmentSelector {
@@ -458,6 +480,7 @@ impl Node {
             updated_at: updated_at.clone(),
         };
         crate::set(&tx, ENVIRONMENT_SELECTOR_KEY, &selector)?;
+        crate::set(&tx, ENVIRONMENT_SELECTOR_REVISION_KEY, &revision)?;
         crate::set(
             &tx,
             &environment_activation_key(revision),
@@ -495,6 +518,7 @@ impl Node {
                     &updated_at
                 ],
             )?;
+            bump_unit_selection_revision(&tx, &member.unit_id)?;
         }
         tx.commit()?;
         Ok(json!({

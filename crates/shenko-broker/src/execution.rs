@@ -10,7 +10,7 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 use futures::FutureExt as _;
 use tracing::warn;
 
-use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ResidencyIdentity};
+use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ReportedKvUsage, ResidencyIdentity};
 use crate::registry::{ProviderRegistry, ProviderRuntime};
 use crate::request::{
     EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
@@ -556,14 +556,14 @@ pub(crate) fn failure_result(
 
 /// Record the observed context size of one completed call.
 ///
-/// The size comes from what the provider reported, not from an estimate. A
-/// provider that did not report its input tokens leaves the pool unchanged.
+/// The size comes from what the provider reported, not from an estimate. Missing
+/// input leaves planning demand unchanged and cannot create a lease, but an
+/// existing lease still records this request's optional reported counters.
 ///
-/// The reusable prefix is what this call actually reported as cached, so a
-/// backend that reports nothing keeps zero reuse instead of a guess. One hit is
-/// an observation about this request; it is not proof that the backend still
-/// retains KV after the context was released, and it never raises the lease to
-/// a hard reservation.
+/// Reuse allowance stays bounded by reported input, with zero allowance for an
+/// unreported cache counter. The raw observation retains missing, zero and
+/// positive values separately, even if admission keeps an older demand. It
+/// never establishes physical cache continuity, a hard reservation or billing.
 fn observe_kv(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
@@ -571,8 +571,21 @@ fn observe_kv(
     purpose: RequestPurpose,
     usage: Option<&crate::request::TokenUsage>,
 ) {
-    let Some(usage) = usage else { return };
-    let Some(input_tokens) = usage.input_tokens else { return };
+    let reported_usage = ReportedKvUsage {
+        request_id: request.request_id,
+        input_tokens: usage.and_then(|usage| usage.input_tokens),
+        cache_read_tokens: usage.and_then(|usage| usage.cache_read_tokens),
+        cache_write_tokens: usage.and_then(|usage| usage.cache_write_tokens),
+    };
+    let context_id = residency_context(request);
+    let Some(input_tokens) = reported_usage.input_tokens else {
+        let mut pool = domain.kv_mut();
+        if let Some(lease) = pool.leases.get_mut(&context_id) {
+            lease.reported_usage = Some(reported_usage);
+            lease.lease_revision += 1;
+        }
+        return;
+    };
     let side = match purpose {
         RequestPurpose::Subject | RequestPurpose::External => LeaseSide::Main,
         _ => LeaseSide::Child,
@@ -583,7 +596,7 @@ fn observe_kv(
     // invalidates every older handle instead of letting the new backend inherit
     // their residency. What was never observed stays unknown, so it neither
     // proves a match nor invents a change.
-    let reusable_units = usage
+    let reusable_units = reported_usage
         .cache_read_tokens
         .map(|cached| cached.min(input_tokens))
         .unwrap_or(0);
@@ -600,11 +613,12 @@ fn observe_kv(
     });
     pool.invalidate_stale(&identity);
     let demand = LeaseDemand {
-        context_id: residency_context(request),
+        context_id,
         side,
         window_units: input_tokens,
         reusable_units,
         recompute_units: input_tokens.saturating_sub(reusable_units),
+        reported_usage: Some(reported_usage),
         return_probability: 0.5,
         priority: 0,
         identity,
