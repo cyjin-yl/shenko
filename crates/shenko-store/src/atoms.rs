@@ -256,6 +256,59 @@ pub struct RecordedAttitude {
     pub commit: CommitRef,
 }
 
+/// Bound on the rows one per-step attitude-application read inspects.
+///
+/// It bounds the S0 read, not what the ledger holds: a read that exhausts the
+/// window reports the truncation instead of presenting a prefix as the whole
+/// set.
+pub const ATTITUDE_APPLICATION_READ_LIMIT: usize = 512;
+
+/// The ledger roles a per-step attitude projection applies.
+///
+/// They are the attitudes that change how *other* material reads: adoption
+/// says which content joined which unit, definition says which version
+/// interprets older content, revision says which version supersedes which, and
+/// projection says how prominently a version is recalled. `assertion` is the
+/// subject's own judgement and stays in its history; `unfinished` is projected
+/// by the persistent obligation frontier and `effect_unknown` by the
+/// reconciliation docket (docs/specs/cognition-units.md#spec-51-1).
+pub const APPLIED_ATTITUDE_ROLES: [&str; 4] =
+    ["adoption", "definition", "revision", "projection"];
+
+/// The identity one applicable attitude applies under.
+///
+/// Two current attitudes with the same key would both claim the same fact: the
+/// same definition slot, the same adoption target, the same revision of one
+/// content, or the same projection stage of one content. The key is built from
+/// the mechanism role and the exact identities, never from prose.
+pub fn attitude_application_key(role: &AttitudeRole, digest: &Digest) -> Option<String> {
+    let key = match role {
+        AttitudeRole::Adoption(target) => format!("adoption\u{1f}{}\u{1f}{digest}", target.unit_id),
+        AttitudeRole::Definition(slot) => format!("definition\u{1f}{slot}"),
+        AttitudeRole::Revision { .. } => format!("revision\u{1f}{digest}"),
+        AttitudeRole::Projection(_) => format!("projection\u{1f}{digest}"),
+        AttitudeRole::Assertion | AttitudeRole::Unfinished | AttitudeRole::EffectUnknown => {
+            return None
+        }
+    };
+    Some(key)
+}
+
+/// The subject's current applicable attitudes, as read for one step.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppliedAttitudeSet {
+    pub agent_id: EntityId,
+    /// The ledger the rows were read from.
+    pub ledger_id: EntityId,
+    /// Highest attitude commit sequence this read could see for the subject.
+    pub upper_commit_seq: u64,
+    /// Current attitudes, ordered by [`attitude_application_key`].
+    pub attitudes: Vec<ContentAttitude>,
+    /// The bounded read window was exhausted: older current attitudes were not
+    /// read. It is not "the ledger holds nothing more".
+    pub read_truncated: bool,
+}
+
 /// `cognition_attitudes` 的一行原文，解码前保持 SQL 里的确切文本。
 struct RawAttitude {
     attitude_id: String,
@@ -760,6 +813,78 @@ impl Store {
         raws.into_iter().map(decode_attitude).collect()
     }
 
+    /// The subject's current applicable attitudes for a per-step projection.
+    ///
+    /// "Current" is the ledger's own fact: a row another appended row
+    /// supersedes is no longer current, and under one application key the
+    /// latest ledger row is the one in force. The read keeps the canonical key
+    /// order, so a caller can rotate over it by durable step number instead of
+    /// matching text. Nothing here decides relevance.
+    pub fn applied_attitudes(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<AppliedAttitudeSet, ShenkoError> {
+        self.applied_attitudes_bounded(agent_id, ATTITUDE_APPLICATION_READ_LIMIT)
+    }
+
+    fn applied_attitudes_bounded(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<AppliedAttitudeSet, ShenkoError> {
+        let db = |error: rusqlite::Error| ShenkoError::storage(error.to_string());
+        let conn = self.ledger.conn.lock();
+        let upper: i64 = conn
+            .query_row(
+                "SELECT COALESCE(MAX(created_commit_seq),0) FROM cognition_attitudes WHERE agent_id=?1",
+                params![agent_id.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(db)?;
+        let upper_commit_seq = u64::try_from(upper)
+            .map_err(|_| ShenkoError::storage("negative attitude commit sequence"))?;
+        let roles = APPLIED_ATTITUDE_ROLES
+            .iter()
+            .map(|role| format!("'{role}'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT {ATTITUDE_COLUMNS} FROM cognition_attitudes a
+              WHERE a.agent_id=?1
+                AND a.role_kind IN ({roles})
+                AND NOT EXISTS (
+                    SELECT 1 FROM cognition_attitudes s
+                     WHERE s.agent_id=a.agent_id AND s.supersedes=a.attitude_id
+                )
+              ORDER BY a.created_commit_seq DESC, a.attitude_id DESC
+              LIMIT ?2"
+        );
+        let window = i64::try_from(limit.saturating_add(1)).unwrap_or(i64::MAX);
+        let mut statement = conn.prepare(&sql).map_err(db)?;
+        let raws = statement
+            .query_map(params![agent_id.to_string(), window], raw_attitude)
+            .and_then(|rows| rows.collect::<rusqlite::Result<Vec<_>>>())
+            .map_err(db)?;
+        let read_truncated = raws.len() > limit;
+        let mut current: std::collections::BTreeMap<String, ContentAttitude> =
+            std::collections::BTreeMap::new();
+        // Rows arrive newest first, so the first row of a key is the one in force.
+        for raw in raws.into_iter().take(limit) {
+            let attitude = decode_attitude(raw)?;
+            let Some(key) = attitude_application_key(&attitude.role, &attitude.digest) else {
+                continue;
+            };
+            current.entry(key).or_insert(attitude);
+        }
+        Ok(AppliedAttitudeSet {
+            agent_id,
+            ledger_id: self.ledger.ledger_id(),
+            upper_commit_seq,
+            attitudes: current.into_values().collect(),
+            read_truncated,
+        })
+    }
+
     // ---- internals -------------------------------------------------------
 
     fn adoption_projection(
@@ -1203,7 +1328,7 @@ fn db_error(error: rusqlite::Error) -> ShenkoError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_types::cognition::{ConfidenceState, ReasonReading};
+    use shenko_types::cognition::{ConfidenceState, ProjectionStage, ReasonReading};
 
     fn store(name: &str) -> (std::path::PathBuf, Store) {
         let root = std::env::temp_dir().join(format!("shenko-atoms-{name}-{}", EntityId::new()));
@@ -1473,5 +1598,116 @@ mod tests {
             inferred.attitude.knowledge_kind_hint.as_deref(),
             Some("insight")
         );
+    }
+
+    #[test]
+    fn applied_attitudes_keep_one_current_row_per_application_key() {
+        let (_root, store) = store("applied-attitudes");
+        let agent = EntityId::new();
+        // 断言是主体自己的判断，不属于按步应用的那组态度。
+        store
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("我自己的一个判断"),
+                AttitudeDraft::assertion(vec![], AttitudeConfidence::unknown()),
+            )
+            .unwrap();
+        let first = store
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("定义一：fact 是理由停下来的地方"),
+                AttitudeDraft::definition("fact.meaning", vec![], AttitudeConfidence::unknown()),
+            )
+            .unwrap();
+        let second = store
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("定义二：fact 是理由停在观察上"),
+                AttitudeDraft::definition("fact.meaning", vec![], AttitudeConfidence::unknown()),
+            )
+            .unwrap();
+        let applied = store.applied_attitudes(agent).unwrap();
+        assert_eq!(applied.ledger_id, second.attitude.created_commit.ledger_id);
+        assert_eq!(
+            applied.upper_commit_seq,
+            second.attitude.created_commit.seq.value()
+        );
+        assert_eq!(applied.attitudes.len(), 1, "一个定义槽只有当前那一版参与应用");
+        assert_eq!(applied.attitudes[0].attitude_id, second.attitude.attitude_id);
+        assert!(!applied.read_truncated);
+        // 旧定义字节保留，按版本仍可读到：退出「当前」不是删除。
+        assert_eq!(
+            store.content_bytes(first.content.digest()).unwrap(),
+            "定义一：fact 是理由停下来的地方".as_bytes().to_vec()
+        );
+    }
+
+    #[test]
+    fn a_superseded_row_leaves_the_applied_set_and_a_bounded_read_reports_it() {
+        let (_root, store) = store("applied-bounded");
+        let agent = EntityId::new();
+        let content = store
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("宏包里的内容单元"),
+                AttitudeDraft::assertion(vec![], AttitudeConfidence::unknown()),
+            )
+            .unwrap();
+        let adopted = store
+            .record_attitude_for_digest(
+                agent,
+                content.content.object.clone(),
+                AttitudeDraft::adoption(
+                    AdoptionTarget::unit("humanlike-mind"),
+                    vec![],
+                    AttitudeConfidence::unknown(),
+                ),
+            )
+            .unwrap();
+        // 主体撤回采纳：新行 supersedes 旧行。旧行仍是账本事实。
+        let withdrawn = store
+            .record_attitude_for_digest(
+                agent,
+                content.content.object.clone(),
+                AttitudeDraft::adoption(
+                    AdoptionTarget::unit("humanlike-mind"),
+                    vec![],
+                    AttitudeConfidence::unknown(),
+                )
+                .with_supersedes(adopted.attitude.attitude_id),
+            )
+            .unwrap();
+        let applied = store.applied_attitudes(agent).unwrap();
+        assert_eq!(applied.attitudes.len(), 1, "只有当前的采纳行参与应用");
+        assert_eq!(applied.attitudes[0].attitude_id, withdrawn.attitude.attitude_id);
+        let adoption_rows = store
+            .attitudes_for(agent, content.content.digest())
+            .unwrap()
+            .into_iter()
+            .filter(|attitude| matches!(attitude.role, AttitudeRole::Adoption(_)))
+            .count();
+        assert_eq!(adoption_rows, 2, "旧采纳行没有被删除或改写");
+
+        // 再加一条应用集内的投影阶段：两条当前行，读取窗口只放得下一条。
+        store
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("另一版内容"),
+                AttitudeDraft::projection(
+                    ProjectionStage::Fuzzy,
+                    vec![],
+                    AttitudeConfidence::unknown(),
+                ),
+            )
+            .unwrap();
+        let bounded = store.applied_attitudes_bounded(agent, 1).unwrap();
+        assert_eq!(bounded.attitudes.len(), 1);
+        assert!(
+            bounded.read_truncated,
+            "窗口用满必须显式报告，而不是当成全集"
+        );
+        let full = store.applied_attitudes(agent).unwrap();
+        assert_eq!(full.attitudes.len(), 2);
+        assert!(!full.read_truncated);
     }
 }
