@@ -287,6 +287,7 @@ fn demand(context: &str, units: u64) -> LeaseDemand {
         window_units: units,
         reusable_units: 0,
         recompute_units: units,
+        reported_usage: None,
         return_probability: 0.5,
         priority: 0,
         identity: identity("engine-a"),

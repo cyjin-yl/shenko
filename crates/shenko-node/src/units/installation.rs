@@ -5,7 +5,7 @@
 
 use anyhow::{Context, Result, ensure};
 use crate::Node;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
@@ -137,6 +137,22 @@ pub struct ToolUnitFact {
 
 pub(super) fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+/// Older installations have no counter and start at zero without a read-time
+/// migration. Selection changes retain this key even after unit withdrawal.
+pub(super) fn read_unit_selection_revision(conn: &Connection, unit_id: &str) -> Result<u64> {
+    let data: Option<String> = conn.query_row("SELECT v FROM meta WHERE k=?1",
+        [format!("unit_selection_revision:{unit_id}")], |row| row.get(0)).optional()?;
+    data.map(|data| serde_json::from_str(&data).map_err(Into::into)).transpose().map(|value| value.unwrap_or(0))
+}
+
+/// The caller's existing installation write transaction owns both the state
+/// change and this monotonic fence; overflow rolls the whole change back.
+pub(super) fn bump_unit_selection_revision(tx: &rusqlite::Transaction<'_>, unit_id: &str) -> Result<u64> {
+    let next = read_unit_selection_revision(tx, unit_id)?.checked_add(1).context("unit selection revision exhausted")?;
+    crate::set(tx, &format!("unit_selection_revision:{unit_id}"), &next)?;
+    Ok(next)
 }
 
 /// Set one key inside a named section of a unit's own configuration.
@@ -305,13 +321,12 @@ impl Node {
         let unit = self
             .installed_unit(unit_id)?
             .context("unit is not installed on this node")?;
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = crate::installation::begin_write(&mut self.conn, self.installation.as_ref())?;
         tx.execute(
             "UPDATE unit_current SET enabled=?2,updated_at=?3 WHERE unit_id=?1",
             params![unit.unit_id, i64::from(enabled), now()],
         )?;
+        bump_unit_selection_revision(&tx, unit_id)?;
         tx.commit()?;
         let (readiness, reason) = self.readiness_of(&unit)?;
         Ok(json!({

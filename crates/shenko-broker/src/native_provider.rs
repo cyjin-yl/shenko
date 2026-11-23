@@ -11,7 +11,10 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 
-use crate::capability::{BackendCapabilitySnapshot, CapacityEntry, CapacityUnit, classify_operations};
+use crate::capability::{
+    BackendCapabilitySnapshot, CacheSurfaces, CapacityEntry, CapacityUnit, DeclaredCapability,
+    ProviderCapabilityDeclaration, QuotaSurfaces, classify_operations,
+};
 use crate::profile::{AuthMethod, BackendFamily, ProviderProfile};
 use crate::provider::merge_native_options;
 use crate::request::{
@@ -149,6 +152,26 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
 
     fn binding(&self) -> ProviderBinding {
         self.profile.binding()
+    }
+
+    fn declaration(&self) -> ProviderCapabilityDeclaration {
+        // Facts of this implementation: it sends the OpenAI-compatible
+        // streaming request and parses the provider's own SSE frames, and it
+        // reads whatever usage counters the sealed profile maps. The profile's
+        // native namespace is not a cache declaration, and none of the four
+        // families owns a quota observation contract on this surface.
+        ProviderCapabilityDeclaration {
+            streaming: DeclaredCapability::implemented(),
+            cache: CacheSurfaces {
+                cache_read_accounting: if self.profile.usage.cache_read_tokens_path.is_some() {
+                    DeclaredCapability::implemented()
+                } else {
+                    DeclaredCapability::UNDECLARED
+                },
+                ..CacheSurfaces::UNDECLARED
+            },
+            quota: QuotaSurfaces::UNDECLARED,
+        }
     }
 
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
