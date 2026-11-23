@@ -171,4 +171,3 @@ pub fn committed_candidate_with(
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
     step
 }
-
