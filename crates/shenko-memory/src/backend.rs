@@ -152,6 +152,26 @@ pub struct MemoryHit {
     pub entry: MemoryEntry,
     pub excerpt: Option<MatchExcerpt>,
     pub supersession: MemorySupersessionStatus,
+    /// Default revision projection for a fact whose family has older
+    /// retained revisions. `None` means this fact has one revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<MemoryRevisionDisclosure>,
+}
+
+/// The default projection of one revised memory fact.
+///
+/// A revised fact keeps every revision's bytes. What a default recall shows
+/// about the older ones is their count and the latest modification time;
+/// their text is read only through an explicit entry/lineage read. A fact
+/// with no older revision carries `None`, never a fabricated zero.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryRevisionDisclosure {
+    /// The retained head of the fact's revision chain.
+    pub latest_entry_id: EntityId,
+    /// How many older revisions are retained behind the head.
+    pub old_version_count: u32,
+    /// When the newest retained revision was written (Unix ms).
+    pub latest_modified_at_ms: i64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

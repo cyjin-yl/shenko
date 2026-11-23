@@ -702,7 +702,43 @@ impl Node {
         }))
     }
 
-    /// The observations registered for one unit version.
+    /// One stored observation entry, with this node's own bytes-held check.
+    ///
+    /// The recorded digest is re-verified against the object store, so a
+    /// reader sees whether the bytes a receipt names are still held instead
+    /// of trusting the recorded size.
+    fn observation_entry(&self, entry: &Value) -> Value {
+        let digest = entry
+            .get("digest")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let held = self
+            .object_bytes(&Digest(digest.clone()))
+            .map(|bytes| Digest::blake3(&bytes) == Digest(digest.clone()))
+            .unwrap_or(false);
+        let mut entry = entry.clone();
+        if let Some(object) = entry.as_object_mut() {
+            object.insert("bytes_held".into(), json!(held));
+        }
+        entry
+    }
+
+    /// The observations recorded inside one version's descriptor.
+    fn observations_of(&self, config: &Value) -> Vec<Value> {
+        config
+            .pointer("/cognition/observations")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| self.observation_entry(entry))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The observations registered for the current unit version.
     pub(super) fn unit_observations(&self, unit_id: &str) -> Result<Value> {
         let unit = self
             .installed_unit(unit_id)?
@@ -710,38 +746,52 @@ impl Node {
         let version = self
             .installed_unit_version(&unit.unit_id, &unit.revision, &unit.artifact_digest)?
             .context("the current unit version is not retained")?;
-        let entries = version
-            .descriptor
-            .config
-            .pointer("/cognition/observations")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let observations: Vec<Value> = entries
-            .iter()
-            .map(|entry| {
-                let digest = entry
-                    .get("digest")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let held = self
-                    .object_bytes(&Digest(digest.clone()))
-                    .map(|bytes| Digest::blake3(&bytes) == Digest(digest.clone()))
-                    .unwrap_or(false);
-                let mut entry = entry.clone();
-                if let Some(object) = entry.as_object_mut() {
-                    object.insert("bytes_held".into(), json!(held));
-                }
-                entry
-            })
-            .collect();
         Ok(json!({
             "unit_id": unit.unit_id,
             "revision": unit.revision,
             "artifact_digest": unit.artifact_digest.0,
-            "observations": observations,
+            "observations": self.observations_of(&version.descriptor.config),
         }))
+    }
+
+    /// The observations registered for every retained version of one unit.
+    ///
+    /// `unit_versions` holds the current version and every earlier version
+    /// that has not been uninstalled. A replaced perception source keeps no
+    /// live registration, but the readings it registered stay bound to that
+    /// exact version. This read exposes that history without making an
+    /// uninstalled version readable here: uninstall archives its rows to
+    /// `unit_version_history`, which is outside this listing.
+    pub(super) fn unit_retained_observations(&self, unit_id: &str) -> Result<Value> {
+        let current = self.installed_unit(unit_id)?;
+        let rows: Vec<(String, String)> = self
+            .conn
+            .prepare(
+                "SELECT revision,artifact_digest FROM unit_versions \
+                 WHERE unit_id=?1 ORDER BY revision,artifact_digest",
+            )?
+            .query_map(params![unit_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ensure!(!rows.is_empty(), "unit is not retained on this node");
+        let mut versions = Vec::with_capacity(rows.len());
+        for (revision, artifact_digest) in rows {
+            let digest = Digest(artifact_digest.clone());
+            let version = self
+                .installed_unit_version(unit_id, &revision, &digest)?
+                .context("a retained unit version is not loadable")?;
+            let is_current = current
+                .as_ref()
+                .is_some_and(|current| {
+                    current.revision == revision && &current.artifact_digest == &digest
+                });
+            versions.push(json!({
+                "revision": revision,
+                "artifact_digest": artifact_digest,
+                "current": is_current,
+                "observations": self.observations_of(&version.descriptor.config),
+            }));
+        }
+        Ok(json!({ "unit_id": unit_id, "versions": versions }))
     }
 }
 
@@ -986,6 +1036,63 @@ mod tests {
                 .unwrap()["versions"][0]["revision"],
             json!(identity.revision)
         );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A replaced version keeps its own raw readings readable.
+    ///
+    /// The current-version read must not answer for a version that is no
+    /// longer current, and the retained read must not hide an older version's
+    /// observation behind the replacement.
+    #[test]
+    fn a_replaced_version_keeps_its_own_observations_readable() {
+        let dir = scratch("retained-observations-node");
+        let root = scratch("retained-observations-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let unit_id = "skill.retained-observations";
+        let first = package(unit_id, "1.0.0", b"the first version\n", vec![]);
+        import(&mut node, &root, vec![first.clone()]);
+        let reading = b"the first version's real reading";
+        node.handle_unit_request(UnitRequest::RegisterObservation {
+            unit_id: unit_id.into(),
+            revision: "1.0.0".into(),
+            artifact_digest: first.unit.artifact_digest.clone(),
+            kind: "probe".into(),
+            bytes: reading.to_vec(),
+        })
+        .unwrap();
+        let second = package(unit_id, "2.0.0", b"the second version\n", vec![]);
+        import(&mut node, &root, vec![second]);
+
+        let retained = node
+            .handle_unit_request(UnitRequest::RetainedObservations { unit_id: unit_id.into() })
+            .unwrap();
+        let versions = retained["versions"].as_array().unwrap();
+        assert_eq!(versions.len(), 2, "{retained}");
+        let first_read = versions
+            .iter()
+            .find(|version| version["revision"] == json!("1.0.0"))
+            .expect("the replaced version is retained");
+        assert_eq!(first_read["current"], json!(false));
+        let observations = first_read["observations"].as_array().unwrap();
+        assert_eq!(observations.len(), 1, "{retained}");
+        assert_eq!(observations[0]["kind"], json!("probe"));
+        assert_eq!(observations[0]["digest"], json!(Digest::blake3(reading).0));
+        assert_eq!(observations[0]["bytes_held"], json!(true));
+        let second_read = versions
+            .iter()
+            .find(|version| version["revision"] == json!("2.0.0"))
+            .expect("the current version is retained");
+        assert_eq!(second_read["current"], json!(true));
+        assert!(second_read["observations"].as_array().unwrap().is_empty());
+
+        // The unchanged current-version read answers for 2.0.0 only.
+        let current = node
+            .handle_unit_request(UnitRequest::Observations { unit_id: unit_id.into() })
+            .unwrap();
+        assert_eq!(current["revision"], json!("2.0.0"));
+        assert!(current["observations"].as_array().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&root);
     }
