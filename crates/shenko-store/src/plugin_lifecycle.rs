@@ -210,20 +210,20 @@ fn read_record(
     conn: &Connection,
     installation_id: EntityId,
 ) -> Result<Option<PluginRootRecord>, ShenkoError> {
-    let row: Option<(String, String, String, i64, String, i64, i64)> = conn
+    let row: Option<(String, String, i64, String, String, i64, i64)> = conn
         .query_row(
             "SELECT plugin_id, artifact_digest, generation, phase, data, record_revision, artifact_retained
              FROM plugin_root_installations WHERE installation_id=?1",
             [installation_id.to_string()],
             |row| {
                 Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
                 ))
             },
         )
@@ -241,7 +241,7 @@ fn read_record(
         && record.identity.plugin_id.to_string() == plugin_id
         && record.identity.implementation.artifact.digest.0 == artifact_digest
         && record.generation == u64::try_from(generation).unwrap_or(u64::MAX)
-        && record.phase.name() == phase.as_str()
+        && record.phase.name() == phase
         && record.record_revision == u64::try_from(record_revision).unwrap_or(u64::MAX)
         && record.artifact_retained == (artifact_retained != 0);
     if !consistent {
@@ -976,7 +976,7 @@ impl Store {
             .query_row(
                 "SELECT data FROM operations WHERE operation_id=?1",
                 [operation_id.to_string()],
-                |row| row.get(0),
+                |row| row.get::<_, String>(0),
             )
             .optional()?;
         let Some(data) = data else { return Ok(None) };
@@ -1031,7 +1031,7 @@ impl Store {
                  WHERE i.plugin_id=?1 AND i.artifact_digest=?2 AND a.phase='retired'
                  ORDER BY a.committed_seq DESC LIMIT 1",
                 params![plugin_id.to_string(), artifact_digest.as_str()],
-                |row| row.get(0),
+                |row| row.get::<_, String>(0),
             )
             .optional()?
             .map(|data| serde_json::from_str(&data))

@@ -329,7 +329,7 @@ impl Node {
                     fact.unit_id,
                     fact.revision
                 );
-                if let Some(expected) = &expected {
+                if expected.is_some() {
                     let active = selector
                         .as_ref()
                         .expect("a verified witness requires an active selector");
@@ -505,8 +505,10 @@ impl Node {
             "PLUGIN_LOAD_IDENTITY: this prepared role is compiled into the running binary and \
              names no installed code unit",
         )?;
+        // The unit id is read before the identity moves into the selection.
+        let unit_id = identity.unit_id.clone();
         self.load_installed_plugin_code(
-            &identity.unit_id,
+            &unit_id,
             PluginLoadSelection::Exact { identity, expected },
         )
     }
