@@ -52,6 +52,7 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/input/index.js',
   'packages/prototypes/shadcn/dist/separator/index.js',
   'packages/prototypes/shadcn/dist/toggle/index.js',
+  'packages/prototypes/shadcn/dist/resizable/index.js',
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.
@@ -249,7 +250,7 @@ const manifest = {
   },
   adoption: {
     runtime: 'createReactAdapter({ ...React, createPortal })',
-    why: 'Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.',
+    why: 'The explicitly pinned Proto-UI source provides the React runtime adapter and public family exports consumed by this build; its commit is recorded above, independently of the main branch.',
     style_profile: 'rhea (explicit); no Shadow split profile',
     source_assets: [
       'packages/adapters/react/dist/index.js',
@@ -263,6 +264,7 @@ const manifest = {
       'packages/prototypes/shadcn/dist/input/index.js',
       'packages/prototypes/shadcn/dist/separator/index.js',
       'packages/prototypes/shadcn/dist/toggle/index.js',
+      'packages/prototypes/shadcn/dist/resizable/index.js',
       'packages/cli/bin/proto-ui.js',
       'packages/compiler/package.json',
       'packages/compiler/src/index.ts',

@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
-  "migrated_from": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-  "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+  "commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
+  "migrated_from": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",
     "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
@@ -18,7 +18,8 @@
     "toggle-group",
     "input",
     "separator",
-    "toggle"
+    "toggle",
+    "resizable"
   ],
   "compiler": {
     "status": "build_time_compiled",

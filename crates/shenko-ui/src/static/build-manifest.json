@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
-    "previous_reviewed_commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-    "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/workspace/scratch/eb30117f7b2a/sprint7",
+    "commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
+    "previous_reviewed_commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+    "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
+    "source_checkout": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-inspector-proto-4deb",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-node24221.json",
-      "receipt_sha256": "e0324ee62ba83735883aeaccfcadb5f4b56aa1eccf2bb38b783ba70fe726d581"
+      "receipt_path": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/continuation-s7-inspector-4deb/public-packages-01.json",
+      "receipt_sha256": "e154f9e5a3df7e80af42f1ef413fc5927694f092275a4ed4c3211d48b8a4fc5b"
     }
   },
   "packages": [
@@ -28,7 +28,8 @@
     "toggle-group",
     "input",
     "separator",
-    "toggle"
+    "toggle",
+    "resizable"
   ],
   "realisation": {
     "compiled": [
@@ -85,12 +86,17 @@
         "family": "toggle",
         "mode": "adapter",
         "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "resizable",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
       }
     ]
   },
   "adoption": {
     "runtime": "createReactAdapter({ ...React, createPortal })",
-    "why": "Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.",
+    "why": "The explicitly pinned Proto-UI source provides the React runtime adapter and public family exports consumed by this build; its commit is recorded above, independently of the main branch.",
     "style_profile": "rhea (explicit); no Shadow split profile",
     "source_assets": [
       "packages/adapters/react/dist/index.js",
@@ -104,6 +110,7 @@
       "packages/prototypes/shadcn/dist/input/index.js",
       "packages/prototypes/shadcn/dist/separator/index.js",
       "packages/prototypes/shadcn/dist/toggle/index.js",
+      "packages/prototypes/shadcn/dist/resizable/index.js",
       "packages/cli/bin/proto-ui.js",
       "packages/compiler/package.json",
       "packages/compiler/src/index.ts"
@@ -119,15 +126,15 @@
     "runtime_imported": false,
     "profile": "react-dom-source-v1",
     "package": "packages/compiler",
-    "package_sha256": "393793c94cc5f71cef2d835edc1b4552412743bec00b76ea7f053e2d2cf20f2f",
+    "package_sha256": "1664972b337d48996e9a40d32095ba0b65677d3a5ea7f1c2374ef00b546ed37b",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "0eef1147ef4daaeba697e8004d5f78b175092aa330a6c2e31f8679060f11d008",
-    "source_tree_sha256": "126fc4ae4f37a3d9f54043d0e8134edb61bc0adfea29b4a0ac1451355e86556a",
+    "entry_sha256": "fb3ddedd6527cba0ae09b8baf61eef64cba81df5db969a60604a25452c83313f",
+    "source_tree_sha256": "b282908a2e76ad96bbae6e3b122c68f947cab124de6f292d42ceb186ba24aa8e",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "c47e9faa6e7f9bd28ac60f89f01e25318b3bb9cd68e8d997044b5ba563c90e80",
-      "bytes": 3005770,
+      "sha256": "f7dc6d74f9c661a47a958ffe0bf8b87ec2d71a2362f6101b1c3cac8328632385",
+      "bytes": 3304845,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -157,13 +164,13 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "b284643c66be259be713f1263928337c7f25533ecdd2b02db16845030d866c9c",
+        "generated_sha256": "ce4065dc7438363c7702ee27855cdd2e3120e540dc89b5285679fce945e87c3c",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "927ffadf7e8c5513d79658f79e14585daa883e005a8e6176c3d29e260bc339c3",
+        "provenance_sha256": "eeb637d8d1f7a26ed17449f7954c96a40099f9714718486621c11a1cbd871961",
         "compiler_ir_version": 7,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
@@ -176,13 +183,13 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "0fcd3e607105f60f57cee1673b6178bfc96bb013f1741ecdca79118f48e175e3",
+        "generated_sha256": "eeeef24405e8abaca36cd29b8236de8a7bde44514eb49c3d21df36a37e4deecc",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "5bfcaf41133f1af311a4c2b49baad9c18383c401803a236a21a6a45ba677cc39",
+        "provenance_sha256": "2c64778f9fd85ea6445e59c16874bc0ce163548ca92dc6c77a3edf24f2dc2be7",
         "compiler_ir_version": 7,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
@@ -190,42 +197,42 @@
     ]
   },
   "toolchain": {
-    "node": "v24.22.1",
+    "node": "v24.22.3",
     "pnpm": "10.32.1",
     "esbuild": "0.25.12",
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/workspace/scratch/eb30117f7b2a/shenko-sprint7/crates/shenko-ui/web",
-  "built_at": "2026-11-22T17:56:01.726Z",
+  "web_root": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-inspector-4deb/crates/shenko-ui/web",
+  "built_at": "2026-11-23T15:58:25.118Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1164508,
-      "sha256": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb"
+      "bytes": 1208326,
+      "sha256": "0a082f0137c79ef1ea7441e0919118ae283d09f62f8939825044aeb857f1cebe"
     },
-    "chunks/chunk-O3OVBR66.js": {
-      "bytes": 65273,
-      "sha256": "b79d2f7224934764cfc53bf54cda1b6d9252c5ba3d6c30acd341a84f0bad2873"
+    "chunks/chunk-DOLX2GU4.js": {
+      "bytes": 65439,
+      "sha256": "47097c5be8ba88ffc116737cd6d2f13dfd24cf2bf415c920af161f57386a533e"
     },
-    "chunks/demo-controller-IAYPJLAD.js": {
+    "chunks/demo-controller-Q5SPC5G3.js": {
       "bytes": 15700,
-      "sha256": "ba878393767fa080bdaf7a9cd520813e6299f65b71b541027280d8fe41fb6901"
+      "sha256": "0d1ca8625d494c183b568ec0ed6be15758e3dfc8c78e2da0fc220a4e265e4adf"
     },
     "app.css": {
-      "bytes": 62853,
-      "sha256": "5ce400125a97a86886ad3c3dcf0ce956522d26ac99863342e318116e857105f1"
+      "bytes": 63775,
+      "sha256": "e4ff43ae667c9259035b34bd79b4b2541c888d7814ffcad0f59b16ff5c540e3e"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 166521,
-      "sha256": "bf25d0730b5e71c92cf1f2cf8170308d7318134dba42ad26d27f6feb45538f1a"
+      "bytes": 166579,
+      "sha256": "96e90280a08c81593289572a6dab3e7078739040f830e9b4d055d545484acc3c"
     },
     "shadcn-theme.css": {
       "bytes": 6473,

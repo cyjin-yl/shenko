@@ -172,8 +172,27 @@ button, [role="button"], [data-pui-root][role="button"], .sk-button, .sk-toggle 
 .topbar-actions [data-pui-style~="shenko-status-chip"] { margin-right: 8px; }
 
 .body { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; position: relative; }
-.shell:not([data-lens="none"]) .body { grid-template-columns: minmax(0, 1fr) clamp(400px, 42vw, 680px); }
 .stream { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; min-width: 0; min-height: 0; }
+
+/* Resizable owns the split. Its normalized extent is the two Panels,
+   excluding the actual fixed separator; no padding or gap enters that sum. */
+.inspector-resize-group { padding: 0; gap: 0; min-width: 0; min-height: 0; }
+.inspector-stream-pane, .inspector-lens-pane {
+  display: grid; min-width: 0; min-height: 0; overflow: hidden;
+}
+.inspector-resize-handle { z-index: 1; }
+.body[data-inspector-state="closed"] .inspector-resize-handle,
+.body[data-inspector-state="closed"] .inspector-lens-pane,
+.body[data-inspector-state="collapsed"] .inspector-lens-pane { display: none; }
+.inspector-lens-pane > .lens { border-left: 0; }
+.lens-head .inspector-close { margin-left: 0; }
+.inspector-restore { position: absolute; inset-block-start: 6px; inset-inline-end: 10px; z-index: 2; }
+.body[data-inspector-layout="overlay"] .inspector-resize-handle,
+.body[data-inspector-layout="overlay"] .inspector-collapse { display: none; }
+.body[data-inspector-layout="overlay"] .inspector-lens-pane {
+  position: absolute; inset: 0; z-index: 20; width: auto;
+}
+.body[data-inspector-layout="overlay"] .inspector-close { margin-left: auto; }
 
 .lens {
   display: grid; grid-template-rows: 44px minmax(0, 1fr); min-width: 0; min-height: 0;
@@ -650,8 +669,6 @@ code.row-sub, code.row-title { font-size: 12px; }
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 1099px) {
-  .shell:not([data-lens="none"]) .body { grid-template-columns: minmax(0, 1fr); }
-  .lens { position: absolute; inset: 0; z-index: 20; border-left: 0; }
   .lens-item { padding: 0 9px; }
 }
 
@@ -660,7 +677,7 @@ code.row-sub, code.row-title { font-size: 12px; }
   .body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .topbar { grid-template-columns: minmax(0, 1fr) auto; padding: 0 6px 0 14px; }
   .topbar-actions .sk-toggle, .topbar-actions [data-pui-style~="shenko-status-chip"] { display: none; }
-  .lens { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+  .body[data-inspector-layout="overlay"] .inspector-lens-pane { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .timeline-column { padding: 16px 14px 28px; }
   .entries { padding-left: 22px; }
   .entries::before { left: 5px; }
