@@ -29,7 +29,8 @@
     "input",
     "separator",
     "toggle",
-    "resizable"
+    "resizable",
+    "tree"
   ],
   "realisation": {
     "compiled": [
@@ -91,6 +92,11 @@
         "family": "resizable",
         "mode": "adapter",
         "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "tree",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
       }
     ]
   },
@@ -111,6 +117,7 @@
       "packages/prototypes/shadcn/dist/separator/index.js",
       "packages/prototypes/shadcn/dist/toggle/index.js",
       "packages/prototypes/shadcn/dist/resizable/index.js",
+      "packages/prototypes/shadcn/dist/tree/index.js",
       "packages/cli/bin/proto-ui.js",
       "packages/compiler/package.json",
       "packages/compiler/src/index.ts"
@@ -203,28 +210,28 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-inspector-4deb/crates/shenko-ui/web",
-  "built_at": "2026-11-23T15:58:25.118Z",
+  "web_root": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/continuation-s7-tree-4deb/crates/shenko-ui/web",
+  "built_at": "2026-11-23T17:07:43.580Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1208326,
-      "sha256": "0a082f0137c79ef1ea7441e0919118ae283d09f62f8939825044aeb857f1cebe"
+      "bytes": 1232104,
+      "sha256": "3fa29a035a1d7b8a782123f0089ddc6549b39af06411bb6c2783d3bc024cffb5"
     },
-    "chunks/chunk-DOLX2GU4.js": {
-      "bytes": 65439,
-      "sha256": "47097c5be8ba88ffc116737cd6d2f13dfd24cf2bf415c920af161f57386a533e"
+    "chunks/chunk-CCOEKU5G.js": {
+      "bytes": 66321,
+      "sha256": "20969647bb0238d85d2339b733ad85179d3d63c60bc36170aa3fb06f35b1f28c"
     },
-    "chunks/demo-controller-Q5SPC5G3.js": {
-      "bytes": 15700,
-      "sha256": "0d1ca8625d494c183b568ec0ed6be15758e3dfc8c78e2da0fc220a4e265e4adf"
+    "chunks/demo-controller-UO6WU6NU.js": {
+      "bytes": 16356,
+      "sha256": "c5d4cbbf0dac2b356c276476897a534a5023124b1b1dfa5b5b21ea0a35d40e72"
     },
     "app.css": {
-      "bytes": 63775,
-      "sha256": "e4ff43ae667c9259035b34bd79b4b2541c888d7814ffcad0f59b16ff5c540e3e"
+      "bytes": 65132,
+      "sha256": "8f4e1ae27447d3928243f2beb8a1c12f2ca30ecd600d04bfb73150b1d76772a4"
     },
     "proto-ui-style.css": {
       "bytes": 294,

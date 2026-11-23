@@ -19,7 +19,8 @@
     "input",
     "separator",
     "toggle",
-    "resizable"
+    "resizable",
+    "tree"
   ],
   "compiler": {
     "status": "build_time_compiled",

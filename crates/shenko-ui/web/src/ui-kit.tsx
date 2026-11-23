@@ -40,6 +40,7 @@ import {
   shadcnResizableHandle,
 } from '@proto.ui/prototypes-shadcn/resizable';
 import { shadcnToggle } from '@proto.ui/prototypes-shadcn/toggle';
+import { shadcnTreeRoot, shadcnTreeItem, shadcnTreeGroup } from '@proto.ui/prototypes-shadcn/tree';
 import type { ConnectionState } from './projection';
 import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
 
@@ -99,6 +100,10 @@ export const ResizableRoot = adapt(shadcnResizableRoot);
 export const ResizablePanel = adapt(shadcnResizablePanel);
 export const ResizableHandle = adapt(shadcnResizableHandle);
 export type InspectorResizeHandle = ReactAdapterHandle<typeof shadcnResizableRoot>;
+export const TreeRoot = adapt(shadcnTreeRoot);
+export const TreeItem = adapt(shadcnTreeItem);
+export const TreeGroup = adapt(shadcnTreeGroup);
+export type InspectorTreeHandle = ReactAdapterHandle<typeof shadcnTreeRoot>;
 
 export type Emit = (nodeId: string, actionId: string, payload?: Record<string, unknown>) => void;
 

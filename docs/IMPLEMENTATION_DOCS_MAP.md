@@ -244,6 +244,7 @@
   - `LiveController` 只协调连接和状态；`SocketTransport` 拥有 WS 与重连，`LiveReadModels` 拥有读取和历史页，input/timeline reducer、preferences、pending-input store 各守其状态边界。渲染由 timeline surface/entries、composer、delegation branches、submission history、work frame 直接组成；IM 的内容 `ResizeObserver` 阅读锚点与 Inspect 的选择恢复随其组件保留。
   - `main.tsx` 仅在 `?demo=1` 动态载入 `demo-controller`，后者才引入 `demo-fixtures`。`build.mjs` 通过 esbuild 的实际 outputs 记录分块模块及摘要；Rust 的 `build.rs` 按 manifest 嵌入具名 chunks，HTTP 只服务该生成集合。这里记录源码接线；实际浏览器请求、语言、重连及阅读稳定性仍由各自运行回执说明。
   - `crates/shenko-ui/web/src/inspector-layout.tsx` 与 `inspector-sizing.ts` 已把可选桌面 Inspector 接到公共 Resizable Root/Panel/Handle：原 1100px 断点、400–680px 检查栏和 638px 主栏下限由 App 尺寸策略公开传入；输入、会话取消与键盘仍由 Proto 公共 owner 处理。窄屏沿用现有覆盖层；关闭恢复可见导航焦点，主栏与编辑器保持同一实例。候选依赖、原失败与浏览器观察见 [Inspector Resizable 证据](evidence/2026-11-23-inspector-resizable/README.md)。
+  - `inspector-trees.tsx` / `inspector-tree-model.ts` 将 Tasks 的显式父任务与 Playground 的 MIME 分类接入两个独立公共 Tree Root；应用仅组织记录及消费公开展开/激活提议，无 raw 输入或第二套焦点机器。无效关系不修复，拥有者按 surface/source/subject 退休；具体边界见 [Inspector Tree 域](specs/web-interface.md#inspector-中的两个-tree-域2026-11-23)。
 
 - **可执行策略配置（`bin/shenko/src/policy_config.rs`）** — 已接线（`shenko.quota/policy` 读回实际配额账本；`shenko.context-policy/compaction_preference` 修改实际策略选择器，重启恢复已保存顺序。未知策略 id 保留在请求顺序并在回执中披露；不把自然语言 `[policy]` 请求当成结构化配置执行，也不表示完整 S2 策略验收已完成）
   - [§43.1](specs/configuration-playground.md#spec-43-1)、[§12.3.1](specs/context-policies.md#spec-12-3-1)、[§42](specs/quota-resources.md#spec-42)

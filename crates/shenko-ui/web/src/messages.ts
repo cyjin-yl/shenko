@@ -1,5 +1,14 @@
 /** Product text is keyed here; provider/model content remains verbatim data. */
 const zhCN = {
+  "tree.invalid": "层级数据无效，暂时无法操作。原始记录未被改写。",
+  "tree.details": "任务详情",
+  "tree.taskIdentity": "任务 ID",
+  "tree.taskParent": "父任务 ID",
+  "tree.taskRole": "角色",
+  "tree.taskKind": "类型",
+  "tree.taskCreated": "创建时间",
+  "tree.taskGoal": "目标",
+  "tree.recordGone": "这条任务已不在当前投影中。",
   "shell.startupError": "界面未能启动：{detail}",
   "common.unknown": "未知",
   "common.unavailable": "不可用",
@@ -453,6 +462,15 @@ export interface UiMessage {
 export type LocalizedText = string | UiMessage;
 
 const en: Partial<Record<MessageId, string>> = {
+  "tree.invalid": "This hierarchy is invalid and cannot be operated. The original records are unchanged.",
+  "tree.details": "Task details",
+  "tree.taskIdentity": "Task ID",
+  "tree.taskParent": "Parent task ID",
+  "tree.taskRole": "Role",
+  "tree.taskKind": "Kind",
+  "tree.taskCreated": "Created",
+  "tree.taskGoal": "Goal",
+  "tree.recordGone": "This task is no longer in the current projection.",
   "shell.startupError": "The interface could not start: {detail}",
   "common.unknown": "Unknown",
   "common.unavailable": "Unavailable",

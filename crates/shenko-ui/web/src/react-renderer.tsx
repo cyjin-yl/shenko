@@ -245,11 +245,12 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
         inspector={open?.kind === 'work'
           ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
           : <>
-            <TasksSurface node={nodes.tasks_surface} />
+            <TasksSurface node={nodes.tasks_surface} ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])} />
             <MemorySurface node={nodes.memory_surface} />
             <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
             <PlaygroundSurface
               node={nodes.playground_surface}
+              ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
               onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
             />
           </>}

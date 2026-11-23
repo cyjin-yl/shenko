@@ -1194,3 +1194,43 @@ What the subject sees:
 - the name, type, size and digest of every attachment;
 - a text attachment's leading 24 KiB;
 - for an image, the fact that this inference path carries no image input.
+
+
+## Inspector 中的两个 Tree 域（2026-11-23）
+
+Tasks 和 Playground 的层级阅读使用同一个已钉版本的公开
+`@proto.ui/prototypes-shadcn/tree` Root、Item、Group，通过现有 React
+Adapter 工厂接入。每个页面有自己的 Root；父项、展开、逻辑焦点与
+Item/Group 可访问关系由公共 Tree 处理，应用不另写方向键、pointer
+或焦点状态机。
+
+任务层级只读取实际 `parent_task_id`。角色、类型、团队、创建步骤
+与名称继续作为记录事实，不能被用来推断父任务。点击或 Enter 激活任务
+时显示它的 ID、父 ID、角色、类型、创建时间与目标，不发送执行请求。
+Playground 根据实际 MIME 值组织产物分类；这只是应用的阅读分类，
+不声称后端文件系统具有相同目录。每条产物仍保留原始 ID、revision、
+生命周期及时间，`parent_revision` 绝不解释成父产物 ID。
+HTML 产物通过已有 WorkFrame 的 adopted-page 读取路径打开；没有采用页
+仍显示既有缺失状态，不为 Tree 造一个替代作品页。
+
+此应用使用受控空 `value`，不会提交选中值。`valueChange` 的公共提议
+被消费为应用激活：分支通过公开 `requestExpanded` 请求展开或折叠，
+任务查看详情，HTML 产物打开作品。受控 `expandedKeys` 仅接受
+`expandedChange` 提议；没有 lazy loading、虚拟化或执行图语义。
+初次收到完整列表时展开已有分支，后来新增的分支维持公共受控输入，
+不会悄悄推导新的展开政策。
+
+应用以每条记录的稳定身份组织 DOM，且每条接收到的记录只物化一次。
+重复或空身份、缺失父项、循环关系保留其原始关系输入，交由公共 Tree
+显示无效状态并阻止交互；遍历的 visited 集只防止 React 构造无限递归，
+不能把坏图改成有效图。两域的拥有者分别绑定
+`surface_id/source/subject_id`，主体变化会退休旧 Root、回调和物理项，
+而主流宿主及编辑器仍由现有布局拥有。
+
+此接线提供 Proto-UI #523 所缺的两个真实应用域。当前消费的上游候选
+仍是 `6a9b575fbe744ccb2f54d1e45336ccc195f401f1`；它不是后续 main
+或其他候选的验收。上游 `C-TREE-HIERARCHY-0001` 的 draft 状态、
+#678 的非 lazy／非选择 proposal 与现行 API 对齐、全宿主及实际 AT
+等独立条件不由本增量宣布通过。具体源码、输入、失败与真实浏览器
+回执由本次 Tree 证据记录绑定；既有 #522 Inspector 记录保持自己的
+冻结源边界。

@@ -53,6 +53,7 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/separator/index.js',
   'packages/prototypes/shadcn/dist/toggle/index.js',
   'packages/prototypes/shadcn/dist/resizable/index.js',
+  'packages/prototypes/shadcn/dist/tree/index.js',
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.
@@ -265,6 +266,7 @@ const manifest = {
       'packages/prototypes/shadcn/dist/separator/index.js',
       'packages/prototypes/shadcn/dist/toggle/index.js',
       'packages/prototypes/shadcn/dist/resizable/index.js',
+      'packages/prototypes/shadcn/dist/tree/index.js',
       'packages/cli/bin/proto-ui.js',
       'packages/compiler/package.json',
       'packages/compiler/src/index.ts',

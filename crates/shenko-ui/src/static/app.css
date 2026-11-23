@@ -1120,3 +1120,20 @@ code.row-sub, code.row-title { font-size: 12px; }
   .tab-item svg { display: none; }
   .tab-item { padding: 0 10px; }
 }
+
+
+/* Inspector composition: public Tree owns structure, visibility and focus. */
+.inspector-hierarchy { min-width: 0; }
+.inspector-tree-caret { display: inline-flex; flex: 0 0 14px; align-items: center; justify-content: center; }
+.inspector-tree-item[aria-expanded="true"] > .inspector-tree-caret { transform: rotate(90deg); }
+.inspector-tree-label { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-tree-label > span { overflow: hidden; text-overflow: ellipsis; }
+.inspector-tree-label > svg { flex-shrink: 0; }
+.inspector-tree-meta { display: flex; flex-direction: column; flex: 0 1 42%; align-items: flex-end; min-width: 0; color: var(--muted-foreground); font-size: 11px; }
+.inspector-tree-meta > span, .inspector-tree-meta > time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-tree-meta > time { font-size: 10px; }
+.inspector-tree-invalid { display: none; margin: 8px 0; color: var(--muted-foreground); }
+.inspector-hierarchy:has(> .inspector-tree-root[aria-invalid="true"]) > .inspector-tree-invalid { display: block; }
+.inspector-tree-details { margin-top: 16px; }
+.inspector-tree-details h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+.inspector-tree-details dd { overflow-wrap: anywhere; }
