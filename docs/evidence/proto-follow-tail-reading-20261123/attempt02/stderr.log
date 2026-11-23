@@ -1,0 +1,22 @@
+AssertionError [ERR_ASSERTION]: fixture supplies sequential focus targets in at least three messages: {"focusTargets":[]}
+    at check (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:136:113)
+    at journey (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:167:5)
+    at async file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:329:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+AssertionError [ERR_ASSERTION]: fixture supplies sequential focus targets in at least three messages: {"focusTargets":[]}
+    at check (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:136:113)
+    at journey (file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:167:5)
+    at async file:///tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/shenko-reading-followthrough/scripts/web_reading_journey.mjs:329:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}

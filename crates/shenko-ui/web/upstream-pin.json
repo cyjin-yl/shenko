@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-  "migrated_from": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+  "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "migrated_from": "8fcde0e1e522762969e89c0343a78179edb8c89e",
   "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",
@@ -12,6 +12,7 @@
     "button",
     "textarea",
     "scroll-area",
+    "message-scroller",
     "collapsible",
     "drawer",
     "toggle-group",

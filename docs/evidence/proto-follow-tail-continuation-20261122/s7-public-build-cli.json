@@ -1,0 +1,12 @@
+{
+  "packageCount": 47,
+  "selectedCount": 1,
+  "results": [
+    {
+      "name": "@proto.ui/cli",
+      "durationMs": 4086,
+      "files": 62,
+      "bytes": 1200456
+    }
+  ]
+}
