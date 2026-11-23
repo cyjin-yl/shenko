@@ -29,6 +29,7 @@ pub(crate) async fn dispatch(
     identity_context: &cordis_core::Context,
     identity_service: &IdentityService,
     state: &mut runtime_lifecycle::RuntimeState,
+    embedded: Option<crate::inprocess_start::EmbeddedStart<'_>>,
 ) -> Result<()> {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -419,6 +420,7 @@ pub(crate) async fn dispatch(
                         channels_config,
                     },
                 },
+                embedded,
             ).await?;
         }
     }

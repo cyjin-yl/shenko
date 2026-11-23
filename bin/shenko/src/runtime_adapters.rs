@@ -214,7 +214,7 @@ async fn admit_channel_event(
     let Some(plugin) = registry.channel_for_source(source) else {
         anyhow::bail!("no registered channel plugin owns source {source}");
     };
-    envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
+    envelope = prepare_channel_envelope(&plugin, store, event_id, envelope).await?;
     let inbox_ev = shenko_types::inbox::InboxEvent {
         event_id,
         kind: shenko_types::inbox::InboxEventKind::Message,

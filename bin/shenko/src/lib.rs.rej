@@ -1,0 +1,122 @@
+diff a/bin/shenko/src/lib.rs b/bin/shenko/src/lib.rs	(rejected hunks)
+@@ -248,6 +250,33 @@
+     run_owned(cli.command, data_dir)
+ }
+ 
++/// Acquire or adopt the installation's exclusive runtime ownership before any
++/// owner, store or retained-input file exists.
++///
++/// Rejecting an unrelated target happens before the lock is created, and the
++/// target is re-checked after acquisition because another starter may have
++/// finished bootstrap in between.
++fn admit_installation(
++    data_dir: PathBuf,
++) -> Result<(crate::runtime_owner::RuntimeOwner, PathBuf)> {
++    let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
++        data_dir: data_dir.clone(), ..Default::default()
++    });
++    // Reject an unrelated target before creating any owner or store file.
++    bootstrap.validate_target()?;
++    runtime_bootstrap::create_data_directory(&data_dir)?;
++    let data_dir = data_dir.canonicalize()?;
++    let owner = update_control::acquire_launch_owner(&data_dir)?;
++    // Recheck after obtaining the guard: another starter may have finished
++    // bootstrap between the initial read and lock acquisition.
++    let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
++        data_dir: data_dir.clone(), ..Default::default()
++    });
++    bootstrap.validate_target()?;
++    owner.verify_path(&data_dir)?;
++    Ok((owner, data_dir))
++}
++
+ /// Run one host while retaining exclusive installation ownership until its
+ /// Tokio runtime is dropped. Handoff launches adopt the existing locked FD.
+ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
+@@ -259,31 +288,69 @@
+     // an async task is not proof that a blocking/provider operation has ended.
+     let (owner, data_dir) = if let Command::Start { napcat, napcat_cli_url, napcat_account, .. } = &command {
+         runtime_napcat::configured_account(napcat.is_some() || napcat_cli_url.is_some(), *napcat_account)?;
+-        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+-            data_dir: data_dir.clone(), ..Default::default()
+-        });
+-        // Reject an unrelated target before creating any owner or store file.
+-        bootstrap.validate_target()?;
+-        runtime_bootstrap::create_data_directory(&data_dir)?;
+-        let data_dir = data_dir.canonicalize()?;
+-        let owner = update_control::acquire_launch_owner(&data_dir)?;
+-        // Recheck after obtaining the guard: another starter may have finished
+-        // bootstrap between the initial read and lock acquisition.
+-        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+-            data_dir: data_dir.clone(), ..Default::default()
+-        });
+-        bootstrap.validate_target()?;
+-        owner.verify_path(&data_dir)?;
++        let (owner, data_dir) = admit_installation(data_dir)?;
+         (Some(owner), data_dir)
+     } else {
+         (None, data_dir)
+     };
+-    let mut command = command;
++    run_host(command, data_dir, owner, None, None)
++}
++
++/// Start the node inside the host process (Android cdylib, SPEC §24.5).
++///
++/// The foreground service supplies only the app files dir and a port: there is
++/// no argv, no renamed ELF and no fork. The Start inputs are retained on the
++/// first start and must match exactly on every later one, and the selected
++/// installation's Store, stage, schema and frozen-Start custody is verified
++/// before the real runtime starts (see `inprocess_start`). A missing witness
++/// refuses the start instead of serving a guessed generation.
++pub fn run_embedded_start(data_dir: PathBuf, port: u16) -> Result<()> {
++    let (owner, data_dir) = admit_installation(data_dir)?;
++    let frozen = start_inputs::admit(&data_dir, start_inputs::StartRequest::in_process(port))?;
++    let command = frozen.clone().into_command();
++    run_host(command, data_dir, Some(owner), Some(frozen), None)
++}
++
++/// Start the committed successor generation in this same process.
++///
++/// The desktop hand-over `exec`s the selected executable and transfers the
++/// locked owner descriptor. Android has no executable it may `exec`, so the
++/// successor starts in-process while the SAME `RuntimeOwner`, the committed
++/// selector revision and the retained Start inputs are verified again. Without
++/// the retained inputs or any other custody witness the start is refused; the
++/// committed selector stays readable for recovery instead of being served by an
++/// invented runtime.
++#[cfg(target_os = "android")]
++pub(crate) fn run_selected_in_process(
++    data_dir: PathBuf,
++    expected_selector_revision: u64,
++    owner: crate::runtime_owner::RuntimeOwner,
++) -> Result<()> {
++    let data_dir = data_dir.canonicalize()?;
++    owner.verify_path(&data_dir)?;
++    let frozen = start_inputs::require(&data_dir)?;
++    let command = frozen.clone().into_command();
++    run_host(command, data_dir, Some(owner), Some(frozen), Some(expected_selector_revision))
++}
++
++fn run_host(
++    mut command: Command,
++    data_dir: PathBuf,
++    owner: Option<crate::runtime_owner::RuntimeOwner>,
++    embedded: Option<start_inputs::FrozenStart>,
++    expected_selector_revision: Option<u64>,
++) -> Result<()> {
+     let result = loop {
+         let mut restart = runtime_authority::restart_command(&command);
+         let mut startup_pause_applied = false;
+         let runtime = tokio::runtime::Runtime::new()?;
+-        let result = runtime.block_on(runtime_lifecycle::run(command, data_dir.clone(), &mut startup_pause_applied));
++        let embedded = embedded.as_ref().map(|frozen| inprocess_start::EmbeddedStart {
++            frozen,
++            expected_selector_revision,
++        });
++        let result = runtime.block_on(runtime_lifecycle::run(
++            command, data_dir.clone(), &mut startup_pause_applied, embedded,
++        ));
+         if startup_pause_applied {
+             // The original request is now durable. Reconstruction reads its
+             // current state, including a later explicit resume, instead of

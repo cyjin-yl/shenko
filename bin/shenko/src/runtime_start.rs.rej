@@ -1,0 +1,17 @@
+diff a/bin/shenko/src/runtime_start.rs b/bin/shenko/src/runtime_start.rs	(rejected hunks)
+@@ -26,7 +26,15 @@
+     state: &mut crate::runtime_lifecycle::RuntimeState,
+     data_dir: PathBuf,
+     config: StartConfig,
++    embedded: Option<inprocess_start::EmbeddedStart<'_>>,
+ ) -> Result<()> {
++    // An in-process (cdylib) host has no argv of its own. The retained Start
++    // document is the only authority for what this process starts with, so a
++    // request that disagrees with it is refused before home preparation,
++    // genesis or any runtime service can write anything.
++    if let Some(embedded) = embedded {
++        embedded.frozen.matches_start(&config)?;
++    }
+     let StartConfig { port, pause_at_start, name, channels, ssh_targets } = config;
+     let _ = channels.napcat.configured_account()?;
+     info!(

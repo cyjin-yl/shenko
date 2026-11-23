@@ -518,9 +518,14 @@ pub fn staged_message_text(
     // The owning plugin classifies the payload and renders the model's view
     // of it. A payload that is already the normalized envelope classifies to
     // itself, so the projection is stable across admission and replay.
-    if let Some(plugin) = channels.channel_for_source(source) {
-        if let Some(envelope) = plugin.classify(source, payload) {
-            return plugin.staged_text(&envelope);
+    if let Some(channel) = channels.channel_for_source(source) {
+        // A displaced generation no longer interprets new payloads. The
+        // durable raw payload keeps the plain header rather than being
+        // re-read by a later plugin or by a handle whose generation is gone.
+        if let Ok(Some(envelope)) = channel.classify(source, payload)
+            && let Ok(text) = channel.staged_text(&envelope)
+        {
+            return text;
         }
     }
     let sender = payload.get("sender");

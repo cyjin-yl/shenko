@@ -5,7 +5,7 @@ use anyhow::Result;
 use shenko_identity::IdentityService;
 use tracing::info;
 
-use crate::{node_sync, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
+use crate::{inprocess_start, node_sync, runtime_channels, runtime_cognition, runtime_inference, runtime_publications, update_control, update_runtime};
 use crate::runtime_bootstrap::{adopt_identity, bootstrap_genesis, create_data_directory_async};
 use crate::runtime_consumers::RuntimeConsumers;
 use crate::runtime_lifecycle::{StoreErrorSink, spawn_runtime_hook_pump};
@@ -60,7 +60,26 @@ pub(crate) async fn start(
         "store ready"
     );
 
+    // Retained installation custody. An in-process start has no exec boundary
+    // that could re-prove the selection, so this proves the process still holds
+    // the Store writer, the selected stage, the admitted schemas and the frozen
+    // Start inputs before genesis, identity, home preparation or any runtime
+    // service runs. `None` is the honest pre-genesis state of a brand new
+    // installation; a successor start never accepts it.
+    let (store, installation_custody) = match embedded {
+        Some(embedded) => inprocess_start::verify_installation(
+            store, &data_dir, &live_slot, embedded,
+        )?,
+        None => (store, None),
+    };
+
     let installation_id = store.installation_id_for_home()?;
+    if let Some(custody) = &installation_custody {
+        anyhow::ensure!(
+            custody.installation_id == installation_id,
+            "START_CUSTODY_STORE: the subject's installation identity differs from this installation's home identity"
+        );
+    }
     // Prepare the protected installation control channel before home
     // setup, connectors, or subject work can publish runtime effects.
     // Claiming is not a prerequisite for ordinary conversation.
@@ -136,6 +155,23 @@ pub(crate) async fn start(
         selector_epoch = launch_receipt.selector_epoch,
         "launch bound to control authority"
     );
+    // The launch row is durable now. Re-read the whole retained witness so a
+    // selection or launcher-pointer change that raced this start is refused
+    // instead of served. The pre-genesis path has no selector to bind yet.
+    let _start_custody = match installation_custody {
+        Some(custody) => Some(inprocess_start::verify_launch(
+            &store, &data_dir, custody, &launch_receipt,
+        )?),
+        None => None,
+    };
+    if let Some(custody) = &_start_custody {
+        info!(
+            generation = %custody.installation.selector.generation.0,
+            selector_revision = custody.installation.selector.selector_revision,
+            launch_id = %custody.launch.launch_id,
+            "in-process start custody retained for the runtime lifetime"
+        );
+    }
     // Deterministic recovery services remain available without an LLM.
     let cancel = tokio_util::sync::CancellationToken::new();
     let _runtime_cancel_on_exit = cancel.clone().drop_guard();

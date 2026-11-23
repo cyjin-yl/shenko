@@ -252,7 +252,10 @@ pub(super) async fn install(input: NapCatInstall<'_>) -> Result<Option<cordis_co
         let inbox_tx = subject_inbox.sender();
         let event_store = Arc::clone(store);
         let event_spool = Arc::clone(&spool);
-        let admission_plugin = Arc::clone(&qq_plugin);
+        // Resolve the owning channel from the live registry on every event.
+        // The seal is attached after this connector starts, and every clone is
+        // a view of the same installed generation.
+        let admission_registry = channel_registry.clone();
         let cancel_events = cancel_napcat.clone();
         tokio::spawn(async move {
             let result: Result<()> = async {
@@ -264,10 +267,8 @@ pub(super) async fn install(input: NapCatInstall<'_>) -> Result<Option<cordis_co
                         },
                         _ = cancel_events.cancelled() => break,
                     };
-                    let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> =
-                        admission_plugin.clone();
                     let Some(inbox_ev) = napcat_inbox_event(
-                        &event_store, agent_id, &event_spool, &plugin, ev,
+                        &event_store, agent_id, &event_spool, &admission_registry, ev,
                     ).await? else { continue; };
                     let inbox_ev = event_store.retain_inbox_event(agent_id, &inbox_ev)?;
                     let _ = inbox_tx.try_send(inbox_ev);
@@ -348,9 +349,12 @@ pub(crate) async fn napcat_inbox_event(
     store: &shenko_store::store::Store,
     agent_id: shenko_types::ids::EntityId,
     spool: &shenko_channel_napcat::IngressSpool,
-    plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
+    registry: &shenko_types::channel::ChannelRegistry,
     event: shenko_channel_napcat::client::OneBotEvent,
 ) -> Result<Option<shenko_types::inbox::InboxEvent>> {
+    let Some(plugin) = registry.channel_for_source(shenko_channel_napcat::QQ_SOURCE) else {
+        anyhow::bail!("no installed channel plugin owns the NapCat source");
+    };
     let event_id = event.ingress_id
         .ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?;
     let received = spool.event(event_id)?;
@@ -395,9 +399,9 @@ pub(crate) async fn napcat_inbox_event(
         created_at: received.received_at,
         source: shenko_channel_napcat::QQ_SOURCE.to_string(),
     };
-    if let Some(mut envelope) = plugin.classify(&original.source, &original.payload) {
+    if let Some(mut envelope) = plugin.classify(&original.source, &original.payload)? {
         envelope.received_at = original.created_at;
-        envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
+        envelope = prepare_channel_envelope(&plugin, store, event_id, envelope).await?;
         original.payload = serde_json::to_value(&envelope)?;
     }
     Ok(Some(original))
