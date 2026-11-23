@@ -754,7 +754,13 @@ pub fn classify_operations(
         // fact (the deployment enabled it), not a per-request control. The
         // guarantee stays best effort either way: an enabled cache is not a
         // reservation, and no probe shows one request took effect.
-        let operation = if declared == Some(OperationAvailability::Available) {
+        // A probe that never mentioned this operation has not classified it:
+        // silence is neither a refusal nor a claim, so no declaration is
+        // emitted for it and every reader keeps it undeclared.
+        let Some(support) = declared else {
+            continue;
+        };
+        let operation = if support == OperationAvailability::Available {
             OperationDeclaration {
                 name: name.to_string(),
                 availability: OperationAvailability::Available,
@@ -775,25 +781,21 @@ pub fn classify_operations(
         } else {
             OperationDeclaration {
                 name: name.to_string(),
-                availability: declared.unwrap_or(OperationAvailability::Unknown),
+                availability: support,
                 scope: OperationScope::Request,
                 guarantee: Guarantee::Advisory,
                 native_namespace: (!namespace.is_empty()).then(|| namespace.to_string()),
                 evidence: None,
-                reason: Some(match declared {
-                    Some(OperationAvailability::RequiresConfiguration) => {
+                reason: Some(match support {
+                    OperationAvailability::RequiresConfiguration => {
                         "the backend declared that this operation requires configuration"
                     }
-                    Some(OperationAvailability::Unsupported) => {
+                    OperationAvailability::Unsupported => {
                         "the backend declared that this operation is unsupported"
                     }
-                    Some(_) => {
+                    _ => {
                         "the probe declaration is unknown, nonaffirmative or conflicting; \
                          the raw evidence is retained and no operation support is claimed"
-                    }
-                    None => {
-                        "this deployment did not declare the operation in its probe response; \
-                         an accepted request is not evidence that it took effect"
                     }
                 }.into()),
             }
