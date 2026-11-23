@@ -44,6 +44,9 @@ pub mod context_notes;
 pub mod raw_session;
 pub mod cognition;
 pub mod atoms;
+/// Evidence-based forgetting (SPEC §51.7): durable evidence, decision
+/// receipts, retention exceptions and bounded CAS publication release.
+pub mod forgetting;
 pub mod cognition_archive;
 pub mod contacts;
 pub mod recovery_sources;

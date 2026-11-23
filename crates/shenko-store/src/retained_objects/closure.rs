@@ -16,6 +16,28 @@ pub(super) enum JsonReading {
     ToolChunkManifest,
 }
 
+/// Only the known attitude-reasons column gives a digest/locator pair its
+/// SourceRef interpretation. Identically shaped arbitrary artifact metadata
+/// still goes through the conservative artifact reader.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValueReading {
+    Generic,
+    Reasons,
+    Reason,
+    Termination,
+    Source,
+}
+
+impl ValueReading {
+    fn field(self, key: &str) -> Self {
+        match (self, key) {
+            (Self::Reason, "termination") => Self::Termination,
+            (Self::Termination, "source") => Self::Source,
+            _ => Self::Generic,
+        }
+    }
+}
+
 pub(super) fn is_json(media_type: &str) -> bool {
     media_type == "application/json" || media_type.ends_with("+json")
 }
@@ -96,7 +118,15 @@ impl Reader<'_> {
                 {
                     self.gap("unsupported_tool_chunk_manifest", origin.clone(), None);
                 }
-                self.value(&value, origin, depth);
+                let reading = if depth == 0 && matches!(origin,
+                    RetentionOrigin::Row { table, column, .. }
+                        if table == "cognition_attitudes" && column == "reasons_json")
+                {
+                    ValueReading::Reasons
+                } else {
+                    ValueReading::Generic
+                };
+                self.value(&value, origin, depth, reading);
             }
             Err(_) if required => self.gap("invalid_json_carrier", origin.clone(), None),
             Err(_) => {
@@ -111,7 +141,7 @@ impl Reader<'_> {
         }
     }
 
-    fn value(&mut self, value: &Value, origin: &RetentionOrigin, depth: usize) {
+    fn value(&mut self, value: &Value, origin: &RetentionOrigin, depth: usize, reading: ValueReading) {
         if self.exhausted { return; }
         if depth > self.report.limits.depth {
             self.gap("json_depth_exceeded", origin.clone(), None);
@@ -125,7 +155,8 @@ impl Reader<'_> {
                     // unknown record representation has a complete closure.
                     self.gap("unsupported_record_schema_version", origin.clone(), None);
                 }
-                let artifact = self.artifact(map, origin);
+                let source = reading == ValueReading::Source && self.cognition_source(map, origin);
+                let artifact = source || self.artifact(map, origin);
                 // Missing namespace/codec is not permission to demote an
                 // ObjectRef-shaped carrier to a harmless optional digest.
                 let looks_typed = !artifact
@@ -148,12 +179,18 @@ impl Reader<'_> {
                 for (key, nested) in map {
                     // A valid ObjectRef's codec digest is a schema identity, not
                     // an extra content edge. Other fields still support aliases.
-                    if (looks_typed && key == "codec") || (artifact && key == "digest") { continue; }
-                    self.value(nested, origin, depth + 1);
+                    if (looks_typed && key == "codec") || (artifact && key == "digest")
+                        || (source && key == "locator") { continue; }
+                    self.value(nested, origin, depth + 1, reading.field(key));
                 }
             }
             Value::Array(items) => {
-                for item in items { self.value(item, origin, depth + 1); }
+                let item_reading = if reading == ValueReading::Reasons {
+                    ValueReading::Reason
+                } else {
+                    ValueReading::Generic
+                };
+                for item in items { self.value(item, origin, depth + 1, item_reading); }
             }
             Value::String(text) => {
                 if let Some(digest) = digest(text) {

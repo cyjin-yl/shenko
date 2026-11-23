@@ -11,8 +11,11 @@ use std::sync::Arc;
 mod subject_genesis;
 #[path = "support/canonical_native.rs"]
 mod canonical_native;
+#[path = "support/canonical_subject.rs"]
+mod canonical_subject;
 use canonical_native::{CanonicalGuard, NativeT2Authority, NativeT2AuthorityState,
-    recorded_result_with_docket, committed_candidate_with, draft_dispatch_operation};
+    draft_dispatch_operation};
+use canonical_subject::{recorded_result_with_docket, committed_candidate_with};
 use subject_genesis::initialize_subject_in_with_route;
 
 

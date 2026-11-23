@@ -28,9 +28,15 @@
 //!
 //! (channel adapter boundary), (platform account model)
 //! (channel plugin seam).
+//!
+//! [`discord_live`] is the opt-in live acceptance harness for the Discord bot
+//! transport: environment-only credentials, a real Bot Gateway connection, a
+//! received message, a reply and its read-back, the capability table's live
+//! basis, bounded rate-limit handling and a credential-free receipt.
 
 pub mod aes;
 pub mod common;
+pub mod discord_live;
 pub mod feishu;
 pub mod ilink;
 pub mod ingress;
