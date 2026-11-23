@@ -12,7 +12,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
-tokio-tungstenite = { workspace = true }
+# The live acceptance harness (and the QQ official/Feishu gateways) connect to
+# wss:// endpoints. tokio-tungstenite's default features carry no TLS backend,
+# so the already-locked rustls roots feature is enabled here explicitly.
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
 futures = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
