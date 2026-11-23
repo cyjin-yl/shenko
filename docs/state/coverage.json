@@ -10932,7 +10932,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with": [
+      "crates/shenko-store/tests/support/canonical_subject.rs#committed_candidate_with": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit": [
@@ -11003,7 +11003,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket": [
+      "crates/shenko-store/tests/support/canonical_subject.rs#recorded_result_with_docket": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait": [
@@ -35050,7 +35050,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#claimed_native_task",
           "crates/shenko-store/tests/store_roundtrip.rs#commit_publication_step",
           "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate",
-          "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with",
+          "crates/shenko-store/tests/support/canonical_subject.rs#committed_candidate_with",
           "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#dispatch_cursor_reaches_later_work_and_wraps_without_starving",
           "crates/shenko-store/tests/store_roundtrip.rs#empty_batch_commit_returns_receipt",
@@ -35073,7 +35073,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#publication_state",
           "crates/shenko-store/tests/store_roundtrip.rs#publication_t1_claims_and_arms_in_one_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result",
-          "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket",
+          "crates/shenko-store/tests/support/canonical_subject.rs#recorded_result_with_docket",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait",
           "crates/shenko-store/tests/store_roundtrip.rs#recovery_task",
           "crates/shenko-store/tests/store_roundtrip.rs#s1_commit_advances_branch_head",
