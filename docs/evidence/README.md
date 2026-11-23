@@ -2,6 +2,8 @@
 
 此目录保留各 focused 切片的源码/工件绑定证据；它们不是完整 Shenko 或 S1–S5 通过声明。每条记录区分候选、实际输入、环境、方法、结果、失败与尚未覆盖的 R/B/case。初始化文档完整性报告只证明交接材料一致。
 
+- [共享 follow-tail 的真实 Inspect / IM 消费](proto-follow-tail-20261122.md)：移交滚动 follow 状态机给 Proto-UI，保留 Shenko 稳定阅读锚点；桌面与 390 px 两表面真实前端旅程、原失败和资源绑定分别记录，不宣称后端、模型或物理输入验收。
+
 - [DSH 工具桥接与原始计算器插件验证](dsh-bridge-2026-11-20.md)：保留原计算器旧依赖与新宿主经真实 MCP stdio 返回 96，以及各次宿主协议检查的历史结果；后续 [Store/native 接续验证](dsh-native-2026-11-21.md)绑定首次实测候选的 8 个 JavaScript 用例和 1 条原生旅程，归档 Unknown 不重放、同进程 Store 关闭重开与撤回的实际回执。模型选用、OS 崩溃恢复与唱歌仍未验证。
 
 - [Store 留存审计、准备身份与原件导出的后续候选](retention-preparation-export-20261116/README.md)：保留逐字节整合复核、原作者源码、三组各不超过九个窗口的边界及零新增行为的导出接线；本地未执行 Rust。工具 manifest 的类型／同摘要别名漏口已修；全槽位 GC、全安装写入排他和完整自开发仍待后续。Clippy 归档误分类的原失败与输入闭包缺口另行保留，未放宽门禁。
@@ -53,3 +55,5 @@
 - [首次 Unknown 的一个因果 E1 后继](../development/canonical-native-e1-successor.md)：保留原观察、acknowledgement 与来源，七个新 SSH 窗口不获得执行权限；没有用较早首次 E1 的通过代替后继运行结果。
 
 - [Merged #339–#342 component observations](merged-components-342-20261120.json): original native receipt/input/executable bindings and protected CI heads; standalone/composed and schema-7/schema-9 results remain separate, including failures. No canonical acceptance case is newly satisfied.
+
+- [共享 follow-tail 接续与当前主线产物](proto-follow-tail-continuation-20261122.md)：真实应用源码、42 包闭包、51 项现有 UI 检查与原 v6 浏览器证据的独立绑定。

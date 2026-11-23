@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "kind": "repair of observed CI failures and independent content-focus finding",
+  "basedOn": "ecf6d6aa0e0d7c5519ed9eec471406ca79970db1",
+  "protoUiSource": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "originalCi": {
+    "run": 45051099806,
+    "executedMerge": "b2219ec7caf0a6d1e3cd93625091fa97a26fca82",
+    "docsMigration": {
+      "job": 137296171017,
+      "conclusion": "failure",
+      "error": "Migrated contract checksum mismatch: SPEC:21.11"
+    },
+    "web": {
+      "job": 137296170892,
+      "conclusion": "failure",
+      "error": "manifest.toolchain.node: 'v24.22.3' != 'v24.22.1'",
+      "artifact": 14765272518,
+      "archiveSha256": "63e752bb3dad6196007bf08fc281901cea50ce319fa852fae5726db3ba6743db",
+      "independentOriginalPayloadComparison": {
+        "files": 12,
+        "mismatches": []
+      }
+    }
+  },
+  "repairs": {
+    "migration": "Original SPEC:21.11 block restored byte-for-byte from main 2c778c18; current implementation prose moved outside its migration markers. Checker and checksum map unchanged.",
+    "node": "Downloaded official v24.22.1 archive, verified published SHA256, rebuilt all 42 public packages in one original builder invocation, then compiled real App. Toolchain field comes from process.version.",
+    "contentFocus": "Only focus captured inside each actual message content subtree pauses the public follow lease; composer and explicit resume control remain outside. Native Shift+Tab/Tab journeys added to the existing four-route producer."
+  },
+  "sourceInputs": {
+    "crates/shenko-ui/web/src/im.tsx": "65b8600acb55213e788903cbfc1337e4c3446130b13b146fe4a2ae0f97f7d9da",
+    "crates/shenko-ui/web/src/timeline-surface.tsx": "69f121e46f44ceb9c8ce9300f4b5c1d2627ba0174224c20a1a38d935a6559e0d",
+    "crates/shenko-ui/web/upstream-pin.json": "2c2aea44febc365f4ec274bd32bdfccb7376c8dbfce1471bd4257436bf37ee23",
+    "scripts/web_reading_journey.mjs": "5107d3a43538e610a347de2509018b5a782a8d97f6933adaf783944c9701fb6b",
+    "crates/shenko-ui/src/static/build-manifest.json": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+    "crates/shenko-ui/src/static/app.js": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb",
+    "docs/specs/web-interface.md": "d605a79b207b7687b4d8ddcd9c031018d0039f2653174e0594eb15c4c66f5ab6"
+  },
+  "results": {
+    "publicBuild": {
+      "packages": 42,
+      "phases": [
+        42
+      ],
+      "node": "v24.22.1"
+    },
+    "frontendBuild": {
+      "exitCode": 0,
+      "hashedAssets": 12
+    },
+    "types": {
+      "exitCode": 0
+    },
+    "unit": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0
+    },
+    "docsMigration": {
+      "exitCode": 0,
+      "migratedChunks": 365,
+      "errors": []
+    },
+    "newNativeKeyboardJourney": {
+      "executed": false,
+      "reason": "Current local browser process-singleton socket unavailable and existing remote executor offline"
+    }
+  },
+  "logs": {
+    "migration-original.log": {
+      "archive": "migration-original.log.gz",
+      "bytes": 553,
+      "sha256": "afacfc8136822b2c6917b8e78c06117de0d1db2e974f65e9effbd7210d99dbac"
+    },
+    "migration-ci-original.log": {
+      "archive": "migration-ci-original.log.gz",
+      "bytes": 72642,
+      "sha256": "37b52fe91c26db53526dca626ecddbf847a403807d434d8ceeb4c0360113c9fe"
+    },
+    "migration-fixed.log": {
+      "archive": "migration-fixed.log.gz",
+      "bytes": 496,
+      "sha256": "7f69bff9c5d821830c569a4a6e30f79590eadf595d602ede53778297fdc19d0d"
+    },
+    "public-build-node24221.stderr": {
+      "archive": "public-build-node24221.stderr.gz",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "frontend-build-focus-node24221.log": {
+      "archive": "frontend-build-focus-node24221.log.gz",
+      "bytes": 987,
+      "sha256": "3929b2c6b80a2b954f2cec38c97fb3c2b6e5e814027d955a0b1bb605f78cbcd0"
+    },
+    "types-focus-node24221.log": {
+      "archive": "types-focus-node24221.log.gz",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "unit-focus-node24221.log": {
+      "archive": "unit-focus-node24221.log.gz",
+      "bytes": 5005,
+      "sha256": "23ab4aedf09c9ba975cc4f2e040d32eda1da80f4ce52de0852934f55471ca1fd"
+    },
+    "web-ci-original.log": {
+      "archive": "web-ci-original.log.gz",
+      "bytes": 50863,
+      "sha256": "706e2dbd9b9f672bd5da5e7e03affa1260a1762ee8a731e5252f466967f8e6b5"
+    },
+    "migration-final.log": {
+      "archive": "migration-final.log.gz",
+      "bytes": 496,
+      "sha256": "7f69bff9c5d821830c569a4a6e30f79590eadf595d602ede53778297fdc19d0d"
+    }
+  },
+  "remaining": [
+    "Final publication head must receive its own six required CI results.",
+    "Four actual final-head browser journeys including the new keyboard cases are not yet executed.",
+    "Original v6 remains bound only to Shenko b257cc39 and Proto-UI 8ec1427; no new-head browser credit."
+  ],
+  "review": {
+    "reactChecklist": "Stable class event handlers; application-owned content focus only; no new effects, global listeners, dependencies, or focus writes. Existing lifecycle teardown remains unchanged.",
+    "independentFinding": "Tab/Shift+Tab native focus scroll previously did not pause following; source repair reviewed separately and native execution remains outstanding."
+  }
+}
