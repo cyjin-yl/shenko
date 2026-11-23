@@ -26,7 +26,7 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::store::{RawSession, RawSessionEvent, WriteBatch};
 use shenko_wasm::gc::{
-    CasGc, CasRootProducer, GcOutcome, STORE_LEDGER_PRODUCER, StoreLedgerRoots,
+    CasGc, GcOutcome, STORE_LEDGER_PRODUCER, StoreLedgerRoots,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -46,7 +46,8 @@ fn temp_dir(tag: &str) -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     let dir = root.join(format!("shenko-install-gc-{tag}-{}", EntityId::new()));
-    fs::create_dir_all(&dir).expect("create temp dir");
+    fs::create_dir_all(&dir)
+        .unwrap_or_else(|error| panic!("create temp dir {}: {error}", dir.display()));
     dir
 }
 
@@ -159,7 +160,7 @@ fn publish_evidence(store: &Store) -> Result<Evidence> {
             data: data.clone(),
         })
         .collect::<Vec<_>>();
-    store.commit_raw_session_snapshot(&session, &events, &[source.digest.clone()])?;
+    store.commit_raw_session_snapshot(&session, &events, std::slice::from_ref(&source.digest))?;
 
     let receipt = EvidenceReceipt {
         record_schema_version: 1,
@@ -310,7 +311,7 @@ fn installation_evidence_closure_survives_reclamation_and_orphans_are_collected_
         assert!(receipt.retained_ungoverned.is_empty(), "{:?}", receipt.retained_ungoverned);
         assert!(receipt.retained_concurrent.is_empty());
         assert!(
-            receipt.reachable >= evidence.objects.len() + 1,
+            receipt.reachable > evidence.objects.len(),
             "the plan must retain the evidence closure and the pin"
         );
 

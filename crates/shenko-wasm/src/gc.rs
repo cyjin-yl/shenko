@@ -391,7 +391,8 @@ impl<'a> CasGc<'a> {
         let dir = self.data_dir.join(CAS_ROOTS_DIR);
         fs::create_dir_all(&dir)
             .with_context(|| format!("create root registry directory {}", dir.display()))?;
-        let bytes = serde_json::to_vec_pretty(&registry).expect("registry serialize");
+        let bytes = serde_json::to_vec_pretty(&registry)
+            .with_context(|| "serialize root registry".to_string())?;
         fs::write(self.registry_path(), bytes)
             .with_context(|| format!("write root registry {}", self.registry_path().display()))?;
         sync_dir(&dir)?;
@@ -996,7 +997,8 @@ pub fn write_root_record(data_dir: &Path, roots: &ProducerRoots) -> Result<RootR
     fs::create_dir_all(&dir)
         .with_context(|| format!("create root record directory {}", dir.display()))?;
     let path = dir.join(format!("{}.json", roots.producer));
-    let bytes = serde_json::to_vec_pretty(&record).expect("root record serialize");
+    let bytes = serde_json::to_vec_pretty(&record)
+        .with_context(|| "serialize root record".to_string())?;
     let temporary = dir.join(format!(".{}.tmp", roots.producer));
     fs::write(&temporary, bytes)
         .with_context(|| format!("write root record {}", temporary.display()))?;
