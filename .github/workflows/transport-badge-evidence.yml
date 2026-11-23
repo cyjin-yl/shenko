@@ -1,0 +1,68 @@
+name: Transport badge application evidence
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [agent/sprint1-props-shenko-20261124]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: transport-badge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-application:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SHENKO_PRODUCT_BASE: 0e202f7aaecafc6ec761504dfb23cac437ee3e5e
+      SHENKO_BUILD_RUN: '45145308858'
+      TRANSPORT_EVIDENCE_DIR: ${{ runner.temp }}/shenko-transport-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+      - name: Bind the already verified normal build to this unchanged application
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRANSPORT_EVIDENCE_DIR"
+          gh api "repos/cyjin-yl/shenko/actions/runs/$SHENKO_BUILD_RUN" > "$TRANSPORT_EVIDENCE_DIR/producer-run.json"
+          gh api "repos/cyjin-yl/shenko/actions/runs/$SHENKO_BUILD_RUN/jobs" > "$TRANSPORT_EVIDENCE_DIR/producer-jobs.json"
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFileSync } from 'node:fs';
+          const read = name => JSON.parse(readFileSync(`${process.env.TRANSPORT_EVIDENCE_DIR}/${name}`));
+          const run = read('producer-run.json');
+          assert.equal(run.head_sha, process.env.SHENKO_PRODUCT_BASE);
+          assert.equal(run.status, 'completed');
+          assert.equal(run.conclusion, 'success');
+          assert.equal(read('producer-jobs.json').jobs.find(job => job.name === 'web')?.conclusion, 'success');
+          JS
+      - name: Install the pinned browser client and identify the native sandboxed browser
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/transport-browser" --ignore-scripts --save-exact --no-audit --no-fund playwright-core@1.58.2
+          cp "$RUNNER_TEMP/transport-browser/package.json" "$RUNNER_TEMP/transport-browser/package-lock.json" "$TRANSPORT_EVIDENCE_DIR/"
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          echo "CHROMIUM_EXECUTABLE=$CHROME" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/transport-browser/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
+          "$CHROME" --version > "$TRANSPORT_EVIDENCE_DIR/browser-version.txt"
+      - name: Observe real connection updates, node continuity, paint and retirement
+        run: node scripts/web_transport_badge_journey.mjs
+      - name: Preserve the exact input, browser observations and failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transport-badge-${{ github.sha }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: ${{ env.TRANSPORT_EVIDENCE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
