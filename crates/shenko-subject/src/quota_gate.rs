@@ -25,6 +25,15 @@ pub(crate) struct FrozenQuotaSelection {
     pub policy_digest: shenko_types::object::Digest,
     pub decision_id: EntityId,
     pub profile_id: String,
+    /// Absence preserves the implicit effort of historical subject seals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<FrozenQuotaEffort>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct FrozenQuotaEffort {
+    pub requested: String,
+    pub native: shenko_broker::effort::ProviderEffort,
 }
 
 pub(crate) struct SubjectQuotaRoute {
@@ -94,17 +103,66 @@ fn decision_is_current(
             availability.get(&observed.profile_id) == Some(&observed.state))
 }
 
-fn require_implicit_effort(decision: &shenko_quota::PolicyDecision) -> Result<(), ShenkoError> {
-    if let shenko_quota::Choice::Cloud { effort: Some(_), .. } = &decision.choice {
-        return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
-            "QUOTA_EFFORT_BINDING_UNSUPPORTED",
-            shenko_types::error::ErrorScope::Request,
-            shenko_types::error::RetryStrategy::NewRevision,
-        ).with_details(serde_json::json!({
-            "reason": "quota effort has no typed provider semantic mapping; no request admitted"
-        }))));
+fn effort_binding_error(code: &str, reason: &str) -> ShenkoError {
+    ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+        code, shenko_types::error::ErrorScope::Request,
+        shenko_types::error::RetryStrategy::NewRevision,
+    ).with_details(serde_json::json!({ "reason": reason })))
+}
+
+fn requested_effort(decision: &shenko_quota::PolicyDecision) -> Option<&str> {
+    match &decision.choice {
+        shenko_quota::Choice::Cloud { effort, .. } => effort.as_deref(),
+        _ => None,
     }
-    Ok(())
+}
+
+fn resolve_effort(
+    broker: &shenko_broker::broker::BrokerHandle,
+    requested: &str,
+) -> Result<shenko_broker::effort::ProviderEffort, ShenkoError> {
+    broker.resolve_effort(requested).map_err(|error| match error {
+        shenko_broker::effort::EffortResolutionError::Unsupported => effort_binding_error(
+            "QUOTA_EFFORT_BINDING_UNSUPPORTED",
+            "the exact bound runtime has no typed native mapping for the requested effort; no new seal/admission",
+        ),
+        shenko_broker::effort::EffortResolutionError::ProviderUnavailable => effort_binding_error(
+            "MODEL_PROVIDER_BINDING_MISMATCH",
+            "the exact runtime owner disappeared during effort selection; no new seal/admission",
+        ),
+    })
+}
+
+fn require_sealed_effort(
+    broker: &shenko_broker::broker::BrokerHandle,
+    decision: &shenko_quota::PolicyDecision,
+    selection: Option<&FrozenQuotaSelection>,
+) -> Result<(), ShenkoError> {
+    if !matches!(&decision.choice,
+        shenko_quota::Choice::Cloud { .. } | shenko_quota::Choice::Local { .. })
+    {
+        // A quota/capacity wait has not selected priced request semantics.
+        return Ok(());
+    }
+    let sealed = selection.and_then(|selection| selection.effort.as_ref());
+    let matches = match (requested_effort(decision), sealed) {
+        (None, None) => true,
+        (Some(requested), Some(sealed)) => {
+            let native = resolve_effort(broker, requested)?;
+            requested == sealed.requested && native == sealed.native
+        }
+        (Some(requested), None) => {
+            // Unsupported mappings retain their typed refusal even when a
+            // policy appeared after an implicit historical request sealed.
+            resolve_effort(broker, requested)?;
+            false
+        }
+        (None, Some(_)) => false,
+    };
+    if matches { Ok(()) } else {
+        Err(effort_binding_error("QUOTA_EFFORT_BINDING_MISMATCH",
+            "current priced effort differs from the original sealed native semantics; a new request and seal are required"))
+    }
 }
 
 /// Fresh Planned -> S0 only. Routing precedes any context projection. Quota
@@ -146,12 +204,18 @@ pub(crate) async fn select_subject_quota_route(
                 store.quota_work_evidence(agent)?.as_ref(), now, strategies,
             )?,
         };
-        require_implicit_effort(&decision)?;
         let until = match &decision.choice {
             shenko_quota::Choice::Cloud { profile_id, .. }
             | shenko_quota::Choice::Local { profile_id } => {
                 let selected = routes.remove(profile_id).ok_or_else(||
                     ShenkoError::conflict("quota strategy selected an ineligible installed route"))?;
+                let effort = match requested_effort(&decision) {
+                    Some(requested) => {
+                        let native = resolve_effort(&selected, requested)?;
+                        Some(FrozenQuotaEffort { requested: requested.to_owned(), native })
+                    }
+                    None => None,
+                };
                 return Ok(Some(SubjectQuotaRoute {
                     broker: Some(selected),
                     selection: Some(FrozenQuotaSelection {
@@ -160,6 +224,7 @@ pub(crate) async fn select_subject_quota_route(
                         policy_digest: decision.policy_digest,
                         decision_id: decision.decision_id,
                         profile_id: profile_id.clone(),
+                        effort,
                     }),
                 }));
             }
@@ -467,7 +532,7 @@ loop {
     // fresh subject request at effort that was never sent in its S0 payload.
     // Original admitted/armed history keeps its existing reconciliation path.
     if subject_agent.is_some() && !reconciling_original
-        && let Err(error) = require_implicit_effort(&decision)
+        && let Err(error) = require_sealed_effort(broker, &decision, selection)
     {
         // A second entrant can promote this exact send while routing is
         // reading detached evidence. Its original admission must be

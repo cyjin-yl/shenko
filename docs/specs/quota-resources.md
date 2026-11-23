@@ -548,3 +548,14 @@ Planned 步先由 Store 观察等待的固定截止时间。仍活动的等待�
 保留原模型不授予额外消费权：派发仍经当前 quota policy、admit、arm 和原 send 对账。原 runtime 撤下或不能解析时，保留原等待和截止时间，明确报告不可用，不偷偷走替代 provider，不创建新的模型请求或重启 600 秒窗口。主体明确结束等待或 Store 观察到到期之后，下一个 Planned 步恢复按当前策略选模；已封口的请求始终按自己的原 binding 恢复。
 
 本候选增加两个针对性回归：策略偏好另一 provider 时原模型继续等待，重开并更换默认模型后核对原 runtime 撤下拒绝、恢复原 runtime、处理新消息、结束等待及下一步新路由；以及真实短期限到期、Store 重开后不再被已撤下的原模型约束。这些使用真实 Store、broker、loopback HTTP 与 S1 parser，脚本只提供 provider 响应。当前尚未运行，不能作为真实模型行为或完整多 provider 日用验收。
+### 2026-11-21：主体额度 effort 的 provider-native 映射候选
+
+本补充保留上节及所有规范原文，只更新一个独立候选的源码范围。额度的 `EffortLevel.effort` 仍是策略明确选择并计价的名称；它既不是 token 数，也不能用成本、模型名称或默认值猜成 wire 参数。主体在 S0 前请精确绑定的 installed `ProviderRuntime::resolve_effort` 解析该名称，返回可序列化的 `ProviderEffort`。trait 的缺省声明拒绝所有名称，尚未实现映射的 provider、prepared runtime 或未知名称继续在新 seal/admission 之前返回 `QUOTA_EFFORT_BINDING_UNSUPPORTED`。
+
+首个实际适配器是当前 `AnthropicProvider` 的 Messages API `2026-10-21`。它仅把 `low`、`medium`、`high`、`xhigh`、`max` 的精确原生名称转换成类型化 `AnthropicEffort`，再投影为 `native_options.output_config.effort`，不为 `standard`、`deep` 等名字设别名，不把省略值填成某个默认 effort。字段和值的来源是官方 [Effort](https://platform.claude.com/docs/en/build-with-claude/effort) 合同；该合同明确 effort 是行为信号，不是严格 token 预算，不同远端模型支持的等级也不同。这里实现的是适配器声明的请求语义与封口/wire 连接，不能从协议映射推出真实账户、模型或中间网关已经接受并执行了该等级。
+
+选定的 effort 在 `prepare_context` 前加入上下文 profile 身份；其原生选项在 S0 封口前进入 payload，配置的输出预留保持独立。`provider_selection.quota.effort` 缺省为历史的 implicit 语义；存在时记录原选择名称和类型化 native 值，恢复只验证封口中的 native 字段一致，不查询当前映射。没有新字段的旧 seal、原始 admission/send/charge 和终态回执不被改写。新的 quota decision 只有在名称及 native 语义与原 seal 相符时才可新准入；政策把 high 改成 medium 或撤回成 implicit 时，返回 `QUOTA_EFFORT_BINDING_MISMATCH`，不能按新价格发送旧 effort 或在旧请求内重写参数。已 admitted/armed 的原历史以及同一 send 的并发提升仍走既有对账分支。
+
+提议的主体回归使用真实 `AnthropicProvider` 和 loopback Messages HTTP：先用真实 StopUnit hook 停在已封口 S0，确认上下文身份、payload 和类型化 effort；替换 effort 政策必须在新 admission/send 之前拒绝；恢复原政策后，同一 seal/request 的实际 HTTP body 必须携带精确的 high 与原输出预留；取消 waiter 后的迟到原终态在更换政策、原 runtime 不存在的重开中仍可提交。另有已知原生名称落到无映射 runtime 的前置拒绝对照，原有未知名称拒绝回归保留。这些新增回归尚未运行。
+
+本候选未迁移有限模型 child 的封口前 effort 路径，也未实现 quota-derived 输出预算、其它 provider 的 effort 映射、语义变化后的自动取消/替代重封口或物理 KV transport；它们继续按各自合同和证据边界跟踪，不以本候选冒充 §42.6 全部闭合。
