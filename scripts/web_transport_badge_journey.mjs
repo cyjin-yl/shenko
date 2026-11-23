@@ -24,7 +24,7 @@ const receipt = {
   scope: 'Real Shenko live frontend, HTTP/WS fixture boundary, Chromium DOM and paint',
   source: { candidate: git('rev-parse', 'HEAD'), product_base: productBase },
   producer_run: process.env.SHENKO_BUILD_RUN ?? null,
-  no_product_source_change: false, checks: [], observations: [], requests: [], sockets: [], errors: [],
+  product_matches_build_source: false, checks: [], observations: [], requests: [], sockets: [], errors: [],
   limits: {
     backend_or_deployment: false, physical_input_or_at: false,
     public_handle: 'The actual App does not expose the badge handle; no hidden handle identity is inferred.',
@@ -66,11 +66,11 @@ async function assetInventory(directory, prefix = '') {
 let browser, server, page;
 try {
   assert.match(productBase, /^[0-9a-f]{40}$/);
-  // The evidence-only branch must leave the real application exactly at its
-  // independently rebuilt main version. A changed product requires a new build.
+  // The application must match the exact source independently rebuilt by the
+  // required producer job. Product changes require their own successful build.
   git('diff', '--exit-code', productBase, 'HEAD', '--', 'crates/shenko-ui');
   git('diff', '--exit-code', 'HEAD', '--', 'crates/shenko-ui');
-  receipt.no_product_source_change = true;
+  receipt.product_matches_build_source = true;
   receipt.source.before = await sourceHashes();
   const manifestBytes = await readFile(join(staticRoot, 'build-manifest.json'));
   const manifest = JSON.parse(manifestBytes);
@@ -83,6 +83,18 @@ try {
   assert.ok(badge, 'normal build must contain the real authored badge');
   assert.equal(badge.entry_sha256, receipt.source.before['crates/shenko-ui/web/prototypes/transport-badge.proto.ts']);
   receipt.artifacts = { manifest_sha256: sha(manifestBytes), assets, compiler: manifest.compiler, upstream: manifest.upstream };
+  const producerDirectory = join(output, 'producer-build');
+  const comparisonBytes = await readFile(join(producerDirectory, 'comparison.json'));
+  const producerInputsBytes = await readFile(join(producerDirectory, 'inputs.json'));
+  const comparison = JSON.parse(comparisonBytes), producerInputs = JSON.parse(producerInputsBytes);
+  assert.deepEqual(comparison.errors, [], 'the normal rebuild must have no unresolved differences');
+  assert.equal(comparison.committed_manifest_sha256, sha(manifestBytes));
+  assert.deepEqual(comparison.rebuilt_payloads, assets);
+  for (const [file, digest] of Object.entries(receipt.source.before)) {
+    const prefix = 'crates/shenko-ui/web/';
+    if (file.startsWith(prefix)) assert.equal(producerInputs.web_inputs[file.slice(prefix.length)]?.sha256, digest, `normal producer source binding: ${file}`);
+  }
+  receipt.producer = { run: receipt.producer_run, job: 'web', comparison_sha256: sha(comparisonBytes), inputs_sha256: sha(producerInputsBytes) };
   await writeFile(join(output, 'served-build-manifest.json'), manifestBytes);
   await persist();
 
@@ -97,7 +109,8 @@ try {
         if (!file.startsWith(staticRoot + sep)) { response.writeHead(400); response.end(); return; }
         body = await readFile(file);
         mime = file.endsWith('.css') ? 'text/css' : file.endsWith('.js') ? 'text/javascript' : 'application/json';
-      } else if (url.pathname === '/api/self') body = JSON.stringify({ subject_id: 'transport-observer',
+      } else if (url.pathname === '/health') body = JSON.stringify({ status: 'ok', product: 'Shenko', version: '0.1.0' });
+      else if (url.pathname === '/api/self') body = JSON.stringify({ subject_id: 'transport-observer',
         identity: { agent_id: 'transport-observer', revision: 1, display_name: 'Transport observer', naming: 'explicit' }, step: 0 });
       else if (url.pathname === '/api/submissions') body = JSON.stringify({ available: true, subject_id: 'transport-observer', items: [], total: 0, has_older: false });
       else if (url.pathname === '/api/conversations') body = JSON.stringify({ available: true, messages: [] });
