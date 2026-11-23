@@ -550,14 +550,14 @@ fn bookkeeping_violations(document: &LiveDocument, secrets: &[&str]) -> Vec<Stri
                 }
             }
             (LiveOutcome::Refused { code, .. }, Some(answer)) => {
-                if let (Some(claimed), Some(observed)) = (code, observed_code(answer)) {
-                    if *claimed != observed {
-                        violations.push(format!(
-                            "{}: the refusal claims err_code {claimed} but the recorded answer \
-                             states {observed}",
-                            receipt.probe
-                        ));
-                    }
+                if let (Some(claimed), Some(observed)) = (code, observed_code(answer))
+                    && *claimed != observed
+                {
+                    violations.push(format!(
+                        "{}: the refusal claims err_code {claimed} but the recorded answer \
+                         states {observed}",
+                        receipt.probe
+                    ));
                 }
             }
             (LiveOutcome::Skipped { reason }, _) if reason.trim().is_empty() => {
@@ -576,10 +576,10 @@ fn bookkeeping_violations(document: &LiveDocument, secrets: &[&str]) -> Vec<Stri
                 receipt.probe
             ));
         }
-        if let Some(verdict) = &receipt.plugin_verdict {
-            if let Some(conflict) = verdict_conflict(&receipt.outcome, verdict) {
-                violations.push(format!("{}: {conflict}", receipt.probe));
-            }
+        if let Some(verdict) = &receipt.plugin_verdict
+            && let Some(conflict) = verdict_conflict(&receipt.outcome, verdict)
+        {
+            violations.push(format!("{}: {conflict}", receipt.probe));
         }
         if receipt.endpoint.trim().is_empty() {
             violations.push(format!("{}: the receipt names no endpoint", receipt.probe));
@@ -1381,7 +1381,7 @@ fn all_skipped(reason: &str) -> LiveDocument {
             .iter()
             .map(|probe| {
                 probe_receipt(
-                    *probe,
+                    probe,
                     LiveOutcome::Skipped {
                         reason: reason.to_string(),
                     },

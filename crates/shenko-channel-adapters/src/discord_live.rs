@@ -3110,6 +3110,9 @@ mod tests {
     fn absent_environment_skips_with_an_explicit_reason_and_no_network() {
         let receipt = run_with_lookup(|_| None);
         assert_eq!(receipt.status, DiscordLiveStatus::Skipped);
+        // The receipt document is read before the skip reason is taken, so
+        // the recorded document and the recorded reason are the same receipt.
+        let document = receipt.to_json();
         let skip = receipt.skip.expect("the skip reason is recorded");
         assert!(skip.missing_environment.contains(&TOKEN_ENV.to_string()));
         assert!(skip.missing_environment.contains(&CHANNEL_ENV.to_string()));
@@ -3118,7 +3121,7 @@ mod tests {
         assert!(skip.reason.contains(CHANNEL_ENV));
         assert!(!skip.prompt.is_empty());
         assert!(receipt.failures.is_empty());
-        assert_eq!(receipt.to_json()["status"], serde_json::json!("skipped"));
+        assert_eq!(document["status"], serde_json::json!("skipped"));
     }
 
     #[test]
