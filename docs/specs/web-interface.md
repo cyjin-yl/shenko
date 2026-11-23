@@ -260,7 +260,14 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 当前从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
+`web/upstream-pin.json` 当前固定到 Proto-UI `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68`，
+它整合 main `39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
+并保留上一 pin `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
+这是 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 的候选依赖，
+尚未冒充已合入主线或完成最终浏览器验收；迁移与真实运行边界见
+[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)。
+
+上一 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
 固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
 [上游 #1682](https://github.com/Proto-UI/Proto-UI/pull/1682) 的 compiler 测试挂载时序补正。
 原 [#1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 已合入；其帧队列排空仍可能早于
@@ -274,7 +281,7 @@ pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；�
 producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
 使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
-family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
+family：button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
 separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 双重 Tab 停靠。
@@ -288,6 +295,11 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 生成资源、样式、许可及带资源摘要的 manifest。Rust 将这些资源嵌入二进制，
 因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
 不能证明升级生效。
+
+浏览器构建对整个依赖图显式使用 Shenko 的 tsconfig，并拒绝直接进入上游
+`packages/**/src` 的浏览器依赖。这样公共包只通过审定的 `dist` exports 消费，
+不会因上游开发用 `paths` 把 `core/src` 与 `core/dist` 混入同一页面。构建期
+compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图。
 
 ### compiler：构建期编译 Shenko 自己的 Prototype
 
@@ -655,6 +667,17 @@ Alma 发布归档主线固定为 [e22723b7c6ca8bb74c3bd1ed32e76df790c9d5ba](http
 来源：REF-MAGPIE、REF-ALMA、REF-USER（U41/R131）、REF-DESIGN。用户提供的体验描述是产品目标；官方文档与发布归档是已核对参照，尚未对这些产品或 Shenko 做流式性能实测。所有门槛为待实施的本产品验收；默认首页另遵循 [§21.12](web-interface.md#spec-21-12) 的唯一主体时间线。
 
 <!-- /migrated-contract: SPEC:21.11 -->
+
+### 当前实现说明：共享 follow-tail（2026-11-22）
+
+当前 Inspect 与 IM 消费共享 Shadcn MessageScroller 的 `following`、
+`pauseFollowing()`、`jumpToEnd()`，不再各自按像素阈值维护 follow 状态机。
+稳定 message/part 锚点、选区、持久阅读模式与主体身份仍由 Shenko 拥有；
+组合关闭通用 anchor compensation，避免两个恢复者同时改变位置。重开时原始
+持久 key 保留到真实 reader 输入接管，不能被早到的 HTTP/replay fallback 覆盖。
+主体切换会退休旧阅读 owner；订阅、observer、timer 与 frame 只可作用于当前
+epoch。恢复按钮在保持键盘焦点时继续存在，随后失焦才按 follow 状态隐藏。
+消息正文中的控件接收焦点时（包括 Tab / Shift+Tab 导航）暂停共享 follow 并记录阅读锚点；输入区保留正常跟随，恢复按钮独立执行显式恢复。
 
 <a id="spec-21-12"></a>
 <!-- migrated-contract: SPEC:21.12 -->

@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "kind": "additive source-preserving connected publication",
+  "repository": "cyjin-yl/shenko",
+  "intendedBranch": "fix/proto-follow-tail-sprint7-20261122",
+  "baseMain": "2c778c1832a71f68b6323c86af6c5fa9b1314b85",
+  "originalLocalHead": "b467c0801252a3ea1925f05d21974529182b1d37",
+  "originalV6Source": "b257cc391911e21dbdd3616f75899d1b054f4f09",
+  "protoUiCandidate": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "commits": [
+    {
+      "sha": "c4f3c10815ddba44bbf691ec4168eb3c8593b566",
+      "tree": "caf57266687d81d8ff7f40d6181bed77f82d02a7",
+      "author": {
+        "name": "Codex",
+        "email": "codex@openai.com",
+        "date": "2026-11-22T11:13:09Z"
+      },
+      "committer": {
+        "name": "Codex",
+        "email": "codex@openai.com",
+        "date": "2026-11-22T11:13:09Z"
+      },
+      "message": "fix(ui): consume shared follow-tail in real reading surfaces\n\nSigned-off-by: Codex <codex@openai.com>\n\n",
+      "rawCommitSha256": "2cef59e619cc566a22e9e19d231db5305d1d39261e4a3abe87a5de8aa0345a09"
+    },
+    {
+      "sha": "b257cc391911e21dbdd3616f75899d1b054f4f09",
+      "tree": "a6fd2c92cf588191257115904c1e94882392d3e1",
+      "author": {
+        "name": "Codex",
+        "email": "codex@openai.com",
+        "date": "2026-11-22T11:31:21Z"
+      },
+      "committer": {
+        "name": "Codex",
+        "email": "codex@openai.com",
+        "date": "2026-11-22T11:31:21Z"
+      },
+      "message": "build(ui): pin reviewed shared pause and regenerate public bundle\n\nSigned-off-by: Codex <codex@openai.com>\n\n",
+      "rawCommitSha256": "3f1e11e192a0e1d708ab0a8a18a6a8fbdce1fcc3f0aa011ad3e2407e12801635"
+    },
+    {
+      "sha": "b467c0801252a3ea1925f05d21974529182b1d37",
+      "tree": "e9ffa541f8b4349f8ba56f8e8a1c988b61e48bf9",
+      "author": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-22T17:42:34Z"
+      },
+      "committer": {
+        "name": "cyjin.yl",
+        "email": "chenyejin2004@foxmail.com",
+        "date": "2026-11-22T17:42:34Z"
+      },
+      "message": "Merge current main and rebuild the shared follow-tail consumer\n\nImplemented by Codex under the current user task. Preserve original follow-tail commits and v6 evidence, integrate main 2c778c18, pin Proto-UI ad39435, resolve generated asset conflicts through the actual public build, and retain bounded source-bound checks. Final-head native browser evidence remains pending.\n\nSigned-off-by: cyjin.yl <chenyejin2004@foxmail.com>\n\n",
+      "rawCommitSha256": "9affda09999f881878757ba75d8e4cc2cfc94a347c2e6b2067a32112a5a177f1"
+    }
+  ],
+  "bundle": {
+    "path": "docs/evidence/proto-follow-tail-continuation-20261122/original-signed-source.bundle",
+    "bytes": 337242,
+    "sha256": "bde0f880025a9fee28d7f837fc4889d9d4f4080fd01800219cda0bb4fc95f6d0"
+  },
+  "publication": "The new connected commit is authored and signed off by the authenticated contributor cyjin.yl. Its SHA differs from the preserved raw commits. Original authors, messages, signatures and tree identities stay in this Git bundle. Codex implemented the continuation under the current user task."
+}

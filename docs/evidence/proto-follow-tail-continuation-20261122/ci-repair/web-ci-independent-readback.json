@@ -1,0 +1,54 @@
+{
+  "kind": "independent-readonly-shenko-web-job-diagnosis",
+  "runId": 45051099806,
+  "jobId": 137296170892,
+  "prHead": "ecf6d6aa0e0d7c5519ed9eec471406ca79970db1",
+  "executedMergeHead": "b2219ec7caf0a6d1e3cd93625091fa97a26fca82",
+  "artifactId": 14765272518,
+  "archiveBytes": 2554385,
+  "archiveSha256": "63e752bb3dad6196007bf08fc281901cea50ce319fa852fae5726db3ba6743db",
+  "artifactMembers": 50,
+  "zipCRC": "passed",
+  "reportedErrors": [
+    "manifest.toolchain.node: 'v24.22.3' != 'v24.22.1'"
+  ],
+  "allManifestDifferences": [
+    {
+      "path": "manifest.built_at",
+      "expected": "2026-11-22T17:40:20.752Z",
+      "actual": "2026-11-22T17:46:10.958Z"
+    },
+    {
+      "path": "manifest.toolchain.node",
+      "expected": "v24.22.3",
+      "actual": "v24.22.1"
+    },
+    {
+      "path": "manifest.upstream.build_receipt.receipt_path",
+      "expected": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-complete.json",
+      "actual": "/__w/shenko/shenko/.ci/web/upstream-build.json"
+    },
+    {
+      "path": "manifest.upstream.build_receipt.receipt_sha256",
+      "expected": "ab028486ffe6a460ac81b23997b7902f1311ea5df4171cd549a92e218bf6acd4",
+      "actual": "d3237f3f075329395d9b03c22e7c4ab6a63f22fb925b75a2c4e5274b557091f1"
+    },
+    {
+      "path": "manifest.upstream.source_checkout",
+      "expected": "/workspace/scratch/eb30117f7b2a/sprint7",
+      "actual": "/__w/shenko/shenko/.ci/web/proto-ui"
+    },
+    {
+      "path": "manifest.web_root",
+      "expected": "/workspace/scratch/eb30117f7b2a/shenko-sprint7/crates/shenko-ui/web",
+      "actual": "/__w/shenko/shenko/.ci/web/source/web"
+    }
+  ],
+  "payloadsCompared": 12,
+  "payloadByteMismatches": [],
+  "expectedManifestMatchesCurrentSource": true,
+  "actualGeneratedManifest": "/workspace/scratch/eb30117f7b2a/shenko-web-readonly-137296170892/web/source/src/static/build-manifest.json",
+  "committedManifest": "/workspace/scratch/eb30117f7b2a/shenko-web-readonly-137296170892/web/committed/build-manifest.json",
+  "currentLocalHead": "ecf6d6aa0e0d7c5519ed9eec471406ca79970db1",
+  "sourceFilesChanged": false
+}
