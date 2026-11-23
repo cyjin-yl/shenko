@@ -416,13 +416,16 @@ fn metapackages_in_force(
 fn applied_metapackage(unit: CognitionUnit) -> AppliedMetapackage {
     let card_preview = bounded(&unit.capability_card, MAX_CARD_PREVIEW_BYTES);
     let card_truncated = card_preview != unit.capability_card;
-    let adoption = unit.adoption.map(|adoption| AppliedAdoption {
-        decision: adoption.decision,
-        method: adoption.method,
-        confidence: adoption.stated_confidence(),
-        evidence_verified: adoption.evidence_verified,
-        empirical: adoption.empirical,
-        measurement: adoption.measurement,
+    let adoption = unit.adoption.map(|adoption| {
+        let confidence = adoption.stated_confidence();
+        AppliedAdoption {
+            decision: adoption.decision,
+            method: adoption.method,
+            confidence,
+            evidence_verified: adoption.evidence_verified,
+            empirical: adoption.empirical,
+            measurement: adoption.measurement,
+        }
     });
     let mut dependencies = Vec::new();
     let mut dependencies_omitted = 0;
