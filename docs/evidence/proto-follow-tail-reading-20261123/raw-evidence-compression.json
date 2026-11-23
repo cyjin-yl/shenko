@@ -1,0 +1,24 @@
+{
+  "kind": "lossless-raw-evidence-storage",
+  "reason": "Preserve original trailing whitespace and diff context bytes without altering raw evidence or failing source whitespace checks. The first staging check failed and is retained outside the source tree.",
+  "files": [
+    {
+      "originalPath": "attempt02/runner.patch",
+      "originalSha256": "3aca4e282ffbd7b9615c07b6a34a417bf79cfad270fd5bdd62e9a13d9004aee4",
+      "originalBytes": 1801,
+      "retainedPath": "attempt02/runner.patch.gz",
+      "retainedSha256": "ff65a4ec817484a11cf61c8a7b46fb369175629edefa65e3330519342744c1d6",
+      "retainedBytes": 895,
+      "decompressionVerified": true
+    },
+    {
+      "originalPath": "attempt03/runner.patch",
+      "originalSha256": "772a2758762a238d464a9439c347b8fd5f580a5b7ff5e5705a7b51e8bec0e58d",
+      "originalBytes": 3314,
+      "retainedPath": "attempt03/runner.patch.gz",
+      "retainedSha256": "cdae2d79d43f1d3e9d8f51d1d015a740ea13ef1aa29fff29120f372fd4cd9aef",
+      "retainedBytes": 1723,
+      "decompressionVerified": true
+    }
+  ]
+}

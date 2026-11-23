@@ -19,7 +19,7 @@ const manifestBytes = await readFile(join(staticRoot, 'build-manifest.json'));
 const manifest = JSON.parse(manifestBytes);
 const receipt = { schema_version: 1, scope: 'real Shenko live frontend; fixture HTTP/WS reads',
   upstream: manifest.upstream, bundle_manifest_sha256: createHash('sha256').update(manifestBytes).digest('hex'),
-  fixture: 'committed mixed Chinese/English Markdown, stable owner/reply IDs, replay duplicates',
+  fixture: 'committed mixed Chinese/English Markdown with ordinary links, stable owner/reply IDs, replay duplicates',
   physical_input: false, model_or_backend_acceptance: false, runs: [] };
 await mkdir(output, { recursive: true });
 
@@ -28,6 +28,9 @@ let currentSubject = 'reading-fixture-a';
 let identityRevision = 1;
 let newest = 30;
 const content = (n) => `阅读记录 ${n} · Reading record ${n}\n\n` +
+  // The real Markdown renderer owns these links. They provide native focus
+  // stops in IM as well as Inspect without adding controls to the application.
+  `[Reading source ${n}](https://example.test/reading/${n})\n\n` +
   Array.from({ length: 5 }, (_, i) => `第 ${i + 1} 段：保留同一阅读对象与偏移。\nEnglish evidence ${n}-${i}: append, depart, resume, and retain the selected text. Emoji 🌿 é.`).join('\n\n');
 const part = (n) => ({ schema_version: 2, type: 'timeline_part', role: 'subject', content: content(n),
   message_id: `reading-message-${n}`, part_id: 'text/0', part_revision: `revision-${n}`, chunk_seq: 0,
@@ -150,6 +153,22 @@ async function journey(tab, width) {
     await append();
     const tail = await settledEnd(page, selector, rowSelector);
     check('append follows the actual tail and retains composer focus', await editor.evaluate((node) => node === document.activeElement), tail);
+
+    // Require real rendered message content that native sequential navigation
+    // can reach. Plain paragraphs alone cannot exercise content-focus retention.
+    const focusTargets = await page.locator(selector).evaluate((outer, rowSelector) => {
+      return [...outer.querySelectorAll('button,a[href],summary,input,textarea,select,[tabindex]')]
+        .filter((node) => node instanceof HTMLElement && node.tabIndex >= 0
+          && !node.matches(':disabled') && !node.closest('[inert]')
+          && node.getClientRects().length > 0 && getComputedStyle(node).visibility === 'visible'
+          && node.closest(rowSelector))
+        .map((node) => ({ tag: node.tagName, href: node.getAttribute('href'),
+          key: node.closest(rowSelector).getAttribute('data-entry-key')
+            ?? node.closest(rowSelector).getAttribute('data-message-key') }));
+    }, rowSelector);
+    run.fixture_focus_targets = focusTargets;
+    check('fixture supplies sequential focus targets in at least three messages',
+      new Set(focusTargets.map((target) => target.key)).size >= 3, { focusTargets });
 
     // Move from the composer with native sequential focus navigation. Never
     // assign a scroll offset or directly focus the historical message action.
