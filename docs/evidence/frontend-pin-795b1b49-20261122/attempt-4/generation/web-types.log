@@ -1,0 +1,6 @@
+
+> @shenko/ui@0.1.0 check /var/idw-target/daily-web-pin-795b1b49-r4/source/shenko/crates/shenko-ui/web
+> node build.mjs --prototypes-only && tsc --noEmit
+
+Shenko prototypes compiled by Proto-UI 795b1b4958333cf904547e484acb4de9d4b3ee80 (react-dom-source-v1): transport-badge, message-bubble
+Prototype sources written under generated/prototypes/; skipped bundling

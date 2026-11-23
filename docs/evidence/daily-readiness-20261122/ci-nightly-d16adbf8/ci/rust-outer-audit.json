@@ -1,0 +1,3964 @@
+{
+  "kind": "rust_workspace_outer_harness_audit",
+  "run_id": 44963143476,
+  "job_id": 137026165110,
+  "head_sha": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "raw_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-d16adbf8/rust.log",
+    "bytes": 551841,
+    "sha256": "67b4be82b561e43330ddfa3122a1d8e7ba414d605a810d54d2d612ff60e28e76",
+    "lines": 6516
+  },
+  "command": [
+    2464,
+    "##[group]Run cargo test --workspace --features shenko/compat-poppy --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log"
+  ],
+  "checkout": [
+    [
+      522,
+      "HEAD is now at 5f4b34ed Merge d16adbf89c9f79dfce8ef90d77843412bcda85bf into f3fa6f4d8bf22cfd2baf490d9c3a08bd39af4d42"
+    ],
+    [
+      525,
+      "5f4b34ed11a95103c1b904e2451db5e16b804622"
+    ]
+  ],
+  "outer_summary": {
+    "cargo_targets": 158,
+    "executable_targets": 125,
+    "doctest_targets": 33,
+    "result_rows": 157,
+    "passed": 1240,
+    "failed": 0,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 0,
+    "non_libtest_skip_targets": 1
+  },
+  "nested_summary": {
+    "result_rows": 19,
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 131
+  },
+  "validation": {
+    "stray": [],
+    "mismatches": [],
+    "outer_filtered": [],
+    "outer_non_ok": [],
+    "missing_results": [],
+    "explicit_non_ok": []
+  },
+  "method": "Use final libtest result in each Cargo Running/Doc-tests target. Retain earlier subprocess results separately; verify first running-N count against outer result. Preserve separate harness=false SKIP.",
+  "explicit_long_proofs": [],
+  "explicit_preparations": [],
+  "targets": [
+    {
+      "header_line": 3888,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko-3c5718ad87b88b4f)",
+      "run_declarations": [
+        [
+          3890,
+          58
+        ],
+        [
+          3912,
+          1
+        ],
+        [
+          3932,
+          1
+        ],
+        [
+          3952,
+          1
+        ]
+      ],
+      "results": [
+        [
+          3916,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          57,
+          2.68
+        ],
+        [
+          3939,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          57,
+          0.03
+        ],
+        [
+          3964,
+          "ok",
+          56,
+          0,
+          2,
+          0,
+          0,
+          53.23
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 3966,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko-31fc58c38557ec2d)",
+      "run_declarations": [
+        [
+          3968,
+          0
+        ]
+      ],
+      "results": [
+        [
+          3970,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 3972,
+      "header": "Running tests/component_process.rs (.ci/target/rust/debug/deps/component_process-f3ce1a77e117b676)",
+      "run_declarations": [
+        [
+          3974,
+          1
+        ]
+      ],
+      "results": [
+        [
+          3978,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          89.56
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 3980,
+      "header": "Running tests/native_evidence_delivery.rs (.ci/target/rust/debug/deps/native_evidence_delivery-1baeb8caa5931143)",
+      "run_declarations": [
+        [
+          3982,
+          2
+        ]
+      ],
+      "results": [
+        [
+          3986,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          32.14
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 3988,
+      "header": "Running tests/obelisk_lifecycle.rs (.ci/target/rust/debug/deps/obelisk_lifecycle-0c1fe2e918048812)",
+      "run_declarations": [
+        [
+          3990,
+          1
+        ]
+      ],
+      "results": [
+        [
+          3993,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.61
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 3995,
+      "header": "Running tests/ssh_wasi_client.rs (.ci/target/rust/debug/deps/ssh_wasi_client-fabd74937a994f42)",
+      "run_declarations": [
+        [
+          3997,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4001,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          204.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4003,
+      "header": "Running tests/start_boundary.rs (.ci/target/rust/debug/deps/start_boundary-1af7f5bdc1bdd827)",
+      "run_declarations": [
+        [
+          4005,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4009,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          12.55
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4011,
+      "header": "Running unittests examples/obelisk_acceptance.rs (.ci/target/rust/debug/examples/obelisk_acceptance-82b3708115d2318c)",
+      "run_declarations": [
+        [
+          4013,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4022,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.32
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4024,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_android-7b3a8c792737ff14)",
+      "run_declarations": [
+        [
+          4026,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4028,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4030,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_awareness_core-d77ae74dfb23e0e8)",
+      "run_declarations": [
+        [
+          4032,
+          16
+        ]
+      ],
+      "results": [
+        [
+          4050,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0.11
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4052,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_broker-bda42dd4f496b233)",
+      "run_declarations": [
+        [
+          4054,
+          31
+        ]
+      ],
+      "results": [
+        [
+          4087,
+          "ok",
+          31,
+          0,
+          0,
+          0,
+          0,
+          1.31
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4089,
+      "header": "Running tests/kv_capability.rs (.ci/target/rust/debug/deps/kv_capability-fd4b2dbf47d35a67)",
+      "run_declarations": [
+        [
+          4091,
+          22
+        ]
+      ],
+      "results": [
+        [
+          4115,
+          "ok",
+          22,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4117,
+      "header": "Running tests/kv_unknown_read.rs (.ci/target/rust/debug/deps/kv_unknown_read-2aa3aa6b938550e0)",
+      "run_declarations": [
+        [
+          4119,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4122,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4124,
+      "header": "Running tests/provider_usage.rs (.ci/target/rust/debug/deps/provider_usage-88c20d5282a74a3c)",
+      "run_declarations": [
+        [
+          4126,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4130,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4132,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_adapters-dbd51a7a370873da)",
+      "run_declarations": [
+        [
+          4134,
+          44
+        ]
+      ],
+      "results": [
+        [
+          4180,
+          "ok",
+          44,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4182,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat-99070a54b0630bdd)",
+      "run_declarations": [
+        [
+          4184,
+          44
+        ],
+        [
+          4225,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4232,
+          "ok",
+          44,
+          0,
+          0,
+          0,
+          0,
+          0.67
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4234,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_channel_napcat_link-c56c7c28f24e192f)",
+      "run_declarations": [
+        [
+          4236,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4238,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4240,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_budget-112b669a27337ba2)",
+      "run_declarations": [
+        [
+          4242,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4244,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4246,
+      "header": "Running tests/budget_plugin.rs (.ci/target/rust/debug/deps/budget_plugin-b1b81a830348b46c)",
+      "run_declarations": [
+        [
+          4248,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4251,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4253,
+      "header": "Running tests/store_history.rs (.ci/target/rust/debug/deps/store_history-c026d623ff5beb97)",
+      "run_declarations": [
+        [
+          4255,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4258,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4260,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_rollover-0a947324a5c27856)",
+      "run_declarations": [
+        [
+          4262,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4264,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4266,
+      "header": "Running tests/notes_rollover.rs (.ci/target/rust/debug/deps/notes_rollover-1a34259d5356a87f)",
+      "run_declarations": [
+        [
+          4268,
+          8
+        ]
+      ],
+      "results": [
+        [
+          4278,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4280,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compact_snap-b9cf94352a733d6f)",
+      "run_declarations": [
+        [
+          4282,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4284,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4286,
+      "header": "Running tests/independent_plugins.rs (.ci/target/rust/debug/deps/independent_plugins-5066859318b4ce42)",
+      "run_declarations": [
+        [
+          4288,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4292,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          2.91
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4294,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat-dbdefefda60d915c)",
+      "run_declarations": [
+        [
+          4296,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4298,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4300,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_mcp-f43d9a71097a263b)",
+      "run_declarations": [
+        [
+          4302,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4304,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4306,
+      "header": "Running tests/dsh_native.rs (.ci/target/rust/debug/deps/dsh_native-76825d5d926161ac)",
+      "run_declarations": [
+        [
+          4308,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4311,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          4.25
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4313,
+      "header": "Running tests/learning_efficacy.rs (.ci/target/rust/debug/deps/learning_efficacy-237030cc365cc212)",
+      "run_declarations": [
+        [
+          4315,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4318,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4320,
+      "header": "Running tests/plugin_lifecycle.rs (.ci/target/rust/debug/deps/plugin_lifecycle-c9de261394d4b502)",
+      "run_declarations": [
+        [
+          4322,
+          19
+        ]
+      ],
+      "results": [
+        [
+          4343,
+          "ok",
+          19,
+          0,
+          0,
+          0,
+          0,
+          9.84
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4345,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_poppy-70d54299b96dad58)",
+      "run_declarations": [
+        [
+          4347,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4355,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4357,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_compat_skill-3895175ad5553579)",
+      "run_declarations": [
+        [
+          4359,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4361,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4363,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_context_policy-1db50915190845e0)",
+      "run_declarations": [
+        [
+          4365,
+          23
+        ]
+      ],
+      "results": [
+        [
+          4390,
+          "ok",
+          23,
+          0,
+          0,
+          0,
+          0,
+          0.33
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4392,
+      "header": "Running tests/contribution_registry.rs (.ci/target/rust/debug/deps/contribution_registry-f97bc3f5f44237fb)",
+      "run_declarations": [
+        [
+          4394,
+          9
+        ]
+      ],
+      "results": [
+        [
+          4405,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4407,
+      "header": "Running tests/rollover_lifecycle.rs (.ci/target/rust/debug/deps/rollover_lifecycle-0419e88cd17b59a4)",
+      "run_declarations": [
+        [
+          4409,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4418,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4420,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_document-7684b8ce70d12b25)",
+      "run_declarations": [
+        [
+          4422,
+          23
+        ]
+      ],
+      "results": [
+        [
+          4447,
+          "ok",
+          23,
+          0,
+          0,
+          0,
+          0,
+          0.89
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4449,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_evidence-3b0042898841c2be)",
+      "run_declarations": [
+        [
+          4451,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4457,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4459,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_evidence-57af424ef526341e)",
+      "run_declarations": [
+        [
+          4461,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4464,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4466,
+      "header": "Running tests/admission.rs (.ci/target/rust/debug/deps/admission-bc654e61b5718e1c)",
+      "run_declarations": [
+        [
+          4468,
+          16
+        ]
+      ],
+      "results": [
+        [
+          4486,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4488,
+      "header": "Running tests/correction_cli.rs (.ci/target/rust/debug/deps/correction_cli-df56df025a2de008)",
+      "run_declarations": [
+        [
+          4490,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4496,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4498,
+      "header": "Running tests/report_cli.rs (.ci/target/rust/debug/deps/report_cli-4e89d6101b823791)",
+      "run_declarations": [
+        [
+          4500,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4506,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4508,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_host-5802c5f552196385)",
+      "run_declarations": [
+        [
+          4510,
+          64
+        ]
+      ],
+      "results": [
+        [
+          4576,
+          "ok",
+          64,
+          0,
+          0,
+          0,
+          0,
+          18.96
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4578,
+      "header": "Running tests/awareness_efficacy.rs (.ci/target/rust/debug/deps/awareness_efficacy-aaf9b4491791cdfd)",
+      "run_declarations": [
+        [
+          4580,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4583,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4585,
+      "header": "Running tests/awareness_host.rs (.ci/target/rust/debug/deps/awareness_host-7a2e195c2e58d7b6)",
+      "run_declarations": [
+        [
+          4587,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4593,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.38
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4595,
+      "header": "Running tests/cognition_self_learning.rs (.ci/target/rust/debug/deps/cognition_self_learning-e2f78104f6ca259c)",
+      "run_declarations": [],
+      "results": [],
+      "skip_lines": [
+        [
+          4596,
+          "SKIP cognition_self_learning: set SHENKO_USE_LOCAL_MODEL=1, SHENKO_LOCAL_MODEL_URL and SHENKO_LOCAL_MODEL, and pass --binary"
+        ]
+      ]
+    },
+    {
+      "header_line": 4597,
+      "header": "Running tests/computer_use_takeover_cli.rs (.ci/target/rust/debug/deps/computer_use_takeover_cli-36a0cec0e1d68f82)",
+      "run_declarations": [
+        [
+          4599,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4602,
+          "ok",
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4604,
+      "header": "Running tests/computer_use_takeover_native.rs (.ci/target/rust/debug/deps/computer_use_takeover_native-4f32032242d2139d)",
+      "run_declarations": [
+        [
+          4606,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4609,
+          "ok",
+          0,
+          0,
+          1,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4611,
+      "header": "Running tests/desktop_native_macos_proof.rs (.ci/target/rust/debug/deps/desktop_native_macos_proof-0723246a190038b9)",
+      "run_declarations": [
+        [
+          4613,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4615,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4617,
+      "header": "Running tests/desktop_native_windows_proof.rs (.ci/target/rust/debug/deps/desktop_native_windows_proof-009a3244809b4b5e)",
+      "run_declarations": [
+        [
+          4619,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4621,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4623,
+      "header": "Running tests/network_change_fixture.rs (.ci/target/rust/debug/deps/network_change_fixture-5161cdf3a8f336b9)",
+      "run_declarations": [
+        [
+          4625,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4629,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4631,
+      "header": "Running tests/perception_version_reopen.rs (.ci/target/rust/debug/deps/perception_version_reopen-06eff35da754231d)",
+      "run_declarations": [
+        [
+          4633,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4642,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.21
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4644,
+      "header": "Running tests/seat_fleet_behavior.rs (.ci/target/rust/debug/deps/seat_fleet_behavior-3fe57349e6eae4e1)",
+      "run_declarations": [
+        [
+          4646,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4649,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4651,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_exec_ssh-219fd45b2d613db4)",
+      "run_declarations": [
+        [
+          4653,
+          104
+        ]
+      ],
+      "results": [
+        [
+          4759,
+          "ok",
+          104,
+          0,
+          0,
+          0,
+          0,
+          3.4
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4761,
+      "header": "Running tests/real_omp_seat.rs (.ci/target/rust/debug/deps/real_omp_seat-1e398efaa521ca5a)",
+      "run_declarations": [
+        [
+          4763,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4766,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4768,
+      "header": "Running tests/real_ssh_exec.rs (.ci/target/rust/debug/deps/real_ssh_exec-5bb52fe0a8d65238)",
+      "run_declarations": [
+        [
+          4770,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4773,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4775,
+      "header": "Running tests/seat_fleet.rs (.ci/target/rust/debug/deps/seat_fleet-c31b32d66f10a016)",
+      "run_declarations": [
+        [
+          4777,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4780,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.11
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4782,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_identity-2cc42a065c76825b)",
+      "run_declarations": [
+        [
+          4784,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4787,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4789,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_kernel-13a1626307d1b3a8)",
+      "run_declarations": [
+        [
+          4791,
+          12
+        ]
+      ],
+      "results": [
+        [
+          4805,
+          "ok",
+          12,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4807,
+      "header": "Running tests/cordis_lifecycle.rs (.ci/target/rust/debug/deps/cordis_lifecycle-401e51399d27a898)",
+      "run_declarations": [
+        [
+          4809,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4815,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.03
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4817,
+      "header": "Running tests/generation_uninstall.rs (.ci/target/rust/debug/deps/generation_uninstall-abac945e8f12f60c)",
+      "run_declarations": [
+        [
+          4819,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4822,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4824,
+      "header": "Running tests/hook_generation_lifecycle.rs (.ci/target/rust/debug/deps/hook_generation_lifecycle-418ec70863a44d09)",
+      "run_declarations": [
+        [
+          4826,
+          3
+        ]
+      ],
+      "results": [
+        [
+          4831,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4833,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_media-5da34dc58eb75a28)",
+      "run_declarations": [
+        [
+          4835,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4843,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.35
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4845,
+      "header": "Running tests/recording_controls.rs (.ci/target/rust/debug/deps/recording_controls-ad1834c7aff2858d)",
+      "run_declarations": [
+        [
+          4847,
+          2
+        ]
+      ],
+      "results": [
+        [
+          4851,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.1
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4853,
+      "header": "Running tests/transcript_lineage.rs (.ci/target/rust/debug/deps/transcript_lineage-62a87198d3d8390a)",
+      "run_declarations": [
+        [
+          4855,
+          7
+        ]
+      ],
+      "results": [
+        [
+          4864,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.29
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4866,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_memory-2b55dd13c8ff3990)",
+      "run_declarations": [
+        [
+          4868,
+          6
+        ]
+      ],
+      "results": [
+        [
+          4876,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          2.03
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4878,
+      "header": "Running tests/intent_flow.rs (.ci/target/rust/debug/deps/intent_flow-345f7eb1acb11c7d)",
+      "run_declarations": [
+        [
+          4880,
+          9
+        ]
+      ],
+      "results": [
+        [
+          4891,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0.41
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4893,
+      "header": "Running tests/pma_contribution.rs (.ci/target/rust/debug/deps/pma_contribution-5c63f8504bb5961f)",
+      "run_declarations": [
+        [
+          4895,
+          4
+        ]
+      ],
+      "results": [
+        [
+          4901,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.13
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4903,
+      "header": "Running tests/scoped_recall.rs (.ci/target/rust/debug/deps/scoped_recall-1022e860dc9d1561)",
+      "run_declarations": [
+        [
+          4905,
+          1
+        ]
+      ],
+      "results": [
+        [
+          4908,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.13
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4910,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_mobile-52a64f86d082740e)",
+      "run_declarations": [
+        [
+          4912,
+          33
+        ]
+      ],
+      "results": [
+        [
+          4947,
+          "ok",
+          33,
+          0,
+          0,
+          0,
+          0,
+          0.72
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4949,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_node-9139f2d2657dd3f2)",
+      "run_declarations": [
+        [
+          4951,
+          36
+        ]
+      ],
+      "results": [
+        [
+          4989,
+          "ok",
+          36,
+          0,
+          0,
+          0,
+          0,
+          5.02
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4991,
+      "header": "Running unittests src/main.rs (.ci/target/rust/debug/deps/shenko_node-30ef603b549be409)",
+      "run_declarations": [
+        [
+          4993,
+          0
+        ]
+      ],
+      "results": [
+        [
+          4995,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 4997,
+      "header": "Running tests/cognition_report.rs (.ci/target/rust/debug/deps/cognition_report-5956c6283e3a1e13)",
+      "run_declarations": [
+        [
+          4999,
+          3
+        ]
+      ],
+      "results": [
+        [
+          5004,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.3
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5006,
+      "header": "Running tests/component_agreement.rs (.ci/target/rust/debug/deps/component_agreement-899d6aa70cd5e116)",
+      "run_declarations": [
+        [
+          5008,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5011,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.33
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5013,
+      "header": "Running tests/partition_rejoin.rs (.ci/target/rust/debug/deps/partition_rejoin-c22caa45561fd3ab)",
+      "run_declarations": [
+        [
+          5015,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5021,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          8.27
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5023,
+      "header": "Running tests/reconciliation_receipts.rs (.ci/target/rust/debug/deps/reconciliation_receipts-06959d6e54a0a40c)",
+      "run_declarations": [
+        [
+          5025,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5028,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5030,
+      "header": "Running tests/unit_uninstall_wire.rs (.ci/target/rust/debug/deps/unit_uninstall_wire-5e7d05d27adddd1f)",
+      "run_declarations": [
+        [
+          5032,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5035,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5037,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_quota-4657f800c69c38ef)",
+      "run_declarations": [
+        [
+          5039,
+          0
+        ]
+      ],
+      "results": [
+        [
+          5041,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5043,
+      "header": "Running tests/policy_admission.rs (.ci/target/rust/debug/deps/policy_admission-e0ac2ee8ef168eec)",
+      "run_declarations": [
+        [
+          5045,
+          16
+        ]
+      ],
+      "results": [
+        [
+          5063,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5065,
+      "header": "Running tests/policy_planning.rs (.ci/target/rust/debug/deps/policy_planning-636c777ec85db213)",
+      "run_declarations": [
+        [
+          5067,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5075,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5077,
+      "header": "Running tests/quota.rs (.ci/target/rust/debug/deps/quota-4aebc2de29a3ddc5)",
+      "run_declarations": [
+        [
+          5079,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5087,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5089,
+      "header": "Running tests/strategy_plugins.rs (.ci/target/rust/debug/deps/strategy_plugins-7351cd2a229aaf9a)",
+      "run_declarations": [
+        [
+          5091,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5099,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5101,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_repl-7ed72d72ce1eb669)",
+      "run_declarations": [
+        [
+          5103,
+          15
+        ]
+      ],
+      "results": [
+        [
+          5120,
+          "ok",
+          15,
+          0,
+          0,
+          0,
+          0,
+          0.44
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5122,
+      "header": "Running tests/real_python_wasi.rs (.ci/target/rust/debug/deps/real_python_wasi-3f35360cd02937a4)",
+      "run_declarations": [
+        [
+          5124,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5130,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5132,
+      "header": "Running tests/real_quickjs_wasi.rs (.ci/target/rust/debug/deps/real_quickjs_wasi-b81e287191e50d13)",
+      "run_declarations": [
+        [
+          5134,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5137,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5139,
+      "header": "Running tests/wasi_repl.rs (.ci/target/rust/debug/deps/wasi_repl-2d0c23e150609498)",
+      "run_declarations": [
+        [
+          5141,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5153,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.15
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5155,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_seed-5ff07e91fe3d3825)",
+      "run_declarations": [
+        [
+          5157,
+          0
+        ]
+      ],
+      "results": [
+        [
+          5159,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5161,
+      "header": "Running tests/home_capability_migration.rs (.ci/target/rust/debug/deps/home_capability_migration-45e2db61d432675d)",
+      "run_declarations": [
+        [
+          5163,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5166,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.14
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5168,
+      "header": "Running tests/home_checkpoint_recovery.rs (.ci/target/rust/debug/deps/home_checkpoint_recovery-a49a5de8b602198b)",
+      "run_declarations": [
+        [
+          5170,
+          5
+        ]
+      ],
+      "results": [
+        [
+          5177,
+          "ok",
+          5,
+          0,
+          0,
+          0,
+          0,
+          0.42
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5179,
+      "header": "Running tests/home_recovery.rs (.ci/target/rust/debug/deps/home_recovery-f1726de94fde1b0f)",
+      "run_declarations": [
+        [
+          5181,
+          4
+        ]
+      ],
+      "results": [
+        [
+          5187,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.05
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5189,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_store-c4e1a34845300337)",
+      "run_declarations": [
+        [
+          5191,
+          39
+        ]
+      ],
+      "results": [
+        [
+          5232,
+          "ok",
+          39,
+          0,
+          0,
+          0,
+          0,
+          7.48
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5234,
+      "header": "Running tests/cognition_memory_retirement.rs (.ci/target/rust/debug/deps/cognition_memory_retirement-09200e6dd201c6ac)",
+      "run_declarations": [
+        [
+          5236,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5240,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.28
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5242,
+      "header": "Running tests/cognition_publication_ownership.rs (.ci/target/rust/debug/deps/cognition_publication_ownership-7f12f7fe91ce5080)",
+      "run_declarations": [
+        [
+          5244,
+          2
+        ],
+        [
+          5246,
+          1
+        ],
+        [
+          5259,
+          1
+        ],
+        [
+          5267,
+          1
+        ],
+        [
+          5279,
+          1
+        ],
+        [
+          5289,
+          1
+        ],
+        [
+          5299,
+          1
+        ],
+        [
+          5305,
+          1
+        ],
+        [
+          5310,
+          1
+        ],
+        [
+          5328,
+          1
+        ],
+        [
+          5337,
+          1
+        ],
+        [
+          5353,
+          1
+        ],
+        [
+          5362,
+          1
+        ],
+        [
+          5372,
+          1
+        ],
+        [
+          5382,
+          1
+        ],
+        [
+          5392,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5262,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5270,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5282,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5292,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5302,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5313,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5331,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5340,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5350,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.11
+        ],
+        [
+          5356,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5365,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5375,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5385,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5395,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5402,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.1
+        ],
+        [
+          5406,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.35
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5408,
+      "header": "Running tests/cognition_replication.rs (.ci/target/rust/debug/deps/cognition_replication-331ac4e24116839c)",
+      "run_declarations": [
+        [
+          5410,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5420,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          1.15
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5422,
+      "header": "Running tests/cognitive_root_chain.rs (.ci/target/rust/debug/deps/cognitive_root_chain-88b40778e1a814b3)",
+      "run_declarations": [
+        [
+          5424,
+          7
+        ]
+      ],
+      "results": [
+        [
+          5433,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          0.29
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5435,
+      "header": "Running tests/identity_profile.rs (.ci/target/rust/debug/deps/identity_profile-42c3caefb0cfd1e3)",
+      "run_declarations": [
+        [
+          5437,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5440,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.08
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5442,
+      "header": "Running tests/local_model_health_roots.rs (.ci/target/rust/debug/deps/local_model_health_roots-b40c180b536c5076)",
+      "run_declarations": [
+        [
+          5444,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5447,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5449,
+      "header": "Running tests/media_transcript.rs (.ci/target/rust/debug/deps/media_transcript-2acde172bb1073f1)",
+      "run_declarations": [
+        [
+          5451,
+          9
+        ]
+      ],
+      "results": [
+        [
+          5462,
+          "ok",
+          9,
+          0,
+          0,
+          0,
+          0,
+          0.37
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5464,
+      "header": "Running tests/memory_search.rs (.ci/target/rust/debug/deps/memory_search-c9e4e467ebfcf56b)",
+      "run_declarations": [
+        [
+          5466,
+          6
+        ]
+      ],
+      "results": [
+        [
+          5474,
+          "ok",
+          6,
+          0,
+          0,
+          0,
+          0,
+          0.24
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5476,
+      "header": "Running tests/notebook_recovery.rs (.ci/target/rust/debug/deps/notebook_recovery-1090620802f69e73)",
+      "run_declarations": [
+        [
+          5478,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5488,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.69
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5490,
+      "header": "Running tests/quota_store.rs (.ci/target/rust/debug/deps/quota_store-13fd73d957b2d9dd)",
+      "run_declarations": [
+        [
+          5492,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5504,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.4
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5506,
+      "header": "Running tests/raw_session_writer.rs (.ci/target/rust/debug/deps/raw_session_writer-7d8d99cab847bfdf)",
+      "run_declarations": [
+        [
+          5508,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5511,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.08
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5513,
+      "header": "Running tests/receipt_conflicts.rs (.ci/target/rust/debug/deps/receipt_conflicts-1de9ac85aa7d79e7)",
+      "run_declarations": [
+        [
+          5515,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5519,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.2
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5521,
+      "header": "Running tests/research_reset_bank.rs (.ci/target/rust/debug/deps/research_reset_bank-47ae5abaee1ab75a)",
+      "run_declarations": [
+        [
+          5523,
+          10
+        ]
+      ],
+      "results": [
+        [
+          5535,
+          "ok",
+          10,
+          0,
+          0,
+          0,
+          0,
+          0.69
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5537,
+      "header": "Running tests/retained_objects.rs (.ci/target/rust/debug/deps/retained_objects-a57cae83cd79f484)",
+      "run_declarations": [
+        [
+          5539,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5542,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.19
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5544,
+      "header": "Running tests/runtime_error_journal.rs (.ci/target/rust/debug/deps/runtime_error_journal-01e6a44052fe87f7)",
+      "run_declarations": [
+        [
+          5546,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5550,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5552,
+      "header": "Running tests/seat_lifecycle.rs (.ci/target/rust/debug/deps/seat_lifecycle-9a4741453ddeb7fe)",
+      "run_declarations": [
+        [
+          5554,
+          14
+        ]
+      ],
+      "results": [
+        [
+          5570,
+          "ok",
+          14,
+          0,
+          0,
+          0,
+          0,
+          1.15
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5572,
+      "header": "Running tests/session_event_search.rs (.ci/target/rust/debug/deps/session_event_search-d470c6412abe0cca)",
+      "run_declarations": [
+        [
+          5574,
+          2
+        ]
+      ],
+      "results": [
+        [
+          5578,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.12
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5580,
+      "header": "Running tests/store_roundtrip.rs (.ci/target/rust/debug/deps/store_roundtrip-4915415032bf61d0)",
+      "run_declarations": [
+        [
+          5582,
+          49
+        ],
+        [
+          5585,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5635,
+          "ok",
+          49,
+          0,
+          0,
+          0,
+          0,
+          24.35
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5637,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_subject-a4b48e59da44daff)",
+      "run_declarations": [
+        [
+          5639,
+          157
+        ],
+        [
+          5685,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5800,
+          "ok",
+          150,
+          0,
+          7,
+          0,
+          0,
+          53.91
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5802,
+      "header": "Running tests/channel_boundary.rs (.ci/target/rust/debug/deps/channel_boundary-bf3758056552a233)",
+      "run_declarations": [
+        [
+          5804,
+          8
+        ]
+      ],
+      "results": [
+        [
+          5814,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.01
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5816,
+      "header": "Running tests/local_model_behavior.rs (.ci/target/rust/debug/deps/local_model_behavior-5445bc79166dfd13)",
+      "run_declarations": [
+        [
+          5818,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5821,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5823,
+      "header": "Running tests/pma_decision_settlement.rs (.ci/target/rust/debug/deps/pma_decision_settlement-686b9e9042d89251)",
+      "run_declarations": [
+        [
+          5825,
+          5
+        ]
+      ],
+      "results": [
+        [
+          5832,
+          "ok",
+          5,
+          0,
+          0,
+          0,
+          0,
+          0.3
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5834,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_types-10d68d3a638c9a83)",
+      "run_declarations": [
+        [
+          5836,
+          17
+        ]
+      ],
+      "results": [
+        [
+          5855,
+          "ok",
+          17,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5857,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_ui-a861fa446657bc27)",
+      "run_declarations": [
+        [
+          5859,
+          41
+        ]
+      ],
+      "results": [
+        [
+          5902,
+          "ok",
+          41,
+          0,
+          0,
+          0,
+          0,
+          4.94
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5904,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_update-bbec9287c1e7910b)",
+      "run_declarations": [
+        [
+          5906,
+          24
+        ]
+      ],
+      "results": [
+        [
+          5932,
+          "ok",
+          24,
+          0,
+          0,
+          0,
+          0,
+          1.66
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5934,
+      "header": "Running tests/publication_cas_binding.rs (.ci/target/rust/debug/deps/publication_cas_binding-c85b49974c73745a)",
+      "run_declarations": [
+        [
+          5936,
+          2
+        ],
+        [
+          5938,
+          1
+        ],
+        [
+          5940,
+          1
+        ]
+      ],
+      "results": [
+        [
+          5943,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.0
+        ],
+        [
+          5948,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          1,
+          0.1
+        ],
+        [
+          5952,
+          "ok",
+          2,
+          0,
+          0,
+          0,
+          0,
+          0.22
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5954,
+      "header": "Running tests/rollback_append_node.rs (.ci/target/rust/debug/deps/rollback_append_node-336c64717ed297f6)",
+      "run_declarations": [
+        [
+          5956,
+          15
+        ]
+      ],
+      "results": [
+        [
+          5973,
+          "ok",
+          15,
+          0,
+          0,
+          0,
+          0,
+          0.42
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5975,
+      "header": "Running tests/rollback_migration.rs (.ci/target/rust/debug/deps/rollback_migration-cb00805d77770a9b)",
+      "run_declarations": [
+        [
+          5977,
+          3
+        ]
+      ],
+      "results": [
+        [
+          5982,
+          "ok",
+          3,
+          0,
+          0,
+          0,
+          0,
+          0.49
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 5984,
+      "header": "Running unittests src/lib.rs (.ci/target/rust/debug/deps/shenko_wasm-426f26ec45f76625)",
+      "run_declarations": [
+        [
+          5986,
+          16
+        ]
+      ],
+      "results": [
+        [
+          6004,
+          "ok",
+          16,
+          0,
+          0,
+          0,
+          0,
+          5.04
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6006,
+      "header": "Running tests/checkpoint_closure.rs (.ci/target/rust/debug/deps/checkpoint_closure-a94dc2212a4aaab8)",
+      "run_declarations": [
+        [
+          6008,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6014,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.03
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6016,
+      "header": "Running tests/home_mounts.rs (.ci/target/rust/debug/deps/home_mounts-7fe3c70a5f82cad8)",
+      "run_declarations": [
+        [
+          6018,
+          8
+        ]
+      ],
+      "results": [
+        [
+          6028,
+          "ok",
+          8,
+          0,
+          0,
+          0,
+          0,
+          0.08
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6030,
+      "header": "Running tests/mount_admission.rs (.ci/target/rust/debug/deps/mount_admission-78a197f113ba2262)",
+      "run_declarations": [
+        [
+          6032,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6038,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6040,
+      "header": "Running tests/network.rs (.ci/target/rust/debug/deps/network-e1b49017527a7d77)",
+      "run_declarations": [
+        [
+          6042,
+          7
+        ]
+      ],
+      "results": [
+        [
+          6051,
+          "ok",
+          7,
+          0,
+          0,
+          0,
+          0,
+          1.51
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6053,
+      "header": "Running tests/real_ssh_wasm.rs (.ci/target/rust/debug/deps/real_ssh_wasm-90fccc36873c07cc)",
+      "run_declarations": [
+        [
+          6055,
+          1
+        ]
+      ],
+      "results": [
+        [
+          6058,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6060,
+      "header": "Running tests/tool_artifact_roots.rs (.ci/target/rust/debug/deps/tool_artifact_roots-0f4d984ac75a1df3)",
+      "run_declarations": [
+        [
+          6062,
+          1
+        ]
+      ],
+      "results": [
+        [
+          6065,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          0,
+          0.09
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6067,
+      "header": "Running tests/wasm_state.rs (.ci/target/rust/debug/deps/wasm_state-5f92112d287b15dc)",
+      "run_declarations": [
+        [
+          6069,
+          4
+        ]
+      ],
+      "results": [
+        [
+          6075,
+          "ok",
+          4,
+          0,
+          0,
+          0,
+          0,
+          0.06
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6077,
+      "header": "Doc-tests shenko",
+      "run_declarations": [
+        [
+          6079,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6081,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6083,
+      "header": "Doc-tests shenko_awareness_core",
+      "run_declarations": [
+        [
+          6085,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6087,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6089,
+      "header": "Doc-tests shenko_broker",
+      "run_declarations": [
+        [
+          6091,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6093,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6095,
+      "header": "Doc-tests shenko_channel_adapters",
+      "run_declarations": [
+        [
+          6097,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6099,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6101,
+      "header": "Doc-tests shenko_channel_napcat",
+      "run_declarations": [
+        [
+          6103,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6105,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6107,
+      "header": "Doc-tests shenko_channel_napcat_link",
+      "run_declarations": [
+        [
+          6109,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6111,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6113,
+      "header": "Doc-tests shenko_compact_budget",
+      "run_declarations": [
+        [
+          6115,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6117,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6119,
+      "header": "Doc-tests shenko_compact_rollover",
+      "run_declarations": [
+        [
+          6121,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6123,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6125,
+      "header": "Doc-tests shenko_compact_snap",
+      "run_declarations": [
+        [
+          6127,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6129,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6131,
+      "header": "Doc-tests shenko_compat",
+      "run_declarations": [
+        [
+          6133,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6135,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6137,
+      "header": "Doc-tests shenko_compat_mcp",
+      "run_declarations": [
+        [
+          6139,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6141,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6143,
+      "header": "Doc-tests shenko_compat_poppy",
+      "run_declarations": [
+        [
+          6145,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6147,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6149,
+      "header": "Doc-tests shenko_compat_skill",
+      "run_declarations": [
+        [
+          6151,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6153,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6155,
+      "header": "Doc-tests shenko_context_policy",
+      "run_declarations": [
+        [
+          6157,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6159,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6161,
+      "header": "Doc-tests shenko_document",
+      "run_declarations": [
+        [
+          6163,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6165,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6167,
+      "header": "Doc-tests shenko_evidence",
+      "run_declarations": [
+        [
+          6169,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6171,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6173,
+      "header": "Doc-tests shenko_exec_host",
+      "run_declarations": [
+        [
+          6175,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6177,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6179,
+      "header": "Doc-tests shenko_exec_ssh",
+      "run_declarations": [
+        [
+          6181,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6183,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6185,
+      "header": "Doc-tests shenko_identity",
+      "run_declarations": [
+        [
+          6187,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6189,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6191,
+      "header": "Doc-tests shenko_kernel",
+      "run_declarations": [
+        [
+          6193,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6195,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6197,
+      "header": "Doc-tests shenko_media",
+      "run_declarations": [
+        [
+          6199,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6201,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6203,
+      "header": "Doc-tests shenko_memory",
+      "run_declarations": [
+        [
+          6205,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6207,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6209,
+      "header": "Doc-tests shenko_mobile",
+      "run_declarations": [
+        [
+          6211,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6213,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6215,
+      "header": "Doc-tests shenko_node",
+      "run_declarations": [
+        [
+          6217,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6219,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6221,
+      "header": "Doc-tests shenko_quota",
+      "run_declarations": [
+        [
+          6223,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6225,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6227,
+      "header": "Doc-tests shenko_repl",
+      "run_declarations": [
+        [
+          6229,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6231,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6233,
+      "header": "Doc-tests shenko_seed",
+      "run_declarations": [
+        [
+          6235,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6237,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6239,
+      "header": "Doc-tests shenko_store",
+      "run_declarations": [
+        [
+          6241,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6243,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6245,
+      "header": "Doc-tests shenko_subject",
+      "run_declarations": [
+        [
+          6247,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6249,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6251,
+      "header": "Doc-tests shenko_types",
+      "run_declarations": [
+        [
+          6253,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6255,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6257,
+      "header": "Doc-tests shenko_ui",
+      "run_declarations": [
+        [
+          6259,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6261,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6263,
+      "header": "Doc-tests shenko_update",
+      "run_declarations": [
+        [
+          6265,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6267,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    },
+    {
+      "header_line": 6269,
+      "header": "Doc-tests shenko_wasm",
+      "run_declarations": [
+        [
+          6271,
+          0
+        ]
+      ],
+      "results": [
+        [
+          6273,
+          "ok",
+          0,
+          0,
+          0,
+          0,
+          0,
+          0.0
+        ]
+      ],
+      "skip_lines": []
+    }
+  ]
+}

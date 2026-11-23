@@ -47,9 +47,10 @@ decodable, but a digest lacking this dependency is conservatively refused at
 materialization and retained through the existing reconciliation path. Missing
 original schema evidence is not fabricated by rewriting the sealed transition.
 
-Native claim/arm/dispatch/T2 retain their existing typed witness versions:
-their independent validators use full read rows to verify operation absence and
-unfinished-child ranges. Write-only tables now retain actual touched keys from
+Native claim/arm/dispatch/T2 retain their versioned typed witnesses. Ordinary
+paths use full read rows to verify operation absence and unfinished-child
+ranges; the direct-chain operation predicates below are a separate version.
+Write-only tables now retain actual touched keys from
 the start. Direct first-claim, claim-proven T1 and childless E1-proven T2 already
 have a separately validated single-task witness; capture now constructs that
 same witness before copying any historical task rows. The exact target shape
@@ -58,15 +59,257 @@ run before admission. No full read range is replaced with an unproven digest.
 The row-engine journey retains a 129 MiB write-only history and a 66 MiB unrelated
 task while capturing and applying the small native-v1 delta.
 
+### Direct native subject witness (2026-11-22)
+
+The real protocol observations found three selected `native.claim` actions at
+Node control index 7 with durable acceptance and no Store materialization. The
+frozen complete `subject_steps` image differed from the live table, and
+recovering the same selected value retained that conflict. The source path
+includes the next main step's mutable S0 bytes in that image, so concurrent S0
+progress is the mechanism this fix targets. The original error alone does not
+identify the changed row at the precise failure instant. The absence of an
+operation or attempt did not make those selected actions safe to retry.
+
+The subject-witness increment introduced claim codec 2. The original proof-bearing paired
+T1 and childless original T2 format introduced codec 3 and row schema 3;
+old claim 1, arm/T2 1–2 and ordinary dispatch retain their original row schema 1
+semantics. Only the independently verified S1/claim/E1 chain can use the new
+subject witness. Its `subject_steps` image contains exactly the immutable
+creator's full row, fetched by primary key before and after the single source
+evaluation. It cannot carry a step write. An observed trigger or view read of
+`subject_steps` is outside this closed proof and refuses capture before storing
+a prepared transition or requesting choice, instead of discarding that
+additional dependency. Earlier predecessor CAS publication is unaffected.
+
+The source still calls `read_subject`. In the final IMMEDIATE transaction,
+every new-version application calls it again and compares the complete head:
+the current successor must exist and match its branch, step number, parent,
+controller epoch and software generation; paused-boundary checks also remain.
+Only that successor's unrelated state, request and input progress may differ.
+The separately proven creator stays an exact row dependency. Prepared and
+learned applications perform the same checks and never issue a new worker or
+execution permit. No chosen bytes, source identities, E1 or Unknown outcomes
+are rewritten, and this change introduces no retry.
+
+That subject-witness format introduced [archive schema 10](../specs/durable-state.md)
+so older schema-7 readers refuse before payload publication. Current readers
+retain the old archive and transition versions; raw Node object transport is
+a separate compatibility boundary. The existing first-claim and 129 MiB chain
+regressions now include post-choice real S0 progress, different successor
+progress on receivers, and post-preflight missing/badly bound successor and
+changed-creator refusals. These are controlled Store/authority fixtures;
+execution and fresh real-model journey evidence must be reported separately.
+
+### Direct native operation predicates (2026-11-22 candidate)
+
+The actual release `cdf71091` browser journey retained three failures out of
+three attempts. In attempts 001 and 003 the ordinary `host.printf` arm lost its
+complete `attempts` predecessor; attempt 002 reached real printf E1 but its
+ordinary T2 lost the complete `tasks` predecessor. The
+[attempt-001 witness audit](../evidence/daily-readiness-20261122/final-cdf71091-attempt001-native-arm-witness.json)
+binds the chosen arm codec 1, empty frozen operation/attempt images, the later
+independent model-child rows, and the original Store error. The stopped ledger
+is a later observation, not a reconstruction of every cell at the error instant.
+The later missing-materialization error does not make the chosen arm safe to
+replace or execute again. These failed receipts remain failures.
+
+New direct first claims use claim codec 3 / row schema 4 and freeze only the
+absence of their deterministic original operation's physical PK. This is the
+same predicate as `evaluate_claim`; it does not add arm's JSON-alias or logical
+key semantics. The typed claim reader requires exactly that selector and an
+empty matching image. Both source capture and application requery the point
+before and after the task write. Old claim 1/2 objects retain their full
+operation witnesses and original row-schema 1/3 interpretations.
+
+The printf executor now requests the existing paired native T1/dispatch permit.
+Only its fresh return permits the original execution; replay and recovery still
+return a factual read. For a proven direct S1/claim chain, new arm codec 4 binds
+row schema 4 and two closed, typed predicates:
+
+| Table | Complete predicate whose matching rows must be absent before arm |
+| --- | --- |
+| `operations` | Physical operation PK or decoded operation ID equals the planned original ID, or decoded task ID and logical key equal the planned pair. |
+| `attempts` | Physical attempt PK or decoded attempt ID equals the planned attempt, or physical/decoded operation ID equals its original operation. |
+
+These are not sender-provided SQL fragments. The typed arm reader derives the
+exact selector set from its validated plan and rejects missing, duplicated,
+substituted or extra selectors. It requires empty matching preimages, and only
+the original task, operation and attempt writes remain legal. Capture and both
+materialization checks use the same predicate. Arm streams and parses each
+table's original `OperationRecord`/`AttemptRecord` one row at a time; it compares
+decoded `EntityId` values so UUID spelling aliases cannot conceal a collision.
+Malformed originals still refuse. Only matching full physical rows are retained,
+subject to the existing budget, but scanning and JSON parsing remain dependent
+on history size. This is not an indexed or constant-time absence query.
+
+New childless, original-E1-proven T2 also uses codec 4 / row schema 4. Its three
+selectors retain the full original operation, attempt and receipt rows by their
+physical primary keys. The reader binds those selectors to the plan's original
+identities. The original E1 and its operation/attempt projections are validated
+and, on a learned installation, staged in the same IMMEDIATE transaction before
+the row predicates run. Existing or newly observed conflicting original facts
+refuse the transaction; no Unknown is folded into success. The exact target
+task, independently proven child absence, creator row, current successor and
+complete subject-head checks remain in force. An unrelated child may advance
+without becoming an exact read dependency of these selected original rows.
+
+Both direct writers reject trigger/view reads of the narrowed operation tables
+before publishing a prepared transition or requesting choice. The physical
+write observer still sees every write; a write outside a selected predicate is
+refused. Full schemas and trigger definitions remain bound, and preimages,
+absence, writes and postimages are checked under one final IMMEDIATE transaction.
+Ordinary arm keeps its original format. Retained old arm/T2
+codecs 1–2 still require row schema 1; codec 3 requires row schema 3; only codec 4
+accepts row schema 4. Claim codec 2 continues to use row schema 3; claim codec 3
+requires row schema 4. Rows 1–3 cannot
+carry a selector. This introduces no retry, serialization of unrelated tasks,
+replacement chosen action or receiver execution permission.
+
+The direct-selector increment introduced archive schema 11, and the anchored
+E1 capability introduced schema 12. The current candidate declares schema 13
+for frozen control-predecessor membership, including snapshots without native
+actions. Schemas 10–12 remain readable with their original strict fact-family,
+layout and closure rules; schemas 8 and 9 remain unsupported. A schema-12 reader
+refuses schema 13 before payload CAS publication.
+The archive gate does not version raw Node object transport.
+
+The existing direct-chain regression adds six necessary windows: real unrelated
+E1 progress after the target claim's choice and after its arm choice, trigger/view
+dependency refusal, logical-key absence conflict, a same-ID uppercase UUID
+under another physical key, and a T2 selector naming another attempt. It retains
+the original malformed-E1, staged-E1 rollback, foreign parking, one-effect,
+lost-reply, reopen and replay assertions. One retained-schema-10 import/relay
+window, one ancestry-dispatch interleaving and the generic-T2 interleaving below
+brought that selector increment to nine new windows across existing test
+functions. That increment introduced no new test function or test factory;
+the later frozen-membership regression below is a separate correctness fix.
+
+The learned T2 receiver lacks the unrelated source operation/attempt/E1 entirely
+and still must retain its exact original result; T2's original lost-reply,
+rollback and replay checks remain in that same chain. Static
+review checks the explicit legacy codec/row pairing; it is not a Rust execution
+receipt. These candidate checks and the next actual model journey still require
+the integration owner's scoped execution; this source change does not turn the
+three CDF journey failures into passes or claim a measured latency improvement.
+
+### Generic T2 ancestry and ordinary children (2026-11-22 candidate)
+
+The source path for `model.child` completion also reaches canonical T2, without
+the direct native claim/E1 proof. Its old codec-1 transition retains full task,
+step, operation, attempt and evidence tables. This is a source-confirmed
+remaining concurrency risk; the CDF printf errors do not by themselves prove
+that a particular child completion failed at this same point.
+
+New generic complete/finish objects use T2 codec 5 and row schema 5, with no
+`evidence_fact`. The fixed task selector retains the target and its complete,
+bounded owner chain plus every ordinary direct child (`!background` and typed
+`TaskOwner::Task` pointing at the target), including terminal children and an
+empty range. The authoring-step selector retains the actual creator rows needed
+by that ancestry's branch checks. Original operation, attempt and E1 remain
+full physical rows selected by their original PKs. The shared ancestry reader
+checks physical/JSON identities, subject, owner structure, branch and active
+ancestors; the target/ancestor revision fences and admitted `expected_tasks`
+must match that same ordered chain. Ordinary children are read dependencies,
+not additional Node `expected_tasks` or conflict aliases.
+
+Source evaluation still calls the original `unfinished_children` SQL. The
+typed transition validator still derives unfinished ownership from decoded
+`TaskRecord` owner/background/terminal fields. The selector also uses those
+typed child identities, so a UUID spelling alias cannot remove a row that the
+old validator would have seen; a SQL/typed disagreement remains a refusal.
+No new plan field changes a retained codec's input digest. All apply modes
+recheck `ensure_owner_active` and `read_subject` in the same IMMEDIATE transaction
+as the selector preimages, exact result writes and postimages. The final T2
+cannot bypass an unfinished child or substitute another attempt/receipt.
+
+The existing completing/finish regression gains one chosen-to-application
+interleaving: the actual main S0 advances and a different operation receives
+another real Store E1, while the ordinary child's task remains unfinished.
+The original selected parent result must still be `Completing`, then wait for
+that child's actual T2 before the separate finish/reopen path can publish the
+parent result. Its original lost-reply, receipt identity and no-repeat checks
+remain. This is a controlled Store mechanism check pending execution, not a
+model-success or latency result. The child scan still parses task history;
+the change bounds retained dependencies rather than claiming constant-time
+ownership queries. Old T2 codec 1 keeps its original full-witness semantics;
+direct codecs 2/3/4 retain their existing proof and row-schema pairing.
+
+### E1 increment over an applied predecessor (2026-11-22 candidate)
+
+The actual `0c6b013e` batch completed all three browser attempts with zero
+passes. Each retained one `CAS closure byte budget exceeded` seal debt after
+a successful original printf observation, with no task result. Its required
+native implementation was 90,162,848 bytes, larger than the unchanged
+67,108,864-byte E1 closure budget. This is a source-bound capacity refusal;
+the separate predecessor-drift runtime error and unfinished model child are
+retained as separate observations.
+
+[Native E1 codec 6](native-e1-incremental-closure.md) explicitly names the
+original T1 payload and any exact source/first-Unknown E1 as predecessor roots.
+Both actual local applications and the complete typed predecessor graph are
+verified before they can be excluded from increment accounting. The new
+transport limit counts at most 4,096 new unique typed references and 64 MiB of
+new unique object bytes. A same-digest opaque alias does not satisfy a new
+typed reference. Original codec 1–5 budgets, Unknown, retained seal debt and
+the original fact/fold meanings are unchanged. The new writer always selects
+codec 6; there is no error-string fallback or ordinary-T2 bypass.
+
+Archives, GC roots and existing control delivery still retain the complete
+graph. Verification and initial local Store-to-Node cache population still
+have costs proportional to retained predecessors; this does not establish a
+latency improvement or a general history-independent request path. The
+existing 129 MiB native chain now includes a required 64 MiB-plus-one-byte
+implementation in the same T1/E1/T2/reopen trajectory. Its existing proof-loss
+window checks missing and same-length corrupt bulk, then retains the original
+debt after restoration. Two existing E1 delivery trajectories retain their
+source/Unknown, replay and no-effect assertions under the explicit new format.
+These authored checks still require execution on the integrated candidate.
+
+### Frozen predecessor membership (2026-11-22 candidate)
+
+An optional bare digest is evidence of a retained CAS object only if that object
+belonged to the original snapshot. A later CAS publication must not enlarge an
+already sealed predecessor. The actual d16 third browser attempt failed while
+inspecting a direct-native predecessor; its original error and failed journey
+remain retained separately from the corrected reader and its regression.
+
+Control-predecessor codec 2 freezes the complete sorted digest inventory in the
+root and requires an exact count/set match plus the original snapshot fingerprint
+when inspected. Optional bare-digest discovery is restricted to that inventory
+both when building direct roots and while walking nested generic JSON. Complete
+ObjectRefs and schema-required cognitive/unit/WASM children bypass this optional
+filter and still require full integrity and membership. A retained optional
+object that is later absent or corrupt still refuses; a new capture may genuinely
+include an object that an older capture excluded.
+
+Archive schema 13 applies the same optional-membership boundary using its listed
+objects. Legacy archive versions through 12 and predecessor codec 1 keep their
+original semantics. This is an explicit format change, not a retry or a rewrite
+of a previously chosen action, its E1, or its execution permit.
+
+The root gains O(object_count) digest metadata without introducing another page
+tree for the expanded object inventory. Snapshot construction, complete graph
+integrity checks, ancestry/child verification and retained-history growth remain.
+The [predecessor design](control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2)
+records the exact format and regression boundary; this fix claims no measured
+latency or constant-memory improvement.
+
 ### Remaining issue #316 boundaries
+
+The opt-in [request-path timing](request-path-timing.md) records canonical
+preparation, snapshot, validation, lock acquisition, capture, dispatch admission
+and materialization as nested measured scopes. These are observations on the
+candidate being run, not a retrospective explanation of an earlier delay or
+an assertion that the remaining history-dependent work below is fixed.
 
 The native full witnesses remain history-dependent at these concrete paths:
 
 | Path | Still retained complete read dependencies | Consequence |
 | --- | --- | --- |
-| `claim_transition::evaluate_claim` | `subject_steps` (the current successor and creator are point reads) and `operations` (original-operation absence) | Full before/after images still share the 128 MiB capture limit; the sealed native transition is limited to 64 MiB. Historical steps/operations can refuse a small new claim. |
-| `arming_transition::evaluate_arm` | `operations` (ID or task/logical-key absence), `attempts` (ID or operation absence), `subject_intents` (publication absence), and subject reads | The independent `validate_absence` examines these complete witnesses. Ordinary/non-direct ancestry still retains the `tasks` table. |
-| `dispatch_transition::evaluate_dispatch` and ordinary `native_transition::evaluate_native_t2` | Full `tasks`/subject reads, named operation/attempt and (T2) evidence tables | Dispatch does not have the direct-chain narrow proof. Ordinary T2 must prove its unfinished-child range; retained unrelated rows still affect capacity and conflicts. Direct E1-proven T2 narrows only `tasks`. |
+| `claim_transition::evaluate_claim` | Subject heads; old claim-1/2 objects also retain full `operations` | Claim 3 uses its original-operation PK absence. Full retained images still share the 128 MiB capture limit; sealed transitions remain limited to 64 MiB. Old claim-1 preparations also retain the original complete `subject_steps` image. |
+| `arming_transition::evaluate_arm` | Ordinary paths retain full `operations` and `attempts`; all paths retain full `subject_intents` (publication absence) and subject heads | Direct arm 4 retains its two typed absence predicates instead of every unrelated row, but still scans/parses operations and attempts. Ordinary/non-direct ancestry also retains `tasks` and `subject_steps`. |
+| `dispatch_transition::evaluate_dispatch` | Full `tasks`/subject reads and named operation/attempt tables in the retained codec-1 format | The separate ancestry-selector dispatch increment defines the new format; retained codec 1 is not reinterpreted. |
+| `native_transition::evaluate_native_t2` | Subject heads; old generic T2 1 also retains full task/step/operation/attempt/evidence tables | New generic T2 5 retains the complete typed ordinary-child range and owner/creator chain, with PK operation/attempt/E1; finding the child range still scans/parses tasks. Direct E1-proven T2 4 has its separate childless proof. Both retain current-successor validation. |
 
 All canonical actions also call
 `control_predecessor::prepare_control_predecessor_inner`, which takes a full
@@ -75,6 +318,13 @@ the immutable control tree. CAS reuse avoids duplicating unchanged objects but
 does not avoid reading, parsing and validating that snapshot. The corresponding
 inspector reads all those rows again to verify ancestry/child absence. This is
 an additional CPU, I/O and transient-memory cost outside the row capture budget.
+
+The [control predecessor publisher](control-predecessor-publication.md) batches
+only one graph's child-directory barriers before its ordinary durable root
+seal. New files still synchronize individually and every dedup still validates
+the full length/hash. This does not remove snapshot/closure work, narrow the
+read witnesses or activate GC; measured performance on the changed candidate
+remains a separate requirement.
 
 Removing these remaining dependencies safely requires versioned native typed
 key/predicate witnesses, their independent absence/ancestor/child validators,

@@ -1,0 +1,10 @@
+
+> @shenko/ui@0.1.0 build /var/idw-target/daily-web-pin-795b1b49-r4/rebuild/source/web
+> node build.mjs
+
+Shenko prototypes compiled by Proto-UI 795b1b4958333cf904547e484acb4de9d4b3ee80 (react-dom-source-v1): transport-badge, message-bubble
+[proto-ui] tokens(preset): wrote ../src/static/proto-ui-tokens.generated.css
+[proto-ui] theme(shadcn): wrote ../src/static/shadcn-theme.css
+[proto-ui] style: wrote ../src/static/proto-ui-style.css
+[proto-ui] setup(shadcn): completed tokens + theme + proto-ui style in /var/idw-target/daily-web-pin-795b1b49-r4/rebuild/source/src/static
+Shenko UI built with Proto-UI 795b1b4958333cf904547e484acb4de9d4b3ee80; 12 hashed assets

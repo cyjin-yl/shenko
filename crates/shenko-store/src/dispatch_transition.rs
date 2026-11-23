@@ -6,7 +6,7 @@
 //! original marker and source commit without running any provider.
 use std::collections::BTreeMap;
 
-use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -24,9 +24,11 @@ use crate::{
     authority::{AuthorityReservation, admission_materialized},
     child::{COGNITION_IMPORTED, NATIVE_SETTLEMENT_ONLY, NativeDispatchTransition, memo_flag},
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_ANCESTRY_READ_SCHEMA, NativeAncestry, NativeReadSelector,
+        PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
     },
+    native_facts::{validate_native_ancestry, validate_native_ancestry_envelope,
+        validate_native_ancestry_fences},
     store::storage_error,
 };
 
@@ -78,6 +80,16 @@ fn same(left: &impl Serialize, right: &impl Serialize) -> Result<bool, ShenkoErr
 }
 
 impl DispatchPlan {
+    fn read_selectors(&self, head: &SubjectBranchHead) -> [NativeReadSelector; 4] {
+        let ancestry = NativeAncestry::new(&self.task, head);
+        [
+            NativeReadSelector::TaskAncestry { ancestry: ancestry.clone(), ordinary_children: false },
+            NativeReadSelector::AuthoringSteps { ancestry },
+            NativeReadSelector::OriginalOperation { operation_id: self.operation.operation_id },
+            NativeReadSelector::OriginalAttempt { attempt_id: self.attempt.attempt_id },
+        ]
+    }
+
     fn position(&self) -> String {
         format!("attempt/{}/dispatch", self.attempt.attempt_id)
     }
@@ -177,7 +189,10 @@ impl DispatchTransition {
         let [table] = tables.as_slice() else {
             return Err(invalid(format!("missing unique {name} read condition")));
         };
-        if !table.complete_read {
+        if !table.complete_read && !(self.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA
+            && self.plan.read_selectors(&self.rows.original_head).iter()
+                .any(|selector| table.read_selector.as_ref() == Some(selector)))
+        {
             return Err(invalid(format!("incomplete {name} read condition")));
         }
         let identity = Cell::Text(id.to_string());
@@ -211,8 +226,13 @@ impl DispatchTransition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&plan.read_selectors(head))?;
+        if rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = validate_native_ancestry(rows, &plan.task, false)?;
+            validate_native_ancestry_fences(admission, &ancestry)?;
+        }
         let position = plan.position();
-        if rows.schema_version != 1
+        if !matches!(rows.schema_version, 1 | NATIVE_ANCESTRY_READ_SCHEMA)
             || rows.action_id != admission.action_id
             || rows.action_id
                 != EntityId::derived("commit-admission-action-v1", position.as_bytes())
@@ -315,6 +335,10 @@ impl Store {
         operation: OperationRecord,
         attempt: AttemptRecord,
     ) -> Result<NativeDispatchTransition, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("native.dispatch_commit", crate::timing::Binding {
+            task_id: Some(invocation.task_id), operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id), ..Default::default()
+        });
         let (head, mut position) =
             self.task_admission_position(invocation.task_id, String::new())?;
         let task = position
@@ -361,6 +385,10 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("canonical.prepare", crate::timing::Binding {
+            subject_id: Some(head.agent_id), task_id: Some(plan.task.task_id), action_id: Some(action_id),
+            operation_id: Some(plan.operation.operation_id), attempt_id: Some(plan.attempt.attempt_id),
+        });
         let input_digest = plan.input_digest(head)?;
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok((prepared, false));
@@ -371,8 +399,8 @@ impl Store {
             .reserve_authority()?
             .with_read_conditions(position.expected_tasks.clone(), Vec::new());
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             if !self.native_invocation_current_tx(&tx, &plan.task, &plan.invocation).map_err(source_error)? {
                 return Err(conflict("source invocation was fenced before preparation"));
@@ -382,20 +410,24 @@ impl Store {
             }
             // Dispatcher ownership is local and was checked above. Only the
             // shared factual transaction below contributes to the read set.
-            let (rows, ()) = self.capture_row_transition(&tx, RowTransitionInput {
+            let (rows, ()) = self.capture_native_ancestry_transition(&tx, RowTransitionInput {
                 action_id, input_digest: input_digest.clone(), head,
-            }, None, |commit, _| self.evaluate_dispatch(&tx, head, &plan, commit))?;
+            }, &plan.read_selectors(head), |commit, _| self.evaluate_dispatch(&tx, head, &plan, commit))?;
             let transition = DispatchTransition { rows, plan: plan.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("dispatch exceeds the 64 MiB admission budget")); }
-            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 1)?.object;
-            let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
+            let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC, 2)?.object;
+            let envelope = serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
                 "expected_tasks":position.expected_tasks,"snapshot_tasks":position.snapshot_tasks,"expected_steps":[],
                 "action":{"kind":"native.dispatch","task_id":plan.task.task_id,"transition_ref":transition_ref},
-            }))?, "application/json", "commit-authority", "commit-admission", 1)?.object;
+            });
+            let ancestry = validate_native_ancestry(&transition.rows, &plan.task, false)?;
+            validate_native_ancestry_envelope(&envelope, &ancestry)?;
+            let payload_ref = self.cas.seal_object(&serde_json::to_vec(&envelope)?,
+                "application/json", "commit-authority", "commit-admission", 1)?.object;
             let admission = CommitAdmission {
                 schema_version:1, subject_id:head.agent_id, branch_id:head.branch_id.clone(), action_id,
                 conflict_key:position.key.clone(), conflict_aliases:position.aliases.clone(), required_unconsumed:position.reads.clone(),
@@ -408,7 +440,7 @@ impl Store {
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?])
                 .map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(storage_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
             Ok((PreparedTransition { admission, transition_ref }, true))
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -473,17 +505,23 @@ impl Store {
         reference: &ObjectRef,
     ) -> Result<DispatchTransition, ShenkoError> {
         if reference.codec.name != CODEC
-            || reference.codec.major != 1
+            || !matches!(reference.codec.major, 1 | 2)
             || reference.media_type != "application/json"
             || reference.bytes > MAX_IMAGE_BYTES as u64
         {
             return Err(invalid("unsupported transition type or size"));
+        }
+        if reference.codec.major == 2 {
+            crate::native_facts::typed_json(reference, CODEC, 2)?;
         }
         let bytes = self.cas.read_object(&reference.digest)?;
         if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
             return Err(invalid("transition bytes differ"));
         }
         let transition: DispatchTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
+        if transition.rows.schema_version != if reference.codec.major == 2 { NATIVE_ANCESTRY_READ_SCHEMA } else { 1 } {
+            return Err(invalid("dispatch reader version differs from its ancestry witness"));
+        }
         self.verify_transition_objects(&transition.rows)?;
         Ok(transition)
     }
@@ -497,6 +535,11 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("missing dispatch admission"))?;
+        let _phase = crate::timing::Phase::bound("canonical.apply", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let transition = self.read_dispatch_transition(reference)?;
         transition.validate(admission)?;
         let envelope: serde_json::Value =
@@ -511,14 +554,17 @@ impl Store {
                 "dispatch action differs from its admitted envelope",
             ));
         }
+        if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+            let ancestry = validate_native_ancestry(&transition.rows, &transition.plan.task, false)?;
+            validate_native_ancestry_envelope(&envelope, &ancestry)?;
+        }
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 if admission_materialized(&tx, admission)? {
-                    tx.commit().map_err(storage_error)?;
+                    crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                     authority.materialized();
                     return Ok(NativeDispatchTransition::AlreadyCommitted);
                 }
@@ -551,6 +597,14 @@ impl Store {
                         }
                     }
                 }
+                if transition.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
+                    let (head, _) = crate::store::read_subject(&tx, admission.subject_id)?;
+                    if !same(&head, &transition.rows.original_head)? {
+                        return Err(conflict("native dispatch subject predecessor differs"));
+                    }
+                    crate::child::ensure_owner_active(&tx, &transition.plan.task, &head)
+                        .map_err(source_error)?;
+                }
                 let local_commit =
                     CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
                 transition.rows.apply_rows(&tx, local_commit.seq)?;
@@ -562,7 +616,7 @@ impl Store {
                     transition.rows.created_at,
                 )?;
                 self.record_subject_commit(&tx, local_commit, 1)?;
-                tx.commit().map_err(storage_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                 authority.materialized();
                 Ok(
                     if matches!(mode, DispatchApplyMode::Current)

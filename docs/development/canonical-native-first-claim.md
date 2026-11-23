@@ -1,5 +1,23 @@
 # Canonical first claim of an S1 native delegation
 
+Current reader update (2026-11-22): new claims use codec 3 / row schema 4 with the
+[creator-key, current-successor and original-operation PK witness](canonical-capture-budget.md#direct-native-operation-predicates-2026-11-22-candidate).
+The version-1 design and its original verification record below remain valid
+for retained version-1 bytes; their complete step-table witness is not rewritten.
+Claim codec 2 remains bound to row schema 3 and its complete operation image.
+Only codec 3 uses the deterministic operation's physical-PK absence selector;
+it does not add arm's decoded-JSON identity or logical-key predicates.
+The new reader preserves the same birth proof, exact Running result, authority
+and one-live-permit rules. New archives declare
+[schema 13](../specs/durable-state.md), which retains the schema-10 creator
+witness, schema-11 claim 3, direct arm/T2 and generic dispatch/T2 readers,
+the schema-12 anchored native E1 codec 6 envelope, and additionally declares
+control-predecessor codec 2's frozen optional object membership. The archive
+declaration does not rewrite any retained transition's original codec or read
+semantics or omit predecessor closures from recovery. The complete digest
+inventory adds root metadata proportional to object count; it does not remove
+the full predecessor snapshot and verification costs.
+
 ## Exact scope
 
 This increment supplies `native.claim` with a typed frozen transition only for

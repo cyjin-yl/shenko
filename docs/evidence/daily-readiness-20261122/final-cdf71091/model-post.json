@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T20:53:27.714831+00:00",
+  "model_server_pid": 164245,
+  "start_ticks": "12753921",
+  "boot_id": "dc52a324-ea43-4e54-aa48-8cf24bc51097",
+  "cmdline_sha256": "397b4c8cf506f8fe605af40c880535257aaf81f45b11c6c0acbf053f38e1b72f",
+  "active_files": [
+    {
+      "flag": "--chat-template",
+      "configured_value": "/opt/onecat-vllm-1.5.4-20261120/scarlet-visible-answer.jinja",
+      "path": "/opt/onecat-vllm-1.5.4-20261120/scarlet-visible-answer.jinja",
+      "exists": true,
+      "bytes": 9273,
+      "sha256": "ee7b5403ac8d47ba15911a80931d518faa756254e7875214ce29c5fd0d9eae43"
+    },
+    {
+      "flag": "--hf-config-path",
+      "configured_value": "/opt/scarlet-vm101-f1951b44/yarn",
+      "path": "/opt/scarlet-vm101-f1951b44/yarn/config.json",
+      "exists": true,
+      "bytes": 91735,
+      "sha256": "1de5c7a7be5427a60cdb7375ce9a58a45ab2a1507d2a7b524a9749a3e0677264"
+    },
+    {
+      "flag": "--generation-config",
+      "configured_value": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "path": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model/generation_config.json",
+      "exists": true,
+      "bytes": 213,
+      "sha256": "cc62ca9bb8c38b8397bba4bedc6fd5f2d22e65596c285eb123d1b4e452de2333"
+    }
+  ],
+  "scope": "selected observed process identity and configured input files; not memory-resident tensor attestation"
+}

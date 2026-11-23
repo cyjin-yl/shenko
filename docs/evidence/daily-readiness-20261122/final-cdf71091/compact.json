@@ -1,0 +1,538 @@
+{
+  "schema_version": 1,
+  "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+  "batch": {
+    "schema_version": 1,
+    "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+    "startup_timeout_seconds": 300,
+    "requested_runs": 3,
+    "runs": [
+      {
+        "attempt": 1,
+        "directory": "attempt-001",
+        "completed": true,
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "summary_sha256": "ca06e3f35cf99792a0efa94ab4e49cc1009208348ab14290579468f8f1cb3d34",
+        "exit_code": 1,
+        "elapsed_seconds": 137.5589433379937
+      },
+      {
+        "attempt": 2,
+        "directory": "attempt-002",
+        "completed": true,
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "summary_sha256": "16231285c1e25477cb645df887cc9fba0af52850847610c7afccc3ea662b6af5",
+        "exit_code": 1,
+        "elapsed_seconds": 100.92404507298488
+      },
+      {
+        "attempt": 3,
+        "directory": "attempt-003",
+        "completed": true,
+        "passed": false,
+        "errors": [
+          "journey: ConnectionClosedError: no close frame received or sent",
+          "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+        ],
+        "summary_sha256": "f8c97004dfd630937688f1131d3bedd7e6951f9b3252620f315cf977ac51a2b2",
+        "exit_code": 1,
+        "elapsed_seconds": 89.83925954499864
+      }
+    ],
+    "passed": false,
+    "errors": [],
+    "started_at": "2026-11-21T20:47:52Z",
+    "attempted_runs": 3,
+    "completed_runs": 3,
+    "passed_runs": 0,
+    "failed_runs": 3,
+    "unattempted_runs": 0,
+    "success_rate": 0.0,
+    "binary_sha256": "e1bec856a805687d18250907a39ff999bcf76cfc224f569dba961847ef59459b",
+    "model_card": {
+      "id": "swift-qwen3.8-27b-nvfp4",
+      "object": "model",
+      "owned_by": "vllm",
+      "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "parent": null,
+      "max_model_len": 409600
+    },
+    "model_card_non_identity_fields": [
+      "permission",
+      "created"
+    ],
+    "model_url": "http://10.10.10.11:8000",
+    "finished_at": "2026-11-21T20:53:22Z"
+  },
+  "runs": [
+    {
+      "attempt": "attempt-001",
+      "startup_seconds": 12.269190739985788,
+      "elapsed_seconds": 137.5589433379937,
+      "passed": false,
+      "summary_sha256": "ca06e3f35cf99792a0efa94ab4e49cc1009208348ab14290579468f8f1cb3d34",
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "parent_exit": 1,
+      "owned_group_cleanup": {
+        "pgid": 1127657,
+        "required": false,
+        "forced": false,
+        "signals": [],
+        "complete": true,
+        "after_parent": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "parent_reaped": true
+      },
+      "facts": {
+        "tasks": 3,
+        "task_results": 0,
+        "operations": 1,
+        "attempts": 1,
+        "evidence_receipts": 1,
+        "decisions": 1
+      },
+      "initial_decision_text": [
+        "刚收到 web_ui 的有限任务：委派一个用 swift-qwen3.8-27b-nvfp4 的有限模型 child 独立算 19×23，再委派已注册的 host.printf 原生 child 回显标记 S1-0a232b5aba2f；两个任务都真实返回后，我才能在正文里报告计算结果和原样回显的标记。此刻两个回执都还没有，所以我不模拟、不宣称成功，只发出委派并开一个语义等待。\n\n"
+      ],
+      "errors_from_journal": [
+        {
+          "error_digest": "blake3:67b5fb9e9c4755dad6a7c405c14e7c10364b46c0b7efa2625e61da46745ddb11",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_dispatcher",
+          "message": "committed dispatcher pass failed: protocol error: [writer] runtime_authority_fenced: <redacted>] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:07.965Z",
+          "source_module": "shenko_subject::dispatch",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:2b01696b2bddfc328c63ec04e27e5a41dd63069b7eacc41c80b96d89f8dc0d5a",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_execute",
+          "message": "native handler did not produce a settled result: conflict: canonical Store transition: predecessor/schema differs for attempts",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:07.984Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:29971955c47063b45719e0c0b383290bcd38e9b170df590eb1dc33559766bf62",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_execute",
+          "message": "native handler did not produce a settled result: model child local wait stopped; reconcile original request c52c54c7-1d3e-57ba-86d3-ce9a81b2d0e4",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:08.001Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "c072d94c-394a-4a49-9b28-9e3493f83918",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:755a135678f50fec9150ea439528a9fa2f42209345b6cbd0743d3e70181edaea",
+          "extra": {
+            "conversation_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+            "purpose": "subject",
+            "request_id": "d84473e7-4c80-4b5c-a7ad-277c5e02c18e"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_OBSERVATION_STOPPED: runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:08.019Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+          "extra": {
+            "reason": "handler_failed"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:08.072Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+          "extra": {
+            "reason": "handler_failed"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:08.089Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "c072d94c-394a-4a49-9b28-9e3493f83918",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:659d9c4f6405b1dd9a7821da4a30843eca3d79a453594ae788fa7adb38796b8a",
+          "extra": {
+            "conversation_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+            "purpose": "child",
+            "request_id": "c52c54c7-1d3e-57ba-86d3-ce9a81b2d0e4"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_FENCE_UNCHECKED: the dispatch fence could not be checked; the request stays recoverable",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:50:08.762Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        }
+      ]
+    },
+    {
+      "attempt": "attempt-002",
+      "startup_seconds": 13.675047339027515,
+      "elapsed_seconds": 100.92404507298488,
+      "passed": false,
+      "summary_sha256": "16231285c1e25477cb645df887cc9fba0af52850847610c7afccc3ea662b6af5",
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "parent_exit": 1,
+      "owned_group_cleanup": {
+        "pgid": 1127976,
+        "required": false,
+        "forced": false,
+        "signals": [],
+        "complete": true,
+        "after_parent": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "parent_reaped": true
+      },
+      "facts": {
+        "tasks": 3,
+        "task_results": 0,
+        "operations": 2,
+        "attempts": 2,
+        "evidence_receipts": 2,
+        "decisions": 1
+      },
+      "initial_decision_text": [
+        "收到 web_ui 的请求。我要委派两个真实运行的 child：一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23；另一个使用已注册的 host.printf 原生 child，回显标记 S1-7220fde3c2c1。这一步我发出委派并开始语义等待它们的真实回执，不模拟执行，也不提前宣称成功；等结果实际返回后再在正文里报告。\n\n\n\n"
+      ],
+      "errors_from_journal": [
+        {
+          "error_digest": "blake3:2a72d7bb99ec9a5ea2001cff31f44d7b976d6a3e2bd35f8ee23927e47dc4ffe9",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_execute",
+          "message": "native handler did not produce a settled result: model child local wait stopped; reconcile original request 90e82ca1-fa4d-5daf-a4bf-e0ae17fde4fe",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:49.985Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "7249989e-62d4-4de2-b1a8-f8c5f5ef998d",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:399a94c39dab7a1347c0487cc59aef59768e858ffa43a06ec5925e81feb3474c",
+          "extra": {
+            "reason": "reconciling"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for reconciling: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:49.993Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "00eec6a9-b699-438b-af12-bed4e7bb1687",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:755a135678f50fec9150ea439528a9fa2f42209345b6cbd0743d3e70181edaea",
+          "extra": {
+            "conversation_id": "48821592-fab6-41ff-b01e-d7bd831f9807",
+            "purpose": "child",
+            "request_id": "90e82ca1-fa4d-5daf-a4bf-e0ae17fde4fe"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_OBSERVATION_STOPPED: runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:50.008Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:755a135678f50fec9150ea439528a9fa2f42209345b6cbd0743d3e70181edaea",
+          "extra": {
+            "conversation_id": "48821592-fab6-41ff-b01e-d7bd831f9807",
+            "purpose": "external",
+            "request_id": "36738a0e-56b0-4c76-a910-6a6fd733c105"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_OBSERVATION_STOPPED: runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:50.026Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:67b5fb9e9c4755dad6a7c405c14e7c10364b46c0b7efa2625e61da46745ddb11",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_dispatcher",
+          "message": "committed dispatcher pass failed: protocol error: [writer] runtime_authority_fenced: <redacted>] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:50.054Z",
+          "source_module": "shenko_subject::dispatch",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+          "extra": {
+            "reason": "handler_failed"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:51:50.277Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "7249989e-62d4-4de2-b1a8-f8c5f5ef998d",
+          "v": 1
+        }
+      ]
+    },
+    {
+      "attempt": "attempt-003",
+      "startup_seconds": 13.865770142991096,
+      "elapsed_seconds": 89.83925954499864,
+      "passed": false,
+      "summary_sha256": "f8c97004dfd630937688f1131d3bedd7e6951f9b3252620f315cf977ac51a2b2",
+      "errors": [
+        "journey: ConnectionClosedError: no close frame received or sent",
+        "owned runtime did not shut down cleanly (parent exit 1); see last_shutdown, runtime logs and final ledger"
+      ],
+      "parent_exit": 1,
+      "owned_group_cleanup": {
+        "pgid": 1128301,
+        "required": false,
+        "forced": false,
+        "signals": [],
+        "complete": true,
+        "after_parent": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "remaining": {
+          "live_pids": [],
+          "zombie_pids": [],
+          "live_thread_ids": [],
+          "alive": false
+        },
+        "parent_reaped": true
+      },
+      "facts": {
+        "tasks": 3,
+        "task_results": 0,
+        "operations": 1,
+        "attempts": 1,
+        "evidence_receipts": 1,
+        "decisions": 1
+      },
+      "initial_decision_text": [
+        "收到 web_ui 的任务。我的计划很直接：同一步里派发两个真实 child——一个有限模型 child（走当前本地通路，模型 swift-qwen3.8-27b-nvfp4）独立算 19×23，一个已注册的 host.printf 原生 child 原样输出标记 S1-e6aeec12dbbf。此刻它们刚出发，还没有任何回执，所以我不宣称成功，只写下派发事实并设置语义等待，等两边 task_result 真正回来后再报告。\n\n"
+      ],
+      "errors_from_journal": [
+        {
+          "error_digest": "blake3:67b5fb9e9c4755dad6a7c405c14e7c10364b46c0b7efa2625e61da46745ddb11",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_dispatcher",
+          "message": "committed dispatcher pass failed: protocol error: [writer] runtime_authority_fenced: <redacted>] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.691Z",
+          "source_module": "shenko_subject::dispatch",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:2b01696b2bddfc328c63ec04e27e5a41dd63069b7eacc41c80b96d89f8dc0d5a",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_execute",
+          "message": "native handler did not produce a settled result: conflict: canonical Store transition: predecessor/schema differs for attempts",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.732Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "f7b33b48-7900-4283-a416-d50e7d7e573b",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:755a135678f50fec9150ea439528a9fa2f42209345b6cbd0743d3e70181edaea",
+          "extra": {
+            "conversation_id": "bedaecff-f915-4a19-98ef-0ff8f2ad3f74",
+            "purpose": "external",
+            "request_id": "aff3459e-fcbc-4f28-bf5b-906b17091b59"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_OBSERVATION_STOPPED: runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.746Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:be35250951acbc63c5373860a69c369da42d56a7d2c4573d9466c044fda69b8b",
+          "extra": {},
+          "journal_dropped_total": 0,
+          "kind": "native_execute",
+          "message": "native handler did not produce a settled result: model child local wait stopped; reconcile original request c2a5db8a-ffa6-522d-8577-5e4cf9ea5ab5",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.780Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "de1eaeef-8a7f-4790-b614-80cc402d4a8e",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+          "extra": {
+            "reason": "handler_failed"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.827Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "f7b33b48-7900-4283-a416-d50e7d7e573b",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+          "extra": {
+            "reason": "handler_failed"
+          },
+          "journal_dropped_total": 0,
+          "kind": "native_park",
+          "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:19.857Z",
+          "source_module": "shenko_subject::child",
+          "step_no": null,
+          "task_id": "de1eaeef-8a7f-4790-b614-80cc402d4a8e",
+          "v": 1
+        },
+        {
+          "error_digest": "blake3:659d9c4f6405b1dd9a7821da4a30843eca3d79a453594ae788fa7adb38796b8a",
+          "extra": {
+            "conversation_id": "bedaecff-f915-4a19-98ef-0ff8f2ad3f74",
+            "purpose": "child",
+            "request_id": "c2a5db8a-ffa6-522d-8577-5e4cf9ea5ab5"
+          },
+          "journal_dropped_total": 0,
+          "kind": "inference_broker",
+          "message": "INFERENCE_FENCE_UNCHECKED: the dispatch fence could not be checked; the request stays recoverable",
+          "message_truncated": false,
+          "occurred_at": "2026-11-21T20:53:20.507Z",
+          "source_module": "shenko-broker",
+          "step_no": null,
+          "task_id": null,
+          "v": 1
+        }
+      ]
+    }
+  ],
+  "environment": {
+    "sample_count": 67,
+    "metric_error_count": 0,
+    "started_at": "2026-11-21T20:47:51.945889+00:00",
+    "finished_at": "2026-11-21T20:53:27.327355+00:00",
+    "end_reason": "parent_exited",
+    "scope": "system counters visible through this process's /proc; not a per-task or cgroup attribution",
+    "ranges": {
+      "io_some_avg10": {
+        "min": 0.09,
+        "max": 30.42
+      },
+      "io_full_avg10": {
+        "min": 0.03,
+        "max": 26.82
+      },
+      "cpu_some_avg10": {
+        "min": 0.0,
+        "max": 1.92
+      },
+      "mem_available_kib": {
+        "min": 35304200,
+        "max": 37495700
+      },
+      "loadavg_1m": {
+        "min": 5.88,
+        "max": 13.1
+      }
+    }
+  }
+}

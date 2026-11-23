@@ -1,0 +1,9 @@
+Cloning into '/var/idw-target/daily-web-pin-795b1b49-r3/source/shenko'...
+fatal: detected dubious ownership in repository at '/tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /tank/shared/projects/shenko/shenko/.git/worktrees/shenko-web-pin-795b1b49
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.

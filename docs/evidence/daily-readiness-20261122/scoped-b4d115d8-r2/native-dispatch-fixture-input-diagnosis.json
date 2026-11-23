@@ -1,0 +1,428 @@
+{
+  "schema_version": 1,
+  "source_commit": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+  "observed_at": "2026-11-21T21:59:06.591067+00:00",
+  "database": {
+    "path": "/tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/head.db",
+    "bytes": 1449984,
+    "sha256": "c25f6adefe28b3167b2727fb03d4b860efee4ada26081a2c45740576bc69629e",
+    "mtime": "2026-11-21T21:57:29.854356+00:00"
+  },
+  "source_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-b4d115d8-r2/native-dispatch.log",
+    "bytes": 7099,
+    "sha256": "15999a3b3b7a5fb96b98474a53733e73bf7533f3df2e82f3953b04b25aff56b2"
+  },
+  "tables": {
+    "tasks": {
+      "count": 4,
+      "rows": [
+        {
+          "task_id": "ace60833-6762-46df-9ce7-3de0f28abf5d",
+          "record_revision": 0,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "ace60833-6762-46df-9ce7-3de0f28abf5d",
+            "task_revision": 0,
+            "record_revision": 0,
+            "agent_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "conversation_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "owner": {
+              "kind": "task",
+              "id": "ace60833-6762-46df-9ce7-3de0f28abf5d"
+            },
+            "background": false,
+            "kind": "subject_root",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "00000000-0000-0000-0000-000000000000",
+              "artifact_digest": "blake3:87bc81b8d1da7fad87ee3aabb7a8e794b38f899d7dfd0b16c1229333eaeddf10",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:606ec154e4634e71c6bc67b6614417192a7e7ac2944523c1a55435f1b7c54f47",
+              "bytes": 4,
+              "media_type": "application/json",
+              "store_namespace": "test",
+              "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/60/6e/606ec154e4634e71c6bc67b6614417192a7e7ac2944523c1a55435f1b7c54f47",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": null
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            }
+          },
+          "updated_commit_seq": 1,
+          "created_at": "2026-11-21 21:57:29"
+        },
+        {
+          "task_id": "00000000-0000-0000-0000-000000000001",
+          "record_revision": 6,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "00000000-0000-0000-0000-000000000001",
+            "task_revision": 3,
+            "record_revision": 6,
+            "agent_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "conversation_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "owner": {
+              "kind": "conversation",
+              "id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+              "artifact_digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "bytes": 19,
+              "media_type": "text/plain",
+              "store_namespace": "test",
+              "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": {
+                "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "bytes": 19,
+                "media_type": "text/plain",
+                "store_namespace": "test",
+                "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "codec": {
+                  "name": "raw",
+                  "major": 1,
+                  "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+                }
+              },
+              "invocation_id": "5149f945-a0be-ee02-cb0b-21c86b833556",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "native_child": true,
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+                  "seq": 5
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                  "plugin_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+                  "registry_revision": 1
+                },
+                "invocation_id": "5149f945-a0be-ee02-cb0b-21c86b833556",
+                "node_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+                "worker_id": "80937813-c3af-4321-ab35-ac063c74ef5d"
+              },
+              "native_implementation_artifact": {
+                "bytes": 19,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "locator": "native:executable/blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "object",
+              "native_operation_id": "823e76ad-0f31-db02-f6b2-cb0344ffcd7e",
+              "native_result_id": "e49f3334-da3d-6aa7-1796-a5e867db26b2"
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T21:57:29.605148062Z",
+            "created_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 5
+            }
+          },
+          "updated_commit_seq": 5,
+          "created_at": "2026-11-21 21:57:29"
+        },
+        {
+          "task_id": "00000000-0000-0000-0000-000000000002",
+          "record_revision": 6,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "00000000-0000-0000-0000-000000000002",
+            "task_revision": 3,
+            "record_revision": 6,
+            "agent_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "conversation_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "owner": {
+              "kind": "task",
+              "id": "00000000-0000-0000-0000-000000000001"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+              "artifact_digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "bytes": 19,
+              "media_type": "text/plain",
+              "store_namespace": "test",
+              "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "running",
+              "checkpoint_ref": {
+                "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "bytes": 19,
+                "media_type": "text/plain",
+                "store_namespace": "test",
+                "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "codec": {
+                  "name": "raw",
+                  "major": 1,
+                  "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+                }
+              },
+              "invocation_id": "74631b96-b648-bfa7-421c-9d2b76ca7cd9",
+              "mode": "run",
+              "epoch": 2
+            },
+            "memos": {
+              "native_child": true,
+              "native_execution_assignment": {
+                "assigned_commit": {
+                  "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+                  "seq": 6
+                },
+                "epoch": 2,
+                "implementation_ref": {
+                  "artifact_digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                  "plugin_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+                  "registry_revision": 1
+                },
+                "invocation_id": "74631b96-b648-bfa7-421c-9d2b76ca7cd9",
+                "node_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+                "worker_id": "80937813-c3af-4321-ab35-ac063c74ef5d"
+              },
+              "native_implementation_artifact": {
+                "bytes": 19,
+                "codec": {
+                  "digest": "blake3:4e7323eb96b8a789ef21255be79c2f3505f80d2e94bb6d4c845f7f376b692527",
+                  "major": 1,
+                  "name": "native-executable"
+                },
+                "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "locator": "native:executable/blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "media_type": "application/octet-stream",
+                "store_namespace": "native-implementation"
+              },
+              "native_input": "object",
+              "native_operation_id": "0f943e17-a56f-970e-9537-31cd079a9516",
+              "native_result_id": "7f93fba3-82bd-3c9a-6d67-999b6a5fb3a6"
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "first_run_at": "2026-11-21T21:57:29.814279523Z",
+            "created_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 6
+            }
+          },
+          "updated_commit_seq": 6,
+          "created_at": "2026-11-21 21:57:29"
+        },
+        {
+          "task_id": "00000000-0000-0000-0000-000000000003",
+          "record_revision": 5,
+          "data": {
+            "record_schema_version": 1,
+            "task_id": "00000000-0000-0000-0000-000000000003",
+            "task_revision": 3,
+            "record_revision": 5,
+            "agent_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "conversation_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+            "owner": {
+              "kind": "conversation",
+              "id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441"
+            },
+            "background": false,
+            "kind": "host.printf",
+            "definition_version": 1,
+            "implementation_ref": {
+              "plugin_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+              "artifact_digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "registry_revision": 1
+            },
+            "input_ref": {
+              "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "bytes": 19,
+              "media_type": "text/plain",
+              "store_namespace": "test",
+              "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+              "codec": {
+                "name": "raw",
+                "major": 1,
+                "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+              }
+            },
+            "state": {
+              "status": "pending",
+              "checkpoint_ref": {
+                "digest": "blake3:72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "bytes": 19,
+                "media_type": "text/plain",
+                "store_namespace": "test",
+                "locator": "file:///tmp/shenko-test-baa58561-aabf-4aa0-b6fc-8b466f4071ad/cas/72/03/72034bda37e051b70912cf0ef38c20102125e2045b74472635f54804a0210c33",
+                "codec": {
+                  "name": "raw",
+                  "major": 1,
+                  "digest": "blake3:d4d4d19bd64b6b3374a6c189713eb3188d4ef59f761563da9938c52ca08b13da"
+                }
+              }
+            },
+            "memos": {
+              "native_child": true
+            },
+            "dispatch_eligibility": {
+              "status": "ready"
+            },
+            "no_progress_crashes": 0,
+            "created_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            },
+            "updated_commit": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 0
+            }
+          },
+          "updated_commit_seq": 2,
+          "created_at": "2026-11-21 21:57:29"
+        }
+      ]
+    },
+    "operations": {
+      "count": 0,
+      "rows": []
+    },
+    "attempts": {
+      "count": 0,
+      "rows": []
+    },
+    "evidence_receipts": {
+      "count": 0,
+      "rows": []
+    },
+    "control_prepared_transitions": {
+      "count": 0,
+      "rows": []
+    },
+    "control_materializations": {
+      "count": 2,
+      "rows": [
+        {
+          "conflict_key": "task/00000000-0000-0000-0000-000000000001/claim/5",
+          "action_id": "5679c6d2-b201-ac5f-a066-476a985220f3",
+          "updated_commit_seq": 5,
+          "raw_data_sha256": "41d4972ac86d9b0276ce9ee94c9138b6aea3a516eeb61ce068f57a1ba91a8bc9"
+        },
+        {
+          "conflict_key": "task/00000000-0000-0000-0000-000000000002/claim/5",
+          "action_id": "885c8405-a864-9dbc-06d5-d03db86d8146",
+          "updated_commit_seq": 6,
+          "raw_data_sha256": "dea1b1f1eec35a94a5a90a644e4e8e2070e67d85ad030c227aac8f021b088cea"
+        }
+      ]
+    },
+    "commit_authority_policy": {
+      "count": 1,
+      "rows": [
+        {
+          "singleton": 1,
+          "source_id": "native-t2-source"
+        }
+      ]
+    },
+    "subject_authority_bindings": {
+      "count": 1,
+      "rows": [
+        {
+          "agent_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+          "data": {
+            "schema_version": 1,
+            "stamp": {
+              "source_id": "native-t2-source",
+              "holder_id": "f69e1029-c685-431c-b1b1-e7d422dcfb1d",
+              "subject_id": "1b5f5e2d-8f6d-4225-9ec4-d2dbf4ae1441",
+              "branch_id": "e5a61929-3dd2-4026-a469-0328e01d2bc3",
+              "revision": "blake3:0c71573b19aaa28dfec791ac30632d9b472baca0d05e21bb771e426753eed93f"
+            },
+            "writer_incarnation": "80937813-c3af-4321-ab35-ac063c74ef5d",
+            "controller_epoch": 2,
+            "software_generation": "seed",
+            "committed_at": {
+              "ledger_id": "52795088-468f-4a6e-8227-f4521b1c580e",
+              "seq": 4
+            }
+          },
+          "updated_commit_seq": 4
+        }
+      ]
+    }
+  },
+  "read_method": {
+    "connection": "SQLite URI mode=ro; one BEGIN read snapshot; no writes",
+    "temporal_limit": "Observed after the b4 failed process exited. Not the transaction-time state at claim refusal.",
+    "queries": "SELECT * FROM each named table; JSON data decoded. Materialization row identifiers/sequence retained, original data bound by SHA256."
+  },
+  "diagnosis": {
+    "observed": "Sibling 00000000-0000-0000-0000-000000000003 is Pending at record revision 5 with only native_child=true. Parent/descendant are Running at revision 6 and contain native_input=object. There are only the parent/descendant claim materializations and no operation/attempt/E1/prepared transition.",
+    "source_inference": "claim_native_task in child.rs 820-826 returns Ok(None) when NATIVE_INPUT is absent. NativeT2Fixture preinitialized the sibling using recovery_task but omitted the additional native_input memo present on parent/child. The observed None surfaced as independent dispatch observation before any arm.",
+    "fix": "Add the same native_input=object memo before the initial batch. Product rules and all later admission/dispatch/recovery assertions remain unchanged.",
+    "scope": "Same pre-existing dispatch trajectory; no new test function or independent scenario. No cargo/model run by this agent."
+  }
+}

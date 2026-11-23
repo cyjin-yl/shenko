@@ -1,0 +1,915 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T20:54:15.194632+00:00",
+  "scope": "read-only stopped attempt-001 ledger and original CAS; no source mutation, no model, no runtime restart",
+  "directory": "/tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001",
+  "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+  "failed_run_retained": true,
+  "cleanup": {
+    "parent_exit": 1,
+    "parent_timed_out": false,
+    "clean": false,
+    "interrupted": false,
+    "started": {
+      "utc": "2026-11-21T20:50:09.790978+00:00",
+      "monotonic_ns": 212371451806702
+    },
+    "signal_calls": [
+      {
+        "target": "owned_parent",
+        "id": 1127657,
+        "signal": "SIGINT",
+        "started": {
+          "utc": "2026-11-21T20:50:09.791035+00:00",
+          "monotonic_ns": 212371451832393
+        },
+        "result": "returned",
+        "finished": {
+          "utc": "2026-11-21T20:50:09.791057+00:00",
+          "monotonic_ns": 212371451853665
+        }
+      }
+    ],
+    "group_cleanup": {
+      "pgid": 1127657,
+      "required": false,
+      "forced": false,
+      "signals": [],
+      "complete": true,
+      "after_parent": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "remaining": {
+        "live_pids": [],
+        "zombie_pids": [],
+        "live_thread_ids": [],
+        "alive": false
+      },
+      "parent_reaped": true
+    },
+    "errors": [],
+    "finished": {
+      "utc": "2026-11-21T20:50:09.892291+00:00",
+      "monotonic_ns": 212371553110136
+    }
+  },
+  "source_hashes": {
+    "manifest.json": {
+      "bytes": 1176,
+      "sha256": "ee580b47e78319fc4f1c329f7baa89eb429a5e1f353a82a34d8921be250a4323"
+    },
+    "summary.json": {
+      "bytes": 4530,
+      "sha256": "ca06e3f35cf99792a0efa94ab4e49cc1009208348ab14290579468f8f1cb3d34"
+    },
+    "final.ledger.json": {
+      "bytes": 564890,
+      "sha256": "78ddbbad2b5b5d6ae1562bfc319977d20f37ac56fe996e13ed999761dd00552d"
+    },
+    "first.runtime.log": {
+      "bytes": 237437,
+      "sha256": "68d31dc99fe36f5d98ae3e0bed8e4aa214f29bebdcbab37e3e4dcdfb219420dc"
+    }
+  },
+  "prepared": [
+    {
+      "action_id": "43d50a3d-c0cc-c169-8a3f-73ec962863ec",
+      "kind": "subject.step_commit",
+      "task_id": null,
+      "operation_id": null,
+      "attempt_id": null,
+      "result_commit": {
+        "ledger_id": "e12c5273-822f-44fc-a1ca-d50d693a0734",
+        "seq": 130
+      },
+      "transition_ref": {
+        "digest": "blake3:47ce18667bff8113d450b040394e509550e694cba3e3334499211832401844cd",
+        "bytes": 46155,
+        "media_type": "application/json",
+        "store_namespace": "commit-authority",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/47/ce/47ce18667bff8113d450b040394e509550e694cba3e3334499211832401844cd",
+        "codec": {
+          "name": "store-s1-transition",
+          "major": 2,
+          "digest": "blake3:836b1d846bfe6a60a73e3802f7a3ba6b1099ae2b605c2d4b13a2e4335d310e7f"
+        }
+      },
+      "applied_count": 1,
+      "node_index": 5,
+      "node_grant": {
+        "schema_version": 1,
+        "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+        "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+        "conflict_key": "branch/fe4d5321-1916-428a-819a-6019fe84c73d/successor/e12c5273-822f-44fc-a1ca-d50d693a0734:2",
+        "conflict_aliases": [
+          "step/c8b59ab6-a934-4d59-ad55-6fd0fb82d21c/revision/4"
+        ],
+        "action_id": "43d50a3d-c0cc-c169-8a3f-73ec962863ec",
+        "expected_parent": {
+          "ledger_id": "e12c5273-822f-44fc-a1ca-d50d693a0734",
+          "seq": 2
+        },
+        "expected_head_revision": 3,
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "operation_id": null,
+        "attempt_id": null,
+        "payload_ref": {
+          "digest": "blake3:8d60ac71a5ecd9755f6bc2e25285aa89ea1f4c783995f99e32e7d7f89c4a896d",
+          "bytes": 6922,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/8d/60/8d60ac71a5ecd9755f6bc2e25285aa89ea1f4c783995f99e32e7d7f89c4a896d",
+          "codec": {
+            "name": "commit-admission",
+            "major": 1,
+            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+          }
+        }
+      }
+    },
+    {
+      "action_id": "85ca42bc-3c40-8a60-6298-13c7600517d7",
+      "kind": "native.claim",
+      "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+      "operation_id": null,
+      "attempt_id": null,
+      "result_commit": {
+        "ledger_id": "e12c5273-822f-44fc-a1ca-d50d693a0734",
+        "seq": 137
+      },
+      "transition_ref": {
+        "digest": "blake3:cc03fbd084a955f3a9cbeac5c0d224221bdbe6117dfbe49d14802568b7fba783",
+        "bytes": 23976,
+        "media_type": "application/json",
+        "store_namespace": "commit-authority",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/cc/03/cc03fbd084a955f3a9cbeac5c0d224221bdbe6117dfbe49d14802568b7fba783",
+        "codec": {
+          "name": "store-native-claim-transition",
+          "major": 2,
+          "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+        }
+      },
+      "applied_count": 1,
+      "node_index": 9,
+      "node_grant": {
+        "schema_version": 1,
+        "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+        "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+        "conflict_key": "task/c9e07b55-16a8-4599-b380-323ab6478f8e/claim/0",
+        "conflict_aliases": [
+          "task/c9e07b55-16a8-4599-b380-323ab6478f8e/revision/0"
+        ],
+        "required_unconsumed": [
+          "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+        ],
+        "action_id": "85ca42bc-3c40-8a60-6298-13c7600517d7",
+        "expected_parent": null,
+        "expected_head_revision": null,
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "operation_id": null,
+        "attempt_id": null,
+        "payload_ref": {
+          "digest": "blake3:98b425c59caa852bfa68ccb7a62a121a7bd155e91019f5698a7018f30859ee65",
+          "bytes": 7181,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/98/b4/98b425c59caa852bfa68ccb7a62a121a7bd155e91019f5698a7018f30859ee65",
+          "codec": {
+            "name": "commit-admission",
+            "major": 1,
+            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+          }
+        }
+      }
+    },
+    {
+      "action_id": "a533a23e-fd16-5742-6ad0-8f20d1066d37",
+      "kind": "native.arm",
+      "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+      "operation_id": "ade50a62-a805-e393-ecf6-441c75963046",
+      "attempt_id": "a7b0ab95-6daf-4121-8085-231e15672f6a",
+      "result_commit": {
+        "ledger_id": "e12c5273-822f-44fc-a1ca-d50d693a0734",
+        "seq": 142
+      },
+      "transition_ref": {
+        "digest": "blake3:e9d393d142f4e30d2f14675918644be9079280b649b8e01c83630675fbe1b458",
+        "bytes": 51597,
+        "media_type": "application/json",
+        "store_namespace": "commit-authority",
+        "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/e9/d3/e9d393d142f4e30d2f14675918644be9079280b649b8e01c83630675fbe1b458",
+        "codec": {
+          "name": "store-native-arm-transition",
+          "major": 1,
+          "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988"
+        }
+      },
+      "applied_count": 0,
+      "node_index": 11,
+      "node_grant": {
+        "schema_version": 1,
+        "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+        "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+        "conflict_key": "task/c9e07b55-16a8-4599-b380-323ab6478f8e/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+        "conflict_aliases": [
+          "task/c9e07b55-16a8-4599-b380-323ab6478f8e/revision/1"
+        ],
+        "required_unconsumed": [
+          "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+        ],
+        "action_id": "a533a23e-fd16-5742-6ad0-8f20d1066d37",
+        "expected_parent": null,
+        "expected_head_revision": null,
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "operation_id": "ade50a62-a805-e393-ecf6-441c75963046",
+        "attempt_id": "a7b0ab95-6daf-4121-8085-231e15672f6a",
+        "payload_ref": {
+          "digest": "blake3:3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "bytes": 5836,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/3b/47/3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "codec": {
+            "name": "commit-admission",
+            "major": 1,
+            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+          }
+        }
+      },
+      "admission": {
+        "schema_version": 1,
+        "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+        "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+        "conflict_key": "task/c9e07b55-16a8-4599-b380-323ab6478f8e/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+        "conflict_aliases": [
+          "task/c9e07b55-16a8-4599-b380-323ab6478f8e/revision/1"
+        ],
+        "required_unconsumed": [
+          "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+        ],
+        "action_id": "a533a23e-fd16-5742-6ad0-8f20d1066d37",
+        "expected_parent": null,
+        "expected_head_revision": null,
+        "controller_epoch": 2,
+        "software_generation": "seed",
+        "operation_id": "ade50a62-a805-e393-ecf6-441c75963046",
+        "attempt_id": "a7b0ab95-6daf-4121-8085-231e15672f6a",
+        "payload_ref": {
+          "digest": "blake3:3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "bytes": 5836,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/3b/47/3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "codec": {
+            "name": "commit-admission",
+            "major": 1,
+            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+          }
+        }
+      },
+      "envelope_source": {
+        "reference": {
+          "digest": "blake3:3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "bytes": 5836,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/3b/47/3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+          "codec": {
+            "name": "commit-admission",
+            "major": 1,
+            "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f"
+          }
+        },
+        "raw_sha256": "21fac8d8aa50ddd7b416bb60d550944a01fe6da3574a2cfda17a99e64c799f93",
+        "actual_bytes": 5836
+      },
+      "transition_source": {
+        "reference": {
+          "digest": "blake3:e9d393d142f4e30d2f14675918644be9079280b649b8e01c83630675fbe1b458",
+          "bytes": 51597,
+          "media_type": "application/json",
+          "store_namespace": "commit-authority",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/e9/d3/e9d393d142f4e30d2f14675918644be9079280b649b8e01c83630675fbe1b458",
+          "codec": {
+            "name": "store-native-arm-transition",
+            "major": 1,
+            "digest": "blake3:954ea5e1209a1f0c9bb9926e6b1c01d26ae2192ae286037fc3d8a92bb8dda988"
+          }
+        },
+        "raw_sha256": "6d6e59ff773e05e3978feaf1e21707ea14f4384b42fab148a73c5b4a094aecee",
+        "actual_bytes": 51597
+      },
+      "row_schema": 1,
+      "capture_created_at": "2026-11-21T20:50:05.810446389Z",
+      "tables": [
+        {
+          "name": "attempts",
+          "complete_read": true,
+          "before_count": 0,
+          "change_count": 1,
+          "read_range": null
+        },
+        {
+          "name": "operations",
+          "complete_read": true,
+          "before_count": 0,
+          "change_count": 1,
+          "read_range": null
+        },
+        {
+          "name": "subject_branch_heads",
+          "complete_read": true,
+          "before_count": 1,
+          "change_count": 0,
+          "read_range": null
+        },
+        {
+          "name": "subject_intents",
+          "complete_read": true,
+          "before_count": 3,
+          "change_count": 0,
+          "read_range": null
+        },
+        {
+          "name": "subject_steps",
+          "complete_read": true,
+          "before_count": 2,
+          "change_count": 0,
+          "read_range": null
+        },
+        {
+          "name": "tasks",
+          "complete_read": true,
+          "before_count": 3,
+          "change_count": 1,
+          "read_range": null
+        }
+      ],
+      "frozen_tables": {
+        "attempts": {
+          "complete_read": true,
+          "before": {
+            "table": {
+              "name": "attempts",
+              "schema_digest": "blake3:f931bb7023ddb26b6b5fe63611b6bfc3c19a1e3c5b5073d8f08226594d8bc65b",
+              "columns": [
+                "attempt_id",
+                "operation_id",
+                "data",
+                "updated_commit_seq",
+                "created_at"
+              ],
+              "key": [
+                0
+              ],
+              "local_sequence": 3
+            },
+            "rows": {}
+          },
+          "changes": [
+            {
+              "key": "[{\"type\":\"text\",\"value\":\"a7b0ab95-6daf-4121-8085-231e15672f6a\"}]",
+              "before": null,
+              "after": [
+                {
+                  "type": "text",
+                  "value": "a7b0ab95-6daf-4121-8085-231e15672f6a"
+                },
+                {
+                  "type": "text",
+                  "value": "ade50a62-a805-e393-ecf6-441c75963046"
+                },
+                {
+                  "type": "text",
+                  "value": "{\"record_schema_version\":1,\"attempt_id\":\"a7b0ab95-6daf-4121-8085-231e15672f6a\",\"operation_id\":\"ade50a62-a805-e393-ecf6-441c75963046\",\"attempt_no\":1,\"invocation_id\":\"75b9202b-e98f-b40d-ee14-46e2cf81a3d3\",\"worker_id\":\"03937e39-3372-488e-b3c4-a0acde10e926\",\"node_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"epoch\":2,\"implementation_ref\":{\"artifact\":{\"digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"locator\":\"builtin:host-printf-v1\"},\"symbol\":\"host.printf.execute\",\"schema\":{\"name\":\"host-printf-observation-v1\",\"major\":1,\"digest\":\"blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1\"}},\"dispatch_stage\":\"armed\",\"armed_commit\":{\"ledger_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"seq\":142},\"provider_handle\":null,\"provider_idempotency\":null,\"transport_ref\":null,\"started_at\":null,\"last_observed_at\":null,\"final_receipt_id\":null}"
+                },
+                {
+                  "type": "local_sequence"
+                },
+                {
+                  "type": "text",
+                  "value": "2026-11-21T20:50:05.810446389+00:00"
+                }
+              ]
+            }
+          ]
+        },
+        "operations": {
+          "complete_read": true,
+          "before": {
+            "table": {
+              "name": "operations",
+              "schema_digest": "blake3:465000380c6fee6d9355d41a0e2e9fc05553a83fe0a1cdd895eddc714aabc40d",
+              "columns": [
+                "operation_id",
+                "record_revision",
+                "data",
+                "updated_commit_seq",
+                "created_at"
+              ],
+              "key": [
+                0
+              ],
+              "local_sequence": 3
+            },
+            "rows": {}
+          },
+          "changes": [
+            {
+              "key": "[{\"type\":\"text\",\"value\":\"ade50a62-a805-e393-ecf6-441c75963046\"}]",
+              "before": null,
+              "after": [
+                {
+                  "type": "text",
+                  "value": "ade50a62-a805-e393-ecf6-441c75963046"
+                },
+                {
+                  "type": "integer",
+                  "value": 0
+                },
+                {
+                  "type": "text",
+                  "value": "{\"record_schema_version\":1,\"operation_id\":\"ade50a62-a805-e393-ecf6-441c75963046\",\"record_revision\":0,\"task_id\":\"c9e07b55-16a8-4599-b380-323ab6478f8e\",\"logical_key\":\"native-handler\",\"operation_name\":\"host.printf.v1\",\"input_schema_version\":1,\"output_schema_version\":1,\"final_input_ref\":{\"digest\":\"blake3:6a4485005309123f11b03be14bc596969c31ac9eac53a303503213a0bd0e4a9a\",\"bytes\":43,\"media_type\":\"application/json\",\"store_namespace\":\"host-native-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/6a/44/6a4485005309123f11b03be14bc596969c31ac9eac53a303503213a0bd0e4a9a\",\"codec\":{\"name\":\"host-printf-frozen-input\",\"major\":1,\"digest\":\"blake3:246f4f275709de7f0d63460aec5264777fb023d50000be62ee620a4ee18bbc62\"}},\"input_digest\":\"blake3:6a4485005309123f11b03be14bc596969c31ac9eac53a303503213a0bd0e4a9a\",\"contract_ref\":{\"plugin_id\":\"6d5d0c16-7f7f-4f6f-9f57-90d8aa30f0a1\",\"artifact_digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"contract_digest\":\"blake3:fb13573daca3cdb239b2b6d9616802338489cb957e9ad9665a907f9a47f18058\",\"receipt_reader_ref\":{\"artifact\":{\"digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"locator\":\"builtin:host-printf-v1\"},\"symbol\":\"host.printf.execute\",\"schema\":{\"name\":\"host-printf-observation-v1\",\"major\":1,\"digest\":\"blake3:b6da3a00fc9847b0655cd21f111aaf403b461ed0e94b4499053b178e0a91e7c1\"}}},\"resource_bindings_ref\":{\"digest\":\"blake3:49dbb36d523e2fe87cfd092752d5f5bd88091d9c8194f87678e1945ad9b95193\",\"bytes\":247,\"media_type\":\"application/json\",\"store_namespace\":\"host-native-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/49/db/49dbb36d523e2fe87cfd092752d5f5bd88091d9c8194f87678e1945ad9b95193\",\"codec\":{\"name\":\"host-printf-binding\",\"major\":1,\"digest\":\"blake3:8238daf8e3ca5d1e398e9c20ef2c563f9dc9c8e80efa1d64527f8e45ca5d0bbd\"}},\"authority_ref\":{\"delegation_id\":\"c9e07b55-16a8-4599-b380-323ab6478f8e\",\"delegation_revision\":0,\"decision_ref\":\"c8b59ab6-a934-4d59-ad55-6fd0fb82d21c\"},\"acceptance_predicate_ref\":{\"digest\":\"blake3:01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d\",\"bytes\":56,\"media_type\":\"application/json\",\"store_namespace\":\"host-native-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/01/ec/01ec157d464b4839a405669b808f955ab618a6b2b62f9d66c1d32bea69a8611d\",\"codec\":{\"name\":\"host-printf-acceptance\",\"major\":1,\"digest\":\"blake3:993abedb26f0f4b10e8f36e118c0647fd6a13410e3d7a524695b72585188c448\"}},\"retry_contract_ref\":{\"digest\":\"blake3:af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29\",\"bytes\":72,\"media_type\":\"application/json\",\"store_namespace\":\"host-native-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/af/14/af14063b3e0910f34a8f63577c541499a67465d17a9fe34351b6843921b07b29\",\"codec\":{\"name\":\"host-printf-retry\",\"major\":1,\"digest\":\"blake3:bdf777a89a6d2e2113aab17d480f412f5c19c35f4323041d6777157311e18279\"}},\"checkpoint_scope_ref\":null,\"state\":\"in_flight\",\"outcome\":null,\"outcome_conflict\":false,\"effect_status\":\"unknown\",\"retry_of\":null,\"compensates\":null,\"possible_duplicate_of\":[],\"prepared_commit\":{\"ledger_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"seq\":142},\"evidence_through\":null}"
+                },
+                {
+                  "type": "local_sequence"
+                },
+                {
+                  "type": "text",
+                  "value": "2026-11-21T20:50:05.810446389+00:00"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "current_stopped_tables": {
+        "operations": [
+          {
+            "operation_id": "07c80dbe-5eb0-59d7-a4bb-f21940b4364c",
+            "record_revision": 1,
+            "data": "{\"record_schema_version\":1,\"operation_id\":\"07c80dbe-5eb0-59d7-a4bb-f21940b4364c\",\"record_revision\":1,\"task_id\":\"c072d94c-394a-4a49-9b28-9e3493f83918\",\"logical_key\":\"model-child-step:0\",\"operation_name\":\"model.child.generate.v1\",\"input_schema_version\":2,\"output_schema_version\":1,\"final_input_ref\":{\"digest\":\"blake3:38c35642ee127911ce84616b1ce2850850dadd09360309dc70246093ba780a3f\",\"bytes\":6028,\"media_type\":\"application/json\",\"store_namespace\":\"model-child-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/38/c3/38c35642ee127911ce84616b1ce2850850dadd09360309dc70246093ba780a3f\",\"codec\":{\"name\":\"model-child-step-input\",\"major\":2,\"digest\":\"blake3:b4f6c5ceadda61ba63349f824b58b34955b5c86982e1e4b67025f44f2a9e4771\"}},\"input_digest\":\"blake3:38c35642ee127911ce84616b1ce2850850dadd09360309dc70246093ba780a3f\",\"contract_ref\":{\"plugin_id\":\"de5bdc7a-ae54-45d5-948c-125f515f866d\",\"artifact_digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"contract_digest\":\"blake3:81c8a088db7618833804b12c827eadeb707877707e4680329bd9edcaa2a10a66\",\"receipt_reader_ref\":{\"artifact\":{\"digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"locator\":\"builtin:model-child-v2\"},\"symbol\":\"model.child.generate.v1\",\"schema\":{\"name\":\"model-child-provider-result\",\"major\":1,\"digest\":\"blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d\"}}},\"resource_bindings_ref\":{\"digest\":\"blake3:76a220fd0068e49701c28a3e95051e083b0a330afa877bdb8ce1bf918e8c58c9\",\"bytes\":934,\"media_type\":\"application/json\",\"store_namespace\":\"model-child-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/76/a2/76a220fd0068e49701c28a3e95051e083b0a330afa877bdb8ce1bf918e8c58c9\",\"codec\":{\"name\":\"model-child-resource-binding\",\"major\":1,\"digest\":\"blake3:b06344da74f3b8a18183cd043f3f3d4cdc929887a5a45735caa81ac96cfc444a\"}},\"authority_ref\":{\"delegation_id\":\"c072d94c-394a-4a49-9b28-9e3493f83918\",\"delegation_revision\":0,\"decision_ref\":\"c8b59ab6-a934-4d59-ad55-6fd0fb82d21c\"},\"acceptance_predicate_ref\":{\"digest\":\"blake3:013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c\",\"bytes\":102,\"media_type\":\"application/json\",\"store_namespace\":\"model-child-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/01/3d/013dfddecaab896d71ed4a7b69c03e7c468a9c4d8e0080c38af256431c02fa7c\",\"codec\":{\"name\":\"model-child-acceptance\",\"major\":1,\"digest\":\"blake3:a84c09fe541730bbd5ba19ebfb80b758d35c7890ee449824fd2994736e125ed1\"}},\"retry_contract_ref\":{\"digest\":\"blake3:430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a\",\"bytes\":104,\"media_type\":\"application/json\",\"store_namespace\":\"model-child-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/43/07/430702b731b956e496fd1f7931041c7520b2302b2f252b7c423211b277c24a9a\",\"codec\":{\"name\":\"model-child-retry\",\"major\":1,\"digest\":\"blake3:33fa3bdfff4e386e1e2ea33a4ca89ad9797a485e0e92f02e88e3216a6f13d682\"}},\"checkpoint_scope_ref\":null,\"state\":\"reconciling\",\"outcome\":null,\"outcome_conflict\":false,\"effect_status\":\"unknown\",\"retry_of\":null,\"compensates\":null,\"possible_duplicate_of\":[],\"prepared_commit\":{\"ledger_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"seq\":143},\"evidence_through\":{\"ledger_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"seq\":155}}",
+            "updated_commit_seq": 155,
+            "created_at": "2026-11-21 20:50:06"
+          }
+        ],
+        "attempts": [
+          {
+            "attempt_id": "4f7af715-f2be-4634-b2cc-3dcaa0828956",
+            "operation_id": "07c80dbe-5eb0-59d7-a4bb-f21940b4364c",
+            "data": "{\"record_schema_version\":1,\"attempt_id\":\"4f7af715-f2be-4634-b2cc-3dcaa0828956\",\"operation_id\":\"07c80dbe-5eb0-59d7-a4bb-f21940b4364c\",\"attempt_no\":1,\"invocation_id\":\"bbb5e9a6-688e-fbe0-d036-fe543cf26bf6\",\"worker_id\":\"03937e39-3372-488e-b3c4-a0acde10e926\",\"node_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"epoch\":2,\"implementation_ref\":{\"artifact\":{\"digest\":\"blake3:d472ac1737eb45db06c19b1e1bb896fbf84b7a51c628252a42a8af421483cf83\",\"locator\":\"builtin:model-child-v2\"},\"symbol\":\"model.child.generate.v1\",\"schema\":{\"name\":\"model-child-provider-result\",\"major\":1,\"digest\":\"blake3:c6625a19e8d55455d569076f1971f4260ff930ba6f466a19b3530f34f856dd2d\"}},\"dispatch_stage\":\"unknown\",\"armed_commit\":{\"ledger_id\":\"e12c5273-822f-44fc-a1ca-d50d693a0734\",\"seq\":143},\"provider_handle\":null,\"provider_idempotency\":null,\"transport_ref\":{\"digest\":\"blake3:1ae9ca26a8de8fa3d570db3aa45b4a9fb892f2c10a6701c6ef10ed685c7df0c6\",\"bytes\":87,\"media_type\":\"application/json\",\"store_namespace\":\"model-child-effects\",\"locator\":\"file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/1a/e9/1ae9ca26a8de8fa3d570db3aa45b4a9fb892f2c10a6701c6ef10ed685c7df0c6\",\"codec\":{\"name\":\"model-child-selected-send\",\"major\":1,\"digest\":\"blake3:4a4223fadc3d82574a9c14c513eb0c94e1c1c1e10720cf805a579f3ec5f66bd9\"}},\"started_at\":null,\"last_observed_at\":\"2026-11-21T20:50:08.879119319Z\",\"final_receipt_id\":\"6237a3b3-54d7-4809-a27c-b9b6661b5410\"}",
+            "updated_commit_seq": 155,
+            "created_at": "2026-11-21 20:50:06"
+          }
+        ]
+      },
+      "operations_frozen_empty": true,
+      "operations_current_count": 1,
+      "attempts_frozen_empty": true,
+      "attempts_current_count": 1,
+      "limits": [
+        "Frozen preimages and stopped final rows are original evidence. No failure-instant SQLite snapshot exists.",
+        "The attempts witness is complete_read and empty, whereas the retained model-child attempt was created independently; its later E1 fields may have changed after the first conflict.",
+        "Recorded BLAKE3 references are not recomputed here; raw bytes are SHA-256 hashed and length-checked."
+      ]
+    }
+  ],
+  "runtime_error_events": [
+    {
+      "event_id": "4b72b44f-a6fd-4f61-acab-42641b1bbae3",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 5,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:67b5fb9e9c4755dad6a7c405c14e7c10364b46c0b7efa2625e61da46745ddb11",
+        "extra": {},
+        "journal_dropped_total": 0,
+        "kind": "native_dispatcher",
+        "message": "committed dispatcher pass failed: protocol error: [writer] runtime_authority_fenced: <redacted>] runtime_authority_fenced",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:07.965Z",
+        "source_module": "shenko_subject::dispatch",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:07"
+    },
+    {
+      "event_id": "cbb71db8-bcbd-4663-b865-98392068ed76",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 6,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:2b01696b2bddfc328c63ec04e27e5a41dd63069b7eacc41c80b96d89f8dc0d5a",
+        "extra": {},
+        "journal_dropped_total": 0,
+        "kind": "native_execute",
+        "message": "native handler did not produce a settled result: conflict: canonical Store transition: predecessor/schema differs for attempts",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:07.984Z",
+        "source_module": "shenko_subject::child",
+        "step_no": null,
+        "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:07"
+    },
+    {
+      "event_id": "d7d9e62b-a928-4c98-b159-cc3613337709",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 7,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:29971955c47063b45719e0c0b383290bcd38e9b170df590eb1dc33559766bf62",
+        "extra": {},
+        "journal_dropped_total": 0,
+        "kind": "native_execute",
+        "message": "native handler did not produce a settled result: model child local wait stopped; reconcile original request c52c54c7-1d3e-57ba-86d3-ce9a81b2d0e4",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:08.001Z",
+        "source_module": "shenko_subject::child",
+        "step_no": null,
+        "task_id": "c072d94c-394a-4a49-9b28-9e3493f83918",
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:08"
+    },
+    {
+      "event_id": "239f7d79-c124-4720-bc07-a94089021307",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 8,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:755a135678f50fec9150ea439528a9fa2f42209345b6cbd0743d3e70181edaea",
+        "extra": {
+          "conversation_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+          "purpose": "subject",
+          "request_id": "d84473e7-4c80-4b5c-a7ad-277c5e02c18e"
+        },
+        "journal_dropped_total": 0,
+        "kind": "inference_broker",
+        "message": "INFERENCE_OBSERVATION_STOPPED: runtime shutdown closed the local provider observation; remote termination is unconfirmed and the original request remains Unknown",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:08.019Z",
+        "source_module": "shenko-broker",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:08"
+    },
+    {
+      "event_id": "10fcf69d-a468-41ad-88f1-49148d0b243d",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 9,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+        "extra": {
+          "reason": "handler_failed"
+        },
+        "journal_dropped_total": 0,
+        "kind": "native_park",
+        "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:08.072Z",
+        "source_module": "shenko_subject::child",
+        "step_no": null,
+        "task_id": "c9e07b55-16a8-4599-b380-323ab6478f8e",
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:08"
+    },
+    {
+      "event_id": "9d652c0e-0895-438d-baf2-8b47d93c8aea",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 10,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:3c1f6675c824d41b8974f7e3fd8d5ad80570540d392afd1a01548f475d2a4e3b",
+        "extra": {
+          "reason": "handler_failed"
+        },
+        "journal_dropped_total": 0,
+        "kind": "native_park",
+        "message": "managed park rejected for handler_failed: protocol error: [writer] runtime_authority_fenced",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:08.089Z",
+        "source_module": "shenko_subject::child",
+        "step_no": null,
+        "task_id": "c072d94c-394a-4a49-9b28-9e3493f83918",
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:08"
+    },
+    {
+      "event_id": "a59c0f35-012a-48b5-9bcd-ac3c4484cf1b",
+      "session_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+      "seq": 11,
+      "event_type": "runtime_error",
+      "role": "runtime_error",
+      "data": {
+        "error_digest": "blake3:659d9c4f6405b1dd9a7821da4a30843eca3d79a453594ae788fa7adb38796b8a",
+        "extra": {
+          "conversation_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7",
+          "purpose": "child",
+          "request_id": "c52c54c7-1d3e-57ba-86d3-ce9a81b2d0e4"
+        },
+        "journal_dropped_total": 0,
+        "kind": "inference_broker",
+        "message": "INFERENCE_FENCE_UNCHECKED: the dispatch fence could not be checked; the request stays recoverable",
+        "message_truncated": false,
+        "occurred_at": "2026-11-21T20:50:08.762Z",
+        "source_module": "shenko-broker",
+        "step_no": null,
+        "task_id": null,
+        "v": 1
+      },
+      "created_at": "2026-11-21 20:50:08"
+    }
+  ],
+  "node_log_selected": [
+    {
+      "idx": 8,
+      "term": 2,
+      "kind": "admission",
+      "data": {
+        "schema": 3,
+        "index": 8,
+        "term": 2,
+        "kind": "admission",
+        "payload": {
+          "admission": {
+            "action_id": "325a6a7b-e03c-6c35-6deb-e7b8db0afa8a",
+            "attempt_id": "81fc781d-cca2-447f-bcda-0691314ff698",
+            "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+            "conflict_key": "attempt/81fc781d-cca2-447f-bcda-0691314ff698/dispatch",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 3482,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:c67e44cb81b9298ef5e98bb90e379c500e6ccfad3f72beca0bba16245c628f0b",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/c6/7e/c67e44cb81b9298ef5e98bb90e379c500e6ccfad3f72beca0bba16245c628f0b",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "step/f04ce684-36cc-4474-91b7-873f0fc9da8e/revision/2"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7"
+          }
+        },
+        "durability": {
+          "ballot": {
+            "term": 2,
+            "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+          },
+          "acknowledgements": [
+            {
+              "schema": 3,
+              "responder_id": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c",
+              "ballot": {
+                "term": 2,
+                "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+              },
+              "index": 8,
+              "entry_digest": "blake3:5901087e42fc861e32ca71e45584088e3cdd6434208ec41ca71c4d73b083838a",
+              "prefix_digest": "blake3:5fe9765be1dff2b12b92460c505eb02ca579f465eeb3145ca743bab591ef8c10",
+              "configuration_revision": 1,
+              "configuration_digest": "blake3:7457d49dac9e6a5e46187f859f990a6e2c9039c06e0b798afdaf5763de2b4bda",
+              "accepted": true,
+              "observed_term": 2,
+              "reason": "durably_accepted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "idx": 9,
+      "term": 2,
+      "kind": "admission",
+      "data": {
+        "schema": 3,
+        "index": 9,
+        "term": 2,
+        "kind": "admission",
+        "payload": {
+          "admission": {
+            "action_id": "85ca42bc-3c40-8a60-6298-13c7600517d7",
+            "attempt_id": null,
+            "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+            "conflict_aliases": [
+              "task/c9e07b55-16a8-4599-b380-323ab6478f8e/revision/0"
+            ],
+            "conflict_key": "task/c9e07b55-16a8-4599-b380-323ab6478f8e/claim/0",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": null,
+            "payload_ref": {
+              "bytes": 7181,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:98b425c59caa852bfa68ccb7a62a121a7bd155e91019f5698a7018f30859ee65",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/98/b4/98b425c59caa852bfa68ccb7a62a121a7bd155e91019f5698a7018f30859ee65",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7"
+          }
+        },
+        "durability": {
+          "ballot": {
+            "term": 2,
+            "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+          },
+          "acknowledgements": [
+            {
+              "schema": 3,
+              "responder_id": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c",
+              "ballot": {
+                "term": 2,
+                "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+              },
+              "index": 9,
+              "entry_digest": "blake3:9052829961285a86cb4adfac90902c5277523a67b3a0e6949d8831248f7b5251",
+              "prefix_digest": "blake3:c9ffedb0fb38c54e5e639950486c176a5c6419f4892d3562ce46d1ed90223be2",
+              "configuration_revision": 1,
+              "configuration_digest": "blake3:7457d49dac9e6a5e46187f859f990a6e2c9039c06e0b798afdaf5763de2b4bda",
+              "accepted": true,
+              "observed_term": 2,
+              "reason": "durably_accepted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "idx": 10,
+      "term": 2,
+      "kind": "admission",
+      "data": {
+        "schema": 3,
+        "index": 10,
+        "term": 2,
+        "kind": "admission",
+        "payload": {
+          "admission": {
+            "action_id": "725e5ed9-dd14-5f35-4f5b-b57ad1518d45",
+            "attempt_id": "4f7af715-f2be-4634-b2cc-3dcaa0828956",
+            "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+            "conflict_aliases": [
+              "task/c072d94c-394a-4a49-9b28-9e3493f83918/revision/1"
+            ],
+            "conflict_key": "task/c072d94c-394a-4a49-9b28-9e3493f83918/operation/blake3:72a4eec470f2a87b2f46fd31d4933e1b100218239c22eb25373c99fc21b4f771",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": "07c80dbe-5eb0-59d7-a4bb-f21940b4364c",
+            "payload_ref": {
+              "bytes": 10557,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:8c4d66adf52edb003317889209de8a886c14a369ba9b7cb46adba52014562f0d",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/8c/4d/8c4d66adf52edb003317889209de8a886c14a369ba9b7cb46adba52014562f0d",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7"
+          }
+        },
+        "durability": {
+          "ballot": {
+            "term": 2,
+            "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+          },
+          "acknowledgements": [
+            {
+              "schema": 3,
+              "responder_id": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c",
+              "ballot": {
+                "term": 2,
+                "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+              },
+              "index": 10,
+              "entry_digest": "blake3:80f9d99df0debf737e8901a7ec7cc8fc200f8ea2fdb48c1ad1e8e879c54f3d7a",
+              "prefix_digest": "blake3:0b74f08a5d841e777f4fdd31511b392d900ae0e2681731d6b48f1d260bee9ba6",
+              "configuration_revision": 1,
+              "configuration_digest": "blake3:7457d49dac9e6a5e46187f859f990a6e2c9039c06e0b798afdaf5763de2b4bda",
+              "accepted": true,
+              "observed_term": 2,
+              "reason": "durably_accepted"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "idx": 11,
+      "term": 2,
+      "kind": "admission",
+      "data": {
+        "schema": 3,
+        "index": 11,
+        "term": 2,
+        "kind": "admission",
+        "payload": {
+          "admission": {
+            "action_id": "a533a23e-fd16-5742-6ad0-8f20d1066d37",
+            "attempt_id": "a7b0ab95-6daf-4121-8085-231e15672f6a",
+            "branch_id": "fe4d5321-1916-428a-819a-6019fe84c73d",
+            "conflict_aliases": [
+              "task/c9e07b55-16a8-4599-b380-323ab6478f8e/revision/1"
+            ],
+            "conflict_key": "task/c9e07b55-16a8-4599-b380-323ab6478f8e/operation/blake3:14850c4bb62781f2a7984dda24447cc3891ba2ccdbdb8f1f462a0263e1f3189a",
+            "controller_epoch": 2,
+            "expected_head_revision": null,
+            "expected_parent": null,
+            "operation_id": "ade50a62-a805-e393-ecf6-441c75963046",
+            "payload_ref": {
+              "bytes": 5836,
+              "codec": {
+                "digest": "blake3:671082df4421741439897f028687a60a597e6fe7332c97833b6bddfd2428a38f",
+                "major": 1,
+                "name": "commit-admission"
+              },
+              "digest": "blake3:3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/final-cdf71091/attempt-001/installation/cas/3b/47/3b478d3aca95ed996b9069b23af378b5d4bf189d8a3d43ceb173e1aeb2784e37",
+              "media_type": "application/json",
+              "store_namespace": "commit-authority"
+            },
+            "required_unconsumed": [
+              "task/7ae48945-a374-4cc7-a24b-10711ad2bd23/revision/0"
+            ],
+            "schema_version": 1,
+            "software_generation": "seed",
+            "subject_id": "35a67ae8-5d38-43f8-921d-e1257fdf8fc7"
+          }
+        },
+        "durability": {
+          "ballot": {
+            "term": 2,
+            "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+          },
+          "acknowledgements": [
+            {
+              "schema": 3,
+              "responder_id": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c",
+              "ballot": {
+                "term": 2,
+                "proposer": "533ffa80-b4e1-49da-bf96-3fc9336a3a1c"
+              },
+              "index": 11,
+              "entry_digest": "blake3:582caf4201b35f773b2ace2e2c10e34e30b771c95eb17396ef9b488bb4c2f187",
+              "prefix_digest": "blake3:da4d0478bd986552c844692f10fb1df8aacc1ce83e54d447829ee78fcc9d2755",
+              "configuration_revision": 1,
+              "configuration_digest": "blake3:7457d49dac9e6a5e46187f859f990a6e2c9039c06e0b798afdaf5763de2b4bda",
+              "accepted": true,
+              "observed_term": 2,
+              "reason": "durably_accepted"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

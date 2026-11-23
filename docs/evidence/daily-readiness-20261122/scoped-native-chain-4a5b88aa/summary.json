@@ -1,0 +1,46 @@
+{
+  "source_revision": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "checks": [
+    {
+      "label": "native-chain",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_tests": 1,
+      "exit_code": 0,
+      "passed": true,
+      "started_at_utc": "2026-11-21T23:14:14.731728+00:00",
+      "finished_at_utc": "2026-11-21T23:17:23.114029+00:00",
+      "elapsed_seconds": 188.3822934049822,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "48",
+        "184.73s"
+      ],
+      "excluded_nested_summaries": [],
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-native-chain-4a5b88aa/native-chain.log",
+      "bytes": 21759,
+      "sha256": "a1e5836314f66ffd305072de986830285edcd460b32e19142cd1a20297030e71"
+    }
+  ],
+  "completed_targets": 1,
+  "planned_targets": 1,
+  "all_passed": true
+}

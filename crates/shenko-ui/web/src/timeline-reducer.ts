@@ -23,6 +23,34 @@ export class TimelineReducer {
     ].join('/');
   }
 
+  private isCorrectedText(part: {
+    message_id: string; part_id: string; commit_ref: string; step_id?: unknown;
+  }): boolean {
+    // This is the server's existing corrected-part identity, not a general
+    // convention for arbitrary part IDs containing '@'.
+    return part.step_id === part.message_id &&
+      part.part_id === `text/0@${part.commit_ref}`;
+  }
+
+  private isOriginalText(part: {
+    message_id: string; part_id: string; step_id?: unknown;
+  }, messageId: string, stepId: string): boolean {
+    return part.message_id === messageId && part.part_id === 'text/0' &&
+      (typeof part.step_id === 'string' ? part.step_id : part.message_id) === stepId;
+  }
+
+  private discardOriginalTextChunks(messageId: string, stepId: string, commitRef: string): void {
+    // A gap can have been buffered before any part exists. Match its facts,
+    // not a string prefix of the compound key, and leave other parts alone.
+    for (const [key, pending] of this.pendingChunks) {
+      for (const [sequence, chunk] of pending) {
+        if (this.isOriginalText(chunk, messageId, stepId) &&
+          (chunk.type === 'stream_part' || chunk.commit_ref === commitRef)) pending.delete(sequence);
+      }
+      if (pending.size === 0) this.pendingChunks.delete(key);
+    }
+  }
+
   handleTimelinePart(data: Record<string, unknown>): void {
     if (
       !isTimelineChunk(data) ||
@@ -45,6 +73,28 @@ export class TimelineReducer {
       // A new committed step may have started or settled delegations; the
       // task list behind the IM threads and Inspect branches follows it.
       this.effects.scheduleTaskRefresh();
+    }
+    const stepId = typeof data.step_id === 'string' ? data.step_id : data.message_id;
+    const correction = data.part_id === 'text/0' ? this.state.timeline.find((part) =>
+      part.committed && this.isCorrectedText(part) &&
+      part.message_id === data.message_id && part.step_id === stepId &&
+      (isStream || part.commit_ref === data.commit_ref)) : undefined;
+    if (correction) {
+      // A corrected committed body stays authoritative through late stream
+      // chunks and reconnect replay. Do not attach the divergent stream's
+      // identity to the corrected part or append its old text again.
+      this.discardOriginalTextChunks(data.message_id, stepId, correction.commit_ref);
+      this.emit();
+      return;
+    }
+    let correctedIndex = -1;
+    if (!isStream && data.chunk_seq === 0 && this.isCorrectedText(data)) {
+      const superseded = (part: TimelinePart) =>
+        this.isOriginalText(part, data.message_id, stepId) &&
+        (!part.committed || part.commit_ref === data.commit_ref);
+      correctedIndex = this.state.timeline.findIndex(superseded);
+      this.state.timeline = this.state.timeline.filter((part) => !superseded(part));
+      this.discardOriginalTextChunks(data.message_id, stepId, data.commit_ref);
     }
     const key = this.partKey(data);
     const streamFacts = {
@@ -190,7 +240,15 @@ export class TimelineReducer {
         gap: false,
       };
       this.applyPending(part, key);
-      this.state.timeline = [...this.state.timeline, part];
+      if (correctedIndex >= 0) {
+        // Keep the replaced entry's reading order, with the actual corrected
+        // wire identity so a browser witness can bind it to the S1 fact.
+        const timeline = [...this.state.timeline];
+        timeline.splice(correctedIndex, 0, part);
+        this.state.timeline = timeline;
+      } else {
+        this.state.timeline = [...this.state.timeline, part];
+      }
     }
     if (this.state.display.reading === 'following_latest') {
       this.state.display.scroll_request += 1;

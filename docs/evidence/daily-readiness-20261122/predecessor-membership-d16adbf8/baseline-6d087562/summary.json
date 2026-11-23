@@ -1,0 +1,46 @@
+{
+  "source_revision": "6d087562cc33928fa3a6a3fecd012cc5081dc7c3",
+  "checks": [
+    {
+      "label": "predecessor-membership",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "frozen_control_predecessor_keeps_original_optional_object_membership",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_tests": 1,
+      "exit_code": 101,
+      "passed": false,
+      "started_at_utc": "2026-11-22T00:26:44.468928+00:00",
+      "finished_at_utc": "2026-11-22T00:26:53.974286+00:00",
+      "elapsed_seconds": 9.50533745897701,
+      "outer_summary": [
+        "FAILED",
+        "0",
+        "1",
+        "0",
+        "0",
+        "49",
+        "5.40s"
+      ],
+      "excluded_nested_summaries": [],
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-predecessor-6d087562/predecessor-membership.log",
+      "bytes": 7317,
+      "sha256": "a49c0362ee23b63e45222ca8983bfa3c89c5b24927abeb321448e5897a3a2453"
+    }
+  ],
+  "completed_targets": 1,
+  "planned_targets": 1,
+  "all_passed": false
+}

@@ -1,5 +1,7 @@
 //! Content-addressed object store.
 //! Objects are immutable; locators may change.
+use std::cmp::Reverse;
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -9,6 +11,48 @@ use shenko_types::error::ShenkoError;
 
 pub struct ContentStore {
     base: PathBuf,
+}
+
+/// Provisional child references for one internal graph construction. There is
+/// no SealedObjectRef here: only seal_graph_root can finish the directory
+/// barrier and then publish the root through the ordinary durable path.
+pub(super) struct PendingObjectGraph<'a> {
+    cas: &'a ContentStore,
+    // Every object has two digest shards. The set is bounded by that fixed
+    // directory namespace, not by the number of historical objects.
+    directories: BTreeSet<(Reverse<usize>, PathBuf)>,
+}
+
+impl PendingObjectGraph<'_> {
+    pub(super) fn write_object(
+        &mut self, data: &[u8], media_type: &str, namespace: &str,
+        codec_name: &str, codec_major: u32,
+    ) -> Result<ObjectRef, ShenkoError> {
+        let cas = self.cas;
+        let digest = Digest::blake3(data);
+        let path = cas.object_path(&digest)?;
+        let directories = &mut self.directories;
+        cas.write_object_bytes(data, &digest, &path, |path| {
+            let parent = path.parent().ok_or_else(||
+                io::Error::new(io::ErrorKind::InvalidInput, "CAS object has no parent"))?;
+            for directory in parent.ancestors() {
+                directories.insert((Reverse(directory.components().count()), directory.to_path_buf()));
+                if directory == cas.base { break; }
+            }
+            Ok(())
+        })?;
+        Ok(ContentStore::object_reference(&path, digest, data.len() as u64,
+            media_type, namespace, codec_name, codec_major))
+    }
+
+    fn finish(self) -> io::Result<()> {
+        // write_object_bytes already attempted each owned staging unlink.
+        // Sync all leaf links before their ancestors, including CAS base last.
+        for (_, directory) in self.directories {
+            sync_directory(&directory)?;
+        }
+        Ok(())
+    }
 }
 
 impl ContentStore {
@@ -53,10 +97,40 @@ impl ContentStore {
     ) -> Result<SealedObjectRef, ShenkoError> {
         let digest = Digest::blake3(data);
         let path = self.object_path(&digest)?;
+        self.write_object_bytes(data, &digest, &path, |path| self.sync_object_directories(path))?;
 
-        let result = match fs::File::open(&path) {
-            Ok(mut existing) => verify_file(&mut existing, &digest, data.len() as u64)
-                .and_then(|()| self.sync_object_directories(&path)),
+        Ok(SealedObjectRef {
+            object: Self::object_reference(&path, digest, data.len() as u64,
+                media_type, namespace, codec_name, codec_major),
+            sealed_at: chrono::Utc::now(),
+            sealed_commit: shenko_types::commit::CommitRef {
+                ledger_id: shenko_types::ids::EntityId::nil(),
+                seq: shenko_types::ids::LedgerSeq::ZERO,
+            },
+        })
+    }
+
+    /// The control predecessor builder keeps provisional references inside
+    /// this closure. Its serialized root is not published until every child
+    /// directory barrier succeeds. The caller must retain its existing CAS
+    /// publication custody; no lease is acquired beneath an enclosing lock.
+    pub(super) fn seal_graph_root(
+        &self, media_type: &str, namespace: &str, codec_name: &str, codec_major: u32,
+        build: impl FnOnce(&mut PendingObjectGraph<'_>) -> Result<Vec<u8>>,
+    ) -> Result<SealedObjectRef> {
+        let mut graph = PendingObjectGraph { cas: self, directories: BTreeSet::new() };
+        let root = build(&mut graph)?;
+        graph.finish().map_err(|error| ShenkoError::storage(format!("CAS graph directory sync: {error}")))?;
+        Ok(self.seal_object(&root, media_type, namespace, codec_name, codec_major)?)
+    }
+
+    fn write_object_bytes(
+        &self, data: &[u8], digest: &Digest, path: &Path,
+        directories: impl FnOnce(&Path) -> io::Result<()>,
+    ) -> Result<(), ShenkoError> {
+        let result = match fs::File::open(path) {
+            Ok(mut existing) => verify_file(&mut existing, digest, data.len() as u64)
+                .and_then(|()| directories(path)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let temporary = self.base.join(format!(".object-{}", shenko_types::ids::EntityId::new()));
                 let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
@@ -64,7 +138,8 @@ impl ContentStore {
                 let result = (|| {
                     output.write_all(data)?;
                     output.sync_all()?;
-                    self.publish_temporary(&temporary, &path, &digest, data.len() as u64)
+                    self.link_temporary(&temporary, path, digest, data.len() as u64)?;
+                    directories(path)
                 })();
                 drop(output);
                 // Cleanup owns only a staging file successfully created here.
@@ -73,32 +148,25 @@ impl ContentStore {
             }
             Err(error) => Err(error),
         };
-        result.map_err(|error| ShenkoError::storage(format!("CAS object sealing: {error}")))?;
+        result.map_err(|error| ShenkoError::storage(format!("CAS object sealing: {error}")))
+    }
 
-        let locator = format!("file://{}", path.display());
-        let codec = SchemaRef {
-            name: codec_name.to_string(),
-            major: codec_major,
-            digest: Digest::blake3(codec_name.as_bytes()),
-        };
-
-        let object_ref = ObjectRef {
-            digest: digest.clone(),
-            bytes: data.len() as u64,
+    fn object_reference(
+        path: &Path, digest: Digest, bytes: u64, media_type: &str,
+        namespace: &str, codec_name: &str, codec_major: u32,
+    ) -> ObjectRef {
+        ObjectRef {
+            digest,
+            bytes,
             media_type: media_type.to_string(),
             store_namespace: namespace.to_string(),
-            locator: locator.clone(),
-            codec,
-        };
-
-        Ok(SealedObjectRef {
-            object: object_ref,
-            sealed_at: chrono::Utc::now(),
-            sealed_commit: shenko_types::commit::CommitRef {
-                ledger_id: shenko_types::ids::EntityId::nil(),
-                seq: shenko_types::ids::LedgerSeq::ZERO,
+            locator: format!("file://{}", path.display()),
+            codec: SchemaRef {
+                name: codec_name.to_string(),
+                major: codec_major,
+                digest: Digest::blake3(codec_name.as_bytes()),
             },
-        })
+        }
     }
 
     /// Seal a full stream with fixed-size memory, for execution output that
@@ -252,6 +320,11 @@ impl ContentStore {
     }
 
     fn publish_temporary(&self, temporary: &Path, destination: &Path, digest: &Digest, bytes: u64) -> io::Result<()> {
+        self.link_temporary(temporary, destination, digest, bytes)?;
+        self.sync_object_directories(destination)
+    }
+
+    fn link_temporary(&self, temporary: &Path, destination: &Path, digest: &Digest, bytes: u64) -> io::Result<()> {
         fs::create_dir_all(destination.parent().expect("CAS object has a parent"))?;
         match fs::hard_link(temporary, destination) {
             Ok(()) => {}
@@ -260,7 +333,7 @@ impl ContentStore {
             }
             Err(error) => return Err(error),
         }
-        self.sync_object_directories(destination)
+        Ok(())
     }
 
     fn sync_object_directories(&self, path: &Path) -> io::Result<()> {
@@ -410,4 +483,82 @@ fn verify_file(file: &mut fs::File, digest: &Digest, expected_bytes: u64) -> io:
         return Err(io::Error::new(io::ErrorKind::InvalidData, "CAS object digest/size mismatch"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_root_waits_for_children_and_reopens_without_overwrite() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let base = directory.path().join("cas");
+        let cas = ContentStore::new(base.clone())?;
+        let publication = crate::roots::CasWriteLease::acquire(cas.base())?;
+        let original = b"original child bytes";
+        let existing = cas.seal_object(original, "text/plain", "test", "raw", 1)?.object;
+        let existing_path = cas.object_path(&existing.digest)?;
+
+        // Corrupt only this test's owned object, keeping its length unchanged.
+        // Dedup must hash it and refuse; it must never repair by overwriting.
+        let damaged = vec![b'!'; original.len()];
+        fs::write(&existing_path, &damaged)?;
+        let refused_root = br#"{"case":"corrupt-child"}"#;
+        let refused = cas.seal_graph_root("application/json", "test", "graph", 1, |graph| {
+            graph.write_object(original, "text/plain", "test", "raw", 1)?;
+            Ok(refused_root.to_vec())
+        });
+        assert!(format!("{:#}", refused.unwrap_err()).contains("digest/size mismatch"));
+        assert_eq!(fs::read(&existing_path)?, damaged);
+        assert!(!cas.object_exists(&Digest::blake3(refused_root)));
+        let mut repaired = fs::OpenOptions::new().write(true).open(&existing_path)?;
+        repaired.write_all(original)?;
+        repaired.sync_all()?;
+        drop(repaired);
+
+        // Make a required child directory unavailable after its object has
+        // been linked, but before finish. A real filesystem error at that
+        // barrier must prevent even starting the ordinary root publication.
+        let new_child = b"new child bytes";
+        let moved = directory.path().join("withheld-shard");
+        let mut withheld = None;
+        let mut root_digest = None;
+        let failed = cas.seal_graph_root("application/json", "test", "graph", 1, |graph| {
+            let first = graph.write_object(original, "text/plain", "test", "raw", 1)?;
+            let second = graph.write_object(new_child, "text/plain", "test", "raw", 1)?;
+            let root = serde_json::to_vec(&serde_json::json!({"children":[first, second]}))?;
+            root_digest = Some(Digest::blake3(&root));
+            let shard = cas.object_path(&Digest::blake3(new_child))?.parent().unwrap().to_path_buf();
+            fs::rename(&shard, &moved)?;
+            withheld = Some(shard);
+            Ok(root)
+        });
+        assert!(format!("{:#}", failed.unwrap_err()).contains("CAS graph directory sync"));
+        let root_digest = root_digest.unwrap();
+        assert!(!cas.object_exists(&root_digest));
+        fs::rename(&moved, withheld.unwrap())?;
+        assert_eq!(fs::read(&existing_path)?, original);
+        for entry in fs::read_dir(&base)? {
+            assert!(!entry?.file_name().to_string_lossy().starts_with(".object-"));
+        }
+
+        let sealed = cas.seal_graph_root("application/json", "test", "graph", 1, |graph| {
+            let first = graph.write_object(original, "text/plain", "test", "raw", 1)?;
+            let second = graph.write_object(new_child, "text/plain", "test", "raw", 1)?;
+            Ok(serde_json::to_vec(&serde_json::json!({"children":[first, second]}))?)
+        })?;
+        assert_eq!(sealed.object.digest, root_digest);
+        drop(publication);
+        drop(cas);
+
+        let reopened = ContentStore::open_existing(base)?;
+        let _publication = crate::roots::CasWriteLease::acquire(reopened.base())?;
+        let root: serde_json::Value = serde_json::from_slice(&reopened.read_object(&root_digest)?)?;
+        let children: Vec<ObjectRef> = serde_json::from_value(root["children"].clone())?;
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0], existing);
+        assert_eq!(reopened.read_object(&children[0].digest)?, original);
+        assert_eq!(reopened.read_object(&children[1].digest)?, new_child);
+        Ok(())
+    }
 }

@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "kind": "shenko-reading-fixture-independent-review",
+  "reviewer": "/root/a11y_independent_review",
+  "role": "Independent read-only review; did not author the fixture repair or execute these native runs",
+  "source": "03b80d770357fb8e7694c0fdac7a2c79911e970c",
+  "candidate": {
+    "path": "scripts/web_reading_journey.mjs",
+    "sha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+    "patchSha256": "772a2758762a238d464a9439c347b8fd5f580a5b7ff5e5705a7b51e8bec0e58d"
+  },
+  "authorityRead": [
+    "AGENTS.md (current T6 reading policy)",
+    ".agents/skills/shenko-dev/SKILL.md",
+    "docs/INDEX.md",
+    "docs/specs/web-interface.md §21.11: reader ownership, stable identity, keyboard focus and the 2 CSS px anchor tolerance",
+    "docs/specs/web-interface.md: current shared follow-tail implementation note",
+    "docs/specs/verification.md: UI-S13/UI-S14 evidence boundaries",
+    "crates/shenko-ui/web/src/markdown.tsx and its Inspect/IM callers"
+  ],
+  "disposition": "No blocking finding in the bounded fixture repair",
+  "findings": [],
+  "reasoning": [
+    "The original plain-paragraph fixture supplied no sequential focus targets in IM. The separate diagnostic attempt observed 0 targets in 0 message rows at both widths, while Inspect had 62 targets in 31 rows. This is retained prerequisite evidence, not an inferred product failure.",
+    "The added text is ordinary Markdown link syntax in each committed message. The unchanged production Markdown parser emits a native <a href> in its existing inlineText path, consumed by both Inspect and IM. No app component, renderer, style, tabindex or product focus behavior is modified.",
+    "The new evaluate block only enumerates rendered enabled/visible sequential targets and adds a fail-closed prerequisite for at least three distinct message keys. It does not focus, scroll, click, inject elements or remove assertions.",
+    "The original keyboard journey is unchanged: at most 96 real Shift+Tab presses, two consecutive historical focus stops, a following real Tab, append, exact focused-element retention and same anchor key with <=2 CSS px offset change. The original >100px departure condition, waits and budgets remain.",
+    "Only three source diff hunks change: the fixture description, Markdown link text and the additional read-only prerequisite. The retained patch equals the actual working-tree diff, its before file equals the exact Git base, and its after file equals the reviewed candidate.",
+    "All 12 served production asset files match their exact Git objects and all three execution receipts. The browser version and product bundle are unchanged across the failed diagnostic and successful link fixture runs."
+  ],
+  "observedEvidence": {
+    "readback": "independent-fixture-readback.json",
+    "original": {
+      "status": "failed",
+      "inspectPassed": 2,
+      "imFailed": 2,
+      "originalFailureRetained": true
+    },
+    "diagnostic": {
+      "status": "failed",
+      "inspectTargetsPerRun": 62,
+      "inspectRowsPerRun": 31,
+      "imTargetsPerRun": 0,
+      "imRowsPerRun": 0
+    },
+    "repaired": {
+      "receiptSha256": "0164a27f92498d3082b530e891c6c0e5369c6777c912377db6fad220e6d67504",
+      "executionSha256": "25cd1165c3d23db118022c1f59266fac69ebcd591809aa60e92ee4c5e942d3f4",
+      "status": "passed",
+      "journeys": 4,
+      "passedChecks": 82,
+      "failedChecks": 0,
+      "inspectTargetsPerRun": 93,
+      "imTargetsPerRun": 31,
+      "distinctRowsPerRun": 31,
+      "keyboardAnchorChecks": [
+        {
+          "tab": "inspect",
+          "width": 1280,
+          "check": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": -0.25,
+          "endGapBefore": 476,
+          "endGapAfter": 916
+        },
+        {
+          "tab": "inspect",
+          "width": 1280,
+          "check": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": -0.25,
+          "endGapBefore": 916,
+          "endGapAfter": 1356
+        },
+        {
+          "tab": "im",
+          "width": 1280,
+          "check": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": 0.1875,
+          "endGapBefore": 554,
+          "endGapAfter": 870
+        },
+        {
+          "tab": "im",
+          "width": 1280,
+          "check": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": 0.1875,
+          "endGapBefore": 870,
+          "endGapAfter": 1187
+        },
+        {
+          "tab": "inspect",
+          "width": 390,
+          "check": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": -0.25,
+          "endGapBefore": 747,
+          "endGapAfter": 1318
+        },
+        {
+          "tab": "inspect",
+          "width": 390,
+          "check": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": -0.25,
+          "endGapBefore": 1318,
+          "endGapAfter": 1890
+        },
+        {
+          "tab": "im",
+          "width": 390,
+          "check": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": 0.1875,
+          "endGapBefore": 1165,
+          "endGapAfter": 1694
+        },
+        {
+          "tab": "im",
+          "width": 390,
+          "check": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "sameKey": true,
+          "offsetDelta": 0.1875,
+          "endGapBefore": 1165,
+          "endGapAfter": 1695
+        }
+      ]
+    }
+  },
+  "limits": [
+    "This is a controlled fixture repair on the same already-built production assets. It does not show that this patch changed product behavior.",
+    "The actual scope is headless Chromium 145.0.7632.6, Inspect and IM at 1280x900 and 390x900, light theme and reduced motion, with fixture HTTP/WS reads.",
+    "The existing runner programmatically focuses the composer and explicit resume controls, creates a DOM Range for selection, and deliberately replays retired observer callbacks. These are existing setup/control boundaries; historical-message focus is reached by real sequential keyboard input.",
+    "No physical-device input, assistive technology, backend/model acceptance, unseen streaming/media/zoom scenarios, whole §21.11 acceptance or all Shenko S1–S5 completion is inferred.",
+    "The source of original failures and all attempted receipts remain preserved. The first receipt's backwardTabs display of 97 follows the existing counter formatting; the unchanged loop actually permits at most 96 presses.",
+    "No native rerun, source edit or GitHub review/publication was performed by this reviewer."
+  ],
+  "githubApproval": false,
+  "followup": "Root may publish this bounded fixture correction with the preserved failed attempts and exact 4-journey/82-check scope; other release and integration gates remain separate."
+}

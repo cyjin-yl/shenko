@@ -1,0 +1,120 @@
+{
+  "source_revision": "95cdc272866a5f31cedb790d263761523e9b0e2c",
+  "checks": [
+    {
+      "label": "predecessor-membership",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "frozen_control_predecessor_keeps_original_optional_object_membership",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_tests": 1,
+      "exit_code": 0,
+      "passed": true,
+      "started_at_utc": "2026-11-22T00:38:14.853114+00:00",
+      "finished_at_utc": "2026-11-22T00:38:43.642054+00:00",
+      "elapsed_seconds": 28.7889217879856,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "49",
+        "6.14s"
+      ],
+      "excluded_nested_summaries": [],
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/predecessor-membership.log",
+      "bytes": 7108,
+      "sha256": "d1736f1241629cf1ace2d35b2687a0ab8dff53e3b4ea1181a3a28577bfe82ffd"
+    },
+    {
+      "label": "native-chain",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_tests": 1,
+      "exit_code": 0,
+      "passed": true,
+      "started_at_utc": "2026-11-22T00:38:43.642503+00:00",
+      "finished_at_utc": "2026-11-22T00:41:51.229883+00:00",
+      "elapsed_seconds": 187.58739403099753,
+      "outer_summary": [
+        "ok",
+        "1",
+        "0",
+        "0",
+        "0",
+        "49",
+        "187.12s"
+      ],
+      "excluded_nested_summaries": [],
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/native-chain.log",
+      "bytes": 21640,
+      "sha256": "716373e4b32279d0aad25883da85634b9ce778f209d45d027069f710cf23c0af"
+    },
+    {
+      "label": "archive-admission",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "--all-features",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--lib",
+        "cognition::archive_admission_tests::",
+        "--",
+        "--nocapture"
+      ],
+      "expected_tests": 8,
+      "exit_code": 0,
+      "passed": true,
+      "started_at_utc": "2026-11-22T00:41:51.230223+00:00",
+      "finished_at_utc": "2026-11-22T00:43:35.453918+00:00",
+      "elapsed_seconds": 104.2237142160011,
+      "outer_summary": [
+        "ok",
+        "8",
+        "0",
+        "0",
+        "0",
+        "31",
+        "89.15s"
+      ],
+      "excluded_nested_summaries": [],
+      "original_log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-frozen-closure-95cdc272/archive-admission.log",
+      "bytes": 8321,
+      "sha256": "8fed189c28a6fb7f70ee044a1538bcde226d1e97c81de02634afa852636ec2bb"
+    }
+  ],
+  "completed_targets": 3,
+  "planned_targets": 3,
+  "all_passed": true
+}

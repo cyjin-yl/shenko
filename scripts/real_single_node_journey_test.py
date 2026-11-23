@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""Driver evidence and owned-process cleanup; these are not model acceptance."""
+import argparse
+import asyncio
+import contextlib
+import copy
+import datetime
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import real_single_node_journey as journey
+
+
+class JourneyEvidenceTests(unittest.TestCase):
+    def test_committed_output_reads_the_results_in_its_original_seal(self):
+        # Two original, completed runs: 002's late S1 merely said it was
+        # waiting; 001's later sealed request actually contained both T2s.
+        # These are observer tests, not substitute model executions.
+        fixture_dir = Path(__file__).parent / "fixtures/journey-output-consumption"
+        cases = json.loads((fixture_dir / "cases.json").read_text())["cases"]
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)
+            for case in cases.values():
+                original = case["input_plan"]
+                raw = gzip.decompress((fixture_dir / original["path"]).read_bytes())
+                self.assertEqual(len(raw), original["bytes"])
+                self.assertEqual(hashlib.sha256(raw).hexdigest(), original["sha256"])
+                digest = original["reference"]["digest"].removeprefix("blake3:")
+                target = data / "cas" / digest[:2] / digest[2:4] / digest
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
+
+            negative = cases["unconsumed"]
+            observed = journey.evaluate_first(negative["facts"], negative["marker"],
+                negative["model"], negative["model_url"], data)
+            self.assertTrue(observed["committed_output_after_child_results"], "reproduce the original 002 gate")
+            self.assertFalse(observed["committed_output_consumed_original_child_results"])
+
+            positive = cases["consumed"]
+            facts = positive["facts"]
+            observed = journey.evaluate_first(facts, positive["marker"], positive["model"], positive["model_url"], data)
+            self.assertTrue(all(observed.values()), "the unmodified real 001 seal consumed both originals")
+            output = next(row for row in facts["decisions"] if row["step"]["step_id"] == positive["selected_step_id"])
+            results = [row["data"] for row in facts["task_results"]]
+            model_task = next(row["task_id"] for row in facts["tasks"] if row["data"].get("kind") == "model.child")
+            model_result = next(row for row in results if row["task_id"] == model_task)
+            plan = journey.read_cas(data, positive["input_plan"]["reference"])
+
+            # One selected event or even a later final SQL result is not enough
+            # when that original was absent from the actual model payload.
+            partial = copy.deepcopy(plan)
+            partial["payload"]["messages"] = [message for message in partial["payload"]["messages"]
+                if not any(part.get("text", "").startswith(f"[runtime tool_result call_id={model_task} ")
+                           for part in message.get("parts", []))]
+            with patch.object(journey, "read_cas", return_value=partial):
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results)["consumed"])
+
+            # A result can be old history rather than a new inbox event. Its
+            # row must still lie within THIS seal, not a later final snapshot.
+            prior = copy.deepcopy(plan)
+            prior["events"] = [event for event in prior["events"] if event["event_id"] != model_result["result_id"]]
+            future_only = copy.deepcopy(prior)
+            original_seq = min(row["seq"] for row in facts["session_events"]
+                if row["data"].get("inbox_event", {}).get("event_id") == model_result["result_id"])
+            future_only["context"]["source"]["leaf_seq"] = original_seq - 1
+            with patch.object(journey, "read_cas", return_value=future_only):
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results)["consumed"])
+            with patch.object(journey, "read_cas", return_value=prior):
+                evidence = journey.output_input_evidence(data, facts, output, results,
+                    accepted=positive["accepted"], submission=positive["submission"])
+                self.assertTrue(evidence["consumed"])
+                old = next(row for row in evidence["results"] if row["task_id"] == model_task)
+                self.assertEqual(old["new_event_indices"], [])
+                self.assertTrue(old["sealed_history_rows"])
+                # Restart uses this same gate with its distinct accepted input;
+                # reading both T2s cannot stand in for reading that new message.
+                missing_input = dict(positive["submission"], content="a new resume input absent from this seal")
+                self.assertFalse(journey.output_input_evidence(data, facts, output, results,
+                    accepted=positive["accepted"], submission=missing_input)["consumed"])
+
+            # RetryPending keeps the original S0 but arms a new wire identity.
+            # This is an observer-only receipt projection, not another model
+            # execution or a claim that the original successful request retried.
+            retried = copy.deepcopy(facts)
+            retried_output = next(row for row in retried["decisions"]
+                if row["step"]["step_id"] == positive["selected_step_id"])
+            original_request_id = plan["request_id"]
+            original_attempt = next(row for row in retried["subject_request_attempts"]
+                if row["request_id"] == original_request_id)
+            retry = copy.deepcopy(original_attempt)
+            retry["request_id"] = retry["data"]["request_id"] = "dc6f8f7c-efc9-457b-bb5e-f28dd2c1b962"
+            retry["attempt_id"] = retry["data"]["attempt_id"] = "f0015be6-671d-4e79-98db-251c5f04a9f4"
+            retry["created_commit_seq"] += 1
+            retry["data"]["created_commit"]["seq"] += 1
+            retried["subject_request_attempts"].append(retry)
+            retried_output["step"]["active_request_id"] = retry["request_id"]
+            evidence = journey.output_input_evidence(data, retried, retried_output, results,
+                accepted=positive["accepted"], submission=positive["submission"])
+            self.assertTrue(evidence["consumed"], "a new wire identity may retain the original consumed seal")
+            self.assertEqual(evidence["sealed_request_id"], original_request_id)
+            self.assertEqual(evidence["sealed_request_created_commit"], original_attempt["data"]["created_commit"])
+            retried["subject_request_attempts"].remove(original_attempt)
+            self.assertFalse(journey.output_input_evidence(data, retried, retried_output, results)["consumed"],
+                "the plan's original identity still needs its own durable attempt")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "observes Linux process groups and zombies")
+    def test_exited_parent_does_not_hide_live_owned_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log_path = Path(temporary) / "runtime.log"
+            log = log_path.open("w")
+            # The child announces its PID only after installing SIGTERM ignore.
+            # Its leader exits 0, so escalation must not rewrite the leader's
+            # real exit status. A separate session must remain untouched.
+            child_code = "import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print(os.getpid(),flush=True); time.sleep(30)"
+            parent_code = ("import subprocess,sys; "
+                           f"child=subprocess.Popen([sys.executable,'-c',{child_code!r}],stdout=subprocess.PIPE,text=True); "
+                           "print(child.stdout.readline().strip(),flush=True)")
+            process = journey.spawn_owned_runtime([sys.executable, "-c", parent_code],
+                                                   stdout=log, stderr=subprocess.STDOUT)
+            unrelated = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                         start_new_session=True)
+            try:
+                self.assertEqual(process.wait(timeout=5), 0)
+                child_pid = int(log_path.read_text().strip())
+                receipt = asyncio.run(journey.stop(process, log, terminate_timeout=0.1, kill_timeout=2))
+                self.assertEqual(receipt["parent_exit"], 0)
+                self.assertFalse(receipt["clean"])
+                self.assertEqual(receipt["errors"], [])
+                cleanup = receipt["group_cleanup"]
+                self.assertEqual(cleanup["after_parent"]["live_pids"], [child_pid])
+                self.assertTrue(cleanup["required"])
+                self.assertTrue(cleanup["forced"])
+                self.assertEqual(cleanup["signals"], ["SIGTERM", "SIGKILL"])
+                self.assertEqual([(event["target"], event["signal"], event["result"])
+                                  for event in receipt["signal_calls"]],
+                                 [("owned_group", "SIGTERM", "returned"),
+                                  ("owned_group", "SIGKILL", "returned")])
+                previous = receipt["started"]["monotonic_ns"]
+                for event in receipt["signal_calls"]:
+                    self.assertEqual(event["id"], process.pid)
+                    self.assertLessEqual(previous, event["started"]["monotonic_ns"])
+                    self.assertLessEqual(event["started"]["monotonic_ns"], event["finished"]["monotonic_ns"])
+                    self.assertIsNotNone(datetime.datetime.fromisoformat(event["started"]["utc"]).tzinfo)
+                    previous = event["finished"]["monotonic_ns"]
+                self.assertLessEqual(previous, receipt["finished"]["monotonic_ns"])
+                self.assertTrue(cleanup["complete"])
+                self.assertEqual(cleanup["remaining"]["live_pids"], [])
+                self.assertTrue(log.closed)
+                self.assertIsNone(unrelated.poll())
+            finally:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=5)
+                log.close()
+                unrelated.terminate()
+                unrelated.wait(timeout=5)
+
+    def test_retained_success_does_not_hide_reexecution(self):
+        original = {
+            "tasks": [{"task_id": "child", "data": {"kind": "host.printf"}}],
+            "operations": [{"operation_id": "op", "data": {"task_id": "child"}}],
+            "attempts": [{"attempt_id": "attempt", "operation_id": "op"}],
+            "task_results": [{"result_id": "result", "task_id": "child", "data": {"result": "original"}}],
+            "evidence_receipts": [{"receipt_id": "receipt", "operation_id": "op", "data": {"raw": "original"}}],
+        }
+        self.assertTrue(all(journey.evaluate_recovery(original, copy.deepcopy(original)).values()))
+        repeated = copy.deepcopy(original)
+        repeated["tasks"].append({"task_id": "duplicate", "data": {"kind": "host.printf"}})
+        repeated["attempts"].append({"attempt_id": "new-attempt", "operation_id": "op"})
+        observed = journey.evaluate_recovery(original, repeated)
+        self.assertFalse(observed["no_child_redelegation_after_restart"])
+        self.assertFalse(observed["original_child_operations_and_attempts_unchanged"])
+        self.assertTrue(observed["original_child_result_bytes_retained"])
+        repeated["task_results"][0]["data"]["result"] = "overwritten"
+        repeated["evidence_receipts"][0]["data"]["raw"] = "overwritten"
+        observed = journey.evaluate_recovery(original, repeated)
+        self.assertFalse(observed["original_child_result_bytes_retained"])
+        self.assertFalse(observed["original_child_receipt_bytes_retained"])
+
+    def test_failed_attempt_stays_in_batch_denominator(self):
+        async def fake_run(args):
+            args.evidence_dir.mkdir()
+            passed = args.evidence_dir.name != "attempt-002"
+            journey.save(args.evidence_dir / "summary.json", {
+                "passed": passed, "elapsed_seconds": 1,
+                "errors": [] if passed else ["synthetic retained failure"],
+            })
+            return 0 if passed else 1
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "binary"
+            binary.write_bytes(b"synthetic identity only")
+            args = argparse.Namespace(binary=binary, evidence_dir=root / "batch", repeat=3,
+                                      source_revision="a" * 40, model="test-model", model_url="http://unused",
+                                      startup_timeout=60)
+            with patch.object(journey, "run", fake_run), patch.object(journey, "get_json", return_value={
+                "data": [{"id": "test-model", "max_model_len": 32768}]
+            }), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(asyncio.run(journey.repeat(args)), 1)
+            report = json.loads((args.evidence_dir / "batch-summary.json").read_text())
+            self.assertEqual(report["startup_timeout_seconds"], 60)
+            self.assertEqual((report["passed_runs"], report["failed_runs"], report["unattempted_runs"]), (2, 1, 0))
+            self.assertEqual(report["success_rate"], 2 / 3)
+            self.assertEqual(len(report["runs"]), 3)
+            self.assertFalse(report["passed"])
+            self.assertEqual(report["runs"][1]["errors"], ["synthetic retained failure"])
+
+
+if __name__ == "__main__":
+    unittest.main()

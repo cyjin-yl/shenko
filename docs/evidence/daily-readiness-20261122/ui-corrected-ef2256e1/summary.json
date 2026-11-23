@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "production_source": "ef2256e1a420a739b9ddccb18f57af96ff2979b9",
+  "baseline_production_source": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+  "upstream_pin": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+  "container_image": "sha256:28df77cc6beee4f88ee1f57922190dcb02414d78d284e8b0f91859e18728e565",
+  "toolchain": {
+    "node": "v24.22.1",
+    "pnpm": "10.32.1"
+  },
+  "host_pid": 2490502,
+  "host_tool_reported_runtime_seconds": 204.46,
+  "host_exit_original": "host_exit=0 time=2026-11-21T23:32:33Z\n",
+  "container_exit_original": "container_exit=0 time=2026-11-21T23:32:32Z\n",
+  "baseline": {
+    "production_source": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+    "fixture_source": "ef2256e1a420a739b9ddccb18f57af96ff2979b9",
+    "command": [
+      "node",
+      "--test",
+      "--test-reporter=tap",
+      "--test-name-pattern=^a streamed prefix is not labelled committed and is replaced by the committed text$",
+      "tests/live-controller.test.mjs"
+    ],
+    "started_at": "2026-11-21T23:29:14.413851+00:00",
+    "finished_at": "2026-11-21T23:29:14.793678+00:00",
+    "elapsed_seconds": 0.37979994498891756,
+    "exit_code": 1,
+    "reducer_sha256": "0b3c8e4a4ac8c29fbbf748830fb3c32eed3c77cf0daf92c5f5ddfca70795b168",
+    "fixture_sha256": "3d4987f7cfaf146e6c916f9fd74fa5f736933071dd55eb9e29889fbf9ecb945f",
+    "fixture_patch_sha256": "f7203e6881096dbccc73f357807462a4d0df1effac26fe843cfeaaca860d1c78",
+    "log_sha256": "deb72df5cab5a75802d9e7e2b8c86aba2578b384855ebcdf4dbec5ad424df224",
+    "summary_lines": [
+      "# tests 1",
+      "# pass 0",
+      "# fail 1",
+      "# cancelled 0",
+      "# skipped 0",
+      "# duration_ms 332.664778"
+    ],
+    "production_unchanged": true,
+    "candidate_fixture_exact": true
+  },
+  "candidate_tests": {
+    "generation": {
+      "tests": 51,
+      "pass": 51,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "duration_ms": 561.007767,
+      "log": "generation/web-tests.log.gz",
+      "raw_log": {
+        "bytes": 5137,
+        "sha256": "f0c31e293b0303f6b6a82dffd71461fcb593e998a0ae2729b054f0013d0b65ad"
+      }
+    },
+    "rebuild": {
+      "tests": 51,
+      "pass": 51,
+      "fail": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "duration_ms": 399.016804,
+      "log": "rebuild/web-tests.log.gz",
+      "raw_log": {
+        "bytes": 5113,
+        "sha256": "7afcc04872122daa57ebb7649715259d801046a1f608cef77c1a0bd1541b13fa"
+      }
+    }
+  },
+  "actual_public_package_builds": {
+    "producer": 42,
+    "fresh_rebuild": 42
+  },
+  "web_input_files": 53,
+  "upstream_input_files": 13502,
+  "producer_manifest": {
+    "bytes": 8978,
+    "sha256": "134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89"
+  },
+  "rebuilt_manifest": {
+    "bytes": 8960,
+    "sha256": "36f2ea2f562b096e00dfc639278068a9385aa984d7190492464c17613a0128a3"
+  },
+  "static_asset_count": 12,
+  "changed_payloads_from_baseline": [
+    "app.js"
+  ],
+  "independent_comparison_errors": [],
+  "live_host_checkout_after_exit": {
+    "source": "4a5b88aa58e5f5c61200066fa8d37b0c6fb4dfcb",
+    "status_porcelain": "",
+    "checkout_mutated_by_this_run": false
+  },
+  "scope": {
+    "real_devcontainer_code_tests": true,
+    "frontend_generated_twice": true,
+    "native_browser_test": false,
+    "new_model_request": false,
+    "original_model_journey_verdict_changed": false,
+    "distinct_test_functions_added": 0,
+    "corrected_delivery_orders_added": 2
+  }
+}

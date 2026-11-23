@@ -31,8 +31,9 @@ pub async fn run_committed_dispatcher(
             // do not begin another control/publication settlement pass here.
             _=subject_stopping.cancelled()=>return Ok(()),
             _=tick.tick()=>{
-                // One dispatcher pass: every failure is a durable runtime
-                // fact the subject can read, then propagates.
+                // One dispatcher pass. A fresh preparation displaced by
+                // ordinary progress is re-read on a later tick; real failures
+                // remain durable runtime facts and propagate.
                 let pass: anyhow::Result<()> = async {
                     store.settle_subject_memory()?;
                     store.reconcile_subject_publications()?;
@@ -131,17 +132,31 @@ pub async fn run_committed_dispatcher(
                     Ok(())
                 }.await;
                 if let Err(error) = pass {
+                    // An earlier synchronous claim in this pass may already
+                    // be Running without a managed owner. Its failed park
+                    // requires lifecycle recovery, including when anyhow also
+                    // retains a fresh-drift or shutdown cause deeper inside.
+                    let claim_needs_recovery = error.is::<crate::child::NativeClaimNeedsRecovery>();
+                    // Capture saw a newer same-authority row BEFORE ordering
+                    // this action. End this pass and re-read durable work on
+                    // the normal tick; never retry a chosen image, an old
+                    // permit, an external effect, or an arbitrary Conflict.
+                    if !claim_needs_recovery && error.downcast_ref::<shenko_types::error::ShenkoError>()
+                        .is_some_and(|error| error.is_control_preparation_changed_for(agent_id))
+                    {
+                        tracing::debug!(%agent_id, %error, "fresh control preparation changed; re-evaluate durable work on the next dispatcher pass");
+                        // A slow snapshot may have missed ticks. Do not
+                        // burst through them as immediate preparation retries.
+                        tick.reset();
+                        continue;
+                    }
                     // Graceful stop revokes new authority admissions while a
                     // dispatcher pass can still be finishing. That precise
                     // refusal leaves the work durable for reopen; another
                     // authority conflict or a storage failure remains an error.
-                    if subject_stopping.is_cancelled()
-                        && matches!(
-                            error.downcast_ref::<shenko_types::error::ShenkoError>(),
-                            Some(shenko_types::error::ShenkoError::Protocol(protocol))
-                                if protocol.code == "runtime_authority_fenced"
-                                    && protocol.details["reason"] == "runtime admission is canceled"
-                        )
+                    if !claim_needs_recovery && subject_stopping.is_cancelled()
+                        && error.downcast_ref::<shenko_types::error::ShenkoError>()
+                            .is_some_and(|error| error.is_runtime_admission_closed_for(store.capabilities().incarnation))
                     {
                         return Ok(());
                     }

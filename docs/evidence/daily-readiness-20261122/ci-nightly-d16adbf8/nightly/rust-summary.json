@@ -1,0 +1,328 @@
+{
+  "kind": "rust_workspace_outer_harness_audit",
+  "run_id": 44963198484,
+  "job_id": 137026341100,
+  "head_sha": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "raw_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-d16adbf8/rust.log",
+    "bytes": 695006,
+    "sha256": "7a67b2db7eb4763fb594364e20ccac9077622e91e47058cde72b6b8d1def8edb",
+    "lines": 5580
+  },
+  "command": [
+    689,
+    "##[group]Run cargo test --workspace --all-features --locked --no-fail-fast -j2 2>&1 | tee .ci/evidence/workspace-test.log"
+  ],
+  "checkout": [
+    [
+      171,
+      "d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+    ]
+  ],
+  "outer_summary": {
+    "cargo_targets": 158,
+    "executable_targets": 125,
+    "doctest_targets": 33,
+    "result_rows": 157,
+    "passed": 1240,
+    "failed": 0,
+    "ignored": 11,
+    "measured": 0,
+    "filtered": 0,
+    "non_libtest_skip_targets": 1
+  },
+  "nested_summary": {
+    "result_rows": 19,
+    "passed": 19,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 131
+  },
+  "validation": {
+    "stray": [],
+    "mismatches": [],
+    "outer_filtered": [],
+    "outer_non_ok": [],
+    "missing_results": [],
+    "explicit_non_ok": []
+  },
+  "method": "Use final libtest result in each Cargo Running/Doc-tests target. Retain earlier subprocess results separately; verify first running-N count against outer result. Preserve separate harness=false SKIP.",
+  "explicit_long_proofs": [
+    {
+      "command_line": 4500,
+      "command": "##[group]Run python3 scripts/ci/ignored_test.py --package shenko-subject --name loop_runner::recovery_tests::obligation_partition_tests::partition_orchestrator",
+      "outer_result": [
+        5270,
+        "ok",
+        1,
+        0,
+        0,
+        0,
+        156,
+        1.53
+      ],
+      "nested_results": [
+        [
+          5237,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.16
+        ],
+        [
+          5241,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.16
+        ],
+        [
+          5247,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.14
+        ],
+        [
+          5253,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.35
+        ],
+        [
+          5259,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.14
+        ],
+        [
+          5265,
+          "ok",
+          1,
+          0,
+          0,
+          0,
+          156,
+          0.29
+        ]
+      ],
+      "source_revision_lines": [
+        [
+          4522,
+          "SHENKO_SOURCE_REVISION: d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+        ]
+      ],
+      "receipt": {
+        "raw_line": 5267,
+        "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-d16adbf8/partition-receipt-from-job-log.json",
+        "bytes": 230210,
+        "sha256": "383928549e38c123833d3d72ef6d940c32b387ea3b853770a3d07a3e7ad17b9e",
+        "state": "passed",
+        "check_count": 17,
+        "checks": [
+          {
+            "check": "fresh_root",
+            "passed": true
+          },
+          {
+            "check": "origin_commits_one_open_obligation",
+            "passed": true
+          },
+          {
+            "check": "peers_fork_one_origin",
+            "passed": true
+          },
+          {
+            "check": "peer_a_settles_completed",
+            "passed": true
+          },
+          {
+            "check": "peer_b_settles_cancelled",
+            "passed": true
+          },
+          {
+            "check": "settlements_overlap_in_process_lifetimes",
+            "passed": true
+          },
+          {
+            "check": "peers_compete_on_one_obligation",
+            "passed": true
+          },
+          {
+            "check": "peer-a_archive_is_genuine_current_format",
+            "passed": true
+          },
+          {
+            "check": "peer-b_archive_is_genuine_current_format",
+            "passed": true
+          },
+          {
+            "check": "competing_settlement_refused_as_one_unit",
+            "passed": true
+          },
+          {
+            "check": "refusal_publishes_no_rows_in_a",
+            "passed": true
+          },
+          {
+            "check": "converged_store_accepts_the_winning_settlement",
+            "passed": true
+          },
+          {
+            "check": "competing_settlement_after_convergence_never_replaces",
+            "passed": true
+          },
+          {
+            "check": "competing_settlement_refused_over_replicated_facts",
+            "passed": true
+          },
+          {
+            "check": "relay_preserves_typed_settlements",
+            "passed": true
+          },
+          {
+            "check": "archives_are_byte_stable",
+            "passed": true
+          },
+          {
+            "check": "every_store_reopens_and_validates",
+            "passed": true
+          }
+        ],
+        "failed_checks": [],
+        "scope": "Source-level obligation partition settlement proof: real parser, Store, CAS and archive code, two independent OS processes settling from one committed origin with a rendezvous barrier, archive exchange, unit refusal, convergence, sticky terminal state, relay and reopen. Not a power-loss, distributed-installation, network, or model-efficacy proof; no provider request is made.",
+        "limits": [
+          "peers are byte copies of one quiesced store, so they share the origin ledger identity and incarnation",
+          "the content store may gain unreferenced sealed objects during a refused import; no fact is published",
+          "no model, provider or network is involved; the authored control text is parsed by the real parser"
+        ]
+      }
+    },
+    {
+      "command_line": 5297,
+      "command": "##[group]Run python3 scripts/ci/native_ssh_memory_helper.py run --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_actual_helper_receipt_survives_lost_reply_without_replay",
+      "outer_result": [
+        5328,
+        "ok",
+        1,
+        0,
+        0,
+        0,
+        53,
+        3.97
+      ],
+      "nested_results": [],
+      "source_revision_lines": [
+        [
+          5319,
+          "SHENKO_SOURCE_REVISION: d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+        ]
+      ]
+    },
+    {
+      "command_line": 5330,
+      "command": "##[group]Run python3 scripts/ci/native_ssh_memory_helper.py run --name recovery_integration_tests::native_ssh_memory_helper::configured_identity_does_not_authorize_wrong_host_pin_or_helper",
+      "outer_result": [
+        5361,
+        "ok",
+        1,
+        0,
+        0,
+        0,
+        53,
+        2.07
+      ],
+      "nested_results": [],
+      "source_revision_lines": [
+        [
+          5352,
+          "SHENKO_SOURCE_REVISION: d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+        ]
+      ]
+    }
+  ],
+  "explicit_preparations": [
+    [
+      5272,
+      "##[group]Run python3 scripts/ci/native_ssh_memory_helper.py prepare"
+    ]
+  ],
+  "run_url": "https://github.com/cyjin-yl/shenko/actions/runs/44963198484",
+  "job_url": "https://github.com/cyjin-yl/shenko/actions/runs/44963198484/job/137026341100",
+  "event": "workflow_dispatch",
+  "run_attempt": 1,
+  "head_branch": "feat/daily-readiness-20261122",
+  "job_conclusion": "success",
+  "started_at": "2026-11-21T23:43:49Z",
+  "completed_at": "2026-11-22T00:09:19Z",
+  "audit_file": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-d16adbf8/rust-outer-audit.json",
+    "bytes": 75843,
+    "sha256": "091fe33101f6d601f0c0a2e03ec191ccd641ddc3c3b55cb37da344050309578a"
+  },
+  "failed_test_lines": [],
+  "artifacts": {
+    "total_count": 2,
+    "artifacts": [
+      {
+        "id": 14730789214,
+        "node_id": "MDg6QXJ0aWZhY3QxNDczMDc4OTIxNA==",
+        "name": "nightly-native-evidence",
+        "size_in_bytes": 1116505239,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14730789214",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14730789214/zip",
+        "expired": false,
+        "digest": "sha256:ad10c5ef9618ac1bfc480572e765a0154fdfb897e3c7eca64127ba2adae81392",
+        "created_at": "2026-11-22T00:09:09Z",
+        "updated_at": "2026-11-22T00:09:09Z",
+        "expires_at": "2027-02-19T23:43:47Z",
+        "workflow_run": {
+          "id": 44963198484,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+        }
+      },
+      {
+        "id": 14730409685,
+        "node_id": "MDg6QXJ0aWZhY3QxNDczMDQwOTY4NQ==",
+        "name": "nightly-compiler-evidence",
+        "size_in_bytes": 1152604,
+        "url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14730409685",
+        "archive_download_url": "https://api.github.com/repos/cyjin-yl/shenko/actions/artifacts/14730409685/zip",
+        "expired": false,
+        "digest": "sha256:130ce356cf06e16335488a4a6fb93a2b37a1e241d70e6078e69811d9815f412f",
+        "created_at": "2026-11-21T23:58:32Z",
+        "updated_at": "2026-11-21T23:58:32Z",
+        "expires_at": "2027-02-19T23:43:47Z",
+        "workflow_run": {
+          "id": 44963198484,
+          "repository_id": 1430340138,
+          "head_repository_id": 1430340138,
+          "head_branch": "feat/daily-readiness-20261122",
+          "head_sha": "d16adbf89c9f79dfce8ef90d77843412bcda85bf"
+        }
+      }
+    ]
+  },
+  "artifact_verification_scope": "GitHub API identity and digest metadata; artifact ZIPs are not downloaded by this Rust collector."
+}

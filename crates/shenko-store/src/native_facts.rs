@@ -18,9 +18,14 @@ use shenko_types::{
 use crate::{
     Store,
     authority::{admission_applied, task_revision_position},
-    control_transition::{Cell, MAX_IMAGE_BYTES, RowTransition, TableTransition},
+    control_transition::{Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA, RowTransition, TableTransition},
     store::storage_error,
 };
+
+#[path = "native_ancestry.rs"]
+mod ancestry;
+pub(crate) use ancestry::{validate_native_ancestry, validate_native_ancestry_envelope,
+    validate_native_ancestry_fences};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +76,41 @@ pub(crate) fn column<'a>(
         .position(|column| column == name)
         .and_then(|index| row.get(index))
         .ok_or_else(|| invalid(format!("missing {}.{name}", table.before.table.name)))
+}
+
+/// A v3 direct native transition depends on the immutable authoring step,
+/// not every step's mutable S0 fields. Its full creator comes from the verified
+/// S1/claim/E1 chain. The row engine separately rechecks read_subject's current
+/// successor predicate at materialization; this is not an absence witness.
+pub(crate) fn validate_subject_read(
+    rows: &RowTransition,
+    creator: &SubjectStep,
+) -> Result<(), ShenkoError> {
+    if !matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) {
+        return Ok(());
+    }
+    let tables = rows.tables.iter()
+        .filter(|table| table.before.table.name == "subject_steps").collect::<Vec<_>>();
+    let [table] = tables.as_slice() else {
+        return Err(invalid("missing unique direct native creator witness"));
+    };
+    if table.complete_read || table.read_range.is_some() || !table.changes.is_empty()
+        || table.before.rows.len() != 1 || creator.step_id == rows.original_head.next_step_id
+    {
+        return Err(invalid("direct native subject read must name only its creator"));
+    }
+    let row = table.before.rows.values().next()
+        .ok_or_else(|| invalid("missing direct native creator row"))?;
+    let Cell::Text(data) = column(table, row, "data")? else {
+        return Err(invalid("direct native creator is not JSON"));
+    };
+    if column(table, row, "step_id")? != &Cell::Text(creator.step_id.to_string())
+        || serde_json::from_str::<serde_json::Value>(data).map_err(invalid)?
+            != serde_json::to_value(creator)?
+    {
+        return Err(invalid("direct native creator differs from its original proof"));
+    }
+    Ok(())
 }
 
 /// This is usable only after the caller independently proves the action's
@@ -274,6 +314,7 @@ impl Store {
         creator: &SubjectStep,
         childless: bool,
     ) -> Result<(), ShenkoError> {
+        validate_subject_read(rows, creator)?;
         let envelope: serde_json::Value =
             self.read_native_json(&fact.admission.payload_ref, "commit-admission", 1)?;
         let expected: Vec<TaskRecord> =

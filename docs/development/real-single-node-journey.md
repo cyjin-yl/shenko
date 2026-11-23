@@ -12,7 +12,10 @@ to delegate a finite model child that computes
 the task, operation, attempt, E1, result, and committed decision ledgers without
 writing them. A matching piece of model text alone cannot pass: both real child
 results and their evidence must exist, and the reported output must commit
-after those results. The first new main request must be created after the input's
+after those results. The selected answer's own sealed request must also have
+consumed both original T2 results. A request sealed before either result cannot
+qualify merely because its later S1 text mentions `437` and the marker.
+The first new main request must be created after the input's
 accepted commit. Its sealed input plan must bind the same subject, branch, step,
 request and accepted event, and its actual user-message payload must include
 the complete submitted text.
@@ -27,7 +30,9 @@ same input identity, and asks the model to continue the preceding task from its
 existing context. The result checks the original input event/commit identity,
 subject and branch identity, retained task results, and a newly committed answer.
 The continued input is likewise durably accepted before releasing that pause,
-and must enter the first new frozen model request. No model output, successful
+and must enter the first new frozen model request. The selected continued
+answer must itself read both original results and this exact accepted resume
+message, whether as new input or its actual sealed history. No model output, successful
 task, or receipt is supplied by the driver.
 
 `start --pause-at-start <request-UUID>` is an optional startup control. The
@@ -43,14 +48,14 @@ or claim a complete software handoff.
 
 ## Run
 
-Use Python with `websockets==16.0`, an actual model endpoint, and a CLI built from
+Use Python 3.11+ with `websockets==16.0`, an actual model endpoint, and a CLI built from
 the revision named in the command. Preserve the model checkpoint/quantization,
 runtime identity, context size, and sampling parameters with the run's evidence.
 
 ```sh
-SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) cargo build --locked -p shenko -j2
+SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) cargo build --release --locked -p shenko -j2
 python scripts/real_single_node_journey.py \
-  --binary target/debug/shenko \
+  --binary target/release/shenko \
   --source-revision "$(git rev-parse HEAD)" \
   --model-url http://127.0.0.1:18832 \
   --model Qwen3-0.6B-Q4_K_M \
@@ -60,13 +65,144 @@ python scripts/real_single_node_journey.py \
 `--model-url` is the provider's base URL without `/v1`: the real
 `LocalModelProvider` appends `/v1/models` and `/v1/chat/completions` itself.
 The evidence directory must not already exist. Each phase has a bounded
-observation interval. A failure exits nonzero and keeps its original runtime
+observation interval. `--startup-timeout` separately sets the positive integer
+number of seconds to observe a bound subject after each runtime spawn (default:
+60). The manifest and batch summary record this setting; `first.startup.json`
+and `restart.startup.json` retain actual elapsed startup time and whether the
+subject became ready, including failed or cancelled starts. Elapsed startup
+time ends before owned cleanup. A longer observation window is not a startup
+latency fix; keep the measured delay and compare candidates using the same
+explicit boundary. A failure exits nonzero and keeps its original runtime
 logs, input, WebSocket frames, read-only ledger snapshots and CAS. The
 public control commands and responses are retained in `runtime-controls.jsonl`;
 the paused and accepted snapshots show whether any request was admitted before
 each explicit resume. The
 `installation` subdirectory contains private bootstrap/control material and is
 excluded from the hosted artifact; publish only the explicit evidence subset.
+
+For a deployed latency observation, use the README's release profile and record
+the exact binary hash and build profile. Debug observations remain useful for
+diagnosis, but their unoptimized execution and larger implementation artifacts
+are a different configuration. The ancillary Python observer socket retains
+its 20-second ping interval and uses the explicit phase timeout for its pong
+deadline; both are recorded in the manifest. This prevents the observer's
+implicit 20-second deadline from stopping a longer declared experiment. It does
+not improve product responsiveness: keep the real browser's frame gaps and
+Store phase timings, and never count a longer observation window as a latency
+improvement.
+
+### Repeated candidate and recovery evidence
+
+Pass `--repeat 3 --browser --timing` to run three complete journeys sequentially
+against the same binary and served model card. Each attempt uses a fresh
+installation and retains both the first-task and restart phases under
+`attempt-NNN`. `batch-summary.json` is checkpointed after every attempt and
+reports passed, failed and unattempted runs. A failed attempt remains in the
+success-rate denominator; binary or model-card drift stops the batch and
+leaves the remaining runs explicitly unattempted. Model-card equality is an
+observed serving identity, not proof that weight bytes did not change; record
+the checkpoint/template/runtime identity separately for a deployment claim.
+Only response-generation metadata (`permission` and `created`) is excluded
+from that comparison: an unchanged vLLM process can regenerate both fields.
+The selected card's other fields, including model ID, root, owner and served
+context capacity, remain bound. Each attempt retains the raw `/v1/models`
+response in `models.json`, and the batch report names the excluded fields.
+
+The fresh installation must contain exactly one `model.child` and one
+`host.printf` task. The completed child's recorded model, local endpoint and
+every transcript step's provider binding must match the requested deployment.
+The native task must have exactly one operation, attempt and original
+postcondition-verified receipt bound to its result. Extra failed or unstarted
+tasks/attempts still fail this strict journey; their complete records remain
+available for diagnosing refusal, retries and unknown effects.
+
+The output-consumption gate binds the committed step, its active request,
+the recorded request attempt and their exact input-plan reference. A legal
+`RetryPending` attempt has a new wire identity while retaining the original
+S0. The gate also binds the plan's original request to its own same-step,
+same-agent attempt with the same typed reference and payload/provider digests;
+the distinct retry attempt must have been created later in the same ledger.
+Result and submitted-input availability use the original attempt's creation
+boundary, so a later retry cannot supply evidence missing at the original seal.
+It reads
+that immutable plan and requires the two complete original `TaskResult` values
+in its actual provider payload, with their runtime tool-result and event
+identities. Each result must also have a matching sealed `native-child` event
+or an original tool-result history row in the same scope at or before the
+plan's sealed `leaf_seq`. A later row in the final snapshot cannot fill an
+earlier request's missing input. One result may be old history while the other
+is new; two new events are not required. A selected inbox event without the
+corresponding actual payload is insufficient. `first_output_input` and
+`restart_output_input` in the summary record the selected request, input-plan
+reference, result identities and matched payload/history positions.
+
+This is a causal evidence check, not a semantic keyword classifier. Independent
+review still reads the actual committed answer and original provider output.
+The observer's CAS reader retains its existing length check; it does not
+independently recompute BLAKE3. Preserve the full original CAS bytes and the
+independent audit's byte hashes. The motivating real `d16adbf8/attempt-002`
+committed a waiting answer after both T2s, although its earlier sealed request
+had neither result; the old existence/text gate incorrectly selected it. That
+run remains failed. The preserved observer regression also uses the real
+`attempt-001` seal that did read both originals.
+The [original-case comparison and regression receipt](../evidence/daily-readiness-20261122/observer-result-consumption/receipt.json)
+binds the exact checked source and fixture bytes; it is not another model run.
+The [retry follow-up receipt](../evidence/daily-readiness-20261122/observer-result-consumption/retry-receipt.json)
+preserves the original strict-ID misclassification and its correction on an
+explicitly synthetic receipt projection inside the same observer regression.
+
+Recovery compares the original child operation/attempt rows and complete stored
+result/receipt rows from the first successful answer through the paused boundary
+and final shutdown snapshot. New tasks, operations, attempts or receipts cannot
+be incorporated into a later baseline. This recall-only second input must not
+create another model or `host.printf` child. Retaining the old result or returning
+the same WebSocket receipt alone cannot prove that execution was not repeated.
+The driver records its own SHA-256, phase deadline and elapsed wall time.
+The explicit original-input replay is sent on the new observer WebSocket. Its
+receipt must come from that same connection's two actual receive windows,
+before and after the resumed input's admission. The page's retained receipt
+history still proves its own submissions, but cannot supply this replay proof.
+The selected replay receipt is retained in the summary and must preserve the
+original event and accepted commit with `replayed:true`.
+
+After Inspect returns to the conversation, the final browser check waits at
+most the witness's existing 15-second UI-operation limit for the original
+message keys, counts and exact rendered text. Compiled bubble children can
+mount after the view click returns. The witness records this render wait,
+then captures the live DOM and applies the same strict retention predicate
+again. A permanent missing, duplicate or changed original still fails. This
+does not prove flicker-free rendering or improve the product's response time;
+the earlier premature DOM capture remains an original failed observation.
+
+`--timing` selects `SHENKO_LOG=info,shenko_timing=debug`; structured phase timings
+are diagnostic observations, not successful effect receipts or model-quality
+evidence. All existing child, output, pause, browser and clean-exit assertions
+remain required.
+
+With `--browser`, the actual composer chooses the mode according to the current
+socket's preceding `hello` capabilities, following the already merged one-send
+UI (`a0f008a7c262209f1b6ce6333aa5d00f8421c8a1`). The witness checks that `append`
+and durable receipts are available, and requires `steer` exactly when advertised.
+It preserves the actual submitted mode and checks the same socket's accepted
+receipt: durable acceptance, matching requested mode, and `next_boundary`
+placement at this journey's clean pause. It does not change the composer or
+force a mode, and does not claim an active-generation steering/replay test.
+
+For each selected committed answer, the page must itself receive a terminal
+`timeline_part` with the same step, exact S1 commit and complete original
+body. The witness then requires the production Inspect entry to carry that
+same message, part and commit identity with `data-committed="true"`, before
+checking its visible result text. It records the actual page socket and frame
+index. The page-frame wait and subsequent DOM wait each use the existing
+15-second UI-operation limit; they are two sequential bounded observations,
+not a single combined 15-second limit. An independent observer socket's frame
+or matching uncommitted stream cannot prove delivery to the actual page.
+
+`python3 -I scripts/real_single_node_journey_test.py` checks the driver's owned
+cleanup, reexecution detection, failed-attempt accounting and output-consumption
+gate. The last uses preserved real seals plus explicitly labelled input
+perturbations; the other bookkeeping checks use synthetic records. It does not
+execute a model or satisfy the journey itself.
 
 The `Real single-node journey` GitHub Actions workflow is explicitly selected
 with workflow dispatch or by adding the PR label `run-real-model`. Adding that
@@ -537,10 +673,68 @@ Both shutdowns use the existing owned-process `SIGINT` path and its forced-kill
 fallback; neither is an intentional crash experiment. The first follows the
 confirmed durable pause. The final shutdown occurs after continued-output
 observation and may encounter the still-continuous main loop. The success checks
-now require both observed exits to be zero. A nonzero first exit stops the journey
-before automatic restart; a nonzero final exit keeps `passed=false` while final
-ledger/CAS evidence is retained. Unknown inference outcomes remain Unknown and
-are not converted to successful cleanup.
+require both observed exits to be zero and the owned process group to finish
+without residual live children or forced cleanup. A failed first shutdown stops
+the journey before automatic restart; a failed final shutdown keeps `passed=false`
+while final ledger/CAS evidence is retained. Unknown inference outcomes remain
+Unknown and are not converted to successful cleanup.
+
+`first_exit` and `last_exit` retain the actual parent exit codes. The separate
+`first_shutdown` / `last_shutdown` receipts record the owned PGID, residual live
+members, signals, forced cleanup, remaining members and errors. Startup failures
+retain the same information in `<phase>.startup-shutdown.json` and the attempt
+summary. Only the group created by this driver's `start_new_session` spawn can be
+signalled; Linux `/proc` observation distinguishes zombies from live processes.
+An exited parent with surviving children still needs cleanup and fails the clean
+shutdown check. An incomplete or unverified cleanup stops a repeated batch before
+another installation is launched. Log-close/cleanup errors remain failures while
+the other final evidence is collected; an unwritable summary is also printed in
+full to the caller's captured stdout.
+
+Shutdown receipts also retain UTC and monotonic observations before and after
+each signal API call, including the initial parent SIGINT. These bound the
+driver's call, not Shenko's receipt of that signal: `Popen.send_signal` may
+return after observing that its child already exited. Runtime signal messages,
+durable failures and reconstruction logs remain separate evidence. The older
+`2b9707f6` protocol batches did not record these call times, so a 30-second
+cleanup timeout alone cannot locate when their runtime received SIGINT.
+
+Cancellation, KeyboardInterrupt and SystemExit are retained as failed-attempt
+facts and propagated after runtime cleanup and final evidence retention.
+Browser cleanup allows 15 seconds for its final capture and 10 seconds each for
+context, browser and driver shutdown. A timeout or interruption remains an
+explicit failed/unknown cleanup observation; the remaining owners and owned
+runtime are still closed. A browser error cannot skip the runtime shutdown,
+final ledger, CAS copy or attempt summary.
+
+An ordinary runtime SIGINT is also distinct from authority loss. The runtime
+records that explicit stop before revoking admission; a refusal belonging to
+that same Store writer is a typed `RuntimeAdmissionClosed`. Only that refusal
+paired with the subject's stop signal is an ordinary loop/dispatcher exit.
+Shared-token cancellation alone cannot supply this classification. Actual
+authority reconstruction, storage errors and unreadable retry state retain
+their errors and journals; chosen-but-unmaterialized actions and in-flight
+Unknown receipts keep their existing recovery paths. This changes no durable
+schema, historical error fact, request result or journey success criterion.
+
+The motivating observation is `protocol-before-r3/case-01`, using the release
+binary at `72fc70d3`: all three narrow first-request checks were true, then
+SIGINT at `2026-11-21T18:49:57.982802Z` was followed by step 2 reporting
+`runtime_authority_fenced` with reason `runtime admission is canceled`.
+The retained runtime-log SHA-256 is
+`a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102`;
+the final ledger SHA-256 is
+`6bfa903e151dd24545a64fd797c65b5ee39c247952e00b74c3009c1aea149edc`.
+Its parent exit 1 and `clean=false` remain failed evidence. The new stop
+classification requires its own regression and complete-journey receipts;
+it does not retroactively pass that observation or alter either frozen A/B
+binary.
+
+One driver regression exercises an actual parent exiting zero with a child that
+ignores SIGTERM. The child is removed by the bounded SIGKILL fallback, the parent
+exit remains zero, the cleanup is recorded as unclean, and an unrelated session
+remains alive. This process fixture and the two existing evidence-driver checks
+are bookkeeping/cleanup verification, not a successful model journey.
 
 A single explicit label event is still required for one exact-candidate run;
 pushes and unrelated labels do not repeat it. A protocol correction loop is a

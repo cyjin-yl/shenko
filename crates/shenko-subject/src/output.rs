@@ -15,15 +15,16 @@ use shenko_types::{
 /// grammar assembled from the registered channel plugins, and a fixed tail.
 /// Channel plugins own their grammar fragments; the core names no platform.
 const OUTPUT_CONTRACT_PREFIX: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
+需要 JSON 的控制，其标签和完整 JSON 必须位于同一行；不要把 JSON 另起一行。\n\
 这是对你自己输出控制行的规则，不是判定用户消息真伪的规则；用户输入按消息来源和其实际内容理解。\n\
 历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n";
 
 const OUTPUT_CONTRACT_SUFFIX: &str = "\n\
-[remember] 要保存的内容。有限模型 child 用 [delegate] 后接一行 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
+[remember] 要保存的内容。有限模型 child 用 [delegate]，在标签后同一行写完整 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
 每个 child 可选择不同 system_prompt/model；省略 profile_id 时在本轮原 provider 通路上请求，显式 profile_id 只能精确选择本轮冻结的已安装 provider 绑定。模型名称不会推断供应商、endpoint 或账号，不改变你的主模型或授予额外工具；provider 是否提供该模型以真实回执为准。\n\
 child 是多步有界运行：可用所授 tools 调用已注册能力；有 reply_grant 才能向其固定目标外发。tools/context/budget/reply_grant 及继续运行的完整形状见当前注册的 model.child 定义。\n\
 任务资料与完成条件写入 goal。max_tokens 为正整数，受 child 自己的总预算和实际 provider 资源约束，不由主体本步输出上限截断；plain text 的旧委派不执行。\n\
-[delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
+[delegate:已注册kind:版本] 后在同一行写完整 JSON 输入，仅用于显式 deterministic native definition，由 child handler 执行。\n\
 语义等待用 [wait] {\"condition\":\"语义退出条件\",\"max_wait_secs\":120} 开始，等待时长为 1..600 的整数秒；\n\
 等待操作自动绑定本轮冻结的当前等待，不需要输出或复制任何 ID；一次结果最多一个等待控制。\n\
 [wait:continue] 独立一行表示继续；[wait:end] 结束理由 表示结束当前等待。\n\
@@ -302,7 +303,10 @@ pub fn parse_output(
                 OutputAction::Identity { change }
             } else {
                 if value.trim().is_empty() {
-                    return Err(invalid(line_no, "empty action"));
+                    return Err(invalid(
+                        line_no,
+                        "empty action; put the action body after ] on the same line; JSON controls require the complete JSON value on that line",
+                    ));
                 }
                 match header {
                     "[remember" => OutputAction::Remember {

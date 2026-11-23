@@ -46,6 +46,8 @@ pub(crate) struct InferenceInstall<'a> {
     pub(crate) cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) consumer_cancel: &'a tokio_util::sync::CancellationToken,
     pub(crate) model_health: &'a Arc<crate::runtime_model_health::RuntimeModelHealth>,
+    pub(crate) authority: &'a crate::runtime_authority::RuntimeAuthority,
+    pub(crate) host_stop: &'a crate::runtime_host::HostStop,
 }
 
 /// `None` is an observed user stop during read-only metadata discovery. Runtime
@@ -53,7 +55,7 @@ pub(crate) struct InferenceInstall<'a> {
 pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<InferenceServices>> {
     let InferenceInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
-        cognition, installed, cancel, consumer_cancel, model_health,
+        cognition, installed, cancel, consumer_cancel, model_health, authority, host_stop,
     } = input;
     let handoff_participants = &installed.handoff_participants;
     let self_knowledge = &installed.self_knowledge;
@@ -208,7 +210,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
     let discovered = {
         use std::{future::Future, task::Poll};
         let mut cancelled = Box::pin(cancel.cancelled());
-        let mut signal = Box::pin(tokio::signal::ctrl_c());
+        let mut signal = Box::pin(host_stop.wait());
         let mut discovery = Box::pin(broker.discover_capabilities());
         let outcome = std::future::poll_fn(|cx| {
             if cancelled.as_mut().poll(cx).is_ready() {
@@ -217,7 +219,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
                 )));
             }
             if let Poll::Ready(signal) = signal.as_mut().poll(cx) {
-                return Poll::Ready(signal.map(|()| None).map_err(anyhow::Error::from));
+                return Poll::Ready(signal.map(|()| None));
             }
             discovery.as_mut().poll(cx).map(|result| Ok(Some(result)))
         })
@@ -227,7 +229,7 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
                 info!(
                     "shutdown signal during model metadata discovery; inference was not admitted"
                 );
-                cancel.cancel();
+                authority.request_shutdown();
                 return Ok(None);
             }
             Some(result) => result,
@@ -273,8 +275,27 @@ pub(crate) async fn install(input: InferenceInstall<'_>) -> Result<Option<Infere
         .await?;
     // ModelChildHandler reconstructed all outstanding original charges
     // before any subject/child inference can enter this broker.
-    let task = InferenceTask {
-        handle: broker_handle.clone(), worker: Some(tokio::spawn(broker.run())),
+    let mut prepared_broker = Some(broker);
+    let task = host_stop.start_if_running(|| -> Result<InferenceTask> {
+        let broker = prepared_broker.take().context("inference runner ownership is absent before admission")?;
+        Ok(InferenceTask {
+            handle: broker_handle.clone(), worker: Some(tokio::spawn(broker.run())),
+        })
+    });
+    let task = match task {
+        Some(task) => task?,
+        None => {
+            // A model child may already have queued an original request while
+            // its handler was installed. Close admission before running this
+            // same broker solely to settle its queue; dropping it would lose
+            // the queued NeverDispatched receipts. No provider send may start.
+            let stopped = host_stop.wait().await;
+            if stopped.is_ok() { authority.request_shutdown(); } else { cancel.cancel(); }
+            broker_handle.request_stop();
+            if let Some(broker) = prepared_broker { broker.run().await; }
+            stopped?;
+            return Ok(None);
+        }
     };
     // The broker and model-child registrations above joined the live
     // catalog; the self-knowledge snapshot is a registry view and the

@@ -30,6 +30,7 @@ mod runtime_cognition;
 mod runtime_perception;
 mod runtime_consumers;
 mod runtime_inference;
+mod runtime_host;
 mod runtime_lifecycle;
 mod runtime_model_health;
 mod runtime_napcat;
@@ -248,8 +249,8 @@ pub fn run_cli() -> Result<()> {
     run_owned(cli.command, data_dir)
 }
 
-/// Run one host while retaining exclusive installation ownership until its
-/// Tokio runtime is dropped. Handoff launches adopt the existing locked FD.
+/// Run one host while retaining exclusive installation ownership until every
+/// active/retired Tokio runtime is joined. Handoff adopts the existing locked FD.
 pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     if let Some(output) = cli_dispatch::configured_ssh_public_identity_output(&command)? {
         println!("{output}");
@@ -278,12 +279,41 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     } else {
         (None, data_dir)
     };
+    // This observer survives incarnation cleanup and the synchronous gaps
+    // between runtimes. Declared after `owner`, its RAII cleanup also retains
+    // installation ownership on errors and unwinding.
+    let mut host = runtime_host::RuntimeHost::new(matches!(&command, Command::Start { .. }))?;
     let mut command = command;
-    let result = loop {
+    let mut result = Ok(());
+    loop {
+        if host.stop.is_stopping() { break; }
         let mut restart = runtime_authority::restart_command(&command);
         let mut startup_pause_applied = false;
-        let runtime = tokio::runtime::Runtime::new()?;
-        let result = runtime.block_on(runtime_lifecycle::run(command, data_dir.clone(), &mut startup_pause_applied));
+        let mut incarnation_started = false;
+        let runtime = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                result = runtime_host::with_cleanup(result, Err(error.into()), "create runtime");
+                break;
+            }
+        };
+        // This is the admission point for another incarnation. If stop won
+        // during the retirement window, retain the previous result verbatim.
+        if host.stop.is_stopping() { drop(runtime); break; }
+        let current = runtime.block_on(runtime_lifecycle::run(
+            command, data_dir.clone(), &mut startup_pause_applied,
+            &mut incarnation_started, host.stop.clone(),
+        ));
+        result = match (current, result) {
+            // The signal can arrive immediately after the admission check.
+            // An early stop before recovered services/subject work began is
+            // not evidence that the previous incarnation's failure recovered.
+            (Ok(()), previous) if !incarnation_started && host.stop.is_stopping() => previous,
+            (Err(error), Err(previous)) if !incarnation_started => {
+                Err(error.context(format!("previous incarnation also required recovery: {previous:#}")))
+            }
+            (current, _) => current,
+        };
         if startup_pause_applied {
             // The original request is now durable. Reconstruction reads its
             // current state, including a later explicit resume, instead of
@@ -298,8 +328,10 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
             // Original blocking calls may still finish and append E1. Their
             // canceled provider cannot admit another send, and the next
             // source binding fences every control write across incarnations.
-            runtime.shutdown_timeout(std::time::Duration::from_secs(2));
-            if let Some(next) = restart {
+            let retired = host.retire(runtime);
+            let retirement_failed = retired.is_err();
+            result = runtime_host::with_cleanup(result, retired, "retire runtime");
+            if !retirement_failed && !host.stop.is_stopping() && let Some(next) = restart {
                 tracing::warn!("reconstructing runtime from durable authority and branch facts");
                 command = next;
                 continue;
@@ -307,8 +339,10 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
         } else {
             drop(runtime);
         }
-        break result;
-    };
+        break;
+    }
+    let result = host.finish(result);
+    drop(host);
     drop(owner);
     result
 }

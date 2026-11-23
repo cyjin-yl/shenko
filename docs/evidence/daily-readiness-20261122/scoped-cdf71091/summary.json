@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "source_revision": "cdf7109163d2d8b1d63abd81b630dd681d9f6507",
+  "scope": "one existing actual CLI/control process regression, not a model-quality experiment",
+  "test_filter": "public_start_pause_survives_process_reopen_and_resume_alone_admits_inference",
+  "test_result": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 79.42
+  },
+  "gate_exit_code": 0,
+  "started_at_utc": "2026-11-21T20:36:57Z",
+  "finished_at_utc": "2026-11-21T20:39:11Z",
+  "raw_json": {
+    "result.json": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary/result.json",
+      "bytes": 271,
+      "sha256": "d27a8b1859d4da5ea6983227664acbc6d12e7191e144f59673f6d4935fed41d7"
+    },
+    "recovery-stop-order.json": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary/recovery-stop-order.json",
+      "bytes": 692,
+      "sha256": "824db5b7690e056fa773c89416d0e21fb7c341055be24e5f4afe7f9533f9ab06"
+    },
+    "recovery-stop-receipt.json": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary/recovery-stop-receipt.json",
+      "bytes": 1028,
+      "sha256": "3e0dd70461fbf4eabdf5f2570b3927d379583492caa5e250c554a1ba9c1bc9c1"
+    },
+    "inference-shutdown.json": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary/inference-shutdown.json",
+      "bytes": 872,
+      "sha256": "8cd1d5dc622f98b1c9a7c6c200372aa7e2e9596eec3747e193cc26be36d1ba61"
+    }
+  },
+  "logs": {
+    "start-boundary.log": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary.log",
+      "bytes": 37585,
+      "sha256": "d57de431dd6f4c1e32eaceb8655248dfb480b7f1a6237fe1dcd28dbd7dcf81db"
+    },
+    "start-boundary/recovery-stopped.log": {
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-cdf71091/start-boundary/recovery-stopped.log",
+      "bytes": 8862,
+      "sha256": "f3fffcf35f964b67d58c017a22b2bbbe4cc9873227f292ddf988d5b075bf8c10"
+    }
+  }
+}

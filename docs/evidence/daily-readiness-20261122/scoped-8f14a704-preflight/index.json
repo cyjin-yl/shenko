@@ -1,0 +1,44 @@
+{
+  "kind": "observer_preflight_failure_before_source_and_build_admission",
+  "files": [
+    {
+      "path": "runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-verify-known-node-loss-8f14a704.sh",
+      "bytes": 4797,
+      "sha256": "b18f9fc9502b9fb3e6c51f372210e89c87780a36ed65c0ce7cae5d69f89d4d6e"
+    },
+    {
+      "path": "host-runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122-host-verify-known-node-loss-8f14a704.sh",
+      "bytes": 2095,
+      "sha256": "440e8b81a16251a749809152961db0a081917ace3e8eefaf6353a8b93cde2ab8"
+    },
+    {
+      "path": "host.log",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704.host.log",
+      "bytes": 291,
+      "sha256": "02f47fa5c436a71f27b59aabad605028bfbba33c5b71a2d87e57b5bd2bda2867"
+    },
+    {
+      "path": "host.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704.host.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "path": "host.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704.host.started.txt",
+      "bytes": 21,
+      "sha256": "5c7fc2eceb9c4563e2def561c5480c3d8a6c8d119399468ac0a4fe6e42e7bf92"
+    },
+    {
+      "path": "host.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704.host.finished.txt",
+      "bytes": 21,
+      "sha256": "5c7fc2eceb9c4563e2def561c5480c3d8a6c8d119399468ac0a4fe6e42e7bf92"
+    }
+  ],
+  "intended_source_revision": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+  "actual_test_executions": 0,
+  "source_checkout_occurred": false
+}

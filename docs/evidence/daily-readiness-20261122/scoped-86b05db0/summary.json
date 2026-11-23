@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "source_revision": "86b05db07b7437e9bdd256c98bbe248da5732f31",
+  "actual_source_revision": "86b05db07b7437e9bdd256c98bbe248da5732f31",
+  "devcontainer": "shenko-build-r71",
+  "started_at": "2026-11-21T19:28:15Z",
+  "finished_at": "2026-11-21T19:32:45Z",
+  "exit": 0,
+  "script_sha256": "fdce1dde9f8e7607eccd8f8330537a98df9c706839b8542a00a14979340ed36d",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "tests": [
+    {
+      "label": "shutdown-loop",
+      "exit": 0,
+      "log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-86b05db0/shutdown-loop.log",
+      "bytes": 15666,
+      "sha256": "874571fdd060a9fa51a99e6c4b2e470a7c06229011d834737c15b49f0cad31e3",
+      "result_lines": [
+        "    Finished `test` profile [unoptimized] target(s) in 45.09s",
+        "test loop_runner::recovery_tests::subject_loop_error_is_journaled_as_runtime_error_fact ... ok",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 156 filtered out; finished in 18.60s"
+      ]
+    },
+    {
+      "label": "shutdown-authority",
+      "exit": 0,
+      "log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-86b05db0/shutdown-authority.log",
+      "bytes": 42796,
+      "sha256": "cfde6b1c4a4d33ff32f2bdbf91d6ec539f19870e9b7c4e9ab0fa75e5e990312d",
+      "result_lines": [
+        "    Finished `test` profile [unoptimized] target(s) in 2m 03s",
+        "test runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners ... ok",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 57 filtered out; finished in 11.89s"
+      ]
+    },
+    {
+      "label": "cas-graph-barrier",
+      "exit": 0,
+      "log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-86b05db0/cas-graph-barrier.log",
+      "bytes": 8156,
+      "sha256": "ef4dac8768c6ef7a8e6ddd6965d75ed46fb4d44f2286900a41d0b236a7dc7f3f",
+      "result_lines": [
+        "    Finished `test` profile [unoptimized] target(s) in 43.01s",
+        "test cas::tests::graph_root_waits_for_children_and_reopens_without_overwrite ... ok",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.24s"
+      ]
+    },
+    {
+      "label": "canonical-recovery",
+      "exit": 0,
+      "log": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-86b05db0/canonical-recovery.log",
+      "bytes": 6980,
+      "sha256": "5497cf7d770e89abc360011cd2632936760fbd12ce408c5de341a7c7962cafda",
+      "result_lines": [
+        "    Finished `test` profile [unoptimized] target(s) in 3.81s",
+        "test canonical_s1_recovers_identical_results_on_a_distinct_ledger_without_dispatch ... ok",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 48 filtered out; finished in 22.39s"
+      ]
+    }
+  ],
+  "scope": "four actual focused tests, not a full reference-model/browser journey or power-loss proof"
+}

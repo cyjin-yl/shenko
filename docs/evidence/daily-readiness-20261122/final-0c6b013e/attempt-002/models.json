@@ -1,0 +1,105 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "swift-qwen3.8-27b-nvfp4",
+      "object": "model",
+      "created": 1795299128,
+      "owned_by": "vllm",
+      "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "parent": null,
+      "max_model_len": 409600,
+      "permission": [
+        {
+          "id": "modelperm-8cde96528fa66056",
+          "object": "model_permission",
+          "created": 1795299128,
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    },
+    {
+      "id": "auto",
+      "object": "model",
+      "created": 1795299128,
+      "owned_by": "vllm",
+      "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "parent": null,
+      "max_model_len": 409600,
+      "permission": [
+        {
+          "id": "modelperm-9b7419df18ed7e38",
+          "object": "model_permission",
+          "created": 1795299128,
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    },
+    {
+      "id": "qwen3.8-27b",
+      "object": "model",
+      "created": 1795299128,
+      "owned_by": "vllm",
+      "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "parent": null,
+      "max_model_len": 409600,
+      "permission": [
+        {
+          "id": "modelperm-af5a9191e5d4ab30",
+          "object": "model_permission",
+          "created": 1795299128,
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    },
+    {
+      "id": "qwen3.8-27b-anth",
+      "object": "model",
+      "created": 1795299128,
+      "owned_by": "vllm",
+      "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+      "parent": null,
+      "max_model_len": 409600,
+      "permission": [
+        {
+          "id": "modelperm-8e537e307323c61a",
+          "object": "model_permission",
+          "created": 1795299128,
+          "allow_create_engine": false,
+          "allow_sampling": true,
+          "allow_logprobs": true,
+          "allow_search_indices": false,
+          "allow_view": true,
+          "allow_fine_tuning": false,
+          "organization": "*",
+          "group": null,
+          "is_blocking": false
+        }
+      ]
+    }
+  ]
+}

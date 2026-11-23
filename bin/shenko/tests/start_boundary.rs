@@ -1,5 +1,5 @@
 //! One actual CLI/control journey. The HTTP observer holds the real inference
-//! connection until SIGINT closes the client's local transport: admission,
+//! connection through ordinary stop and authority-failure cleanup: admission,
 //! owned shutdown and Unknown recovery, never a model-quality success claim.
 #![cfg(unix)]
 
@@ -80,6 +80,25 @@ impl OwnedRuntime {
                 "owned process exit deadline exceeded"
             );
             thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn pause(&mut self) -> Result<()> {
+        self.signal_group(libc::SIGSTOP)?;
+        let pid = i32::try_from(self.0.id()).context("owned process ID is out of range")?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let mut status = 0;
+            // Observe this owned child's actual stop, not an assumed delay.
+            // WUNTRACED does not reap a stopped child; Child still owns exit.
+            let observed = unsafe { libc::waitpid(pid, &mut status, libc::WUNTRACED | libc::WNOHANG) };
+            if observed == pid {
+                ensure!(libc::WIFSTOPPED(status), "owned process exited before the teardown barrier");
+                return Ok(());
+            }
+            if observed < 0 { return Err(std::io::Error::last_os_error().into()); }
+            ensure!(Instant::now() < deadline, "owned process did not enter its stop barrier");
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -226,7 +245,7 @@ impl Observer {
                         sent.send(wire[end + 4..end + 4 + length].to_vec())?;
                         // No response, server timeout or deliberate peer
                         // disconnect can unblock the runtime. Only its owned
-                        // SIGINT shutdown can close this local HTTP exchange.
+                        // Runtime cancellation can close this local HTTP exchange.
                         stream.set_read_timeout(Some(Duration::from_millis(100)))?;
                         let deadline = Instant::now() + Duration::from_secs(40);
                         let ending = loop {
@@ -241,7 +260,9 @@ impl Observer {
                                 Err(error) => return Err(error.into()),
                             }
                         };
-                        fs::write(logs.join("inference-cancelled.txt"), ending)?;
+                        fs::write(logs.join(format!("model-{:03}.inference-ending", number - 1)), ending)?;
+                        let original = logs.join("inference-cancelled.txt");
+                        if !original.exists() { fs::write(original, ending)?; }
                         inference_closed.send(ending)?;
                     } else {
                         stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")?;
@@ -618,7 +639,126 @@ fn journey(root: &Path) -> Result<()> {
     ensure!(attempt.attempt_id == attempt_id && attempt.terminal.and_then(|terminal| terminal.result_ref) == Some(terminal_ref));
     ensure!(observer.requests.try_recv().is_err(), "Unknown shutdown request was resent during reopen");
     drop(store);
+    recovery_stop_during_owned_teardown(root, port, &observer)
+        .with_context(|| runtime_log(root, "recovery-stopped"))?;
     observer.finish()?;
     drop(observer);
+    Ok(())
+}
+
+/// Extend the same process journey with failure first, real SIGINT second.
+/// The Store transaction only delays physical E1 cleanup; it changes no fact.
+fn recovery_stop_during_owned_teardown(root: &Path, port: u16, observer: &Observer) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    let data_dir = root.join("recovery-installation");
+    let label = "recovery-stopped";
+    let mut runtime = start(root, &data_dir, port, None, observer.address, label)?;
+    let identity = ready(&mut runtime, port)?;
+    let agent: EntityId = identity["subject_id"].as_str().context("recovery subject identity")?.parse()?;
+    let body = observer.requests.recv_timeout(Duration::from_secs(90))?;
+    let request: Value = serde_json::from_slice(&body)?;
+    ensure!(request["model"] == "dispatch-observer" && request["stream"] == true);
+    let (request_id, attempt_id) = {
+        let store = shenko_store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+        let (_, step) = store.load_subject(agent)?;
+        let request_id = step.active_request_id.context("original recovery request")?;
+        let attempt = store.subject_request_attempt(request_id)?.context("original recovery attempt")?;
+        ensure!(attempt.terminal.is_none(), "held generation already had a terminal receipt");
+        (request_id, attempt.attempt_id)
+    };
+    let mut events = Vec::new();
+    let origin = Instant::now();
+    let mut observed = |event: &str| -> Result<()> {
+        events.push(serde_json::json!({"event":event,"elapsed_ms":origin.elapsed().as_millis()}));
+        fs::write(root.join("recovery-stop-order.json"), serde_json::to_vec_pretty(&events)?)?;
+        Ok(())
+    };
+    observed("original_inference_post_held")?;
+    // Match the production Node→Store lock order. Once both are ours, no
+    // control writer can be paused while still owning either SQLite lock.
+    let authority = shenko_node::Node::open(&data_dir.join("node"))?.reserve_authority()?;
+    let term_before = authority.snapshot().term;
+    let mut writer = rusqlite::Connection::open(data_dir.join("shenko.db"))?;
+    writer.busy_timeout(Duration::from_secs(5))?;
+    let barrier = writer.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    runtime.pause()?;
+    drop(authority);
+    let mut node = shenko_node::Node::open(&data_dir.join("node"))?;
+    node.campaign()?;
+    let term_after = node.current_term()?;
+    ensure!(term_after > term_before, "real election did not change the old runtime's binding");
+    drop(node);
+    runtime.signal_group(libc::SIGCONT)?;
+    observed("authority_changed_and_process_continued")?;
+    // Cancellation reports its original request before synchronous error/E1
+    // journaling. That journal is deliberately held here; the Tokio HTTP
+    // connection driver need not produce physical EOF before it can progress.
+    let request_identity = request_id.to_string();
+    let cancellation_deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let bytes = fs::read(root.join(format!("{label}.log")))?;
+        let log = String::from_utf8_lossy(&bytes);
+        ensure!(!log.contains("host shutdown signal observed"),
+            "a host signal preceded the controlled authority failure");
+        if log.lines().any(|line| line.contains("INFERENCE_OBSERVATION_STOPPED")
+            && line.contains(&request_identity)) { break; }
+        ensure!(runtime.0.try_wait()?.is_none(), "runtime exited before its failure cancellation was observed");
+        ensure!(Instant::now() < cancellation_deadline,
+            "original request cancellation was not observed before cleanup SIGINT");
+        thread::sleep(Duration::from_millis(10));
+    }
+    observed("original_request_cancellation_observed_before_sigint")?;
+    ensure!(runtime.0.try_wait()?.is_none(), "runtime abandoned its blocked E1 writer");
+    runtime.signal_group(libc::SIGINT)?;
+    observed("sigint_sent_during_owned_cleanup")?;
+    let signal_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        let log = fs::read(root.join(format!("{label}.log")))?;
+        if String::from_utf8_lossy(&log).contains("host shutdown signal observed") { break; }
+        ensure!(runtime.0.try_wait()?.is_none(), "runtime exited before observing the cleanup signal");
+        ensure!(Instant::now() < signal_deadline, "host did not observe SIGINT while its writer was held");
+        thread::sleep(Duration::from_millis(10));
+    }
+    observed("host_stop_latched_before_writer_release")?;
+    let directory = fs::File::open(&data_dir)?;
+    let locked = unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    ensure!(locked != 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock,
+        "installation ownership was released while E1 was still blocked");
+    barrier.rollback()?;
+    observed("original_e1_writer_released")?;
+    observer.closed_inference.recv_timeout(Duration::from_secs(5))
+        .context("original HTTP transport did not end after its cleanup writer was released")?;
+    observed("original_transport_end_confirmed")?;
+    let status = runtime.wait_for(Duration::from_secs(30))?;
+    ensure!(!status.success() && status.code().is_some(), "stop erased the original recovery failure: {status}");
+    let log = fs::read_to_string(root.join(format!("{label}.log")))?;
+    ensure!(log.contains("runtime authority requires reconstruction")
+        && log.contains("the reserved Node authority or local writer binding changed"),
+        "process did not retain its original typed authority failure");
+    ensure!(!log.contains("reconstructing runtime from durable authority")
+        && log.matches("Shenko starting").count() == 1,
+        "a later incarnation started after the observed cleanup stop");
+    ensure!(observer.requests.try_recv().is_err(), "cleanup stop admitted another inference POST");
+    ensure!(unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0,
+        "installation remained locked after all real process workers exited");
+    let store = shenko_store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+    let (_, step) = store.load_subject(agent)?;
+    ensure!(step.state == shenko_types::subject::SubjectStepState::AwaitingModel
+        && step.active_request_id == Some(request_id), "failure/stop manufactured a completed decision");
+    let attempt = store.subject_request_attempt(request_id)?.context("original recovery attempt disappeared")?;
+    ensure!(attempt.attempt_id == attempt_id);
+    let terminal = attempt.terminal.context("original cancelled transport has no terminal receipt")?;
+    let result_ref = terminal.result_ref.context("original Unknown result seal")?;
+    let result: shenko_broker::request::InferenceResult = serde_json::from_slice(&store.cas.read_object(&result_ref.digest)?)?;
+    ensure!(result.request_id == request_id
+        && result.termination.kind == shenko_broker::request::TerminationKind::Unknown,
+        "the local cleanup signal relabelled the remote outcome");
+    fs::write(root.join("recovery-stop-receipt.json"), serde_json::to_vec_pretty(&serde_json::json!({
+        "request_id":request_id,"attempt_id":attempt_id,"term_before":term_before,"term_after":term_after,
+        "exit_code":status.code(),"termination":result.termination,"result_ref":result_ref,
+        "next_incarnation_started":false,"original_owner_held_until_e1_release":true,
+        "remote_stopped":false,"model_completion_tested":false,
+    }))?)?;
+    observed("original_error_and_unknown_preserved_without_reconstruction")?;
     Ok(())
 }

@@ -8,6 +8,7 @@ use crate::{Command, cli_dispatch, runtime_authority};
 
 #[derive(Default)]
 pub(crate) struct RuntimeState {
+    pub(crate) host_stop: crate::runtime_host::HostStop,
     pub(crate) active_authority: Option<Arc<runtime_authority::RuntimeAuthority>>,
     pub(crate) authority_heartbeat: Option<tokio::task::JoinHandle<Result<()>>>,
     pub(crate) model_health_monitor: Option<tokio::task::JoinHandle<()>>,
@@ -15,9 +16,15 @@ pub(crate) struct RuntimeState {
     pub(crate) inference: Option<crate::runtime_inference::InferenceTask>,
     pub(crate) native_child: Option<Arc<shenko_subject::NativeChildService>>,
     pub(crate) startup_pause_applied: bool,
+    /// Fully installed, recovered subject work crossed the host stop gate.
+    /// Recovery-only UI availability does not establish this fact.
+    pub(crate) incarnation_started: bool,
 }
 
-pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_applied: &mut bool) -> Result<()> {
+pub(crate) async fn run(
+    command: Command, data_dir: PathBuf, startup_pause_applied: &mut bool,
+    incarnation_started: &mut bool, host_stop: crate::runtime_host::HostStop,
+) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
         shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
@@ -47,11 +54,12 @@ pub(crate) async fn run(command: Command, data_dir: PathBuf, startup_pause_appli
     let _quota_strategy_plugin = supervisor
         .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
         .await?;
-    let mut state = RuntimeState::default();
+    let mut state = RuntimeState { host_stop, ..RuntimeState::default() };
     let result = cli_dispatch::dispatch(
         command, data_dir, &supervisor, &identity_context, &identity_service, &mut state,
     ).await;
     *startup_pause_applied = state.startup_pause_applied;
+    *incarnation_started = state.incarnation_started;
     if let Some(children) = &state.native_child { children.request_stop(); }
     // The decision loop may leave AwaitingModel on shutdown. Its broker still
     // owns the actual local provider future and original durable receipt; join

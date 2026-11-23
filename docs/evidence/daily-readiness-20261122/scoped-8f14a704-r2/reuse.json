@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "candidate": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+  "baseline": "be9cfe1ba9ac99f34c69fe57eea4aa369a8371e3",
+  "only_source_change": "Explicit unit type on the existing drop-only release channel in the authority test.",
+  "all_other_source_bytes_identical": true,
+  "start_boundary_source_sha256": "71f18ed20e751bf51fa8adaca4410de5e8520cd4b100a3df8d9beb874f6d0fad",
+  "reused_process_test": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/start-boundary.log",
+    "bytes": 36109,
+    "sha256": "89b6812391b2228407c68e3cebbb51e56c8eb26eb5d12061f4255d1262fc2d57",
+    "cargo_exit": 0,
+    "actual_passed": 1,
+    "actual_failed": 0,
+    "excluded_earlier_summaries": []
+  },
+  "retained_original_compile_failure": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-be9cfe1b/authority.log",
+    "bytes": 37640,
+    "sha256": "c94c189d5b731d062f304feee3b28974d6c02fe293fcebf4879f05eaf6a16ab3",
+    "cargo_exit": 101,
+    "diagnostic": "E0282 at runtime_authority_tests.rs:289:42",
+    "actual_authority_test_executions": 0
+  },
+  "rerun": "Only runtime_authority::tests::reserved_store_commit_and_ancestor_cancellation_fence_live_owners",
+  "release_build_requested": false,
+  "real_model_requested": false,
+  "retained_observer_preflight_failure": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704.host.log",
+    "bytes": 291,
+    "sha256": "02f47fa5c436a71f27b59aabad605028bfbba33c5b71a2d87e57b5bd2bda2867",
+    "host_exit": 1,
+    "scope_created": false,
+    "actual_test_executions": 0,
+    "reason": "Strict base64 text decode rejected the transport newline before source/build admission; original files retained."
+  }
+}

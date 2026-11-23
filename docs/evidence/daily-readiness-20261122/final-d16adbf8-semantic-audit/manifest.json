@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "product_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+  "scope": "Immutable independent audit of three original failed journeys; original verdict 0/3 retained. Selected CAS/raw native proof and source hashes, not a full installation archive.",
+  "files": {
+    "README.md": {
+      "bytes": 15050,
+      "sha256": "f1356aeba105ed2c030d5d05fa4d09017f62a6b65ce3f5f9899118bc2a9022d1"
+    },
+    "attempt-001.tar.gz": {
+      "bytes": 292793,
+      "sha256": "bb64532c74ced9ae8473063d9cbd7f89e7b85751e7d5422746cd6f973964900f"
+    },
+    "attempt-002.tar.gz": {
+      "bytes": 260363,
+      "sha256": "782cb4286fc58088130756eaaed4383a00798f0e5cb5ce31762643a075579154"
+    },
+    "attempt-003.tar.gz": {
+      "bytes": 243818,
+      "sha256": "940c79c880a299651fbee5e4a9f8c44a8bb5506c35b6a58638aa9e078cfc653f"
+    },
+    "export_native.py": {
+      "bytes": 11716,
+      "sha256": "f85669e1ec86f4e332e17114fafe2018e7c8c10b919ddad062ac337249ceb4e6"
+    },
+    "export_semantic.py": {
+      "bytes": 15289,
+      "sha256": "c6fcbc06fa3d745971e8eb1490b605d4c640db222ae3e061a967dd8950ca038a"
+    },
+    "observations.json": {
+      "bytes": 546551,
+      "sha256": "c7c16dc716619b7f3bdf8ed189544c638e392c87d2f15754219428f3d59fea6c"
+    },
+    "summarize.py": {
+      "bytes": 21235,
+      "sha256": "ceadb85a4ef6e47f6272d207fb0e173298e3d254ac1173e0afe391884f57643e"
+    }
+  },
+  "public_batch_sources": {
+    "index.json": {
+      "bytes": 40451,
+      "sha256": "f9e6136038e4f03504fab6b7eb48ec82ede1e845de6fb70ce4a12f0027567179"
+    },
+    "release-manifest.json": {
+      "bytes": 511,
+      "sha256": "c175240d635cd27be869a6410ab2025a19f50cba1cb6b92f84d231e309092388"
+    },
+    "batch-summary.json": {
+      "bytes": 3932,
+      "sha256": "593b2ed5ef77bdec7c7d5de07bfc84601b2a9927050dfd4605472c0fe0eee09f"
+    }
+  },
+  "derivation": {
+    "command": [
+      "python3",
+      "-I",
+      "summarize.py",
+      "--originals-dir",
+      "/workspace/scratch/0e9f736f5ffa/observations/final-d16adbf8/public"
+    ],
+    "exit_code": 0,
+    "outputs": "observations.json",
+    "observed_scope": {
+      "retained_semantic_CAS_copies": 67,
+      "retained_native_CAS_copies": 17,
+      "decoded_source_files_matched": 26,
+      "main_request_attempts": 9,
+      "committed_bodies": 6,
+      "original_applied_TaskResults": 4,
+      "child_provider_responses": 3,
+      "original_E1_receipts": 8,
+      "durable_runtime_error_rows": 6
+    },
+    "runtime_DB_access": false,
+    "network_or_model_requests": false,
+    "changed_journey_verdicts": false
+  },
+  "manual_review": {
+    "all_six_committed_bodies_read": true,
+    "all_three_final_PNGs_inspected": true,
+    "scope_and_limitations": "README.md"
+  },
+  "integrity_limits": [
+    "SHA256 and original typed-reference lengths checked; BLAKE3 remains unverified/null.",
+    "Full original snapshots/browser source logs reside in the separate public batch directory identified above.",
+    "Native export uses one closed Store transaction per attempt, not a cross-store/Node transaction.",
+    "Final empty seal-debt tables do not prove debt never occurred."
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "url": "http://127.0.0.1:17860/",
+  "source": "live",
+  "viewport": {
+    "width": 1280,
+    "height": 900,
+    "dpr": 1
+  },
+  "reduced_motion": true,
+  "rows": [
+    {
+      "key": "submission.01270aea-255f-494b-8a86-718870845590",
+      "entry_key": "submission.01270aea-255f-494b-8a86-718870845590",
+      "text": "请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-77f6a42c0f38。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+      "offset": 63.25,
+      "visible": true,
+      "stable_fact": true
+    }
+  ],
+  "anchor": {
+    "key": "submission.01270aea-255f-494b-8a86-718870845590",
+    "entry_key": "submission.01270aea-255f-494b-8a86-718870845590",
+    "text": "请完成一次有真实回执的有限任务：委派一个使用 swift-qwen3.8-27b-nvfp4 的有限模型 child，独立计算 19×23。另委派已注册的 host.printf 原生 child，输入 text 为 S1-77f6a42c0f38。等两个任务实际返回结果，再在正文中报告计算结果和原样回显的标记；不要模拟执行，不要提前宣称成功。",
+    "offset": 63.25,
+    "visible": true,
+    "stable_fact": true
+  },
+  "scroll": {
+    "top": 0,
+    "height": 736,
+    "client": 736
+  },
+  "announcements": [
+    {
+      "politeness": "polite",
+      "text": ""
+    },
+    {
+      "politeness": "polite",
+      "text": "传输已连接"
+    }
+  ],
+  "editor": {
+    "draft": "",
+    "focused": true,
+    "selection_start": 0,
+    "selection_end": 0
+  }
+}

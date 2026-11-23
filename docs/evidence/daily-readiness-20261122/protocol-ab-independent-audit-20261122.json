@@ -1,0 +1,602 @@
+{
+  "schema_version": 1,
+  "scope": "read-only audit of frozen first-request evidence; no model or build invocation",
+  "groups": [
+    {
+      "directory": "protocol-before-r3",
+      "batch_summary_sha256": "ee95fb02871067139398a9063413b13b9b1aa4fa8a23e2a8177af0f37aef6646",
+      "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+      "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+      "finished_at": "2026-11-21T19:12:26Z",
+      "case_count": 8,
+      "cases_file_sha256": "7a39571f6a546740489b8ed3a82469f8fa8487cda51098c3aa1f72a2ccfedc15",
+      "model_card": {
+        "id": "swift-qwen3.8-27b-nvfp4",
+        "object": "model",
+        "owned_by": "vllm",
+        "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+        "parent": null,
+        "max_model_len": 409600
+      },
+      "batch_rates": {
+        "input_in_first_seal": {
+          "passed": 1,
+          "attempted": 8,
+          "rate": 0.125
+        },
+        "first_result_committed_without_r0": {
+          "passed": 1,
+          "attempted": 8,
+          "rate": 0.125
+        },
+        "s1_requested_children_admitted": {
+          "passed": 1,
+          "attempted": 8,
+          "rate": 0.125
+        }
+      },
+      "cases": [
+        {
+          "case_id": "multiply-17-29",
+          "verified": true,
+          "request_id": "eb4c5541-820c-483f-a5b4-246d3717c5b7",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "ac531690fa8a5fff145559d25cc05d6a44082c8d7e3b52d03f9f83ed9ac6cfa3",
+          "observation_sha256": "1ad9e56fdccfdc6ae92c20c9dea49ce519841d55e8a2a82999960c5edeee8a0a",
+          "output_sha256": "b5f3567be44ef1936740b1f0abd7cf255e3a18263b95476963a187a8ba279233",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-28-34",
+          "verified": true,
+          "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+          "step_state": "retired",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": false,
+            "s1_requested_children_admitted": false
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "1746272b58b94496216b03c5b77735dec2271229d61e04ee91d4530eb8891ce8",
+          "observation_sha256": "41a5b3264baed4ea517e897298fac3c1fc7cab55b543ab5c2e1f37dad1e0c1b5",
+          "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "final_request_count": 1,
+          "rejection": {
+            "schema_version": 3,
+            "supersedes_step_id": "98f86b82-dd72-4859-997d-8bf419ba5b57",
+            "replacement_step_id": "6a135f42-812a-41c2-9f50-a78b5740ca1f",
+            "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+            "input_plan_ref": {
+              "digest": "blake3:f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+              "bytes": 60873,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/f5/3a/f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 15,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "model_result_ref": {
+              "digest": "blake3:af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+              "bytes": 0,
+              "media_type": "text/plain",
+              "store_namespace": "model_results",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/af/13/af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+              "codec": {
+                "name": "text",
+                "major": 1,
+                "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+              }
+            },
+            "model_outcome_ref": {
+              "digest": "blake3:241cf0f146f5a0546819aa141351891063d24e3adf5ea52b27aab4d32e31fafa",
+              "bytes": 492459,
+              "media_type": "application/json",
+              "store_namespace": "model_outcomes",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/24/1c/241cf0f146f5a0546819aa141351891063d24e3adf5ea52b27aab4d32e31fafa",
+              "codec": {
+                "name": "SubjectModelOutcome",
+                "major": 2,
+                "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+              }
+            },
+            "error": {
+              "code": "MODEL_RESULT_INCOMPLETE",
+              "scope": "request",
+              "retry": "new_revision",
+              "details": {
+                "reason": "partial/refused/unknown result is not an action decision",
+                "stop_reason": "length"
+              }
+            },
+            "correction": {
+              "prior_pinned_corrections": 0,
+              "replacement": {
+                "mode": "pinned_correction"
+              }
+            }
+          },
+          "termination": {
+            "kind": "provider_terminal",
+            "stop_reason": "length",
+            "max_tokens": 4096,
+            "output_tokens": 4096,
+            "length": true
+          }
+        },
+        {
+          "case_id": "multiply-46-27",
+          "verified": true,
+          "request_id": "ab6402c7-edfc-4a00-a754-c0a19a087db9",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "144891a67d6ab264c8ffe2d326f6d5e8797cc4a73b4088a4e74d0ae811030442",
+          "observation_sha256": "e0959f82a69720ab561d38c01dc1dc8b104779087890e23a0a5d9bb49dfb36a3",
+          "output_sha256": "f60af3aec0d2c76e80714ca31e65620d30c38eb6799429e1691e8b67c014b1e8",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-63-18",
+          "verified": true,
+          "request_id": "21f145a6-0fa1-46d2-b84e-c02a811472b8",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "55eab47e70620c108eb2384b958382094740b1764fc60ca9eedb7dd07db13524",
+          "observation_sha256": "8c75373c94212047589e112804cf283d80d5590a8dea58abc4d5d4c59ffa861e",
+          "output_sha256": "792e96cc20e4672c4150a66fe5f668b17fe926d4b51de49d21c3ba3bf3ad7417",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-42-57",
+          "verified": true,
+          "request_id": "2559eb47-bd42-4fff-b3d9-575011ea197e",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "summary_sha256": "a589e4d836868e5606ddc5fdec94a76084fbeeca83090b651ab5126949e94160",
+          "observation_sha256": "a55ecda467bdd0cb417b586a6e30f05d5886cc7dc53c678ccab71db23c52014d",
+          "output_sha256": "29b0b61e50ba63e210189bd65afa9d28abcc5c9bf23e5ae024af94e910294875",
+          "final_request_count": 2
+        },
+        {
+          "case_id": "multiply-73-16",
+          "verified": true,
+          "request_id": "bbb05f7c-d3a8-4482-962a-35d1eb44dacc",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "48b9e3df2bea19a36c52913c2764b5a9b79f1890dd401078a47e2a62ba96c280",
+          "observation_sha256": "979407bfd8367f804b549acfd065224eb8540816d3818e7968602fd6dd024fff",
+          "output_sha256": "5bf478129425c21f6a8863545ade4cac8fc54cafee03ff09f2c1079f208ea23d",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-84-25",
+          "verified": true,
+          "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+          "step_state": "retired",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": false,
+            "s1_requested_children_admitted": false
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "3e2706cb03071642005dcdeee9a7ebac7558e490cc6edcb9f7736f157c1e7db8",
+          "observation_sha256": "5461b5e5b5570354392e9ad7679239943e9d6a3e564bed2d62e68329ac0e818e",
+          "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "final_request_count": 1,
+          "rejection": {
+            "schema_version": 3,
+            "supersedes_step_id": "406198f9-b2e6-45eb-a599-ca9c07d4b49f",
+            "replacement_step_id": "d99c7f66-1c20-4ac9-918e-087785c8c224",
+            "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+            "input_plan_ref": {
+              "digest": "blake3:49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+              "bytes": 60873,
+              "media_type": "application/json",
+              "store_namespace": "input_plans",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/49/ce/49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+              "codec": {
+                "name": "subject_step_input",
+                "major": 15,
+                "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+              }
+            },
+            "model_result_ref": {
+              "digest": "blake3:af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+              "bytes": 0,
+              "media_type": "text/plain",
+              "store_namespace": "model_results",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/af/13/af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",
+              "codec": {
+                "name": "text",
+                "major": 1,
+                "digest": "blake3:831c6831fdc9a309a4c66cc3cb2fa3740a100da8b86d6fe86e9ba40deb50aa19"
+              }
+            },
+            "model_outcome_ref": {
+              "digest": "blake3:b117d06855357e6feee9569db8bd24679c1b7bab135cc84bddee321b691a37ec",
+              "bytes": 546313,
+              "media_type": "application/json",
+              "store_namespace": "model_outcomes",
+              "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/b1/17/b117d06855357e6feee9569db8bd24679c1b7bab135cc84bddee321b691a37ec",
+              "codec": {
+                "name": "SubjectModelOutcome",
+                "major": 2,
+                "digest": "blake3:6ec81fed39698f25fc23d6aa8621414f4d6fd43754c8a36ec191cd328b8a5d04"
+              }
+            },
+            "error": {
+              "code": "MODEL_RESULT_INCOMPLETE",
+              "scope": "request",
+              "retry": "new_revision",
+              "details": {
+                "reason": "partial/refused/unknown result is not an action decision",
+                "stop_reason": "length"
+              }
+            },
+            "correction": {
+              "prior_pinned_corrections": 0,
+              "replacement": {
+                "mode": "pinned_correction"
+              }
+            }
+          },
+          "termination": {
+            "kind": "provider_terminal",
+            "stop_reason": "length",
+            "max_tokens": 4096,
+            "output_tokens": 4096,
+            "length": true
+          }
+        },
+        {
+          "case_id": "multiply-56-39",
+          "verified": true,
+          "request_id": "39cd1ba9-9402-4a4d-839b-4626dd891e51",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": true,
+          "parent_exit": 0,
+          "parent_timed_out": false,
+          "clean": true,
+          "summary_sha256": "f868d52c3fd7c64553f88abee1597226e6c79db569750237b60f41678ceb96ff",
+          "observation_sha256": "6458ea86b92e5146659988d87cbacece4c41ac2805a0564e59bda809426459e8",
+          "output_sha256": "59c90a1786e684b3cdc567d5395a62b2867fbceee260e10f19367f16b55bba67",
+          "final_request_count": 2
+        }
+      ],
+      "reconstructed_raw_pass_counts": {
+        "input_in_first_seal": 8,
+        "first_result_committed_without_r0": 6,
+        "s1_requested_children_admitted": 6
+      },
+      "reconstructed_strict_passes": 1,
+      "parent_exit_counts": {
+        "0": 1,
+        "1": 6,
+        "-15": 1
+      },
+      "parent_timed_out_count": 1
+    },
+    {
+      "directory": "protocol-after-r1",
+      "batch_summary_sha256": "6085639848f6c76d490a107b58fa875b870fb91c4a886467aa999103db5ed23d",
+      "source_revision": "9a7be2f88e4922b8b70ba13ec2078145129f5ce0",
+      "binary_sha256": "c31da82e411b5e6ae77fcc5fd02f115e7823bb3afdfee85b58a4f7ce669fcc15",
+      "finished_at": "2026-11-21T19:28:14Z",
+      "case_count": 8,
+      "cases_file_sha256": "7a39571f6a546740489b8ed3a82469f8fa8487cda51098c3aa1f72a2ccfedc15",
+      "model_card": {
+        "id": "swift-qwen3.8-27b-nvfp4",
+        "object": "model",
+        "owned_by": "vllm",
+        "root": "/tank/archive/scarlet-nvfp4-20261117/private-balanced-pilot-20261119/export-broader-conservative-v1/export/model",
+        "parent": null,
+        "max_model_len": 409600
+      },
+      "batch_rates": {
+        "input_in_first_seal": {
+          "passed": 2,
+          "attempted": 8,
+          "rate": 0.25
+        },
+        "first_result_committed_without_r0": {
+          "passed": 2,
+          "attempted": 8,
+          "rate": 0.25
+        },
+        "s1_requested_children_admitted": {
+          "passed": 2,
+          "attempted": 8,
+          "rate": 0.25
+        }
+      },
+      "cases": [
+        {
+          "case_id": "multiply-17-29",
+          "verified": true,
+          "request_id": "6b614d5e-18e6-4af4-ae6d-b92d4d4f5f8c",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "3fecacb93a40de741183d60d281c1ff4feecca688965642ef87859f28c8cb8e3",
+          "observation_sha256": "47da4b2e792368d1fd295652042b862d462adddc96c401644ad38691b2eb53ae",
+          "output_sha256": "b065f55a44c26c5fec34102185e488f7528c8bed0527fa3788005e5b8e7cc9c4",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-28-34",
+          "verified": true,
+          "request_id": "80c9cace-2117-4d92-88ae-c3966b2cc1c1",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "summary_sha256": "11eb019c9d7adc514ad26705bfdd8984e97e0d74166e97687d9e591c694313bb",
+          "observation_sha256": "ac34d743eac85ade94a44db50288aff31ac8c02d3bd8041e6be1f83551354f8d",
+          "output_sha256": "06c88c1b4d1cb4edc95443465811dfc3dc032553ba34d179f0f3488427587e28",
+          "final_request_count": 3
+        },
+        {
+          "case_id": "multiply-46-27",
+          "verified": true,
+          "request_id": "e8ed6cb5-f3f5-4d55-8bbb-05b8740366cc",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "summary_sha256": "b4cd514e7e33f9c371b6864b965a2238d50f4610f33a6bb9f5176bb8901e8e00",
+          "observation_sha256": "041db17fc42029ed03ab43505f72ae909f3965326ac14b8bc835d63c89e7483e",
+          "output_sha256": "5b14744a93d1c03fd46dc65a6af3a080f03ffef63097eed51d6b8619eac6a5a0",
+          "final_request_count": 3
+        },
+        {
+          "case_id": "multiply-63-18",
+          "verified": true,
+          "request_id": "10940591-eb9e-4fe6-b5c6-fd1a84288305",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "a031f01adffe2f3bc69777ede2070f4d1a80a53d421858950f11a5ad84299b8b",
+          "observation_sha256": "9823af6ef5f6af7130d21985eb6a4467e655d839e3713c03cb0a292d96028410",
+          "output_sha256": "2451b0a6841691ee37fb27a891cf0c17b4fb29aad80a5e5d9884ff36e76944d9",
+          "final_request_count": 1
+        },
+        {
+          "case_id": "multiply-42-57",
+          "verified": true,
+          "request_id": "b19febf8-d866-499e-b310-6b277258aaa8",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": true,
+          "parent_exit": 0,
+          "parent_timed_out": false,
+          "clean": true,
+          "summary_sha256": "8bab3b5239a8b2136a1b0d22ced52dae918708507018670d5974bcc37693a233",
+          "observation_sha256": "3abd0c448d74f0622941bdec6d50e2711a906ada768c7eb32683648bfa6927a1",
+          "output_sha256": "bc8d034f1a8ecdb35e6164f2a639f9197bf89b4c05934b5ef4e77295d500572c",
+          "final_request_count": 2
+        },
+        {
+          "case_id": "multiply-73-16",
+          "verified": true,
+          "request_id": "7a65fe88-6d3f-4208-a09f-192c074cb765",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": true,
+          "parent_exit": 0,
+          "parent_timed_out": false,
+          "clean": true,
+          "summary_sha256": "2c4db4e542f53178a45d79579634ec552dedc2fdfaaad93af082f63f1d5ebc2b",
+          "observation_sha256": "80362c5b812192e66ae8668a0532ac51ec24c3717de643dcca6aaf7b0e229ee8",
+          "output_sha256": "49d7533aa08b2e522e6da35751e4033d7cfc112112a27e695229218a555c6049",
+          "final_request_count": 2
+        },
+        {
+          "case_id": "multiply-84-25",
+          "verified": true,
+          "request_id": "8ffccc1d-cd31-413a-a576-3fcbc9598f96",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "summary_sha256": "fffc16dce88939a7f3884eb07383295ab6ea9da89720740f68e816215354780e",
+          "observation_sha256": "dc8581fe3480d0a31b7e1103d98510a787fbd8cbb7dd16d25725d1c14f5e09df",
+          "output_sha256": "68f7884e49534612b9418bc7f811042730ae90cfb345a6beaac8ccc527b7dd67",
+          "final_request_count": 3
+        },
+        {
+          "case_id": "multiply-56-39",
+          "verified": true,
+          "request_id": "67a9261d-9433-447d-96b0-301cebc093af",
+          "step_state": "committed",
+          "raw_checks": {
+            "input_in_first_seal": true,
+            "first_result_committed_without_r0": true,
+            "s1_requested_children_admitted": true
+          },
+          "protocol_passed": false,
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "summary_sha256": "97963b163b67dda840c741c0cbe07a99bf71bbafa0fea1fdfa29d905a8bb8048",
+          "observation_sha256": "6c22bf0e0431de86e1721e83f621294c25b1c9bee9c6864e74c624145d75a8d2",
+          "output_sha256": "658b6c6c9cca3ad71b37336f8008000152b4d118e5640e8cccad7138b4f166bf",
+          "final_request_count": 1
+        }
+      ],
+      "reconstructed_raw_pass_counts": {
+        "input_in_first_seal": 8,
+        "first_result_committed_without_r0": 8,
+        "s1_requested_children_admitted": 8
+      },
+      "reconstructed_strict_passes": 2,
+      "parent_exit_counts": {
+        "0": 2,
+        "1": 3,
+        "-15": 3
+      },
+      "parent_timed_out_count": 3
+    }
+  ],
+  "issues": [],
+  "paired_content_identical": true,
+  "shared_manifest_configuration": {
+    "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+    "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+    "model": "swift-qwen3.8-27b-nvfp4",
+    "model_url": "http://10.10.10.11:8000",
+    "websockets_version": "16.0",
+    "configured_local_request_timeout_ms": "600000",
+    "startup_timeout_seconds": 300,
+    "phase_timeout_seconds": 900,
+    "observer_socket": {
+      "max_size": 16777216,
+      "ping_interval": 20,
+      "ping_timeout": 900,
+      "proxy": null
+    },
+    "request_path_timing": true
+  },
+  "manifest_configuration_equal": true,
+  "model_cards_equal": true,
+  "review_scope": {
+    "type": "read-only independent reconstruction from retained case artifacts",
+    "recalculated": [
+      "first request ordering and immutable tail retention",
+      "accepted v2 input and first S0 membership",
+      "sealed/effective provider and output budget",
+      "exact first S1 child-intent and actual task provenance",
+      "strict result with all cleanup errors retained"
+    ],
+    "source_integrity": "SHA-256, byte lengths and equality with retained CAS checked for each first-observation source; no new BLAKE3 implementation or whole-CAS audit",
+    "excluded": [
+      "new model requests",
+      "builds",
+      "task completion",
+      "arithmetic correctness",
+      "native effect completion",
+      "recovery",
+      "latency attribution",
+      "long-run reliability"
+    ]
+  },
+  "interpretation": {
+    "raw_first_s1_admission": {
+      "before": {
+        "passed": 6,
+        "attempted": 8
+      },
+      "after": {
+        "passed": 8,
+        "attempted": 8
+      }
+    },
+    "strict_probe_success_including_cleanup": {
+      "before": {
+        "passed": 1,
+        "attempted": 8
+      },
+      "after": {
+        "passed": 2,
+        "attempted": 8
+      }
+    },
+    "baseline_failure_kind": "Both original failures were MODEL_RESULT_INCOMPLETE at 4096/4096 tokens with stop_reason=length and zero normalized output bytes, not CONTROL_PROTOCOL_INVALID empty-action.",
+    "causal_boundary": "Eight paired single observations do not establish that inline-contract clarification eliminated the original cross-line-label failure or output truncation. Neither batch is a complete task journey.",
+    "model_identity_boundary": "Stable observed cards and request bindings are not an attestation of in-memory model weights. Parent integration owns separate serving-config/checkpoint evidence.",
+    "preserved_denominator": "All 8 attempted cases in both groups remain in the counts. Cleanup-complete does not equal clean shutdown; all exit1 and SIGTERM timeout outcomes remain failed."
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "kind": "failed_fixture_creator_comparison",
+  "scope": "66a7935c first-claim, stopped databases, readonly SELECT",
+  "root": "/tmp/shenko-test-6b45d1a4-4622-4ff5-8867-676aec6ec4b9",
+  "action_id": "6f656fe2-1572-b29d-9ea3-4bc230516574",
+  "transition_ref": {
+    "digest": "blake3:c4995758b08f6c448bac8fe039e7123f96cad30ca78072312420d6caac50c496",
+    "bytes": 21360,
+    "media_type": "application/json",
+    "store_namespace": "commit-authority",
+    "locator": "file:///tmp/shenko-test-6b45d1a4-4622-4ff5-8867-676aec6ec4b9/cas/c4/99/c4995758b08f6c448bac8fe039e7123f96cad30ca78072312420d6caac50c496",
+    "codec": {
+      "name": "store-native-claim-transition",
+      "major": 2,
+      "digest": "blake3:f720958f867f6431e2e5862025bd5bce3ce90b772592a5e6f217aea1397cc0d2"
+    }
+  },
+  "transition_sha256": "d45ef519e484e3912430d33180cf5088998eecbe7311c86094847bc79554cda6",
+  "creator": "28e36b94-8bc1-4a96-8b9f-6a000fdb99ca",
+  "source_matches_frozen": true,
+  "follower_matches_frozen": false,
+  "differences": [
+    {
+      "column": "created_at",
+      "frozen": {
+        "type": "text",
+        "value": "2026-11-21 20:06:30"
+      },
+      "source": {
+        "type": "text",
+        "value": "2026-11-21 20:06:30"
+      },
+      "follower": {
+        "type": "text",
+        "value": "2026-11-21 20:06:48"
+      }
+    }
+  ],
+  "head_data_equal": true,
+  "follower_reconciliation_count": 1,
+  "follower_materializations_for_claim": 0
+}

@@ -55,6 +55,40 @@ fresh model evidence permits recovery services but does not qualify a thinking
 primary. Actual read-only probes and actual generation outcomes remain
 distinguishable observations bound to the configured provider/model.
 
+The native host observes human stop for the whole owned process lifetime,
+including authority-failure cleanup and the gap between Tokio incarnations.
+This stop fact is independent of each incarnation's failure cancellation;
+it prevents replacement work without reclassifying the original failure or
+an uncertain inference outcome as success. A stop during a replacement's
+startup retains the previous recovery error until recovered subject work
+has actually crossed the host's service-admission boundary. Recovery-only
+UI availability does not establish that the previous primary recovered.
+The same host stop latch guards ownership transfer of the native dispatcher,
+replication consumer and inference runner during installation. Those short
+guards perform no synchronous Store or Node I/O. If model-child handlers have
+already queued requests when inference startup is refused, the original broker
+first closes send admission and then drains and joins its own queue. It retains
+the original `NeverDispatched` receipts rather than dropping queued requests or
+starting a provider call after the observed stop.
+
+Implementation: `run_owned` retains a registered, joined signal observer
+and every retired runtime. The existing two-second reconstruction window
+may elapse while a blocking worker is still alive, but final exit and error
+unwinding join that worker before releasing installation ownership. The
+original inference, native, heartbeat and supervisor joins still settle
+their own facts; the host never races their cleanup against a signal future.
+When a reserved Node snapshot already has no current local authority stamp,
+an active runtime requests recovery without first reading its Store binding.
+A present stamp still requires the exact binding and writer incarnation.
+This removes an unnecessary connection-mutex dependency from known Node loss;
+it does not make synchronous Store work preemptible or establish a wall-clock
+deadline for the broker to observe cancellation. Historical materialization,
+original Unknown receipts and ordinary-stop classification remain separate.
+The existing `start_boundary` process regression exercises failure followed
+by SIGINT while the original E1 writer is held, preserving the prior ordinary
+stop/reopen/Unknown path. Source-bound execution receipts, rather than the
+test definition, establish whether those paths passed for a candidate.
+
 The architecture repair in [Issue #325](https://github.com/cyjin-yl/shenko/issues/325)
 also supersedes the older automatic-`Ignored` implementation described in
 §57.3 below: an input without an authored disposition remains `Deferred` with

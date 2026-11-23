@@ -1,0 +1,33 @@
+{
+  "url": "http://127.0.0.1:17860/",
+  "source": "live",
+  "viewport": {
+    "width": 1280,
+    "height": 900,
+    "dpr": 1
+  },
+  "reduced_motion": true,
+  "rows": [],
+  "anchor": null,
+  "scroll": {
+    "top": 0,
+    "height": 736,
+    "client": 736
+  },
+  "announcements": [
+    {
+      "politeness": "polite",
+      "text": ""
+    },
+    {
+      "politeness": "polite",
+      "text": "传输已连接"
+    }
+  ],
+  "editor": {
+    "draft": "",
+    "focused": false,
+    "selection_start": 0,
+    "selection_end": 0
+  }
+}

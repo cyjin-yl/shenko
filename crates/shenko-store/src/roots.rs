@@ -626,7 +626,18 @@ pub(crate) fn object_closure_with(
     on_verified: impl FnMut(&ObjectRef, bool),
 ) -> RootObjects {
     let mut budget = ClosureBudget::default();
-    object_closure_visit(cas, roots, &mut budget, on_verified)
+    object_closure_visit(cas, roots, &mut budget, None, false, None, on_verified)
+}
+
+/// Rebuild a frozen inventory without promoting a later-arriving bare digest
+/// hint into an old snapshot. Typed ObjectRefs and schema-required children
+/// still traverse and verify normally, even when absent from this inventory.
+pub(crate) fn object_closure_with_inventory(
+    cas: &ContentStore, roots: Vec<ObjectRef>, inventory: &BTreeSet<Digest>,
+    on_verified: impl FnMut(&ObjectRef, bool),
+) -> RootObjects {
+    object_closure_visit(cas, roots, &mut ClosureBudget::default(), None, false,
+        Some(inventory), on_verified)
 }
 
 /// The same schema-aware traversal with finite transport inventory limits.
@@ -643,7 +654,32 @@ pub(crate) fn object_closure_with_limits(
         limits: if max_objects == usize::MAX && max_bytes == u64::MAX { None } else { Some((max_objects, max_bytes)) },
         ..Default::default()
     };
-    let closure = object_closure_visit(cas, roots, &mut budget, on_verified);
+    let closure = object_closure_visit(cas, roots, &mut budget, None, false, None, on_verified);
+    if let Some(error) = budget.error { bail!(error); }
+    Ok(closure)
+}
+
+/// Verify the whole predecessor graph first, including every required opaque
+/// artifact, then measure only newly encountered typed declarations. This is
+/// an E1 transport boundary, never a truncated archive or GC root traversal.
+pub(crate) fn object_closure_increment_with_limits(
+    cas: &ContentStore,
+    roots: Vec<ObjectRef>,
+    predecessors: Vec<ObjectRef>,
+    max_objects: usize,
+    max_bytes: u64,
+    on_verified: impl FnMut(&ObjectRef, bool),
+) -> Result<RootObjects> {
+    let mut base = BTreeSet::new();
+    let mut unlimited = ClosureBudget::default();
+    let predecessor = object_closure_visit(cas, predecessors, &mut unlimited, None, true, None, |object, _| {
+        base.insert(shenko_types::native_evidence::NativeEvidenceObjectIdentity::from(object));
+    });
+    if !predecessor.missing.is_empty() {
+        bail!("anchored E1 predecessor closure is missing or corrupt");
+    }
+    let mut budget = ClosureBudget { limits: Some((max_objects, max_bytes)), ..Default::default() };
+    let closure = object_closure_visit(cas, roots, &mut budget, Some(&base), true, None, on_verified);
     if let Some(error) = budget.error { bail!(error); }
     Ok(closure)
 }
@@ -652,11 +688,23 @@ pub(crate) fn object_closure_with_limits(
 struct ClosureBudget {
     limits: Option<(usize, u64)>,
     objects: BTreeMap<Digest, u64>,
+    typed_objects: BTreeSet<shenko_types::native_evidence::NativeEvidenceObjectIdentity>,
     bytes: u64,
     error: Option<&'static str>,
 }
 
 impl ClosureBudget {
+    fn admit_typed(&mut self, object: &ObjectRef) -> bool {
+        let Some((max_objects, _)) = self.limits else { return true; };
+        let identity = shenko_types::native_evidence::NativeEvidenceObjectIdentity::from(object);
+        if !self.typed_objects.contains(&identity) && self.typed_objects.len() >= max_objects {
+            self.error = Some("CAS closure typed-reference budget exceeded");
+            return false;
+        }
+        self.typed_objects.insert(identity);
+        true
+    }
+
     fn queue(&mut self, count: usize) -> bool {
         if self.limits.is_some_and(|(max_objects, _)| count > max_objects) {
             self.error = Some("CAS closure reference budget exceeded");
@@ -689,16 +737,32 @@ fn object_closure_visit(
     cas: &ContentStore,
     roots: Vec<ObjectRef>,
     budget: &mut ClosureBudget,
+    predecessors: Option<&BTreeSet<shenko_types::native_evidence::NativeEvidenceObjectIdentity>>,
+    exact_aliases: bool,
+    optional_inventory: Option<&BTreeSet<Digest>>,
     mut on_verified: impl FnMut(&ObjectRef, bool),
 ) -> RootObjects {
     let mut out = RootObjects::default();
-    if !budget.queue(roots.len()) { return out; }
+    if !exact_aliases && !budget.queue(roots.len()) { return out; }
     // A later declared schema can reveal more roots than an earlier opaque
     // or generic JSON alias. Cache integrity and expansion authority separately.
     let mut verified: BTreeMap<Digest, (u64, u8)> = BTreeMap::new();
     let mut queue: VecDeque<ObjectRef> = roots.into_iter().collect();
     while let Some(object) = queue.pop_front() {
-        if !budget.queue(queue.len().saturating_add(1)) || !budget.admit(&object.digest, object.bytes) { break; }
+        if exact_aliases {
+            let identity = shenko_types::native_evidence::NativeEvidenceObjectIdentity::from(&object);
+            if predecessors.is_some_and(|base| base.contains(&identity))
+                || budget.typed_objects.contains(&identity)
+            {
+                continue;
+            }
+            if !budget.admit_typed(&object) { break; }
+        }
+        // The increment counts new unique typed declarations, not repeated
+        // pending aliases or verified base references. Payload byte admission
+        // still precedes reads. Keep the legacy queue bound unchanged.
+        if (!exact_aliases && !budget.queue(queue.len().saturating_add(1)))
+            || !budget.admit(&object.digest, object.bytes) { break; }
         let expansion = if crate::cognition::is_json_reference(&object.media_type) {
             match (object.codec.name.as_str(), object.codec.major) {
                 (COGNITIVE_ROOT_CODEC, COGNITIVE_ROOT_CODEC_MAJOR) => 2,
@@ -715,6 +779,7 @@ fn object_closure_visit(
                 continue;
             }
             if expansion == 0 || expanded & expansion != 0 {
+                if exact_aliases { on_verified(&object, expansion > 1); }
                 continue;
             }
         }
@@ -757,7 +822,7 @@ fn object_closure_visit(
         on_verified(&object, expansion > 1);
         out.digests.insert(object.digest.clone());
         let entry = verified.entry(object.digest.clone()).or_insert((object.bytes, 0));
-        let already_json = entry.1 != 0;
+        let already_json = if exact_aliases { entry.1 & 1 != 0 } else { entry.1 != 0 };
         entry.1 |= expansion;
         let Some(json) = json else { continue; };
         if expansion == 2 {
@@ -825,6 +890,9 @@ fn object_closure_visit(
         crate::cognition::collect_references(&json, &mut nested, &mut external);
         queue.extend(nested);
         for digest in external {
+            if optional_inventory.is_some_and(|inventory| !inventory.contains(&digest)) {
+                continue;
+            }
             if let Some(object) = bare_object(cas, &digest) {
                 queue.push_back(object);
             }

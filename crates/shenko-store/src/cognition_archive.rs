@@ -45,11 +45,77 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// be a silent loss of the subject's attitudes, so the schema is bumped
 /// instead of smuggling them in as optional rows. A schema-5 receiver rejects
 /// this archive at the version gate, and a current reader still admits
-/// schemas 2..=7 after the full closure/membership admission below.
-/// Schema 7 binds real subject forks to immutable parent heads, the exact raw
-/// history prefix and the retained notebook revision. Older readers must reject
-/// this lineage rather than recover a child without the history it inherited.
-pub const ARCHIVE_SCHEMA: u32 = 7;
+/// schemas 2..=7 and 10..=13 after complete format, closure and membership admission.
+/// Two original producers independently used schema 7: dialogue endpoints and
+/// messages, or forks and immutable parent-head history. Each declares exactly
+/// its complete native family, even when empty. This build owns the fork/history
+/// tables; recognizing another native format does not supply its row owner.
+/// The combined format is schema 8; required evidence-conflict/Root facts are
+/// schema 9. Neither is implemented by this writer.
+/// Schema 10 retains the fork/history family and permits the direct native
+/// creator-key/successor-predicate readers, retaining their original meaning.
+/// Schema 11 additionally declares direct claim codec 3 and paired arm/childless
+/// original T2 codec 4 with row-schema-4 operation, attempt and receipt selectors.
+/// Generic dispatch codec 2 and ordinary T2 codec 5 use row-schema-5 ancestry and
+/// authoring-step selectors; ordinary T2 also retains its ordinary-child range.
+/// Schema 12 additionally declares the anchored native E1 codec 6 envelope.
+/// Its original inner fact and predecessor roots remain complete archive/GC
+/// graph edges; only the separate E1 transport uses an incremental budget.
+/// Schema 13 additionally declares control-predecessor codec 2, whose original
+/// object inventory binds optional bare-digest availability. Its archive closure
+/// admits optional hints only from its declared objects; typed and schema-required
+/// children still require full verification and membership.
+/// All new exports use 13, including snapshots without a native transition:
+/// an older schema-12 reader must reject at the manifest boundary rather than
+/// copy facts it cannot later interpret. Retained schemas 10 through 12 keep their
+/// original format and membership rules; the writer offers no label downgrade.
+pub const ARCHIVE_SCHEMA: u32 = 13;
+
+/// Validate the original producer format before reading or publishing payloads.
+/// The two native schema-7 families remain distinct; combining them requires
+/// their own writer format and both domains' complete recovery owners.
+pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<()> {
+    ensure!(matches!(manifest.schema, 2..=7 | 10..=12 | ARCHIVE_SCHEMA),
+        "unsupported cognition archive schema {}", manifest.schema);
+    if manifest.schema >= 6 {
+        ensure!(!manifest.fact_classes.is_empty(),
+            "cognition schema 6 and later must declare its fact classes");
+    }
+    // Flags preserve historical duplicate declarations without allocating or
+    // mistaking a repeated class for its missing companion.
+    let mut dialogue = 0u8;
+    let mut lineage = 0u8;
+    for class in &manifest.fact_classes {
+        match class.as_str() {
+            "dialogue_endpoints" => dialogue |= 0b01,
+            "dialogue_messages" => dialogue |= 0b10,
+            "subject_branch_forks" => lineage |= 0b01,
+            "subject_head_history" => lineage |= 0b10,
+            _ => {}
+        }
+    }
+    if manifest.schema == 7 {
+        ensure!((dialogue == 0b11 && lineage == 0)
+                || (dialogue == 0 && lineage == 0b11),
+            "schema-7 archive must identify exactly one native producer: dialogue or fork/history");
+    } else if matches!(manifest.schema, 10..=12 | ARCHIVE_SCHEMA) {
+        ensure!(dialogue == 0 && lineage == 0b11,
+            "schema-{} archive requires fork/history membership without dialogue facts", manifest.schema);
+    } else {
+        ensure!(dialogue == 0 && lineage == 0,
+            "historical archive cannot claim later dialogue or fork/history membership");
+    }
+    for row in &manifest.rows {
+        match row.table.as_str() {
+            "dialogue_endpoints" | "dialogue_messages" => ensure!(dialogue == 0b11,
+                "archive carries dialogue facts without their native membership"),
+            "subject_branch_forks" | "subject_head_history" => ensure!(lineage == 0b11,
+                "archive carries fork/history facts without their native membership"),
+            _ => {}
+        }
+    }
+    Ok(())
+}
 
 /// One replicated table row.
 ///
@@ -242,11 +308,7 @@ where
     expect_newline(reader)?;
     let manifest: CognitionManifest =
         serde_json::from_slice(&manifest_bytes).context("decode cognition archive manifest")?;
-    ensure!(
-        (2..=ARCHIVE_SCHEMA).contains(&manifest.schema),
-        "unsupported cognition archive schema {}",
-        manifest.schema
-    );
+    validate_manifest_schema(&manifest)?;
 
     for (index, descriptor) in manifest.objects.iter().enumerate() {
         let (kind, args) = read_frame_header(reader)?;

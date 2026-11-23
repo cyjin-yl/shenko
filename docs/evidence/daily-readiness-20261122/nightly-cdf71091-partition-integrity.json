@@ -1,0 +1,16 @@
+{
+  "source": "exact JSON stdout line 5275 plus LF from Rust job 136978567621 in run 44947707192",
+  "raw": {
+    "bytes": 230210,
+    "sha256": "8abae07398eb6439d2ea1e1075727c4622be75aaa1902e9c943a56a6fa1508a6"
+  },
+  "retained": {
+    "path": "nightly-cdf71091-partition-receipt.json.gz",
+    "bytes": 11526,
+    "sha256": "9191f2f35d1768a6d1aaeed759ae7356c5e26de8722aad6d02c1c4aa1d4392fd"
+  },
+  "compression": {
+    "format": "gzip",
+    "mtime": 0
+  }
+}

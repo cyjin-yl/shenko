@@ -1,0 +1,136 @@
+{
+  "run_id": 44954638293,
+  "job_id": 136999918530,
+  "candidate": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "artifact_id": 14727695295,
+  "artifact_bytes": 1152058,
+  "artifact_sha256": "a1e356591ba724b0835472c53c617cc7cc4803097bd95a293b208583259fffd0",
+  "artifact_zip_downloaded_and_hash_verified": true,
+  "selected": {
+    "evidence/compiler-browser.json": {
+      "archive_path": "evidence/compiler-browser.json",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-0c6b013e/compiler-browser.json",
+      "bytes": 2225,
+      "sha256": "f287e34836bb21dbc8f982869260cd0f95c27e014d1df6bcf39a9d153ed52bf6",
+      "receipt": {
+        "status": "passed",
+        "candidate": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+        "uid": 1001,
+        "node": "v24.22.1",
+        "runnerImage": "ubuntu24",
+        "runnerImageVersion": "20261116.376.1",
+        "executablePath": "/usr/bin/google-chrome",
+        "chromiumSandbox": true,
+        "startedAt": "2026-11-21T22:03:06.598Z",
+        "upstream": {
+          "repository": "https://github.com/Proto-UI/Proto-UI.git",
+          "commit": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+          "migrated_from": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
+          "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+          "packages": [
+            "@proto.ui/adapter-react@0.3.0-alpha.2",
+            "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
+            "@proto.ui/cli@0.3.0-alpha.2"
+          ],
+          "adopted_families": [
+            "button",
+            "textarea",
+            "scroll-area",
+            "collapsible",
+            "drawer",
+            "toggle-group",
+            "input",
+            "separator",
+            "toggle"
+          ],
+          "compiler": {
+            "status": "build_time_compiled",
+            "runtime_imported": false,
+            "profile": "react-dom-source-v1",
+            "package": "packages/compiler/package.json",
+            "entry": "packages/compiler/src/index.ts",
+            "exports_source_only": true,
+            "public_package_selection": false,
+            "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+            "prototypes": [
+              "transport-badge",
+              "message-bubble"
+            ],
+            "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
+          }
+        },
+        "executableVersion": "Google Chrome 157.0.8103.78",
+        "playwright": "1.58.2",
+        "browserVersion": "157.0.8103.78",
+        "sandboxStatus": "Sandbox Status\nLayer 1 Sandbox\tNamespace\nPID namespaces\tYes\nNetwork namespaces\tYes\nSeccomp-BPF sandbox\tYes\nSeccomp-BPF sandbox supports TSYNC\tYes\nPtrace Protection with Yama LSM (Broker)\tYes\nPtrace Protection with Yama LSM (Non-broker)\tNo\n\nYou are adequately sandboxed.",
+        "finishedAt": "2026-11-21T22:03:16.680Z"
+      }
+    },
+    "evidence/compiler-vitest.log": {
+      "archive_path": "evidence/compiler-vitest.log",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-0c6b013e/compiler-vitest.log",
+      "bytes": 2300371,
+      "sha256": "90ef9e95805ab2b6a76796dabf576e32c4501a9189f5cf36803fc8636f6ed487",
+      "summary": [
+        " Test Files  183 passed | 2 skipped (185)",
+        "      Tests  2913 passed | 9 skipped (2922)",
+        "   Duration  766.37s (transform 26.38s, setup 0ms, collect 228.51s, tests 487.06s, environment 18.42s, prepare 8.90s)"
+      ],
+      "scroll_fixture": [
+        " \u2713 packages/compiler/test/scroll-reveal-consumers.test.ts (28 tests) 8774ms"
+      ]
+    },
+    "web/inputs.json": {
+      "archive_path": "web/inputs.json",
+      "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-0c6b013e/inputs.json",
+      "bytes": 3863563,
+      "sha256": "4fe2e3f5a76472d12f632755b223d36d66ec7860e15d6f452b7e8eed47ef0643",
+      "receipt": {
+        "pin": {
+          "repository": "https://github.com/Proto-UI/Proto-UI.git",
+          "commit": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+          "migrated_from": "f29738eb6a804ccfc58510cc5a5bd1692690716e",
+          "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+          "packages": [
+            "@proto.ui/adapter-react@0.3.0-alpha.2",
+            "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
+            "@proto.ui/cli@0.3.0-alpha.2"
+          ],
+          "adopted_families": [
+            "button",
+            "textarea",
+            "scroll-area",
+            "collapsible",
+            "drawer",
+            "toggle-group",
+            "input",
+            "separator",
+            "toggle"
+          ],
+          "compiler": {
+            "status": "build_time_compiled",
+            "runtime_imported": false,
+            "profile": "react-dom-source-v1",
+            "package": "packages/compiler/package.json",
+            "entry": "packages/compiler/src/index.ts",
+            "exports_source_only": true,
+            "public_package_selection": false,
+            "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+            "prototypes": [
+              "transport-badge",
+              "message-bubble"
+            ],
+            "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
+          }
+        },
+        "package_manager": "pnpm@10.32.1"
+      }
+    }
+  },
+  "raw_job_log": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/nightly-0c6b013e/compiler.log",
+    "bytes": 3225504,
+    "sha256": "73b4715de06119ac0a678ae5eb54b44774f2aef4268d79cda6c0fd1efdae2fcc",
+    "lines": 31234
+  }
+}

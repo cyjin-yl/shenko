@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "build_exit": 0,
+  "host_exit": 0,
+  "binary": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-c931526c",
+    "bytes": 90370560,
+    "sha256": "1ad2899f2c7dff3c0cd5123a16d3dfbb893a9cc8ba85996d5f16a8023c0eeba1",
+    "identity_source": "Original completed build manifest; no new binary rehash by this collector"
+  },
+  "build_started_at_utc": "2026-11-22T00:46:07Z",
+  "build_finished_at_utc": "2026-11-22T00:53:22Z",
+  "build_timestamp_interval_seconds": 435,
+  "cargo_reported_duration_seconds": 435,
+  "host_timestamp_interval_seconds": 440,
+  "remote_tool_runtime_seconds": 440.0,
+  "original_log_bytes": 38284,
+  "original_log_sha256": "c4239c0c42c9269d88006c81042f19ba8fb519c3c8a7e2918e47f006f40dd4ab",
+  "actual_new_tests_in_release_runner": 0,
+  "reused_scoped_receipt": {
+    "source_revision": "95cdc272866a5f31cedb790d263761523e9b0e2c",
+    "passed": 10,
+    "failed": 0,
+    "targets": 3,
+    "summary_sha256": "edf76bbeaec0ab7a03fb9de1487382ee89b2683a3c458ee89a1dd717efc4b0dc",
+    "evidence_commit": "890ff73974899c9cb0d89871b57d1a797bb45b6f"
+  },
+  "local_receipt_verification": {
+    "git_changed_paths_match_preflight": true,
+    "runtime_rust_ui_source_identical_to_scoped_source": true,
+    "static_payloads_verified": 12,
+    "static_manifest_sha256": "134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89",
+    "retained_originals_verified": 14,
+    "gzip_raw_hashes_and_mtime_verified": true
+  },
+  "original_d16_batch_regraded": false,
+  "model_journey_result_assessed_by_this_receipt": false,
+  "daily_readiness_proved": false,
+  "transfer_archive": {
+    "bytes": 13980,
+    "sha256": "63582faf26e8ce977982688d6a5c0e0857faa0fa5144c299767796d937ef85e1"
+  }
+}

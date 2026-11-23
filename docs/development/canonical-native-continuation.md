@@ -1,5 +1,12 @@
 # Direct native continuation across distinct ledgers
 
+Current reader update (2026-11-22): the proven paired T1 and childless original
+T2 now write codec 3 with the
+[creator-key and current-successor witness](canonical-capture-budget.md#direct-native-subject-witness-2026-11-22).
+The original codec-2 design and verification record below are retained. Its
+task, claim, E1, child-absence and local-materialization proofs remain required;
+old codec-1/2 bytes keep their original complete subject-step witnesses.
+
 This increment connects one bounded native lifecycle after the
 [first canonical claim](canonical-native-first-claim.md). It does not make an
 archive import executable or provide a general foreign recovery claim.

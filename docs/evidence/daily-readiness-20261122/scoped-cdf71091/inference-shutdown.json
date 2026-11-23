@@ -1,0 +1,25 @@
+{
+  "attempt_id": "9d296ff6-41e6-42b8-b413-f7c217b3df38",
+  "recovered_compute_debt": 1,
+  "remote_stopped": false,
+  "request_id": "76a6ce08-6884-4ae2-9463-5911fc4a7ed0",
+  "result_ref": {
+    "bytes": 597,
+    "codec": {
+      "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8",
+      "major": 1,
+      "name": "subject-request-result"
+    },
+    "digest": "blake3:e6444a74ba0a289ce58e48915aaaeb914b211a8165f9e88751cbe0446afb78aa",
+    "locator": "file:///tmp/shenko-start-boundary-d6d7464c-d90a-42ca-9bc0-c0bbcea4b886/installation/cas/e6/44/e6444a74ba0a289ce58e48915aaaeb914b211a8165f9e88751cbe0446afb78aa",
+    "media_type": "application/json",
+    "store_namespace": "subject_requests"
+  },
+  "termination": {
+    "kind": "unknown",
+    "length": false,
+    "max_tokens": null,
+    "output_tokens": null,
+    "stop_reason": null
+  }
+}

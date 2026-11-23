@@ -1,0 +1,160 @@
+{
+  "source_revision": "8f14a704c59ce723246286d72ea7cb724b2b3c0e",
+  "observed_at_utc": "2026-11-21T22:39:10.579812+00:00",
+  "scope": "One existing authority unit executed after a one-line test type annotation; unchanged successful be9 process test is reused, not rerun. Original compile and transport failures remain retained. No release or real-model execution.",
+  "files": [
+    {
+      "path": "authority.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/authority.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "authority.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/authority.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "bytes": 21,
+      "sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "encoding": "original"
+    },
+    {
+      "path": "authority.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/authority.log",
+      "source_bytes": 38148,
+      "source_sha256": "228de7031a447cc5fd752959d3c70868f6edc69faa0d25d1c9ae6d499a7e7fc7",
+      "bytes": 7914,
+      "sha256": "511bb9fd31543088b86b0527ced09ad46ad87470df76f0d72b828a65f225f03f",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "authority.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/authority.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "ad2eb2272fc54329b28068c19fd42b423156964e1b9a567e846fa4ac3aa5c387",
+      "bytes": 21,
+      "sha256": "ad2eb2272fc54329b28068c19fd42b423156964e1b9a567e846fa4ac3aa5c387",
+      "encoding": "original"
+    },
+    {
+      "path": "exit.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/exit.txt",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "bytes": 21,
+      "sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "encoding": "original"
+    },
+    {
+      "path": "host-runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/host-runner.sh",
+      "source_bytes": 2115,
+      "source_sha256": "099bbce5e52463c9575b3b0dc1617aca35df1959f4b9b300188e18f69f1b8051",
+      "bytes": 2115,
+      "sha256": "099bbce5e52463c9575b3b0dc1617aca35df1959f4b9b300188e18f69f1b8051",
+      "encoding": "original"
+    },
+    {
+      "path": "node.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/node.txt",
+      "source_bytes": 9,
+      "source_sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "encoding": "original"
+    },
+    {
+      "path": "reuse.json",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/reuse.json",
+      "source_bytes": 1779,
+      "source_sha256": "8b2e98b649a4fc595c1372c9089eeecd49f828f8894ab6b16d418e35b7be1e39",
+      "bytes": 1779,
+      "sha256": "8b2e98b649a4fc595c1372c9089eeecd49f828f8894ab6b16d418e35b7be1e39",
+      "encoding": "original"
+    },
+    {
+      "path": "runner.sh",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/runner.sh",
+      "source_bytes": 5485,
+      "source_sha256": "b043a239153758fcd1202a842a96cf7c0cf8e3f4d6f6dad8d696d17802f3dbcd",
+      "bytes": 5485,
+      "sha256": "b043a239153758fcd1202a842a96cf7c0cf8e3f4d6f6dad8d696d17802f3dbcd",
+      "encoding": "original"
+    },
+    {
+      "path": "rustc.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/rustc.txt",
+      "source_bytes": 36,
+      "source_sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "encoding": "original"
+    },
+    {
+      "path": "started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-8f14a704-r2/started.txt",
+      "source_bytes": 21,
+      "source_sha256": "ad2eb2272fc54329b28068c19fd42b423156964e1b9a567e846fa4ac3aa5c387",
+      "bytes": 21,
+      "sha256": "ad2eb2272fc54329b28068c19fd42b423156964e1b9a567e846fa4ac3aa5c387",
+      "encoding": "original"
+    },
+    {
+      "path": "host.log.gz",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704-r2.host.log",
+      "source_bytes": 977,
+      "source_sha256": "012ed53fb1a50608375177818e8cfde0da161397b621bf7db56028e3c064f815",
+      "bytes": 638,
+      "sha256": "dd85d2d97c11f185b80349b19828a0d06fa2b0bb6842f9ee91363bb6a43c8d86",
+      "encoding": "gzip-mtime0"
+    },
+    {
+      "path": "host.exit",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704-r2.host.exit",
+      "source_bytes": 2,
+      "source_sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "encoding": "original"
+    },
+    {
+      "path": "host.started.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704-r2.host.started.txt",
+      "source_bytes": 21,
+      "source_sha256": "f940e3e695349bf6220b5406b7340074c8c66fbc03112812137f23a3fc76ca32",
+      "bytes": 21,
+      "sha256": "f940e3e695349bf6220b5406b7340074c8c66fbc03112812137f23a3fc76ca32",
+      "encoding": "original"
+    },
+    {
+      "path": "host.admitted.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704-r2.host.admitted.txt",
+      "source_bytes": 21,
+      "source_sha256": "f940e3e695349bf6220b5406b7340074c8c66fbc03112812137f23a3fc76ca32",
+      "bytes": 21,
+      "sha256": "f940e3e695349bf6220b5406b7340074c8c66fbc03112812137f23a3fc76ca32",
+      "encoding": "original"
+    },
+    {
+      "path": "host.finished.txt",
+      "source": "/tank/shared/projects/shenko/build/daily-readiness-20261122/known-node-loss-8f14a704-r2.host.finished.txt",
+      "source_bytes": 21,
+      "source_sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "bytes": 21,
+      "sha256": "d1625e306f19e3f7cbd417b1b0be071aa0c5895b6523fd38e565a850aceddfdc",
+      "encoding": "original"
+    }
+  ]
+}

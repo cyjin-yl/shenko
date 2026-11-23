@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Process started with PID 2762552 (shell: /bin/sh)\nInitial output:\n{\n  \"original_files\": 131,\n  \"archive_bytes\": 4547048,\n  \"archive_sha256\": \"d2d363524a7fe6b89b5a70971d95f1b2a14f9dcfd5607da6a3856084cf952213\",\n  \"parts\": 371,\n  \"part_raw_bytes\": 12288,\n  \"directory\": \"/tank/shared/projects/shenko/build/daily-readiness-20261122/ci-nightly-c931526c-originals\"\n}\n\n✅ Process 2762552 has finished execution"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}

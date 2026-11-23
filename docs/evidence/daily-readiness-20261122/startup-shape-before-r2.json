@@ -1,0 +1,672 @@
+{
+  "schema_version": 1,
+  "run_id": "protocol-before-r2",
+  "collected_at": "2026-11-21T18:40:21Z",
+  "binary_source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+  "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+  "scope": "Read-only source-shape analysis and closed-log intervals; no SQL executed, no live database opened, no model call, build, test or source change.",
+  "sources": {
+    "head": "2b9707f6631e4714df272937f0bd3fe3a2b3ab1d",
+    "changed_between_binary_source_and_review": [],
+    "files": [
+      {
+        "path": "crates/shenko-store/src/store.rs",
+        "sha256": "e4f5bdd2014c04fe9766c2177b569c214a2e03c23704cbc280d939a0966f1b8f"
+      },
+      {
+        "path": "crates/shenko-store/src/migrations.rs",
+        "sha256": "cba7ea6659e4daa923430da901e5af7a96fc1d000ec00b4768ed74d962b3b4e8"
+      },
+      {
+        "path": "crates/shenko-store/src/ledger.rs",
+        "sha256": "9e030806287ab43916130490b0946c6416995f78cc3758966e4e713f5652874f"
+      },
+      {
+        "path": "crates/shenko-store/src/cas.rs",
+        "sha256": "77fb1005a201166a42e16364194491325ea9909b009d3e9339b9a4236df1c1a4"
+      },
+      {
+        "path": "crates/shenko-node/src/lib.rs",
+        "sha256": "f36fc63d9928aaca564c46c0832118e27a176fc7b8dfb7b86782310030cd15e0"
+      },
+      {
+        "path": "crates/shenko-seed/src/bootstrap.rs",
+        "sha256": "3783e04a9782f616b915aca58ac9e249827c0fad6047e731839b83347abfe61d"
+      },
+      {
+        "path": "crates/shenko-wasm/src/checkpoint.rs",
+        "sha256": "66d966e56d08f28c7bb4b3d9f19b5eafcbaf268fdb192682322243fbdda5c5d2"
+      },
+      {
+        "path": "bin/shenko/src/runtime_start.rs",
+        "sha256": "5bb136b3f0676d79ff20b252944df805b3b56f2cf5a4f455841398368ec65393"
+      },
+      {
+        "path": "bin/shenko/src/runtime_bootstrap.rs",
+        "sha256": "bb908ac02f5d04c5929d39b247d2daf04c2f07489f70e25b5fc782be1d0a1022"
+      },
+      {
+        "path": "bin/shenko/src/runtime_cognition.rs",
+        "sha256": "3cbad42c1f93ba8c8da291c6719df7f51730bd58d5eb621b934082ab27e9f7da"
+      }
+    ]
+  },
+  "static_schema_counts": {
+    "scope": "Static named schema constants reachable from initialize_schema plus config/artifact/FTS helpers; no SQL executed. Excludes inline DDL, ALTERs, FTS shadow objects and data migrations. Repeated CREATE IF NOT EXISTS has no fresh object the second time.",
+    "constant_calls": 37,
+    "create_statement_occurrences": 259,
+    "distinct_create_objects": 217,
+    "distinct_by_kind": {
+      "index": 78,
+      "table": 118,
+      "trigger": 21
+    },
+    "unread": [],
+    "constant_counts": [
+      {
+        "module": "migrations",
+        "constant": "SCHEMA_V1",
+        "create_statements": 23
+      },
+      {
+        "module": "migrations",
+        "constant": "MEMORY_INTENTS_SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "migrations",
+        "constant": "MEMORY_INTENT_BINDINGS_SCHEMA",
+        "create_statements": 1
+      },
+      {
+        "module": "identity",
+        "constant": "IDENTITY_SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "context_windows",
+        "constant": "CONTEXT_WINDOWS_SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "context_notes",
+        "constant": "CONTEXT_NOTES_SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "raw_session",
+        "constant": "RAW_SESSION_SCHEMA",
+        "create_statements": 4
+      },
+      {
+        "module": "intents",
+        "constant": "SCHEMA",
+        "create_statements": 5
+      },
+      {
+        "module": "child",
+        "constant": "SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "runtime_boundary",
+        "constant": "SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "semantic_wait",
+        "constant": "SEMANTIC_WAIT_SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "cognition",
+        "constant": "COGNITION_SCHEMA",
+        "create_statements": 12
+      },
+      {
+        "module": "atoms",
+        "constant": "COGNITION_ATOMS_SCHEMA",
+        "create_statements": 7
+      },
+      {
+        "module": "media",
+        "constant": "MEDIA_SCHEMA",
+        "create_statements": 13
+      },
+      {
+        "module": "quota",
+        "constant": "QUOTA_SCHEMA",
+        "create_statements": 9
+      },
+      {
+        "module": "web_input",
+        "constant": "WEB_INPUT_SCHEMA",
+        "create_statements": 5
+      },
+      {
+        "module": "subject_request",
+        "constant": "SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "subject_state",
+        "constant": "SCHEMA",
+        "create_statements": 23
+      },
+      {
+        "module": "subject_branches",
+        "constant": "SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "reconcile",
+        "constant": "SCHEMA",
+        "create_statements": 3
+      },
+      {
+        "module": "atoms",
+        "constant": "COGNITION_ATOMS_SCHEMA",
+        "create_statements": 7
+      },
+      {
+        "module": "output_parts",
+        "constant": "OUTPUT_PARTS_SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "receipt_admission",
+        "constant": "SCHEMA",
+        "create_statements": 4
+      },
+      {
+        "module": "seat",
+        "constant": "SEAT_SCHEMA",
+        "create_statements": 12
+      },
+      {
+        "module": "content_stream",
+        "constant": "CONTENT_STREAM_SCHEMA",
+        "create_statements": 4
+      },
+      {
+        "module": "migrations",
+        "constant": "AGGREGATE_DOMAIN_SCHEMA",
+        "create_statements": 57
+      },
+      {
+        "module": "activation",
+        "constant": "SCHEMA",
+        "create_statements": 5
+      },
+      {
+        "module": "cognitive_root",
+        "constant": "COGNITIVE_ROOT_SCHEMA",
+        "create_statements": 11
+      },
+      {
+        "module": "authority",
+        "constant": "SCHEMA",
+        "create_statements": 5
+      },
+      {
+        "module": "native_evidence",
+        "constant": "SCHEMA",
+        "create_statements": 2
+      },
+      {
+        "module": "native_evidence_delivery",
+        "constant": "SCHEMA",
+        "create_statements": 1
+      },
+      {
+        "module": "local_installation",
+        "constant": "SCHEMA",
+        "create_statements": 1
+      },
+      {
+        "module": "local_model_health",
+        "constant": "SCHEMA",
+        "create_statements": 1
+      },
+      {
+        "module": "config",
+        "constant": "CONFIG_SCHEMA",
+        "create_statements": 6
+      },
+      {
+        "module": "artifacts",
+        "constant": "ARTIFACT_SCHEMA",
+        "create_statements": 5
+      },
+      {
+        "module": "migrations",
+        "constant": "FTS_SCHEMA",
+        "create_statements": 4
+      },
+      {
+        "module": "migrations",
+        "constant": "SESSION_EVENT_FTS_SCHEMA",
+        "create_statements": 4
+      }
+    ]
+  },
+  "batch": {
+    "attempted": 3,
+    "unattempted": 5,
+    "completed_observations": 0,
+    "errors": [
+      "CancelledError: "
+    ],
+    "finished_at": "2026-11-21T18:37:54Z"
+  },
+  "cases": [
+    {
+      "case": "case-01",
+      "log_sha256": "32049e9336abadbd87fbe37392434904b88e5cf02ef477623264b5483bf687c5",
+      "log_bytes": 11810,
+      "durable_subject_request_attempts": 0,
+      "genesis_count": 1,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-17-29",
+        "checks": {
+          "input_in_first_seal": false,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": false,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": false,
+        "errors": [
+          "observation: TimeoutError: Shenko did not expose a bound subject within 60 seconds",
+          "startup runtime cleanup was not clean; see startup_shutdown"
+        ],
+        "interruptions": [],
+        "startup_shutdown": {
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1115648,
+            "required": true,
+            "forced": false,
+            "signals": [
+              "SIGTERM"
+            ],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [
+                1115648
+              ],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": true
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 91.00355122299516,
+        "finished_at": "2026-11-21T18:36:21Z"
+      },
+      "events": [
+        {
+          "label": "start",
+          "at": "2026-11-21T18:34:50.808325Z",
+          "unix_us": 1795286090808325
+        },
+        {
+          "label": "store_opened",
+          "at": "2026-11-21T18:35:23.355838Z",
+          "unix_us": 1795286123355838
+        },
+        {
+          "label": "store_ready",
+          "at": "2026-11-21T18:35:23.717761Z",
+          "unix_us": 1795286123717761
+        },
+        {
+          "label": "owner_claim_ready",
+          "at": "2026-11-21T18:35:24.172702Z",
+          "unix_us": 1795286124172702
+        },
+        {
+          "label": "wasm_runtime_init",
+          "at": "2026-11-21T18:35:24.442220Z",
+          "unix_us": 1795286124442220
+        },
+        {
+          "label": "checkpoint_published",
+          "at": "2026-11-21T18:35:33.385714Z",
+          "unix_us": 1795286133385714
+        },
+        {
+          "label": "home_ready",
+          "at": "2026-11-21T18:35:33.914572Z",
+          "unix_us": 1795286133914572
+        },
+        {
+          "label": "genesis_created",
+          "at": "2026-11-21T18:35:36.372899Z",
+          "unix_us": 1795286136372899
+        },
+        {
+          "label": "identity_ready",
+          "at": "2026-11-21T18:35:36.531309Z",
+          "unix_us": 1795286136531309
+        },
+        {
+          "label": "launch_bound",
+          "at": "2026-11-21T18:35:36.650441Z",
+          "unix_us": 1795286136650441
+        },
+        {
+          "label": "ui_start_log",
+          "at": "2026-11-21T18:36:03.447391Z",
+          "unix_us": 1795286163447391
+        }
+      ],
+      "intervals": [
+        {
+          "phase": "start_to_store_opened",
+          "elapsed_us": 32547513,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "store_opened_to_store_ready",
+          "elapsed_us": 361923,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "store_ready_to_home_ready",
+          "elapsed_us": 10196811,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "home_ready_to_genesis",
+          "elapsed_us": 2458327,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "genesis_to_launch",
+          "elapsed_us": 277542,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "launch_to_ui_start_log",
+          "elapsed_us": 26796950,
+          "interpretation": "UI startup log only; endpoint readiness was not observed, and shutdown had been requested after the 60-second startup limit."
+        },
+        {
+          "phase": "start_to_ui_start_log",
+          "elapsed_us": 72639066,
+          "interpretation": "UI startup log only; endpoint readiness was not observed, and shutdown had been requested after the 60-second startup limit."
+        }
+      ]
+    },
+    {
+      "case": "case-02",
+      "log_sha256": "2bffc339c63de15da1ce03a1e2d7ce90184584e0dcf40417a2e826fcf27a7c09",
+      "log_bytes": 11813,
+      "durable_subject_request_attempts": 0,
+      "genesis_count": 1,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-28-34",
+        "checks": {
+          "input_in_first_seal": false,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": false,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": false,
+        "errors": [
+          "observation: TimeoutError: Shenko did not expose a bound subject within 60 seconds",
+          "startup runtime cleanup was not clean; see startup_shutdown"
+        ],
+        "interruptions": [],
+        "startup_shutdown": {
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1115716,
+            "required": true,
+            "forced": false,
+            "signals": [
+              "SIGTERM"
+            ],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [
+                1115716
+              ],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": true
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 90.73911535699153,
+        "finished_at": "2026-11-21T18:37:52Z"
+      },
+      "events": [
+        {
+          "label": "start",
+          "at": "2026-11-21T18:36:22.322234Z",
+          "unix_us": 1795286182322234
+        },
+        {
+          "label": "store_opened",
+          "at": "2026-11-21T18:36:54.890888Z",
+          "unix_us": 1795286214890888
+        },
+        {
+          "label": "store_ready",
+          "at": "2026-11-21T18:36:55.611051Z",
+          "unix_us": 1795286215611051
+        },
+        {
+          "label": "owner_claim_ready",
+          "at": "2026-11-21T18:36:56.325821Z",
+          "unix_us": 1795286216325821
+        },
+        {
+          "label": "wasm_runtime_init",
+          "at": "2026-11-21T18:36:56.717342Z",
+          "unix_us": 1795286216717342
+        },
+        {
+          "label": "checkpoint_published",
+          "at": "2026-11-21T18:37:04.824941Z",
+          "unix_us": 1795286224824941
+        },
+        {
+          "label": "home_ready",
+          "at": "2026-11-21T18:37:05.318292Z",
+          "unix_us": 1795286225318292
+        },
+        {
+          "label": "genesis_created",
+          "at": "2026-11-21T18:37:08.294903Z",
+          "unix_us": 1795286228294903
+        },
+        {
+          "label": "identity_ready",
+          "at": "2026-11-21T18:37:08.604114Z",
+          "unix_us": 1795286228604114
+        },
+        {
+          "label": "launch_bound",
+          "at": "2026-11-21T18:37:08.763952Z",
+          "unix_us": 1795286228763952
+        },
+        {
+          "label": "ui_start_log",
+          "at": "2026-11-21T18:37:31.802419Z",
+          "unix_us": 1795286251802419
+        }
+      ],
+      "intervals": [
+        {
+          "phase": "start_to_store_opened",
+          "elapsed_us": 32568654,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "store_opened_to_store_ready",
+          "elapsed_us": 720163,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "store_ready_to_home_ready",
+          "elapsed_us": 9707241,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "home_ready_to_genesis",
+          "elapsed_us": 2976611,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "genesis_to_launch",
+          "elapsed_us": 469049,
+          "interpretation": "Wall-clock log interval; includes all code and scheduler activity between these logging sites, not an instrumented inner function duration."
+        },
+        {
+          "phase": "launch_to_ui_start_log",
+          "elapsed_us": 23038467,
+          "interpretation": "UI startup log only; endpoint readiness was not observed, and shutdown had been requested after the 60-second startup limit."
+        },
+        {
+          "phase": "start_to_ui_start_log",
+          "elapsed_us": 69480185,
+          "interpretation": "UI startup log only; endpoint readiness was not observed, and shutdown had been requested after the 60-second startup limit."
+        }
+      ]
+    },
+    {
+      "case": "case-03",
+      "log_sha256": "b9d2b3668e1d98161ba81559fa695934028a4855f175df887bcf415008e13a11",
+      "log_bytes": 796,
+      "durable_subject_request_attempts": 0,
+      "genesis_count": 0,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-46-27",
+        "checks": {
+          "input_in_first_seal": false,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": false,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": false,
+        "errors": [
+          "observation: CancelledError: ",
+          "startup runtime cleanup was not clean; see startup_shutdown"
+        ],
+        "interruptions": [
+          {
+            "stage": "observation",
+            "type": "CancelledError",
+            "message": ""
+          }
+        ],
+        "startup_shutdown": {
+          "parent_exit": -2,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1115772,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 1.363883674988756,
+        "finished_at": "2026-11-21T18:37:54Z"
+      },
+      "events": [
+        {
+          "label": "start",
+          "at": "2026-11-21T18:37:53.715535Z",
+          "unix_us": 1795286273715535
+        }
+      ],
+      "intervals": []
+    }
+  ],
+  "findings": [
+    {
+      "code": "store_schema_many_separate_writes",
+      "source": "crates/shenko-store/src/store.rs:182 and 1823; crates/shenko-store/src/migrations.rs:5",
+      "fact": "SQLite is configured WAL/FULL/FK before initialize_schema. Most schema batches and ALTER helpers execute on the connection without an enclosing explicit transaction. Named-constant CREATE counts describe static reachable statements, not measured SQLite commits or fsync calls.",
+      "limits": "The start-to-store-opened interval also includes target validation, directory/slot/CAS setup, publication and installation locks, SQLite open/configuration, all migrations and capability queries. It does not isolate schema duration."
+    },
+    {
+      "code": "cannot_wrap_all_migrations_blindly",
+      "source": "crates/shenko-store/src/migrations.rs:72,162,224,292,80,87",
+      "fact": "Two conditional migrations open unchecked transactions; two seat migrations issue explicit BEGIN/COMMIT; optional FTS errors are caught. A whole-function outer transaction needs nested ownership/savepoints and preservation of optional-FTS behavior. Keep journal_mode and foreign_keys configuration outside.",
+      "proposal": "A narrower first change could group transaction-free schema constants under RAII transactions while preserving current migration ordering, existing ledger/installation identity and FULL durability. Later consolidate the full migration owner after nested steps are made safe."
+    },
+    {
+      "code": "already_atomic_owners",
+      "source": "crates/shenko-node/src/lib.rs:511 and 579; crates/shenko-store/src/store.rs:377 and 406",
+      "fact": "Fresh Node schema already uses one IMMEDIATE transaction. Subject genesis/head/first-step/root-task/activation extension already share one transaction. Neither is the same many-autocommit-DDL opportunity."
+    },
+    {
+      "code": "home_has_required_publication_boundaries",
+      "source": "crates/shenko-seed/src/bootstrap.rs:606,683,708,744,1146; crates/shenko-wasm/src/checkpoint.rs:512,583,1251; crates/shenko-store/src/cas.rs:46",
+      "fact": "Fresh home writes preparing manifest, initializes Git, runs a real WASI probe, publishes ready manifest, captures file objects and checkpoint manifest, durably appends journal then publishes head, then records local provisioning. Each CAS seal and metadata publication carries file/directory syncs.",
+      "limits": "The observed home interval does not divide WASM compilation/execution, JSON/hash work, filesystem traversal and synchronization. Do not ascribe it to one fsync or remove the preparing/ready and object-before-root boundaries.",
+      "proposal": "A future explicit CAS batch publication barrier may coalesce directory synchronization only if every referenced object is durable before checkpoint/head/ledger publication; this is broader than the schema batching change."
+    },
+    {
+      "code": "launch_to_ui_is_multiple_services",
+      "source": "bin/shenko/src/runtime_start.rs:140,153,180,204,254,264; bin/shenko/src/runtime_cognition.rs:35",
+      "fact": "Model health metadata probing, Node authority establishment, dispatcher reconciliation, native handlers, cognition seeds, context policies and inference services all precede UI startup. Fresh seeds install sequentially; existing seed IDs are already skipped.",
+      "limits": "UI log appears in the shutdown window, so it is not a successful startup readiness receipt or an unperturbed latency measurement. No model generation request is present in the retained ledgers."
+    }
+  ],
+  "causal_conclusion": "The source contains a concrete schema batching opportunity and two pre-deadline ~32.55-second outer intervals. There is no per-migration, transaction, lock, fsync or WASM timing evidence here, so the cost share and expected speedup remain unknown."
+}

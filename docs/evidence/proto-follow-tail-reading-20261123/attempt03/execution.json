@@ -1,0 +1,101 @@
+{
+  "phase": "completed",
+  "runnerTempDirectory": "/tank/shared/projects/proto-ui-agent/ss-hts7gnjs",
+  "driverSha256": "b74aa71f117305c1f46877a8b63c5dcb6fea82cae8b11bb58eacba5728e9d1f0",
+  "source": "03b80d770357fb8e7694c0fdac7a2c79911e970c",
+  "sourceState": "one-file controlled fixture repair on unchanged published product",
+  "sourcePatch": {
+    "path": "runner.patch",
+    "sha256": "772a2758762a238d464a9439c347b8fd5f580a5b7ff5e5705a7b51e8bec0e58d"
+  },
+  "upstream": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+  "buildToolchain": {
+    "node": "v24.22.1",
+    "pnpm": "10.32.1",
+    "esbuild": "0.25.12",
+    "react": "19.3.1",
+    "react_dom": "19.3.1"
+  },
+  "servedArtifacts": [
+    {
+      "path": "theme-bootstrap.js",
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d",
+      "bytes": 770
+    },
+    {
+      "path": "app.js",
+      "sha256": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb",
+      "bytes": 1164508
+    },
+    {
+      "path": "chunks/chunk-O3OVBR66.js",
+      "sha256": "b79d2f7224934764cfc53bf54cda1b6d9252c5ba3d6c30acd341a84f0bad2873",
+      "bytes": 65273
+    },
+    {
+      "path": "chunks/demo-controller-IAYPJLAD.js",
+      "sha256": "ba878393767fa080bdaf7a9cd520813e6299f65b71b541027280d8fe41fb6901",
+      "bytes": 15700
+    },
+    {
+      "path": "app.css",
+      "sha256": "5ce400125a97a86886ad3c3dcf0ce956522d26ac99863342e318116e857105f1",
+      "bytes": 62853
+    },
+    {
+      "path": "proto-ui-style.css",
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88",
+      "bytes": 294
+    },
+    {
+      "path": "proto-ui-tokens.generated.css",
+      "sha256": "bf25d0730b5e71c92cf1f2cf8170308d7318134dba42ad26d27f6feb45538f1a",
+      "bytes": 166521
+    },
+    {
+      "path": "shadcn-theme.css",
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96",
+      "bytes": 6473
+    },
+    {
+      "path": "licenses/PROTO-UI-LICENSE",
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66",
+      "bytes": 1078
+    },
+    {
+      "path": "licenses/SHADCN-NOTICES.md",
+      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5",
+      "bytes": 8656
+    },
+    {
+      "path": "licenses/REACT-LICENSE",
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "bytes": 1088
+    },
+    {
+      "path": "licenses/REACT-DOM-LICENSE",
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93",
+      "bytes": 1088
+    }
+  ],
+  "manifestSha256": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+  "runnerSha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+  "runnerNode": "v24.22.3",
+  "playwright": "1.58.2",
+  "browser": {
+    "path": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/tools/playwright-browsers/chromium-1208/chrome-linux64/chrome",
+    "sha256": "481fea1516a1f2b76454664272f12cd9dd1f20117b21e1f1498e08bc7f872c00",
+    "version": "Google Chrome for Testing 145.0.7632.6",
+    "versionExit": 0,
+    "stderr": ""
+  },
+  "startedAt": "2026-11-22T20:30:32.470474+00:00",
+  "command": [
+    "node",
+    "scripts/web_reading_journey.mjs"
+  ],
+  "buildEvidence": "Committed production assets at source head; actual GitHub CI run45052570803 web job137301107565 independently rebuilt and compared these exact source assets. This invocation does not claim a new local build.",
+  "exitCode": 0,
+  "finishedAt": "2026-11-22T20:31:51.577427+00:00",
+  "elapsedSeconds": 79.10657432000153
+}

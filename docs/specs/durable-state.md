@@ -85,8 +85,76 @@ remain historical evidence in the copy.
 
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 
-`ARCHIVE_SCHEMA` is 5. Readers admit schemas 2–5; an archive naming a fact
-class this reader does not know is refused whole at manifest validation.
+`ARCHIVE_SCHEMA` is 13. Readers recognize exactly versions 2–7 and 10–13 and apply the
+original version's format and fact ownership before reporting recovery. Two
+historical writers independently used 7: one declares both `dialogue_endpoints`
+and `dialogue_messages`, the other both `subject_branch_forks` and
+`subject_head_history`. A native7 archive declares exactly one complete family,
+including empty classes; partial, absent or combined families are refused before
+payload callbacks. Schemas 2–6 cannot claim those later families. The same format
+gate guards normal export and control-predecessor membership admission.
+
+This Store currently owns the fork/history tables. Recognizing the dialogue-only
+native7 shape does not admit its unknown classes or create its missing producer,
+closure or transactional importer. The combined format is 8; mandatory refused
+evidence originals and cognitive-root recovery are 9. Neither later version is
+enabled by this format prerequisite. Table ownership, original CAS/source
+bindings, complete conflict units and publication custody must travel with their
+writer version; physical table existence alone supplies none of that admission.
+
+Schema 10 retains the complete fork/history family and excludes dialogue facts.
+It declares the direct native creator-key/successor-predicate readers: claim
+codec 2, paired arm codec 3 and childless original T2 codec 3. Schema 11 retains
+the same family and additionally declares direct claim codec 3 and direct
+paired arm/childless original T2 codec 4 with row-schema-4 operation, attempt
+and receipt selectors. Claim 3 binds only its original physical operation PK
+absence; retained claim 2 keeps its complete operation witness.
+Generic dispatch codec 2 and ordinary T2 codec 5 use row schema 5: their named
+original operation/attempt and, for T2, receipt rows are retained with the task's
+complete bounded ancestor chain and its authoring steps. Ordinary T2 additionally
+retains the ordinary-child range, including an empty range; this is separate from
+the childless direct-E1 proof. These formats preserve the original subject,
+ownership, admission and execution-permit boundaries. They do not eliminate the
+remaining preparation, snapshot or scan costs described in the
+[capture design](../development/canonical-capture-budget.md).
+Schema 12 additionally declares `store-native-evidence-fact/6`: an anchored
+envelope around the complete original fact of codec 2–5 and its exact typed
+predecessor roots. The inner fact and all predecessor closures remain full
+archive and GC graph edges. Only the independent E1 transfer charges its new
+observation graph against an incremental budget; this does not omit predecessor
+bytes from a recovery archive or create local application authority.
+Schema 13 additionally declares `store-control-predecessor/2`. Its root retains
+the complete sorted, unique digest inventory from the original snapshot. A bare
+optional digest that was absent then cannot join that frozen inventory merely
+because its bytes appear in CAS later. The inspector verifies the exact inventory
+and original fingerprint; typed ObjectRefs and schema-required children still
+require their complete bytes, integrity and membership. Schema-13 archive closure
+likewise resolves optional hints only within its declared objects. Earlier archive
+schemas and control-predecessor codec 1 keep their original live-discovery rules;
+they are not relabeled or silently reinterpreted.
+This adds O(object_count) digest metadata to the predecessor root. It does not
+remove full snapshot collection, object verification, row reconstruction or the
+history-growth costs described in the
+[predecessor design](../development/control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2).
+All new exports use 13,
+including snapshots without those objects. A schema-12 reader therefore refuses
+the manifest before CAS payload callbacks, SQL facts or files are published;
+this writer offers no version-label downgrade. Old archives 2–7 and 10–12 and
+their native transition codecs retain their original interpretation, including
+10–12's strict column-layout and fork/history membership checks. Versions 8
+and 9 remain unsupported; 13 does not enable either reserved contract.
+This archive boundary is distinct from raw Node control-object transport and
+does not establish mixed-version Node consensus acceptance or full rollback.
+The existing archive admission regression covers the current writer, retained
+7/12 facts, malformed current membership and unsupported-format refusal before
+CAS or file publication. The previous-writer compatibility window now imports
+representable schema-12 facts and relays them through the schema-13 writer;
+it replaces the earlier 11-to-12 window without adding another compatibility
+scenario. Schemas 10 and 11 remain explicitly supported with their original
+rules, and their earlier execution receipts remain historical evidence.
+Schemas 10–13 share the
+same family-membership gate. This source update is not a new runtime pass claim;
+actual candidate execution is reported with its own source identity.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The
@@ -250,6 +318,23 @@ recovered node replays the same units instead of re-streaming.
 
 ## Error and recovery notes
 
+- Fresh ordered-action preparation can observe ordinary progress between its
+  input read and the consistent predecessor snapshot. Only a newer revision
+  under the same subject, record identity and authority is classified as
+  `ControlPreparationChanged`; a head must also advance its committed step
+  and local commit position. The committed-work dispatcher ends that pass
+  and reads durable work again on its next normal tick. Missing or malformed
+  rows, changed authority, unchanged-revision mismatches and other conflicts
+  remain errors. The classification is emitted before this preparation orders
+  an admission: it does not inspect or rewrite an older chosen image, renew a
+  permit, replay an E1 effect, or turn an uncertain write into success.
+  A synchronous native settlement may already have committed its preceding
+  claim. It must park that exact claim revision for reconciliation before
+  deferring a fresh T2 preparation; it keeps the original operation and E1.
+  A failed or refused park carries `NativeClaimNeedsRecovery`, which the
+  dispatcher preserves as failure even if its cause is preparation drift or
+  ordinary admission closure. The same guard covers a fresh claim refused
+  before a managed worker takes ownership; managed-worker teardown is unchanged.
 - Staged installation inspection is Linux-only: its confined snapshot path
   uses Linux `pipe2`, errno and fork behavior. Other targets return an
   unsupported error rather than substituting an unconfined copy.

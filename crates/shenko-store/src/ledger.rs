@@ -120,7 +120,8 @@ impl Ledger {
             // damage: the single writer stays usable so the caller can record
             // the correct fact instead of reopening the ledger.
             |error| !crate::receipt_admission::is_key_conflict(error)
-                && !shenko_types::authority::is_authority_fenced(error),
+                && !shenko_types::authority::is_authority_fenced(error)
+                && !matches!(error, ShenkoError::RuntimeAdmissionClosed { .. }),
         )
     }
 

@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "source_revision": "0c6b013e7c0cc8c27e30a83189c14a36c71aaa74",
+  "status": "completed_scoped_gate_passed_with_verified_reuse",
+  "remote_evidence_directory": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e",
+  "captured_at_utc": "2026-11-21T22:04:27.023170+00:00",
+  "receipt_storage_device": {
+    "name": "doesvm",
+    "device_id": "ec69e76d-71fb-4bc8-8671-c089fd87096f"
+  },
+  "execution_container": "shenko-build-r71",
+  "started_at_utc": "2026-11-21T22:01:08Z",
+  "finished_at_utc": "2026-11-21T22:01:35Z",
+  "exit_code": 0,
+  "exit_code_scope": "Scoped test stage only; not the release build or host wrapper.",
+  "selected_tests": 1,
+  "passed_tests": 1,
+  "failed_tests": 0,
+  "cargo_invocations": 1,
+  "tests": [
+    {
+      "label": "native-dispatch",
+      "command": [
+        "cargo",
+        "test",
+        "--offline",
+        "--locked",
+        "-j4",
+        "-p",
+        "shenko-store",
+        "--test",
+        "store_roundtrip",
+        "--all-features",
+        "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+        "--",
+        "--exact",
+        "--nocapture"
+      ],
+      "expected_selected_tests": 1,
+      "exit_code": 0,
+      "status": "ok",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "measured": 0,
+      "filtered": 48,
+      "execution_seconds": 23.56,
+      "selected_tests": [
+        {
+          "name": "canonical_native_dispatch_retains_one_live_permit_through_prepare_learn_and_restart",
+          "status": "ok"
+        }
+      ],
+      "raw_log": {
+        "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/native-dispatch.log",
+        "bytes": 6986,
+        "sha256": "aaf5033b9f2419b6e612bff25ad8b8f5213cea5159c0728593aa831332446ff8",
+        "last_write_mtime_utc": "2026-11-21T22:01:35.294521+00:00"
+      },
+      "gzip_log": {
+        "path": "native-dispatch.log.gz",
+        "bytes": 2278,
+        "sha256": "c4e7d5d7b7a69e6130161c19a9bf3d5754a6656ce636ee0ad5f11cde621be4ba",
+        "mtime": 0
+      },
+      "captured_harness_summary_count": 1,
+      "excluded_nested_harness_summaries": []
+    }
+  ],
+  "reuse": {
+    "successes": 16,
+    "sources": [
+      {
+        "source_revision": "5f1e426a047390159f038bf58b6d19948ab4ffc9",
+        "successes": 15,
+        "receipt": "../scoped-5f1e426a/summary.json"
+      },
+      {
+        "source_revision": "b4d115d887b11d5734dc0afa4d01be2c9b9eb32b",
+        "successes": 1,
+        "label": "first-claim",
+        "receipt": "../scoped-b4d115d8-r2/summary.json",
+        "test_body_identical": true,
+        "test_body_sha256": "430069d53d58beca7d9aa9d758f50cd1f4fffd1e686c8ffa0e038a00ad7697c0"
+      }
+    ],
+    "original_artifact": "reuse.json",
+    "product_source_identical_to_5f": true,
+    "changed_paths_from_5f": [
+      "crates/shenko-store/tests/store_roundtrip.rs"
+    ],
+    "referenced_original_log_hashes_verified": true,
+    "not_new_executions": true
+  },
+  "candidate_scoped_gate": {
+    "status": "passed_with_verified_reuse",
+    "covered_tests": 17,
+    "newly_executed_passes": 1,
+    "reused_passes": 16,
+    "original_fixture_failures_retained": [
+      {
+        "receipt": "../scoped-5f1e426a/summary.json",
+        "label": "first-claim",
+        "raw_bytes": 7544,
+        "raw_sha256": "9509cef8b9ce4f069a59d9f7666352d0550e5570f0b34900fb6a6b1d537b17a7",
+        "gzip_log": "../scoped-5f1e426a/first-claim.log.gz",
+        "failed": 1
+      },
+      {
+        "receipt": "../scoped-5f1e426a/summary.json",
+        "label": "native-dispatch",
+        "raw_bytes": 7166,
+        "raw_sha256": "40ad9a201fb2b478dd8671793adb716d8fed766d9bdea5e96d00c8b4f4838c43",
+        "gzip_log": "../scoped-5f1e426a/native-dispatch.log.gz",
+        "failed": 1
+      },
+      {
+        "receipt": "../scoped-b4d115d8-r2/summary.json",
+        "label": "native-dispatch",
+        "raw_bytes": 7099,
+        "raw_sha256": "15999a3b3b7a5fb96b98474a53733e73bf7533f3df2e82f3953b04b25aff56b2",
+        "gzip_log": "../scoped-b4d115d8-r2/native-dispatch.log.gz",
+        "failed": 1
+      }
+    ]
+  },
+  "conditional_release": {
+    "status": "admitted",
+    "reason": "The completed scoped stage returned zero; the original runner next admits its separate conditional release build.",
+    "completion_claimed": false,
+    "build_exit_code": null,
+    "host_exit_code": null,
+    "release_build_artifacts_read": false,
+    "scope": "This receipt ends at the scoped stage. The active release log, manifest and binary were not read or copied."
+  },
+  "toolchain": {
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "node": "v24.22.1"
+  },
+  "artifacts": [
+    {
+      "name": "reuse.json",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/reuse.json",
+      "bytes": 6251,
+      "sha256": "083da105b6a71370278e095a80f8ba9d5430d61f23dd9ce048395e172b192eec",
+      "mtime_utc": "2026-11-21T22:01:08.435083+00:00",
+      "path": "reuse.json"
+    },
+    {
+      "name": "runner.sh",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/runner.sh",
+      "bytes": 6582,
+      "sha256": "0afa01fc5178813cef119730519ee31f967cbb4423ae9ce115759327626b13f1",
+      "mtime_utc": "2026-11-21T22:01:08.320077+00:00",
+      "path": "runner.sh"
+    }
+  ],
+  "original_small_receipts": [
+    {
+      "name": "exit.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/exit.txt",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T22:01:35.342524+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "finished.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/finished.txt",
+      "bytes": 21,
+      "sha256": "e72321502d381f70b93fb2164e529ffc459905334a9254a1b1af747a80bc33a2",
+      "mtime_utc": "2026-11-21T22:01:35.343524+00:00",
+      "inline_utf8": "2026-11-21T22:01:35Z\n"
+    },
+    {
+      "name": "native-dispatch.exit",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/native-dispatch.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "mtime_utc": "2026-11-21T22:01:35.315522+00:00",
+      "inline_utf8": "0\n"
+    },
+    {
+      "name": "node.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/node.txt",
+      "bytes": 9,
+      "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+      "mtime_utc": "2026-11-21T22:01:08.380080+00:00",
+      "inline_utf8": "v24.22.1\n"
+    },
+    {
+      "name": "rustc.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/rustc.txt",
+      "bytes": 36,
+      "sha256": "2073de5abf149185c2f4d7473dc833bc921b99135560d24ae7b2293f33a9c376",
+      "mtime_utc": "2026-11-21T22:01:08.372080+00:00",
+      "inline_utf8": "rustc 1.98.1 (48a229cea 2026-09-01)\n"
+    },
+    {
+      "name": "started.txt",
+      "remote_path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/scoped-0c6b013e/started.txt",
+      "bytes": 21,
+      "sha256": "0e8388987aaf1c4688aafa5f5cf8f8efcefa2e7c9d2d59f0ea8d1ad8b90b3254",
+      "mtime_utc": "2026-11-21T22:01:08.322077+00:00",
+      "inline_utf8": "2026-11-21T22:01:08Z\n"
+    }
+  ],
+  "verification": {
+    "all_raw_log_bytes_and_sha256_verified_after_transfer": true,
+    "all_gzip_bytes_and_sha256_verified_after_transfer": true,
+    "gzip_mtime": 0,
+    "original_runner_and_reuse_bytes_verified": true,
+    "inline_small_receipt_bytes_verified": true,
+    "remote_read_only_finished_scoped_directory": true,
+    "cargo_commands_started_by_collector": 0,
+    "model_calls_started": 0,
+    "new_tests_added": 0
+  },
+  "scope_and_limits": [
+    "Only one selected test actually ran in this attempt. The 16 reused successes retain their original source revisions and raw-log hashes; they are not 16 additional executions on 0c.",
+    "All three earlier failed fixture executions remain failed in their original 5f and b4 receipts. Neither this pass nor the first-claim pass rewrites those results.",
+    "The b4 reuse preflight failure is a separate observer error before cargo and is not one of those three executed fixture failures.",
+    "The covered 17-test scoped gate combines product-source-identical prior successes with the actual corrected dispatch execution. It is not a full workspace, Nightly or real-model journey result.",
+    "The completed scoped exit code zero does not establish a finished release build, published binary or host process exit. Release completion requires its separate receipt.",
+    "Per-test execution_seconds is the Rust harness duration; the file mtime is an observed last-write time, not a separately instrumented test phase."
+  ]
+}

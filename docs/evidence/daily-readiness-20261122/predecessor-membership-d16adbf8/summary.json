@@ -1,0 +1,259 @@
+{
+  "schema_version": 1,
+  "scope": "Closed diagnostic originals plus before/after scoped tests. These are separate source candidates, not a repeated real-model success rate.",
+  "original_real_model_batch": {
+    "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+    "requested": 3,
+    "completed": 3,
+    "passed": 0,
+    "failed": 3,
+    "regraded_by_this_evidence": false,
+    "receipt_commit": "c40c61bc4dd2a2ca850d2517ddc9a3e2832788e7"
+  },
+  "scopes": [
+    {
+      "source_revision": "6d087562cc33928fa3a6a3fecd012cc5081dc7c3",
+      "directory": "baseline-6d087562",
+      "original_summary": "baseline-6d087562/summary.json",
+      "targets": 1,
+      "passed": 0,
+      "failed": 1,
+      "host_exit_code": 1,
+      "scope_exit_code": 1,
+      "host_started_at_utc_second_precision": "2026-11-22T00:26:43Z",
+      "host_finished_at_utc_second_precision": "2026-11-22T00:26:53Z",
+      "host_second_precision_interval_seconds": 10.0,
+      "remote_tool_runtime_seconds": 11.78,
+      "checks": [
+        {
+          "label": "predecessor-membership",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "--all-features",
+            "-j4",
+            "-p",
+            "shenko-store",
+            "--test",
+            "store_roundtrip",
+            "frozen_control_predecessor_keeps_original_optional_object_membership",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "exit_code": 101,
+          "passed": 0,
+          "failed": 1,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 49,
+          "libtest_duration_seconds": 5.4,
+          "command_elapsed_seconds": 9.50533745897701,
+          "started_at_utc": "2026-11-22T00:26:44.468928+00:00",
+          "finished_at_utc": "2026-11-22T00:26:53.974286+00:00",
+          "original_log": "baseline-6d087562/predecessor-membership.log.gz",
+          "original_log_bytes": 7317,
+          "original_log_sha256": "a49c0362ee23b63e45222ca8983bfa3c89c5b24927abeb321448e5897a3a2453",
+          "nested_summaries_excluded": 0
+        }
+      ]
+    },
+    {
+      "source_revision": "95cdc272866a5f31cedb790d263761523e9b0e2c",
+      "directory": "fixed-95cdc272",
+      "original_summary": "fixed-95cdc272/summary.json",
+      "targets": 3,
+      "passed": 10,
+      "failed": 0,
+      "host_exit_code": 0,
+      "scope_exit_code": 0,
+      "host_started_at_utc_second_precision": "2026-11-22T00:38:13Z",
+      "host_finished_at_utc_second_precision": "2026-11-22T00:43:35Z",
+      "host_second_precision_interval_seconds": 322.0,
+      "remote_tool_runtime_seconds": 322.72,
+      "checks": [
+        {
+          "label": "predecessor-membership",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "--all-features",
+            "-j4",
+            "-p",
+            "shenko-store",
+            "--test",
+            "store_roundtrip",
+            "frozen_control_predecessor_keeps_original_optional_object_membership",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 49,
+          "libtest_duration_seconds": 6.14,
+          "command_elapsed_seconds": 28.7889217879856,
+          "started_at_utc": "2026-11-22T00:38:14.853114+00:00",
+          "finished_at_utc": "2026-11-22T00:38:43.642054+00:00",
+          "original_log": "fixed-95cdc272/predecessor-membership.log.gz",
+          "original_log_bytes": 7108,
+          "original_log_sha256": "d1736f1241629cf1ace2d35b2687a0ab8dff53e3b4ea1181a3a28577bfe82ffd",
+          "nested_summaries_excluded": 0
+        },
+        {
+          "label": "native-chain",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "--all-features",
+            "-j4",
+            "-p",
+            "shenko-store",
+            "--test",
+            "store_roundtrip",
+            "canonical_direct_native_chain_retains_original_e1_and_only_one_effect",
+            "--",
+            "--exact",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 49,
+          "libtest_duration_seconds": 187.12,
+          "command_elapsed_seconds": 187.58739403099753,
+          "started_at_utc": "2026-11-22T00:38:43.642503+00:00",
+          "finished_at_utc": "2026-11-22T00:41:51.229883+00:00",
+          "original_log": "fixed-95cdc272/native-chain.log.gz",
+          "original_log_bytes": 21640,
+          "original_log_sha256": "716373e4b32279d0aad25883da85634b9ce778f209d45d027069f710cf23c0af",
+          "nested_summaries_excluded": 0
+        },
+        {
+          "label": "archive-admission",
+          "command": [
+            "cargo",
+            "test",
+            "--offline",
+            "--locked",
+            "--all-features",
+            "-j4",
+            "-p",
+            "shenko-store",
+            "--lib",
+            "cognition::archive_admission_tests::",
+            "--",
+            "--nocapture"
+          ],
+          "exit_code": 0,
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered_out": 31,
+          "libtest_duration_seconds": 89.15,
+          "command_elapsed_seconds": 104.2237142160011,
+          "started_at_utc": "2026-11-22T00:41:51.230223+00:00",
+          "finished_at_utc": "2026-11-22T00:43:35.453918+00:00",
+          "original_log": "fixed-95cdc272/archive-admission.log.gz",
+          "original_log_bytes": 8321,
+          "original_log_sha256": "8fed189c28a6fb7f70ee044a1538bcde226d1e97c81de02634afa852636ec2bb",
+          "nested_summaries_excluded": 0
+        }
+      ]
+    }
+  ],
+  "closed_original_diagnostic": {
+    "source_revision": "d16adbf89c9f79dfce8ef90d77843412bcda85bf",
+    "directory": "closed-d16-attempt003",
+    "original_manifest": "closed-d16-attempt003/manifest.json.gz",
+    "started_at_utc": "2026-11-22T00:13:35.656401+00:00",
+    "finished_at_utc": "2026-11-22T00:13:41.469545+00:00",
+    "inspector_compile_exit": 0,
+    "inspector_run_exit": 0,
+    "product_rlib_identity_source": "Original diagnostic manifest; binaries/rlibs are not copied or newly rehashed by this collector.",
+    "root_count": 47,
+    "frozen_expected_object_count": 238,
+    "observed_orders": [
+      {
+        "elapsed_seconds": 0.419404695,
+        "missing": [],
+        "object_count": 239,
+        "order": "original_tree_read_order"
+      },
+      {
+        "elapsed_seconds": 0.168446593,
+        "missing": [],
+        "object_count": 239,
+        "order": "reversed_original_order"
+      },
+      {
+        "elapsed_seconds": 0.085519161,
+        "missing": [],
+        "object_count": 239,
+        "order": "sorted_typed_references"
+      }
+    ],
+    "observed_digest_sets_equal": true,
+    "late_object": {
+      "digest": "blake3:2baac6c3aba44f41c16fad1aa26b86b05812002c650b643f9aee1014006176f2",
+      "bytes": 1304,
+      "mtime": "2026-11-22T00:05:06.981033+00:00",
+      "sha256": "96314da5b6cf982d165349b7475c1f1b9f517c6e488df2643b8dd4fe500a454c"
+    },
+    "original_manifest_created_at": "2026-11-22T00:05:03.354560199Z",
+    "parent_edges": {
+      "target": "blake3:2baac6c3aba44f41c16fad1aa26b86b05812002c650b643f9aee1014006176f2",
+      "scope": "References inside the original closed verified closure; large opaque objects were not text scanned",
+      "parents": [
+        {
+          "digest": "blake3:2c235fb5da27fb596055b76a62cd9fb27716f46983b764445268d05bd120f66a",
+          "bytes": 5669,
+          "sha256": "4d6ce17d75d70977fa232a1c56ac45a31f926c4071f06593b8f0d027269a7ccc",
+          "matches": [
+            {
+              "path": [
+                "contract_digest"
+              ],
+              "value": "blake3:2baac6c3aba44f41c16fad1aa26b86b05812002c650b643f9aee1014006176f2"
+            }
+          ]
+        }
+      ]
+    },
+    "cas_file_count": 357,
+    "before_after_file_sizes_and_mtimes_equal": true,
+    "whole_cas_bytes_hashed_before_after": false,
+    "inspection_scope": "Read-only product object_closure over original closed CAS. No Store open, SQL, new model, repaired object, publication or replay.",
+    "causal_boundary": "The closed CAS diagnosis demonstrates a 238-to-239 count mismatch and the late bare contract_digest edge; the separate unchanged-fixture baseline/fixed tests reproduce and repair that mechanism. The diagnostic is not a full CAS snapshot from the original capture time, nor a new successful model journey."
+  },
+  "retention": {
+    "original_files": 46,
+    "gzip_originals": 9,
+    "source_and_stored_sha256_and_lengths_verified": true,
+    "gzip_mtime_zero_verified": true,
+    "source_stats_stable_during_copy": true,
+    "archive_bytes": 78166,
+    "archive_sha256": "09a64a68fae3adff7d2ed907df10399aff78e98010879293a82ada22d9e404f3",
+    "excluded": [
+      "closed diagnostic inspect executable",
+      "native-artifacts directories (retained on authorized device)",
+      "release/dependency rlibs",
+      "complete original CAS and installation databases"
+    ]
+  },
+  "new_test_or_model_runs_by_collector": 0,
+  "original_installation_db_or_cas_opened_by_collector": false,
+  "daily_readiness_proved": false
+}

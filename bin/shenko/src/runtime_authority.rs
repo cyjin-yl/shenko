@@ -31,6 +31,7 @@ pub struct RuntimeAuthority {
     store: Weak<Store>,
     source_id: String,
     cancel: CancellationToken,
+    shutdown_requested: AtomicBool,
     active: AtomicBool,
     recovery: Mutex<Option<String>>,
     model_health: Mutex<Option<(Arc<crate::runtime_model_health::RuntimeModelHealth>, EntityId)>>,
@@ -92,6 +93,7 @@ impl RuntimeAuthority {
             store: Arc::downgrade(store),
             source_id: format!("node:{node_id}"),
             cancel,
+            shutdown_requested: AtomicBool::new(false),
             active: AtomicBool::new(false),
             recovery: Mutex::new(None),
             model_health: Mutex::new(None),
@@ -104,6 +106,28 @@ impl RuntimeAuthority {
         &self, health: Arc<crate::runtime_model_health::RuntimeModelHealth>, runtime: EntityId,
     ) {
         *self.model_health.lock() = Some((health, runtime));
+    }
+
+    /// Only an observed ordinary stop uses this entry. A cancellation that
+    /// already belongs to a failure/reconstruction is not relabelled by a
+    /// later signal. The shared token alone never proves a graceful stop.
+    pub(crate) fn request_shutdown(&self) {
+        if !self.cancel.is_cancelled() {
+            self.shutdown_requested.store(true, Ordering::Release);
+        }
+        self.cancel.cancel();
+    }
+
+    fn admission_cancelled(&self) -> ShenkoError {
+        if self.shutdown_requested.load(Ordering::Acquire)
+            && self.recovery_required().is_none()
+            && let Some(store) = self.store.upgrade()
+        {
+            return ShenkoError::RuntimeAdmissionClosed {
+                writer_incarnation: store.capabilities().incarnation,
+            };
+        }
+        authority_fenced("runtime admission is canceled")
     }
 
     fn model_is_eligible(&self) -> bool {
@@ -370,7 +394,7 @@ impl CommitAuthorityProvider for RuntimeAuthority {
     ) -> Result<Option<CommitAuthorityGrant>, ShenkoError> {
         self.require_model_eligibility()?;
         if self.active.load(Ordering::Acquire) && self.cancel.is_cancelled() {
-            return Err(authority_fenced("runtime admission is canceled"));
+            return Err(self.admission_cancelled());
         }
         let node =
             Node::open(&self.data_dir.join("node")).map_err(|error| self.failure(error, 0))?;
@@ -515,13 +539,20 @@ impl RuntimeAuthority {
                 .store
                 .upgrade()
                 .ok_or_else(|| authority_fenced("authority Store was disposed"))?;
-            let binding = store.subject_authority_binding(snapshot.identity.agent_id)?;
-            if stamp.as_ref().is_none_or(|stamp| {
-                binding.as_ref().is_none_or(|binding| {
-                    binding.stamp != *stamp
-                        || binding.writer_incarnation != store.capabilities().incarnation
-                })
-            }) {
+            let changed = match stamp.as_ref() {
+                // The reserved Node already proves loss of fresh authority.
+                // Cancellation must not wait behind an unrelated Store writer
+                // just to read a binding that cannot restore this absent stamp.
+                None => true,
+                Some(stamp) => {
+                    let binding = store.subject_authority_binding(snapshot.identity.agent_id)?;
+                    binding.as_ref().is_none_or(|binding| {
+                        binding.stamp != *stamp
+                            || binding.writer_incarnation != store.capabilities().incarnation
+                    })
+                }
+            };
+            if changed {
                 self.request_recovery(
                     "the reserved Node authority or local writer binding changed",
                 );
@@ -535,7 +566,7 @@ impl RuntimeAuthority {
             // Actual source/binding changes above still request recovery;
             // verified historical materialization keeps its stamp-less path.
             if !replay_requested && self.recovery_required().is_none() {
-                return Err(authority_fenced("runtime admission is canceled"));
+                return Err(self.admission_cancelled());
             }
             stamp = None;
         }

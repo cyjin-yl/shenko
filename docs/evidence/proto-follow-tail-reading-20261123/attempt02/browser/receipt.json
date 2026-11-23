@@ -1,0 +1,3381 @@
+{
+  "schema_version": 1,
+  "scope": "real Shenko live frontend; fixture HTTP/WS reads",
+  "upstream": {
+    "repository": "https://github.com/Proto-UI/Proto-UI.git",
+    "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+    "previous_reviewed_commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
+    "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+    "source_checkout": "/workspace/scratch/eb30117f7b2a/sprint7",
+    "build_receipt": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": 42,
+      "receipt_path": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-node24221.json",
+      "receipt_sha256": "e0324ee62ba83735883aeaccfcadb5f4b56aa1eccf2bb38b783ba70fe726d581"
+    }
+  },
+  "bundle_manifest_sha256": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+  "fixture": "committed mixed Chinese/English Markdown, stable owner/reply IDs, replay duplicates",
+  "physical_input": false,
+  "model_or_backend_acceptance": false,
+  "runs": [
+    {
+      "tab": "inspect",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "theme": "light",
+      "reduced_motion": "reduce",
+      "observations": [
+        {
+          "name": "initial",
+          "top": 13789,
+          "extent": 14519,
+          "viewport": 730,
+          "endGap": 0,
+          "count": 60,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -110.5,
+          "focused": "",
+          "reading": "following_latest"
+        },
+        {
+          "name": "keyboard-Shift+Tab-departed",
+          "top": 13783,
+          "extent": 15007,
+          "viewport": 730,
+          "endGap": 494,
+          "count": 62,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -18.75,
+          "focused": "sk-button sk-button-ghost sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Shift+Tab-append",
+          "top": 13853,
+          "extent": 15480,
+          "viewport": 730,
+          "endGap": 897,
+          "count": 64,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -19,
+          "focused": "sk-button sk-button-ghost sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Tab-departed",
+          "top": 13853,
+          "extent": 15480,
+          "viewport": 730,
+          "endGap": 897,
+          "count": 64,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -19,
+          "focused": "identity-trigger",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Tab-append",
+          "top": 13939,
+          "extent": 15969,
+          "viewport": 730,
+          "endGap": 1300,
+          "count": 66,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -19.25,
+          "focused": "identity-trigger",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "departed",
+          "top": 15192,
+          "extent": 16442,
+          "viewport": 730,
+          "endGap": 520,
+          "count": 68,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": 6.5,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "reading_history"
+        },
+        {
+          "name": "append-paused",
+          "top": 15278,
+          "extent": 16930,
+          "viewport": 730,
+          "endGap": 922,
+          "count": 70,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": 6.25,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "reading_history"
+        },
+        {
+          "name": "history-reopened",
+          "top": 15278,
+          "extent": 16930,
+          "viewport": 730,
+          "endGap": 922,
+          "count": 70,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": 6.25,
+          "focused": "",
+          "reading": "reading_history"
+        },
+        {
+          "name": "selected",
+          "top": 16053,
+          "extent": 17403,
+          "viewport": 730,
+          "endGap": 620,
+          "count": 72,
+          "key": "part.[\"reading-message-33\",\"text/0\"]",
+          "offset": -296,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "selection-append",
+          "top": 16139,
+          "extent": 17892,
+          "viewport": 730,
+          "endGap": 1023,
+          "count": 74,
+          "key": "part.[\"reading-message-33\",\"text/0\"]",
+          "offset": -296.25,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "new-subject-owner",
+          "top": 17635,
+          "extent": 18365,
+          "viewport": 730,
+          "endGap": 0,
+          "count": 76,
+          "key": "part.[\"reading-message-37\",\"text/0\"]",
+          "offset": -110.5,
+          "focused": "",
+          "reading": "following_latest"
+        }
+      ],
+      "checks": [
+        {
+          "name": "committed reply text reaches the actual conversation renderer",
+          "passed": true,
+          "details": {
+            "tab": "inspect"
+          }
+        },
+        {
+          "name": "append follows the actual tail and retains composer focus",
+          "passed": true,
+          "details": {
+            "top": 14277,
+            "extent": 15007,
+            "viewport": 730,
+            "endGap": 0,
+            "count": 62,
+            "key": "part.[\"reading-message-30\",\"text/0\"]",
+            "offset": -109.75,
+            "focused": "composer-input",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "fixture supplies sequential focus targets in at least three messages",
+          "passed": true,
+          "details": {
+            "focusTargets": [
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-1\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-1\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-2\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-2\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-3\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-3\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-4\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-4\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-5\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-5\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-6\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-6\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-7\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-7\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-8\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-8\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-9\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-9\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-10\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-10\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-11\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-11\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-12\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-12\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-13\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-13\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-14\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-14\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-15\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-15\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-16\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-16\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-17\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-17\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-18\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-18\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-19\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-19\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-20\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-20\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-21\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-21\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-22\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-22\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-23\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-23\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-24\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-24\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-25\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-25\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-26\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-26\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-27\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-27\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-28\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-28\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-29\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-29\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-30\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-30\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-31\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-31\",\"text/0\"]"
+              }
+            ]
+          }
+        },
+        {
+          "name": "trusted Shift+Tab reaches a historical message action away from the tail",
+          "passed": true,
+          "details": {
+            "backwardTabs": 6,
+            "before": {
+              "top": 14277,
+              "extent": 15007,
+              "viewport": 730,
+              "endGap": 0,
+              "count": 62,
+              "key": "part.[\"reading-message-30\",\"text/0\"]",
+              "offset": -109.75,
+              "focused": "composer-input",
+              "reading": "following_latest"
+            },
+            "after": {
+              "top": 13783,
+              "extent": 15007,
+              "viewport": 730,
+              "endGap": 494,
+              "count": 62,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -18.75,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "trusted Shift+Tab retains focus within a historical message",
+          "passed": true,
+          "details": {
+            "top": 13783,
+            "extent": 15007,
+            "viewport": 730,
+            "endGap": 494,
+            "count": 62,
+            "key": "part.[\"reading-message-29\",\"text/0\"]",
+            "offset": -18.75,
+            "focused": "sk-button sk-button-ghost sk-button-sm",
+            "reading": "selecting_or_interacting"
+          }
+        },
+        {
+          "name": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 13783,
+              "extent": 15007,
+              "viewport": 730,
+              "endGap": 494,
+              "count": 62,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -18.75,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            },
+            "after": {
+              "top": 13853,
+              "extent": 15480,
+              "viewport": 730,
+              "endGap": 897,
+              "count": 64,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -19,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "trusted Tab retains focus within a historical message",
+          "passed": true,
+          "details": {
+            "top": 13853,
+            "extent": 15480,
+            "viewport": 730,
+            "endGap": 897,
+            "count": 64,
+            "key": "part.[\"reading-message-29\",\"text/0\"]",
+            "offset": -19,
+            "focused": "identity-trigger",
+            "reading": "selecting_or_interacting"
+          }
+        },
+        {
+          "name": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 13853,
+              "extent": 15480,
+              "viewport": 730,
+              "endGap": 897,
+              "count": 64,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -19,
+              "focused": "identity-trigger",
+              "reading": "selecting_or_interacting"
+            },
+            "after": {
+              "top": 13939,
+              "extent": 15969,
+              "viewport": 730,
+              "endGap": 1300,
+              "count": 66,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -19.25,
+              "focused": "identity-trigger",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "explicit resume after content focus follows appends and keeps the resume control focused",
+          "passed": true,
+          "details": {
+            "top": 15712,
+            "extent": 16442,
+            "viewport": 730,
+            "endGap": 0,
+            "count": 68,
+            "key": "part.[\"reading-message-33\",\"text/0\"]",
+            "offset": -110.5,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "trusted wheel departs from the end",
+          "passed": true,
+          "details": {
+            "top": 15192,
+            "extent": 16442,
+            "viewport": 730,
+            "endGap": 520,
+            "count": 68,
+            "key": "part.[\"reading-message-32\",\"text/0\"]",
+            "offset": 6.5,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "reading_history"
+          }
+        },
+        {
+          "name": "append preserves the same reader key and offset",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 15192,
+              "extent": 16442,
+              "viewport": 730,
+              "endGap": 520,
+              "count": 68,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": 6.5,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            },
+            "paused": {
+              "top": 15278,
+              "extent": 16930,
+              "viewport": 730,
+              "endGap": 922,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": 6.25,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            }
+          }
+        },
+        {
+          "name": "replayed committed identity adds no duplicate row",
+          "passed": true,
+          "details": {
+            "count": 70
+          }
+        },
+        {
+          "name": "reopening restores the saved reader key across replay materialization",
+          "passed": true,
+          "details": {
+            "paused": {
+              "top": 15278,
+              "extent": 16930,
+              "viewport": 730,
+              "endGap": 922,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": 6.25,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            },
+            "restored": {
+              "top": 15278,
+              "extent": 16930,
+              "viewport": 730,
+              "endGap": 922,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": 6.25,
+              "focused": "",
+              "reading": "reading_history"
+            }
+          }
+        },
+        {
+          "name": "keyboard resume keeps focus on its surviving control",
+          "passed": true,
+          "details": {
+            "top": 16200,
+            "extent": 16930,
+            "viewport": 730,
+            "endGap": 0,
+            "count": 70,
+            "key": "part.[\"reading-message-34\",\"text/0\"]",
+            "offset": -109.75,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "resumed lease follows later appends",
+          "passed": true
+        },
+        {
+          "name": "selection and its anchor survive append",
+          "passed": true,
+          "details": {
+            "selected": {
+              "top": 16053,
+              "extent": 17403,
+              "viewport": 730,
+              "endGap": 620,
+              "count": 72,
+              "key": "part.[\"reading-message-33\",\"text/0\"]",
+              "offset": -296,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "selecting_or_interacting"
+            },
+            "selectionAppend": {
+              "top": 16139,
+              "extent": 17892,
+              "viewport": 730,
+              "endGap": 1023,
+              "count": 74,
+              "key": "part.[\"reading-message-33\",\"text/0\"]",
+              "offset": -296.25,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "natural reader end arrival resumes later growth",
+          "passed": true
+        },
+        {
+          "name": "subject replacement retires the old lease and ignores its late callbacks",
+          "passed": true,
+          "details": {
+            "late": 4,
+            "replacement": {
+              "top": 17635,
+              "extent": 18365,
+              "viewport": 730,
+              "endGap": 0,
+              "count": 76,
+              "key": "part.[\"reading-message-37\",\"text/0\"]",
+              "offset": -110.5,
+              "focused": "",
+              "reading": "following_latest"
+            },
+            "afterLate": {
+              "top": 17635,
+              "extent": 18365,
+              "viewport": 730,
+              "endGap": 0,
+              "count": 76,
+              "key": "part.[\"reading-message-37\",\"text/0\"]",
+              "offset": -110.5,
+              "focused": "",
+              "reading": "following_latest"
+            }
+          }
+        },
+        {
+          "name": "dispose disconnects observers and ignores late observer callbacks",
+          "passed": true,
+          "details": {
+            "observers": 6,
+            "disconnected": 6,
+            "children": 0
+          }
+        },
+        {
+          "name": "render/replay/dispose issue no business writes",
+          "passed": true,
+          "details": [
+            "client_hello",
+            "client_hello"
+          ]
+        },
+        {
+          "name": "real App has no page errors",
+          "passed": true,
+          "details": []
+        }
+      ],
+      "errors": [],
+      "fixture_focus_targets": [
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-1\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-1\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-2\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-2\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-3\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-3\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-4\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-4\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-5\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-5\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-6\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-6\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-7\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-7\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-8\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-8\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-9\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-9\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-10\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-10\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-11\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-11\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-12\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-12\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-13\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-13\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-14\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-14\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-15\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-15\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-16\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-16\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-17\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-17\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-18\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-18\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-19\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-19\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-20\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-20\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-21\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-21\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-22\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-22\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-23\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-23\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-24\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-24\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-25\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-25\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-26\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-26\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-27\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-27\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-28\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-28\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-29\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-29\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-30\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-30\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-31\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-31\",\"text/0\"]"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "tab": "im",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "theme": "light",
+      "reduced_motion": "reduce",
+      "observations": [
+        {
+          "name": "initial",
+          "top": 9896,
+          "extent": 10632,
+          "viewport": 736,
+          "endGap": 0,
+          "count": 60,
+          "key": "part.[\"reading-message-28\",\"text/0\"]",
+          "offset": -145.453125,
+          "focused": ""
+        }
+      ],
+      "checks": [
+        {
+          "name": "committed reply text reaches the actual conversation renderer",
+          "passed": true,
+          "details": {
+            "tab": "im"
+          }
+        },
+        {
+          "name": "append follows the actual tail and retains composer focus",
+          "passed": true,
+          "details": {
+            "top": 10256,
+            "extent": 10992,
+            "viewport": 736,
+            "endGap": 0,
+            "count": 62,
+            "key": "part.[\"reading-message-29\",\"text/0\"]",
+            "offset": -145.5,
+            "focused": "composer-input"
+          }
+        },
+        {
+          "name": "fixture supplies sequential focus targets in at least three messages",
+          "passed": false,
+          "details": {
+            "focusTargets": []
+          }
+        }
+      ],
+      "errors": [],
+      "fixture_focus_targets": [],
+      "status": "failed",
+      "failure": "AssertionError [ERR_ASSERTION]: fixture supplies sequential focus targets in at least three messages: {\"focusTargets\":[]}"
+    },
+    {
+      "tab": "inspect",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "theme": "light",
+      "reduced_motion": "reduce",
+      "observations": [
+        {
+          "name": "initial",
+          "top": 17742,
+          "extent": 18432,
+          "viewport": 690,
+          "endGap": 0,
+          "count": 60,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -400.5,
+          "focused": "",
+          "reading": "following_latest"
+        },
+        {
+          "name": "keyboard-Shift+Tab-departed",
+          "top": 17598,
+          "extent": 19052,
+          "viewport": 690,
+          "endGap": 764,
+          "count": 62,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -170.75,
+          "focused": "sk-button sk-button-ghost sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Shift+Tab-append",
+          "top": 17668,
+          "extent": 19656,
+          "viewport": 690,
+          "endGap": 1298,
+          "count": 64,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -171,
+          "focused": "sk-button sk-button-ghost sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Tab-departed",
+          "top": 17668,
+          "extent": 19656,
+          "viewport": 690,
+          "endGap": 1298,
+          "count": 64,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -171,
+          "focused": "identity-trigger",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "keyboard-Tab-append",
+          "top": 17754,
+          "extent": 20276,
+          "viewport": 690,
+          "endGap": 1832,
+          "count": 66,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -171.25,
+          "focused": "identity-trigger",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "departed",
+          "top": 19670,
+          "extent": 20880,
+          "viewport": 690,
+          "endGap": 520,
+          "count": 68,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": -414.75,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "reading_history"
+        },
+        {
+          "name": "append-paused",
+          "top": 19756,
+          "extent": 21500,
+          "viewport": 690,
+          "endGap": 1054,
+          "count": 70,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": -415,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "reading_history"
+        },
+        {
+          "name": "history-reopened",
+          "top": 19756,
+          "extent": 21500,
+          "viewport": 690,
+          "endGap": 1054,
+          "count": 70,
+          "key": "part.[\"reading-message-32\",\"text/0\"]",
+          "offset": -415,
+          "focused": "",
+          "reading": "reading_history"
+        },
+        {
+          "name": "selected",
+          "top": 20794,
+          "extent": 22104,
+          "viewport": 690,
+          "endGap": 620,
+          "count": 72,
+          "key": "part.[\"reading-message-34\",\"text/0\"]",
+          "offset": -314.75,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "selection-append",
+          "top": 20880,
+          "extent": 22724,
+          "viewport": 690,
+          "endGap": 1154,
+          "count": 74,
+          "key": "part.[\"reading-message-34\",\"text/0\"]",
+          "offset": -315,
+          "focused": "sk-button sk-button-secondary sk-button-sm",
+          "reading": "selecting_or_interacting"
+        },
+        {
+          "name": "new-subject-owner",
+          "top": 25146,
+          "extent": 25836,
+          "viewport": 690,
+          "endGap": 0,
+          "count": 76,
+          "key": "part.[\"reading-message-37\",\"text/0\"]",
+          "offset": -400.5,
+          "focused": "",
+          "reading": "following_latest"
+        }
+      ],
+      "checks": [
+        {
+          "name": "committed reply text reaches the actual conversation renderer",
+          "passed": true,
+          "details": {
+            "tab": "inspect"
+          }
+        },
+        {
+          "name": "append follows the actual tail and retains composer focus",
+          "passed": true,
+          "details": {
+            "top": 18362,
+            "extent": 19052,
+            "viewport": 690,
+            "endGap": 0,
+            "count": 62,
+            "key": "part.[\"reading-message-30\",\"text/0\"]",
+            "offset": -400.5,
+            "focused": "composer-input",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "fixture supplies sequential focus targets in at least three messages",
+          "passed": true,
+          "details": {
+            "focusTargets": [
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-1\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-1\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-2\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-2\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-3\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-3\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-4\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-4\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-5\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-5\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-6\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-6\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-7\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-7\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-8\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-8\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-9\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-9\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-10\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-10\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-11\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-11\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-12\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-12\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-13\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-13\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-14\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-14\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-15\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-15\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-16\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-16\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-17\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-17\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-18\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-18\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-19\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-19\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-20\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-20\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-21\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-21\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-22\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-22\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-23\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-23\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-24\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-24\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-25\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-25\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-26\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-26\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-27\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-27\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-28\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-28\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-29\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-29\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-30\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-30\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-31\",\"text/0\"]"
+              },
+              {
+                "tag": "DIV",
+                "href": null,
+                "key": "part.[\"reading-message-31\",\"text/0\"]"
+              }
+            ]
+          }
+        },
+        {
+          "name": "trusted Shift+Tab reaches a historical message action away from the tail",
+          "passed": true,
+          "details": {
+            "backwardTabs": 6,
+            "before": {
+              "top": 18362,
+              "extent": 19052,
+              "viewport": 690,
+              "endGap": 0,
+              "count": 62,
+              "key": "part.[\"reading-message-30\",\"text/0\"]",
+              "offset": -400.5,
+              "focused": "composer-input",
+              "reading": "following_latest"
+            },
+            "after": {
+              "top": 17598,
+              "extent": 19052,
+              "viewport": 690,
+              "endGap": 764,
+              "count": 62,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -170.75,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "trusted Shift+Tab retains focus within a historical message",
+          "passed": true,
+          "details": {
+            "top": 17598,
+            "extent": 19052,
+            "viewport": 690,
+            "endGap": 764,
+            "count": 62,
+            "key": "part.[\"reading-message-29\",\"text/0\"]",
+            "offset": -170.75,
+            "focused": "sk-button sk-button-ghost sk-button-sm",
+            "reading": "selecting_or_interacting"
+          }
+        },
+        {
+          "name": "append preserves Shift+Tab focus and its reader anchor",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 17598,
+              "extent": 19052,
+              "viewport": 690,
+              "endGap": 764,
+              "count": 62,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -170.75,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            },
+            "after": {
+              "top": 17668,
+              "extent": 19656,
+              "viewport": 690,
+              "endGap": 1298,
+              "count": 64,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -171,
+              "focused": "sk-button sk-button-ghost sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "trusted Tab retains focus within a historical message",
+          "passed": true,
+          "details": {
+            "top": 17668,
+            "extent": 19656,
+            "viewport": 690,
+            "endGap": 1298,
+            "count": 64,
+            "key": "part.[\"reading-message-29\",\"text/0\"]",
+            "offset": -171,
+            "focused": "identity-trigger",
+            "reading": "selecting_or_interacting"
+          }
+        },
+        {
+          "name": "append preserves Tab focus and its reader anchor",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 17668,
+              "extent": 19656,
+              "viewport": 690,
+              "endGap": 1298,
+              "count": 64,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -171,
+              "focused": "identity-trigger",
+              "reading": "selecting_or_interacting"
+            },
+            "after": {
+              "top": 17754,
+              "extent": 20276,
+              "viewport": 690,
+              "endGap": 1832,
+              "count": 66,
+              "key": "part.[\"reading-message-29\",\"text/0\"]",
+              "offset": -171.25,
+              "focused": "identity-trigger",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "explicit resume after content focus follows appends and keeps the resume control focused",
+          "passed": true,
+          "details": {
+            "top": 20190,
+            "extent": 20880,
+            "viewport": 690,
+            "endGap": 0,
+            "count": 68,
+            "key": "part.[\"reading-message-33\",\"text/0\"]",
+            "offset": -400.5,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "trusted wheel departs from the end",
+          "passed": true,
+          "details": {
+            "top": 19670,
+            "extent": 20880,
+            "viewport": 690,
+            "endGap": 520,
+            "count": 68,
+            "key": "part.[\"reading-message-32\",\"text/0\"]",
+            "offset": -414.75,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "reading_history"
+          }
+        },
+        {
+          "name": "append preserves the same reader key and offset",
+          "passed": true,
+          "details": {
+            "before": {
+              "top": 19670,
+              "extent": 20880,
+              "viewport": 690,
+              "endGap": 520,
+              "count": 68,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": -414.75,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            },
+            "paused": {
+              "top": 19756,
+              "extent": 21500,
+              "viewport": 690,
+              "endGap": 1054,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": -415,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            }
+          }
+        },
+        {
+          "name": "replayed committed identity adds no duplicate row",
+          "passed": true,
+          "details": {
+            "count": 70
+          }
+        },
+        {
+          "name": "reopening restores the saved reader key across replay materialization",
+          "passed": true,
+          "details": {
+            "paused": {
+              "top": 19756,
+              "extent": 21500,
+              "viewport": 690,
+              "endGap": 1054,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": -415,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "reading_history"
+            },
+            "restored": {
+              "top": 19756,
+              "extent": 21500,
+              "viewport": 690,
+              "endGap": 1054,
+              "count": 70,
+              "key": "part.[\"reading-message-32\",\"text/0\"]",
+              "offset": -415,
+              "focused": "",
+              "reading": "reading_history"
+            }
+          }
+        },
+        {
+          "name": "keyboard resume keeps focus on its surviving control",
+          "passed": true,
+          "details": {
+            "top": 20810,
+            "extent": 21500,
+            "viewport": 690,
+            "endGap": 0,
+            "count": 70,
+            "key": "part.[\"reading-message-34\",\"text/0\"]",
+            "offset": -400.5,
+            "focused": "sk-button sk-button-secondary sk-button-sm",
+            "reading": "following_latest"
+          }
+        },
+        {
+          "name": "resumed lease follows later appends",
+          "passed": true
+        },
+        {
+          "name": "selection and its anchor survive append",
+          "passed": true,
+          "details": {
+            "selected": {
+              "top": 20794,
+              "extent": 22104,
+              "viewport": 690,
+              "endGap": 620,
+              "count": 72,
+              "key": "part.[\"reading-message-34\",\"text/0\"]",
+              "offset": -314.75,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "selecting_or_interacting"
+            },
+            "selectionAppend": {
+              "top": 20880,
+              "extent": 22724,
+              "viewport": 690,
+              "endGap": 1154,
+              "count": 74,
+              "key": "part.[\"reading-message-34\",\"text/0\"]",
+              "offset": -315,
+              "focused": "sk-button sk-button-secondary sk-button-sm",
+              "reading": "selecting_or_interacting"
+            }
+          }
+        },
+        {
+          "name": "natural reader end arrival resumes later growth",
+          "passed": true
+        },
+        {
+          "name": "subject replacement retires the old lease and ignores its late callbacks",
+          "passed": true,
+          "details": {
+            "late": 4,
+            "replacement": {
+              "top": 25146,
+              "extent": 25836,
+              "viewport": 690,
+              "endGap": 0,
+              "count": 76,
+              "key": "part.[\"reading-message-37\",\"text/0\"]",
+              "offset": -400.5,
+              "focused": "",
+              "reading": "following_latest"
+            },
+            "afterLate": {
+              "top": 25146,
+              "extent": 25836,
+              "viewport": 690,
+              "endGap": 0,
+              "count": 76,
+              "key": "part.[\"reading-message-37\",\"text/0\"]",
+              "offset": -400.5,
+              "focused": "",
+              "reading": "following_latest"
+            }
+          }
+        },
+        {
+          "name": "dispose disconnects observers and ignores late observer callbacks",
+          "passed": true,
+          "details": {
+            "observers": 6,
+            "disconnected": 6,
+            "children": 0
+          }
+        },
+        {
+          "name": "render/replay/dispose issue no business writes",
+          "passed": true,
+          "details": [
+            "client_hello",
+            "client_hello"
+          ]
+        },
+        {
+          "name": "real App has no page errors",
+          "passed": true,
+          "details": []
+        }
+      ],
+      "errors": [],
+      "fixture_focus_targets": [
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-1\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-1\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-2\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-2\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-3\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-3\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-4\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-4\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-5\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-5\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-6\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-6\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-7\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-7\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-8\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-8\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-9\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-9\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-10\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-10\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-11\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-11\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-12\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-12\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-13\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-13\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-14\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-14\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-15\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-15\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-16\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-16\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-17\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-17\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-18\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-18\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-19\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-19\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-20\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-20\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-21\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-21\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-22\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-22\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-23\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-23\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-24\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-24\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-25\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-25\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-26\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-26\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-27\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-27\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-28\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-28\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-29\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-29\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-30\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-30\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-31\",\"text/0\"]"
+        },
+        {
+          "tag": "DIV",
+          "href": null,
+          "key": "part.[\"reading-message-31\",\"text/0\"]"
+        }
+      ],
+      "status": "passed"
+    },
+    {
+      "tab": "im",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "theme": "light",
+      "reduced_motion": "reduce",
+      "observations": [
+        {
+          "name": "initial",
+          "top": 16230,
+          "extent": 17009,
+          "viewport": 779,
+          "endGap": 0,
+          "count": 60,
+          "key": "part.[\"reading-message-29\",\"text/0\"]",
+          "offset": -234.5625,
+          "focused": ""
+        }
+      ],
+      "checks": [
+        {
+          "name": "committed reply text reaches the actual conversation renderer",
+          "passed": true,
+          "details": {
+            "tab": "im"
+          }
+        },
+        {
+          "name": "append follows the actual tail and retains composer focus",
+          "passed": true,
+          "details": {
+            "top": 16803,
+            "extent": 17582,
+            "viewport": 779,
+            "endGap": 0,
+            "count": 62,
+            "key": "part.[\"reading-message-30\",\"text/0\"]",
+            "offset": -234.640625,
+            "focused": "composer-input"
+          }
+        },
+        {
+          "name": "fixture supplies sequential focus targets in at least three messages",
+          "passed": false,
+          "details": {
+            "focusTargets": []
+          }
+        }
+      ],
+      "errors": [],
+      "fixture_focus_targets": [],
+      "status": "failed",
+      "failure": "AssertionError [ERR_ASSERTION]: fixture supplies sequential focus targets in at least three messages: {\"focusTargets\":[]}"
+    }
+  ],
+  "browser": {
+    "engine": "Chromium",
+    "version": "145.0.7632.6",
+    "headless": true
+  },
+  "status": "failed",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/favicon.ico"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/theme-bootstrap.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-style.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/app.js"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/shadcn-theme.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/proto-ui-tokens.generated.css"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/chunks/chunk-O3OVBR66.js"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/memory"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/assets/build-manifest.json"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/self"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/owner/state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/conversations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/playground"
+    },
+    {
+      "method": "GET",
+      "path": "/api/config/namespaces"
+    },
+    {
+      "method": "GET",
+      "path": "/api/submissions"
+    }
+  ]
+}

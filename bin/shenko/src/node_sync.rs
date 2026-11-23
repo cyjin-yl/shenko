@@ -949,7 +949,7 @@ fn establish_primary_with_model_gate(
     // but an active competing primary must not cause an endless campaign loop.
     for recovery_round in 0..3 {
         if cancel.is_cancelled() {
-            bail!("primary recovery cancelled")
+            return Err(component_runtime::SelectionCancelled.into());
         }
         let initial_index = node.control_frontier()?.index;
         let config = node
@@ -1089,7 +1089,7 @@ fn establish_primary_with_model_gate(
             let jitter = u64::from(own.0.as_bytes()[15]);
             std::thread::sleep(Duration::from_millis(200 + jitter));
             if cancel.is_cancelled() {
-                bail!("primary recovery cancelled")
+                return Err(component_runtime::SelectionCancelled.into());
             }
             let current = node
                 .member_configuration()?
@@ -1106,7 +1106,7 @@ fn establish_primary_with_model_gate(
             return component_runtime::establish_component(data_dir, store, &mut node, cancel);
         }
         if cancel.is_cancelled() {
-            bail!("primary recovery cancelled")
+            return Err(component_runtime::SelectionCancelled.into());
         }
         // Freeze the exact failed round before opening the branch. Both the
         // metadata write and the later Store transaction recheck these facts.

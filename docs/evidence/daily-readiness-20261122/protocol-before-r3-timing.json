@@ -1,0 +1,5397 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21T19:12:38Z",
+  "run_id": "protocol-before-r3",
+  "summarizer": {
+    "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/driver-cb1d0632/summarize_request_timing.py",
+    "bytes": 8491,
+    "sha256": "0aae56f4a1392ed176fa91101f8a8c4cf692f74edcabc046c20f7d66a09555a7"
+  },
+  "completed_cases": [
+    {
+      "case": "case-01",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-17-29",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "eb4c5541-820c-483f-a5b4-246d3717c5b7",
+        "system_prompt_sha256": "cde8621172ed37c009dd66ea7353d56a645e3ac8b1273c703869fa33d4fc7dc1",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116057,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 241.73207621500478,
+        "finished_at": "2026-11-21T18:50:16Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:46:15Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116057,
+        "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+        "elapsed_seconds": 80.21858954601339
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/summary.json",
+          "bytes": 1392,
+          "sha256": "ac531690fa8a5fff145559d25cc05d6a44082c8d7e3b52d03f9f83ed9ac6cfa3"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.ledger.json",
+          "bytes": 487718,
+          "sha256": "3e0e6c9941a5c690f1f3546ef47b2afe2b7977293fa7c8aff3f0b46cd862c099"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/final.ledger.json",
+          "bytes": 491020,
+          "sha256": "6bfa903e151dd24545a64fd797c65b5ee39c247952e00b74c3009c1aea149edc"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.observation.json",
+          "bytes": 5100,
+          "sha256": "1ad9e56fdccfdc6ae92c20c9dea49ce519841d55e8a2a82999960c5edeee8a0a"
+        }
+      ],
+      "first_request": {
+        "request_id": "eb4c5541-820c-483f-a5b4-246d3717c5b7",
+        "step_id": "06564272-0324-4420-ab07-2c909e7350ff",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 18:47:53"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 89
+          },
+          "created_at": "2026-11-21 18:49:04"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "abdff0c7-76cd-4981-bc80-37b34465f98f",
+            "seq": 94
+          },
+          "created_at": "2026-11-21 18:49:56"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 3153,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13247,
+          "output_tokens": 3153,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/46/15/461503cbfdc243e30069ebc52f9abba11ffbea5f165181c9740aa79022b52551",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+          "bytes": 395169,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/27/69/2769aae88274ad9f0518362f73e33ed75cfef6bbece61bdfea4b9a1ad723cb55",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:afadcccf7e3c65383364923d52760ac3d6ec3d77e5ee2ef2b703c56c3e1ce8d6",
+          "bytes": 6079,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/installation/cas/af/ad/afadcccf7e3c65383364923d52760ac3d6ec3d77e5ee2ef2b703c56c3e1ce8d6",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-01/first.runtime.log",
+            "bytes": 110186,
+            "sha256": "a369bad3bc590f7a1edeb5ba4f733bdab3a1dbee1c8f1e7217778c3e068d4102"
+          }
+        ],
+        "quality": {
+          "scope_count": 146,
+          "complete_count": 146,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 3,
+            "inclusive_total_us": 15967,
+            "p50_us": 5328,
+            "p95_us": 5367,
+            "max_us": 5367,
+            "self_sample_count": 3,
+            "self_total_us": 15967
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 3166,
+            "p50_us": 653,
+            "p95_us": 1863,
+            "max_us": 1863,
+            "self_sample_count": 3,
+            "self_total_us": 3166
+          },
+          {
+            "phase": "authority.order",
+            "count": 3,
+            "inclusive_total_us": 4526300,
+            "p50_us": 1267494,
+            "p95_us": 2156135,
+            "max_us": 2156135,
+            "self_sample_count": 3,
+            "self_total_us": 4526300
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 1,
+            "inclusive_total_us": 1274840,
+            "p50_us": 1274840,
+            "p95_us": 1274840,
+            "max_us": 1274840,
+            "self_sample_count": 1,
+            "self_total_us": 211
+          },
+          {
+            "phase": "canonical.position",
+            "count": 1,
+            "inclusive_total_us": 203,
+            "p50_us": 203,
+            "p95_us": 203,
+            "max_us": 203,
+            "self_sample_count": 1,
+            "self_total_us": 137
+          },
+          {
+            "phase": "canonical.prepare",
+            "count": 1,
+            "inclusive_total_us": 17218379,
+            "p50_us": 17218379,
+            "p95_us": 17218379,
+            "max_us": 17218379,
+            "self_sample_count": 1,
+            "self_total_us": 6140
+          },
+          {
+            "phase": "capture.closure",
+            "count": 1,
+            "inclusive_total_us": 1577,
+            "p50_us": 1577,
+            "p95_us": 1577,
+            "max_us": 1577,
+            "self_sample_count": 1,
+            "self_total_us": 1577
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 1,
+            "inclusive_total_us": 27384,
+            "p50_us": 27384,
+            "p95_us": 27384,
+            "max_us": 27384,
+            "self_sample_count": 1,
+            "self_total_us": 27384
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 1,
+            "inclusive_total_us": 5662,
+            "p50_us": 5662,
+            "p95_us": 5662,
+            "max_us": 5662,
+            "self_sample_count": 1,
+            "self_total_us": 5662
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 1,
+            "inclusive_total_us": 362,
+            "p50_us": 362,
+            "p95_us": 362,
+            "max_us": 362,
+            "self_sample_count": 1,
+            "self_total_us": 362
+          },
+          {
+            "phase": "capture.rows",
+            "count": 1,
+            "inclusive_total_us": 63530,
+            "p50_us": 63530,
+            "p95_us": 63530,
+            "max_us": 63530,
+            "self_sample_count": 1,
+            "self_total_us": 10417
+          },
+          {
+            "phase": "capture.schema",
+            "count": 1,
+            "inclusive_total_us": 18128,
+            "p50_us": 18128,
+            "p95_us": 18128,
+            "max_us": 18128,
+            "self_sample_count": 1,
+            "self_total_us": 18128
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 4,
+            "inclusive_total_us": 76984869,
+            "p50_us": 8402264,
+            "p95_us": 47854875,
+            "max_us": 47854875,
+            "self_sample_count": 4,
+            "self_total_us": 320
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 4,
+            "inclusive_total_us": 74072219,
+            "p50_us": 7766272,
+            "p95_us": 47346063,
+            "max_us": 47346063,
+            "self_sample_count": 4,
+            "self_total_us": 74072219
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 4,
+            "inclusive_total_us": 2744425,
+            "p50_us": 466474,
+            "p95_us": 1413952,
+            "max_us": 1413952,
+            "self_sample_count": 4,
+            "self_total_us": 7089
+          },
+          {
+            "phase": "control.validate",
+            "count": 4,
+            "inclusive_total_us": 167905,
+            "p50_us": 40050,
+            "p95_us": 47644,
+            "max_us": 47644,
+            "self_sample_count": 4,
+            "self_total_us": 167905
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 2,
+            "inclusive_total_us": 3375,
+            "p50_us": 1645,
+            "p95_us": 1730,
+            "max_us": 1730,
+            "self_sample_count": 2,
+            "self_total_us": 3375
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 1,
+            "inclusive_total_us": 534,
+            "p50_us": 534,
+            "p95_us": 534,
+            "max_us": 534,
+            "self_sample_count": 1,
+            "self_total_us": 534
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 1,
+            "inclusive_total_us": 10025,
+            "p50_us": 10025,
+            "p95_us": 10025,
+            "max_us": 10025,
+            "self_sample_count": 1,
+            "self_total_us": 10025
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 1,
+            "inclusive_total_us": 11286,
+            "p50_us": 11286,
+            "p95_us": 11286,
+            "max_us": 11286,
+            "self_sample_count": 1,
+            "self_total_us": 40
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 1,
+            "inclusive_total_us": 687,
+            "p50_us": 687,
+            "p95_us": 687,
+            "max_us": 687,
+            "self_sample_count": 1,
+            "self_total_us": 687
+          },
+          {
+            "phase": "native.claim",
+            "count": 1,
+            "inclusive_total_us": 17412904,
+            "p50_us": 17412904,
+            "p95_us": 17412904,
+            "max_us": 17412904,
+            "self_sample_count": 1,
+            "self_total_us": 192677
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 4,
+            "inclusive_total_us": 725,
+            "p50_us": 172,
+            "p95_us": 205,
+            "max_us": 205,
+            "self_sample_count": 4,
+            "self_total_us": 725
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 14,
+            "inclusive_total_us": 1514526,
+            "p50_us": 55693,
+            "p95_us": 349404,
+            "max_us": 349404,
+            "self_sample_count": 14,
+            "self_total_us": 1514526
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 4,
+            "inclusive_total_us": 1048332,
+            "p50_us": 65,
+            "p95_us": 1048138,
+            "max_us": 1048138,
+            "self_sample_count": 4,
+            "self_total_us": 1048332
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 15,
+            "inclusive_total_us": 2247374,
+            "p50_us": 1584,
+            "p95_us": 1361153,
+            "max_us": 1361153,
+            "self_sample_count": 15,
+            "self_total_us": 23486
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 14,
+            "inclusive_total_us": 1688,
+            "p50_us": 100,
+            "p95_us": 226,
+            "max_us": 226,
+            "self_sample_count": 14,
+            "self_total_us": 1688
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 11,
+            "inclusive_total_us": 31,
+            "p50_us": 2,
+            "p95_us": 5,
+            "max_us": 5,
+            "self_sample_count": 11,
+            "self_total_us": 31
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 6,
+            "inclusive_total_us": 59,
+            "p50_us": 5,
+            "p95_us": 34,
+            "max_us": 34,
+            "self_sample_count": 6,
+            "self_total_us": 59
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 16,
+            "inclusive_total_us": 1486004,
+            "p50_us": 9,
+            "p95_us": 323002,
+            "max_us": 323002,
+            "self_sample_count": 16,
+            "self_total_us": 1486004
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 19,
+            "inclusive_total_us": 368,
+            "p50_us": 0,
+            "p95_us": 169,
+            "max_us": 169,
+            "self_sample_count": 19,
+            "self_total_us": 368
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 197233,
+            "p50_us": 197233,
+            "p95_us": 197233,
+            "max_us": 197233,
+            "self_sample_count": 1,
+            "self_total_us": 10136
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 48579323,
+            "p50_us": 48579323,
+            "p95_us": 48579323,
+            "max_us": 48579323,
+            "self_sample_count": 1,
+            "self_total_us": 524159
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 70,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795286947861849,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "action_id": "8fb29847-4bed-3dc0-4cf2-e48e5597af06"
+            },
+            "status": "complete",
+            "inclusive_us": 48579323,
+            "observed_drops_during_scope": 0,
+            "self_us": 524159
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 71,
+            "phase": "control.predecessor",
+            "parent_id": 70,
+            "started_unix_us": 1795286947862124,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "action_id": "8fb29847-4bed-3dc0-4cf2-e48e5597af06"
+            },
+            "status": "complete",
+            "inclusive_us": 47854875,
+            "observed_drops_during_scope": 0,
+            "self_us": 73
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 82,
+            "phase": "control.seal_pages",
+            "parent_id": 71,
+            "started_unix_us": 1795286948370926,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "action_id": "8fb29847-4bed-3dc0-4cf2-e48e5597af06"
+            },
+            "status": "complete",
+            "inclusive_us": 47346063,
+            "observed_drops_during_scope": 0,
+            "self_us": 47346063
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 123,
+            "phase": "native.claim",
+            "parent_id": null,
+            "started_unix_us": 1795286997935596,
+            "binding": {
+              "task_id": "10867699-521f-4bfa-997f-c65514d827ab"
+            },
+            "status": "complete",
+            "inclusive_us": 17412904,
+            "observed_drops_during_scope": 0,
+            "self_us": 192677
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 128,
+            "phase": "canonical.prepare",
+            "parent_id": 123,
+            "started_unix_us": 1795286998130091,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "task_id": "10867699-521f-4bfa-997f-c65514d827ab",
+              "action_id": "394defa2-8281-a6d9-dbf4-eab693f95927"
+            },
+            "status": "complete",
+            "inclusive_us": 17218379,
+            "observed_drops_during_scope": 0,
+            "self_us": 6140
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 129,
+            "phase": "control.predecessor",
+            "parent_id": 128,
+            "started_unix_us": 1795286998130224,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "task_id": "10867699-521f-4bfa-997f-c65514d827ab",
+              "action_id": "394defa2-8281-a6d9-dbf4-eab693f95927"
+            },
+            "status": "complete",
+            "inclusive_us": 17212239,
+            "observed_drops_during_scope": 0,
+            "self_us": 102
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 146,
+            "phase": "control.seal_pages",
+            "parent_id": 129,
+            "started_unix_us": 1795286999591908,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698",
+              "task_id": "10867699-521f-4bfa-997f-c65514d827ab",
+              "action_id": "394defa2-8281-a6d9-dbf4-eab693f95927"
+            },
+            "status": "complete",
+            "inclusive_us": 15750541,
+            "observed_drops_during_scope": 0,
+            "self_us": 15750541
+          },
+          {
+            "source": 0,
+            "pid": 1116057,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795286862483772,
+            "binding": {
+              "subject_id": "dd888e32-8e37-42a7-ab67-401ff76bc698"
+            },
+            "status": "complete",
+            "inclusive_us": 8402264,
+            "observed_drops_during_scope": 0,
+            "self_us": 84
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed.",
+      "shutdown_diagnostic": {
+        "case": "case-01",
+        "log_errors": [
+          "2026-11-21T18:47:28.896909Z  WARN shenko::node_sync: cognition report not published; peers keep the last real report error=cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting",
+          "2026-11-21T18:50:01.769577Z  WARN shenko_subject::loop_runner: 主体恢复阻塞，停止新决定，等待重开和对账 seq=2 err=subject loop stopped on error: protocol error: [writer] runtime_authority_fenced",
+          "Error: protocol error: [writer] runtime_authority_fenced",
+          "Caused by:",
+          "    [writer] runtime_authority_fenced"
+        ],
+        "durable_runtime_errors": [
+          {
+            "seq": 6,
+            "event_type": "runtime_error",
+            "created_at": "2026-11-21 18:50:02",
+            "data": {
+              "error_digest": "blake3:80b25dc69a695c23f9999ade99295ed2ba0630e7913cd4642ac87175a1d9c046",
+              "extra": {
+                "error": {
+                  "code": "runtime_authority_fenced",
+                  "details": {
+                    "reason": "runtime admission is canceled"
+                  },
+                  "retry": "after_reconcile",
+                  "scope": "writer"
+                }
+              },
+              "journal_dropped_total": 0,
+              "kind": "subject_loop",
+              "message": "subject loop stopped on error: protocol error: [writer] runtime_authority_fenced",
+              "message_truncated": false,
+              "occurred_at": "2026-11-21T18:50:02.401Z",
+              "source_module": "shenko_subject::loop_runner",
+              "step_no": 2,
+              "task_id": null,
+              "v": 1
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "case-02",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-28-34",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+        "system_prompt_sha256": "081dba19e3da15e5e7262c775dcb81d1e504a784cbf7b54c1f2e545634a87fee",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116216,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 179.4114986930217,
+        "finished_at": "2026-11-21T18:53:16Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:50:17Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116216,
+        "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013",
+        "elapsed_seconds": 75.98139103798894
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/summary.json",
+          "bytes": 1393,
+          "sha256": "1746272b58b94496216b03c5b77735dec2271229d61e04ee91d4530eb8891ce8"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/first.ledger.json",
+          "bytes": 542854,
+          "sha256": "ea7c9a9762e65ea159ce5f23d87b047472db4477f200808294234e9dc960b3e7"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/final.ledger.json",
+          "bytes": 544019,
+          "sha256": "b431a4ca85c0daf30eccba9c8e57b4889c053dc226d9eeaa7c9458898db7c915"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/first.observation.json",
+          "bytes": 7443,
+          "sha256": "41a5b3264baed4ea517e897298fac3c1fc7cab55b543ab5c2e1f37dad1e0c1b5"
+        }
+      ],
+      "first_request": {
+        "request_id": "b3f74dd7-8164-40c7-ba0e-a504a24178a9",
+        "step_id": "98f86b82-dd72-4859-997d-8bf419ba5b57",
+        "request_state": "terminal",
+        "step_state": "retired",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 18:51:51"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 25
+          },
+          "created_at": "2026-11-21 18:53:06"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "d2ea4164-b6b4-4593-ae19-b3c59a31d793",
+            "seq": 28
+          },
+          "created_at": "2026-11-21 18:53:09"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "length",
+          "max_tokens": 4096,
+          "output_tokens": 4096,
+          "length": true
+        },
+        "usage": {
+          "input_tokens": 13247,
+          "output_tokens": 4096,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/f5/3a/f53aca14fb9693e062d2ed4137653c26d8a36b7d09a54d11574f4e754eac9ef2",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:205a210d66f082941091456183a123aaef65d9c07f3b05e83d0e4abd1be15e04",
+          "bytes": 492565,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/20/5a/205a210d66f082941091456183a123aaef65d9c07f3b05e83d0e4abd1be15e04",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": null,
+        "retry_reason_ref": {
+          "digest": "blake3:6725ed91744a3bdcb18721b981a15d3c8ee88af2dfa65c1f4f046b824fb5f45d",
+          "bytes": 1971,
+          "media_type": "application/json",
+          "store_namespace": "control_rejections",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/installation/cas/67/25/6725ed91744a3bdcb18721b981a15d3c8ee88af2dfa65c1f4f046b824fb5f45d",
+          "codec": {
+            "name": "ControlOutputRejection",
+            "major": 3,
+            "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+          }
+        },
+        "rejection": {
+          "code": "MODEL_RESULT_INCOMPLETE",
+          "line": null,
+          "correction": {
+            "prior_pinned_corrections": 0,
+            "replacement": {
+              "mode": "pinned_correction"
+            }
+          }
+        },
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-02/first.runtime.log",
+            "bytes": 65828,
+            "sha256": "881d1dbf38b537f9580b88c543aeeb3ea7981c1d746b2c75852ff643e2008bbe"
+          }
+        ],
+        "quality": {
+          "scope_count": 88,
+          "complete_count": 88,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 2,
+            "inclusive_total_us": 10700,
+            "p50_us": 5030,
+            "p95_us": 5670,
+            "max_us": 5670,
+            "self_sample_count": 2,
+            "self_total_us": 10700
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 2,
+            "inclusive_total_us": 1302,
+            "p50_us": 574,
+            "p95_us": 728,
+            "max_us": 728,
+            "self_sample_count": 2,
+            "self_total_us": 1302
+          },
+          {
+            "phase": "authority.order",
+            "count": 3,
+            "inclusive_total_us": 3862011,
+            "p50_us": 979549,
+            "p95_us": 2882451,
+            "max_us": 2882451,
+            "self_sample_count": 3,
+            "self_total_us": 3862011
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 3,
+            "inclusive_total_us": 17906474,
+            "p50_us": 5640005,
+            "p95_us": 8405954,
+            "max_us": 8405954,
+            "self_sample_count": 3,
+            "self_total_us": 215
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 3,
+            "inclusive_total_us": 16690519,
+            "p50_us": 5084753,
+            "p95_us": 8110172,
+            "max_us": 8110172,
+            "self_sample_count": 3,
+            "self_total_us": 16690519
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 3,
+            "inclusive_total_us": 1071015,
+            "p50_us": 324821,
+            "p95_us": 489812,
+            "max_us": 489812,
+            "self_sample_count": 3,
+            "self_total_us": 1365
+          },
+          {
+            "phase": "control.validate",
+            "count": 3,
+            "inclusive_total_us": 144725,
+            "p50_us": 40026,
+            "p95_us": 65364,
+            "max_us": 65364,
+            "self_sample_count": 3,
+            "self_total_us": 144725
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 3,
+            "inclusive_total_us": 568,
+            "p50_us": 187,
+            "p95_us": 204,
+            "max_us": 204,
+            "self_sample_count": 3,
+            "self_total_us": 568
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 10,
+            "inclusive_total_us": 1282889,
+            "p50_us": 69751,
+            "p95_us": 389917,
+            "max_us": 389917,
+            "self_sample_count": 10,
+            "self_total_us": 1282889
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 218,
+            "p50_us": 74,
+            "p95_us": 81,
+            "max_us": 81,
+            "self_sample_count": 3,
+            "self_total_us": 218
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 11,
+            "inclusive_total_us": 578329,
+            "p50_us": 1352,
+            "p95_us": 282778,
+            "max_us": 282778,
+            "self_sample_count": 11,
+            "self_total_us": 15439
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 10,
+            "inclusive_total_us": 911,
+            "p50_us": 91,
+            "p95_us": 126,
+            "max_us": 126,
+            "self_sample_count": 10,
+            "self_total_us": 911
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 8,
+            "inclusive_total_us": 25,
+            "p50_us": 3,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 8,
+            "self_total_us": 25
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 3,
+            "inclusive_total_us": 19,
+            "p50_us": 6,
+            "p95_us": 7,
+            "max_us": 7,
+            "self_sample_count": 3,
+            "self_total_us": 19
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 10,
+            "inclusive_total_us": 562366,
+            "p50_us": 9,
+            "p95_us": 280393,
+            "max_us": 280393,
+            "self_sample_count": 10,
+            "self_total_us": 562366
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 11,
+            "inclusive_total_us": 262,
+            "p50_us": 1,
+            "p95_us": 152,
+            "max_us": 152,
+            "self_sample_count": 11,
+            "self_total_us": 262
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287099419569,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 8405954,
+            "observed_drops_during_scope": 0,
+            "self_us": 65
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 15,
+            "phase": "control.seal_pages",
+            "parent_id": 4,
+            "started_unix_us": 1795287099715332,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 8110172,
+            "observed_drops_during_scope": 0,
+            "self_us": 8110172
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 70,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287189912383,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 5640005,
+            "observed_drops_during_scope": 0,
+            "self_us": 76
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 81,
+            "phase": "control.seal_pages",
+            "parent_id": 70,
+            "started_unix_us": 1795287190467624,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 5084753,
+            "observed_drops_during_scope": 0,
+            "self_us": 5084753
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 19,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287111483898,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 3860515,
+            "observed_drops_during_scope": 0,
+            "self_us": 74
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 30,
+            "phase": "control.seal_pages",
+            "parent_id": 19,
+            "started_unix_us": 1795287111848803,
+            "binding": {
+              "subject_id": "3d58ffd8-55a0-40d5-9704-317c87dd7013"
+            },
+            "status": "complete",
+            "inclusive_us": 3495594,
+            "observed_drops_during_scope": 0,
+            "self_us": 3495594
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 16,
+            "phase": "authority.order",
+            "parent_id": null,
+            "started_unix_us": 1795287108260675,
+            "binding": {},
+            "status": "complete",
+            "inclusive_us": 2882451,
+            "observed_drops_during_scope": 0,
+            "self_us": 2882451
+          },
+          {
+            "source": 0,
+            "pid": 1116216,
+            "scope_id": 31,
+            "phase": "authority.order",
+            "parent_id": null,
+            "started_unix_us": 1795287116060634,
+            "binding": {},
+            "status": "complete",
+            "inclusive_us": 979549,
+            "observed_drops_during_scope": 0,
+            "self_us": 979549
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-03",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-46-27",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "ab6402c7-edfc-4a00-a754-c0a19a087db9",
+        "system_prompt_sha256": "97aa09b12987259652f7da593f37410ba14f14f2434e8b708bb7a1d6f058c99a",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116356,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 217.19755251400056,
+        "finished_at": "2026-11-21T18:56:54Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:53:17Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116356,
+        "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe",
+        "elapsed_seconds": 76.99003579499549
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/summary.json",
+          "bytes": 1392,
+          "sha256": "144891a67d6ab264c8ffe2d326f6d5e8797cc4a73b4088a4e74d0ae811030442"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/first.ledger.json",
+          "bytes": 468296,
+          "sha256": "9fe98aade6a5fff696afb4cf0e5354725fbc010da3353dbab9b2315581d1d865"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/final.ledger.json",
+          "bytes": 471598,
+          "sha256": "ae58a9ce4aaec590938ccbe9eb4507be812b6f5497c3d46b9ff2aabfd191d15d"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/first.observation.json",
+          "bytes": 5100,
+          "sha256": "e0959f82a69720ab561d38c01dc1dc8b104779087890e23a0a5d9bb49dfb36a3"
+        }
+      ],
+      "first_request": {
+        "request_id": "ab6402c7-edfc-4a00-a754-c0a19a087db9",
+        "step_id": "a9985f79-4323-4097-9701-6ac58da73288",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 18:54:51"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 64
+          },
+          "created_at": "2026-11-21 18:56:01"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "f8844fe9-53e7-4231-bd0d-5203540fc866",
+            "seq": 68
+          },
+          "created_at": "2026-11-21 18:56:36"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2953,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13247,
+          "output_tokens": 2953,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:91c392ad056779454bb25298fdc3efdc15e6262dc62e9afa38d8140eb79cbc5e",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/91/c3/91c392ad056779454bb25298fdc3efdc15e6262dc62e9afa38d8140eb79cbc5e",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:69348ce2109220b3a1a5336237a4b73ef0160ce788c90621986f8d2322c6b893",
+          "bytes": 380524,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/69/34/69348ce2109220b3a1a5336237a4b73ef0160ce788c90621986f8d2322c6b893",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:7a710de8df5eb7b6d98b1185849a92460772838af25a83774293a7fdece536a2",
+          "bytes": 6260,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/installation/cas/7a/71/7a710de8df5eb7b6d98b1185849a92460772838af25a83774293a7fdece536a2",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-03/first.runtime.log",
+            "bytes": 98031,
+            "sha256": "fc7201590943f8377ce442a405bab3e1bb4c8c47c03cfdf19293a1e7b95d8c0a"
+          }
+        ],
+        "quality": {
+          "scope_count": 131,
+          "complete_count": 131,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 3,
+            "inclusive_total_us": 19107,
+            "p50_us": 6518,
+            "p95_us": 7058,
+            "max_us": 7058,
+            "self_sample_count": 3,
+            "self_total_us": 19107
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 17432,
+            "p50_us": 6121,
+            "p95_us": 9179,
+            "max_us": 9179,
+            "self_sample_count": 3,
+            "self_total_us": 17432
+          },
+          {
+            "phase": "authority.order",
+            "count": 4,
+            "inclusive_total_us": 5492486,
+            "p50_us": 1155470,
+            "p95_us": 2752949,
+            "max_us": 2752949,
+            "self_sample_count": 4,
+            "self_total_us": 5492486
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 1,
+            "inclusive_total_us": 1595905,
+            "p50_us": 1595905,
+            "p95_us": 1595905,
+            "max_us": 1595905,
+            "self_sample_count": 1,
+            "self_total_us": 198
+          },
+          {
+            "phase": "canonical.position",
+            "count": 1,
+            "inclusive_total_us": 81,
+            "p50_us": 81,
+            "p95_us": 81,
+            "max_us": 81,
+            "self_sample_count": 1,
+            "self_total_us": 80
+          },
+          {
+            "phase": "capture.closure",
+            "count": 1,
+            "inclusive_total_us": 1469,
+            "p50_us": 1469,
+            "p95_us": 1469,
+            "max_us": 1469,
+            "self_sample_count": 1,
+            "self_total_us": 1469
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 1,
+            "inclusive_total_us": 6483,
+            "p50_us": 6483,
+            "p95_us": 6483,
+            "max_us": 6483,
+            "self_sample_count": 1,
+            "self_total_us": 6483
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 1,
+            "inclusive_total_us": 5583,
+            "p50_us": 5583,
+            "p95_us": 5583,
+            "max_us": 5583,
+            "self_sample_count": 1,
+            "self_total_us": 5583
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 1,
+            "inclusive_total_us": 305,
+            "p50_us": 305,
+            "p95_us": 305,
+            "max_us": 305,
+            "self_sample_count": 1,
+            "self_total_us": 305
+          },
+          {
+            "phase": "capture.rows",
+            "count": 1,
+            "inclusive_total_us": 26829,
+            "p50_us": 26829,
+            "p95_us": 26829,
+            "max_us": 26829,
+            "self_sample_count": 1,
+            "self_total_us": 5851
+          },
+          {
+            "phase": "capture.schema",
+            "count": 1,
+            "inclusive_total_us": 7138,
+            "p50_us": 7138,
+            "p95_us": 7138,
+            "max_us": 7138,
+            "self_sample_count": 1,
+            "self_total_us": 7138
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 4,
+            "inclusive_total_us": 61413555,
+            "p50_us": 9983845,
+            "p95_us": 31893035,
+            "max_us": 31893035,
+            "self_sample_count": 4,
+            "self_total_us": 314
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 4,
+            "inclusive_total_us": 59169805,
+            "p50_us": 9542549,
+            "p95_us": 31184293,
+            "max_us": 31184293,
+            "self_sample_count": 4,
+            "self_total_us": 59169805
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 4,
+            "inclusive_total_us": 1998013,
+            "p50_us": 390607,
+            "p95_us": 662924,
+            "max_us": 662924,
+            "self_sample_count": 4,
+            "self_total_us": 2465
+          },
+          {
+            "phase": "control.validate",
+            "count": 4,
+            "inclusive_total_us": 245423,
+            "p50_us": 45739,
+            "p95_us": 109431,
+            "max_us": 109431,
+            "self_sample_count": 4,
+            "self_total_us": 245423
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 1,
+            "inclusive_total_us": 2426,
+            "p50_us": 2426,
+            "p95_us": 2426,
+            "max_us": 2426,
+            "self_sample_count": 1,
+            "self_total_us": 2426
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 1,
+            "inclusive_total_us": 548,
+            "p50_us": 548,
+            "p95_us": 548,
+            "max_us": 548,
+            "self_sample_count": 1,
+            "self_total_us": 548
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 1,
+            "inclusive_total_us": 5422,
+            "p50_us": 5422,
+            "p95_us": 5422,
+            "max_us": 5422,
+            "self_sample_count": 1,
+            "self_total_us": 5422
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 1,
+            "inclusive_total_us": 6685,
+            "p50_us": 6685,
+            "p95_us": 6685,
+            "max_us": 6685,
+            "self_sample_count": 1,
+            "self_total_us": 38
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 1,
+            "inclusive_total_us": 677,
+            "p50_us": 677,
+            "p95_us": 677,
+            "max_us": 677,
+            "self_sample_count": 1,
+            "self_total_us": 677
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 4,
+            "inclusive_total_us": 771,
+            "p50_us": 183,
+            "p95_us": 213,
+            "max_us": 213,
+            "self_sample_count": 4,
+            "self_total_us": 771
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 12,
+            "inclusive_total_us": 2766397,
+            "p50_us": 253714,
+            "p95_us": 395055,
+            "max_us": 395055,
+            "self_sample_count": 12,
+            "self_total_us": 2766397
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 4,
+            "inclusive_total_us": 11703,
+            "p50_us": 69,
+            "p95_us": 5964,
+            "max_us": 5964,
+            "self_sample_count": 4,
+            "self_total_us": 11703
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 13,
+            "inclusive_total_us": 1042225,
+            "p50_us": 2052,
+            "p95_us": 318408,
+            "max_us": 318408,
+            "self_sample_count": 13,
+            "self_total_us": 19484
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 12,
+            "inclusive_total_us": 1358,
+            "p50_us": 97,
+            "p95_us": 335,
+            "max_us": 335,
+            "self_sample_count": 12,
+            "self_total_us": 1358
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 9,
+            "inclusive_total_us": 25,
+            "p50_us": 3,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 9,
+            "self_total_us": 25
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 6,
+            "inclusive_total_us": 38,
+            "p50_us": 5,
+            "p95_us": 11,
+            "max_us": 11,
+            "self_sample_count": 6,
+            "self_total_us": 38
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 14,
+            "inclusive_total_us": 1353394,
+            "p50_us": 9,
+            "p95_us": 310589,
+            "max_us": 310589,
+            "self_sample_count": 14,
+            "self_total_us": 1353394
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 16,
+            "inclusive_total_us": 913,
+            "p50_us": 3,
+            "p95_us": 317,
+            "max_us": 317,
+            "self_sample_count": 16,
+            "self_total_us": 913
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 207356,
+            "p50_us": 207356,
+            "p95_us": 207356,
+            "max_us": 207356,
+            "self_sample_count": 1,
+            "self_total_us": 1293
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 32709662,
+            "p50_us": 32709662,
+            "p95_us": 32709662,
+            "max_us": 32709662,
+            "self_sample_count": 1,
+            "self_total_us": 643419
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 70,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795287364258885,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe",
+              "action_id": "dff5c42d-7ab0-d2af-119e-a46ad69c0fc7"
+            },
+            "status": "complete",
+            "inclusive_us": 32709662,
+            "observed_drops_during_scope": 0,
+            "self_us": 643419
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 71,
+            "phase": "control.predecessor",
+            "parent_id": 70,
+            "started_unix_us": 1795287364259534,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe",
+              "action_id": "dff5c42d-7ab0-d2af-119e-a46ad69c0fc7"
+            },
+            "status": "complete",
+            "inclusive_us": 31893035,
+            "observed_drops_during_scope": 0,
+            "self_us": 79
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 82,
+            "phase": "control.seal_pages",
+            "parent_id": 71,
+            "started_unix_us": 1795287364968259,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe",
+              "action_id": "dff5c42d-7ab0-d2af-119e-a46ad69c0fc7"
+            },
+            "status": "complete",
+            "inclusive_us": 31184293,
+            "observed_drops_during_scope": 0,
+            "self_us": 31184293
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 119,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287398788472,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe"
+            },
+            "status": "complete",
+            "inclusive_us": 14486509,
+            "observed_drops_during_scope": 0,
+            "self_us": 99
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 130,
+            "phase": "control.seal_pages",
+            "parent_id": 119,
+            "started_unix_us": 1795287399478445,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe"
+            },
+            "status": "complete",
+            "inclusive_us": 13796519,
+            "observed_drops_during_scope": 0,
+            "self_us": 13796519
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287277802620,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe"
+            },
+            "status": "complete",
+            "inclusive_us": 9983845,
+            "observed_drops_during_scope": 0,
+            "self_us": 76
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 15,
+            "phase": "control.seal_pages",
+            "parent_id": 4,
+            "started_unix_us": 1795287278243905,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe"
+            },
+            "status": "complete",
+            "inclusive_us": 9542549,
+            "observed_drops_during_scope": 0,
+            "self_us": 9542549
+          },
+          {
+            "source": 0,
+            "pid": 1116356,
+            "scope_id": 25,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287291795166,
+            "binding": {
+              "subject_id": "b43b3ce8-94e0-4127-954c-5c0d719b7cfe"
+            },
+            "status": "complete",
+            "inclusive_us": 5050166,
+            "observed_drops_during_scope": 0,
+            "self_us": 60
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-04",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-63-18",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "21f145a6-0fa1-46d2-b84e-c02a811472b8",
+        "system_prompt_sha256": "f694ae6da2b54244f350f8f5dfe80183aa4beba4efc2ebef49fad24f0047b136",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116495,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 216.2551650319947,
+        "finished_at": "2026-11-21T19:00:31Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T18:56:55Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116495,
+        "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+        "elapsed_seconds": 69.97472726099659
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/summary.json",
+          "bytes": 1391,
+          "sha256": "55eab47e70620c108eb2384b958382094740b1764fc60ca9eedb7dd07db13524"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/first.ledger.json",
+          "bytes": 307149,
+          "sha256": "de65011ff33b14542fd5faf8e6c92d75c01d805135467bb476a72d97bd8c8180"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/final.ledger.json",
+          "bytes": 310191,
+          "sha256": "32cf509f185d306528f68a7f4759d0a518275436534892091e9563be59d307df"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/first.observation.json",
+          "bytes": 5101,
+          "sha256": "8c75373c94212047589e112804cf283d80d5590a8dea58abc4d5d4c59ffa861e"
+        }
+      ],
+      "first_request": {
+        "request_id": "21f145a6-0fa1-46d2-b84e-c02a811472b8",
+        "step_id": "066f16f9-3323-47b5-9057-057b1caa4799",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 18:58:21"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 102
+          },
+          "created_at": "2026-11-21 18:59:31"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "f26da466-33e3-4be3-bc87-b22d942147b8",
+            "seq": 107
+          },
+          "created_at": "2026-11-21 19:00:16"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1787,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13245,
+          "output_tokens": 1787,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:71941296eda86d7c842ca02d1d9bd009d2e27aa0634a6d9a734e7dbf2648f698",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/71/94/71941296eda86d7c842ca02d1d9bd009d2e27aa0634a6d9a734e7dbf2648f698",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:1594f9959f63ef4cbd07be01808d8a0075f47482feab6e91041a6367dcec8a36",
+          "bytes": 214199,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/15/94/1594f9959f63ef4cbd07be01808d8a0075f47482feab6e91041a6367dcec8a36",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:dac5f176589b273a0adb77bd2742ec5fe21779a20cb7d6cddbe500c296c85f72",
+          "bytes": 5748,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/installation/cas/da/c5/dac5f176589b273a0adb77bd2742ec5fe21779a20cb7d6cddbe500c296c85f72",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-04/first.runtime.log",
+            "bytes": 106599,
+            "sha256": "74b8ab4e5d8afe4bc60da025e9c299e3944a01b86c854a07fd05ab3ab13b7328"
+          }
+        ],
+        "quality": {
+          "scope_count": 140,
+          "complete_count": 140,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 3,
+            "inclusive_total_us": 18300,
+            "p50_us": 5750,
+            "p95_us": 6870,
+            "max_us": 6870,
+            "self_sample_count": 3,
+            "self_total_us": 18300
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 5590,
+            "p50_us": 1176,
+            "p95_us": 3610,
+            "max_us": 3610,
+            "self_sample_count": 3,
+            "self_total_us": 5590
+          },
+          {
+            "phase": "authority.order",
+            "count": 3,
+            "inclusive_total_us": 6661128,
+            "p50_us": 1470500,
+            "p95_us": 3730359,
+            "max_us": 3730359,
+            "self_sample_count": 3,
+            "self_total_us": 6661128
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 1,
+            "inclusive_total_us": 1480001,
+            "p50_us": 1480001,
+            "p95_us": 1480001,
+            "max_us": 1480001,
+            "self_sample_count": 1,
+            "self_total_us": 211
+          },
+          {
+            "phase": "canonical.position",
+            "count": 1,
+            "inclusive_total_us": 128,
+            "p50_us": 128,
+            "p95_us": 128,
+            "max_us": 128,
+            "self_sample_count": 1,
+            "self_total_us": 128
+          },
+          {
+            "phase": "canonical.prepare",
+            "count": 1,
+            "inclusive_total_us": 10173668,
+            "p50_us": 10173668,
+            "p95_us": 10173668,
+            "max_us": 10173668,
+            "self_sample_count": 1,
+            "self_total_us": 10546
+          },
+          {
+            "phase": "capture.closure",
+            "count": 1,
+            "inclusive_total_us": 944,
+            "p50_us": 944,
+            "p95_us": 944,
+            "max_us": 944,
+            "self_sample_count": 1,
+            "self_total_us": 944
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 1,
+            "inclusive_total_us": 4741,
+            "p50_us": 4741,
+            "p95_us": 4741,
+            "max_us": 4741,
+            "self_sample_count": 1,
+            "self_total_us": 4741
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 1,
+            "inclusive_total_us": 5689,
+            "p50_us": 5689,
+            "p95_us": 5689,
+            "max_us": 5689,
+            "self_sample_count": 1,
+            "self_total_us": 5689
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 1,
+            "inclusive_total_us": 285,
+            "p50_us": 285,
+            "p95_us": 285,
+            "max_us": 285,
+            "self_sample_count": 1,
+            "self_total_us": 285
+          },
+          {
+            "phase": "capture.rows",
+            "count": 1,
+            "inclusive_total_us": 23190,
+            "p50_us": 23190,
+            "p95_us": 23190,
+            "max_us": 23190,
+            "self_sample_count": 1,
+            "self_total_us": 5890
+          },
+          {
+            "phase": "capture.schema",
+            "count": 1,
+            "inclusive_total_us": 5641,
+            "p50_us": 5641,
+            "p95_us": 5641,
+            "max_us": 5641,
+            "self_sample_count": 1,
+            "self_total_us": 5641
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 4,
+            "inclusive_total_us": 65549165,
+            "p50_us": 9107081,
+            "p95_us": 43105628,
+            "max_us": 43105628,
+            "self_sample_count": 4,
+            "self_total_us": 347
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 4,
+            "inclusive_total_us": 63135578,
+            "p50_us": 8369709,
+            "p95_us": 42457290,
+            "max_us": 42457290,
+            "self_sample_count": 4,
+            "self_total_us": 63135578
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 4,
+            "inclusive_total_us": 2043126,
+            "p50_us": 519865,
+            "p95_us": 607939,
+            "max_us": 607939,
+            "self_sample_count": 4,
+            "self_total_us": 56140
+          },
+          {
+            "phase": "control.validate",
+            "count": 4,
+            "inclusive_total_us": 370114,
+            "p50_us": 81290,
+            "p95_us": 129358,
+            "max_us": 129358,
+            "self_sample_count": 4,
+            "self_total_us": 370114
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 2,
+            "inclusive_total_us": 2831,
+            "p50_us": 1300,
+            "p95_us": 1531,
+            "max_us": 1531,
+            "self_sample_count": 2,
+            "self_total_us": 2831
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 1,
+            "inclusive_total_us": 786,
+            "p50_us": 786,
+            "p95_us": 786,
+            "max_us": 786,
+            "self_sample_count": 1,
+            "self_total_us": 786
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 1,
+            "inclusive_total_us": 8189,
+            "p50_us": 8189,
+            "p95_us": 8189,
+            "max_us": 8189,
+            "self_sample_count": 1,
+            "self_total_us": 8189
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 1,
+            "inclusive_total_us": 9870,
+            "p50_us": 9870,
+            "p95_us": 9870,
+            "max_us": 9870,
+            "self_sample_count": 1,
+            "self_total_us": 49
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 1,
+            "inclusive_total_us": 846,
+            "p50_us": 846,
+            "p95_us": 846,
+            "max_us": 846,
+            "self_sample_count": 1,
+            "self_total_us": 846
+          },
+          {
+            "phase": "native.claim",
+            "count": 1,
+            "inclusive_total_us": 10567018,
+            "p50_us": 10567018,
+            "p95_us": 10567018,
+            "max_us": 10567018,
+            "self_sample_count": 1,
+            "self_total_us": 391922
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 4,
+            "inclusive_total_us": 779,
+            "p50_us": 170,
+            "p95_us": 248,
+            "max_us": 248,
+            "self_sample_count": 4,
+            "self_total_us": 779
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 13,
+            "inclusive_total_us": 4498812,
+            "p50_us": 386774,
+            "p95_us": 412888,
+            "max_us": 412888,
+            "self_sample_count": 13,
+            "self_total_us": 4498812
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 4,
+            "inclusive_total_us": 304,
+            "p50_us": 67,
+            "p95_us": 106,
+            "max_us": 106,
+            "self_sample_count": 4,
+            "self_total_us": 304
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 14,
+            "inclusive_total_us": 801601,
+            "p50_us": 1506,
+            "p95_us": 214154,
+            "max_us": 214154,
+            "self_sample_count": 14,
+            "self_total_us": 22172
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 13,
+            "inclusive_total_us": 1460,
+            "p50_us": 108,
+            "p95_us": 241,
+            "max_us": 241,
+            "self_sample_count": 13,
+            "self_total_us": 1460
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 10,
+            "inclusive_total_us": 28,
+            "p50_us": 3,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 10,
+            "self_total_us": 28
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 6,
+            "inclusive_total_us": 38,
+            "p50_us": 5,
+            "p95_us": 9,
+            "max_us": 9,
+            "self_sample_count": 6,
+            "self_total_us": 38
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 15,
+            "inclusive_total_us": 1366360,
+            "p50_us": 9,
+            "p95_us": 380182,
+            "max_us": 380182,
+            "self_sample_count": 15,
+            "self_total_us": 1366360
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 18,
+            "inclusive_total_us": 882,
+            "p50_us": 0,
+            "p95_us": 432,
+            "max_us": 432,
+            "self_sample_count": 18,
+            "self_total_us": 882
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 220780,
+            "p50_us": 220780,
+            "p95_us": 220780,
+            "max_us": 220780,
+            "self_sample_count": 1,
+            "self_total_us": 1440
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 44226597,
+            "p50_us": 44226597,
+            "p95_us": 44226597,
+            "max_us": 44226597,
+            "self_sample_count": 1,
+            "self_total_us": 717535
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 70,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795287573145758,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "action_id": "e39d4db9-12c3-0525-8812-438b23160806"
+            },
+            "status": "complete",
+            "inclusive_us": 44226597,
+            "observed_drops_during_scope": 0,
+            "self_us": 717535
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 71,
+            "phase": "control.predecessor",
+            "parent_id": 70,
+            "started_unix_us": 1795287573145881,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "action_id": "e39d4db9-12c3-0525-8812-438b23160806"
+            },
+            "status": "complete",
+            "inclusive_us": 43105628,
+            "observed_drops_during_scope": 0,
+            "self_us": 65
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 82,
+            "phase": "control.seal_pages",
+            "parent_id": 71,
+            "started_unix_us": 1795287573794205,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "action_id": "e39d4db9-12c3-0525-8812-438b23160806"
+            },
+            "status": "complete",
+            "inclusive_us": 42457290,
+            "observed_drops_during_scope": 0,
+            "self_us": 42457290
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 123,
+            "phase": "native.claim",
+            "parent_id": null,
+            "started_unix_us": 1795287619083629,
+            "binding": {
+              "task_id": "637fdbda-a438-4eef-a6e0-f2912669f836"
+            },
+            "status": "complete",
+            "inclusive_us": 10567018,
+            "observed_drops_during_scope": 0,
+            "self_us": 391922
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 128,
+            "phase": "canonical.prepare",
+            "parent_id": 123,
+            "started_unix_us": 1795287619476962,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "task_id": "637fdbda-a438-4eef-a6e0-f2912669f836",
+              "action_id": "e52f6848-c05e-5f14-ee32-13d3631c90d7"
+            },
+            "status": "complete",
+            "inclusive_us": 10173668,
+            "observed_drops_during_scope": 0,
+            "self_us": 10546
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 129,
+            "phase": "control.predecessor",
+            "parent_id": 128,
+            "started_unix_us": 1795287619477095,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "task_id": "637fdbda-a438-4eef-a6e0-f2912669f836",
+              "action_id": "e52f6848-c05e-5f14-ee32-13d3631c90d7"
+            },
+            "status": "complete",
+            "inclusive_us": 10163122,
+            "observed_drops_during_scope": 0,
+            "self_us": 131
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 140,
+            "phase": "control.seal_pages",
+            "parent_id": 129,
+            "started_unix_us": 1795287619880991,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778",
+              "task_id": "637fdbda-a438-4eef-a6e0-f2912669f836",
+              "action_id": "e52f6848-c05e-5f14-ee32-13d3631c90d7"
+            },
+            "status": "complete",
+            "inclusive_us": 9759203,
+            "observed_drops_during_scope": 0,
+            "self_us": 9759203
+          },
+          {
+            "source": 0,
+            "pid": 1116495,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287488050757,
+            "binding": {
+              "subject_id": "cbf4909c-b142-4e56-a4ce-45c92ee20778"
+            },
+            "status": "complete",
+            "inclusive_us": 9107081,
+            "observed_drops_during_scope": 0,
+            "self_us": 75
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-05",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-42-57",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "2559eb47-bd42-4fff-b3d9-575011ea197e",
+        "system_prompt_sha256": "f3507652d877833aa4feefaf693fedf5ce2a419edff124d8bdc071740d6e024b",
+        "shutdown": {
+          "parent_exit": -15,
+          "parent_timed_out": true,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116655,
+            "required": true,
+            "forced": false,
+            "signals": [
+              "SIGTERM"
+            ],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [
+                1116655
+              ],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": true
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 325.7635904949857,
+        "finished_at": "2026-11-21T19:05:57Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T19:00:31Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116655,
+        "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+        "elapsed_seconds": 68.54591075898497
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/summary.json",
+          "bytes": 1442,
+          "sha256": "a589e4d836868e5606ddc5fdec94a76084fbeeca83090b651ab5126949e94160"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/first.ledger.json",
+          "bytes": 458932,
+          "sha256": "83291dde25423e0c3b0ec7b5a558d150ae72e30672aa56cd2668eb906fbb8623"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/final.ledger.json",
+          "bytes": 507460,
+          "sha256": "c7ba9ebb2223b6e3c1c9f98e368887740fba384ad90e6c2f1f2ebb20f66184e4"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/first.observation.json",
+          "bytes": 5102,
+          "sha256": "a55ecda467bdd0cb417b586a6e30f05d5886cc7dc53c678ccab71db23c52014d"
+        }
+      ],
+      "first_request": {
+        "request_id": "2559eb47-bd42-4fff-b3d9-575011ea197e",
+        "step_id": "4a1ac1da-5133-4f23-a452-7c50de22ec3f",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 18
+          },
+          "created_at": "2026-11-21 19:01:56"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 206
+          },
+          "created_at": "2026-11-21 19:03:45"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+            "seq": 212
+          },
+          "created_at": "2026-11-21 19:05:14"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 2650,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13245,
+          "output_tokens": 2650,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:6310c2e162ad5ec0ffa905e1a12b3b0567402c903ad9064e159ddb17119a19b1",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/63/10/6310c2e162ad5ec0ffa905e1a12b3b0567402c903ad9064e159ddb17119a19b1",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:7179933209fea5e0e093d1b3992cbab42fad591012009c1d4e674163f1e22ee7",
+          "bytes": 339124,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/71/79/7179933209fea5e0e093d1b3992cbab42fad591012009c1d4e674163f1e22ee7",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:fef9de4799d746745412d797b13f5ad779c16a0ad8a2f80303abd73a5ea16168",
+          "bytes": 7330,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/installation/cas/fe/f9/fef9de4799d746745412d797b13f5ad779c16a0ad8a2f80303abd73a5ea16168",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "16d13a10-228c-43a5-b863-3e2e8c6b557f",
+          "step_id": "22789730-dd63-4e7a-85c3-cc8e09170e09",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+              "seq": 217
+            },
+            "created_at": "2026-11-21 19:05:35"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "8d2934b8-afd3-4481-bb3c-487c93286238",
+              "seq": 219
+            },
+            "created_at": "2026-11-21 19:05:36"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-05/first.runtime.log",
+            "bytes": 188022,
+            "sha256": "362855f3c4eba345952da27300802836192dc2316e6a2992b7ce74e6576623cf"
+          }
+        ],
+        "quality": {
+          "scope_count": 245,
+          "complete_count": 243,
+          "incomplete_count": 2,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 5,
+            "inclusive_total_us": 33010,
+            "p50_us": 5961,
+            "p95_us": 8382,
+            "max_us": 8382,
+            "self_sample_count": 5,
+            "self_total_us": 33010
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 5,
+            "inclusive_total_us": 1183665,
+            "p50_us": 11102,
+            "p95_us": 1026520,
+            "max_us": 1026520,
+            "self_sample_count": 5,
+            "self_total_us": 1183665
+          },
+          {
+            "phase": "authority.order",
+            "count": 5,
+            "inclusive_total_us": 9329325,
+            "p50_us": 1704499,
+            "p95_us": 2346982,
+            "max_us": 2346982,
+            "self_sample_count": 5,
+            "self_total_us": 9329325
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 2,
+            "inclusive_total_us": 3907321,
+            "p50_us": 1578325,
+            "p95_us": 2328996,
+            "max_us": 2328996,
+            "self_sample_count": 2,
+            "self_total_us": 439
+          },
+          {
+            "phase": "canonical.apply",
+            "count": 2,
+            "inclusive_total_us": 888832,
+            "p50_us": 298095,
+            "p95_us": 590737,
+            "max_us": 590737,
+            "self_sample_count": 2,
+            "self_total_us": 319674
+          },
+          {
+            "phase": "canonical.position",
+            "count": 1,
+            "inclusive_total_us": 115,
+            "p50_us": 115,
+            "p95_us": 115,
+            "max_us": 115,
+            "self_sample_count": 1,
+            "self_total_us": 115
+          },
+          {
+            "phase": "canonical.prepare",
+            "count": 1,
+            "inclusive_total_us": 16194620,
+            "p50_us": 16194620,
+            "p95_us": 16194620,
+            "max_us": 16194620,
+            "self_sample_count": 1,
+            "self_total_us": 560081
+          },
+          {
+            "phase": "capture.closure",
+            "count": 2,
+            "inclusive_total_us": 163202,
+            "p50_us": 1260,
+            "p95_us": 161942,
+            "max_us": 161942,
+            "self_sample_count": 2,
+            "self_total_us": 163202
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 2,
+            "inclusive_total_us": 5578,
+            "p50_us": 274,
+            "p95_us": 5304,
+            "max_us": 5304,
+            "self_sample_count": 2,
+            "self_total_us": 5578
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 2,
+            "inclusive_total_us": 10595,
+            "p50_us": 4978,
+            "p95_us": 5617,
+            "max_us": 5617,
+            "self_sample_count": 2,
+            "self_total_us": 10595
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 2,
+            "inclusive_total_us": 5302,
+            "p50_us": 339,
+            "p95_us": 4963,
+            "max_us": 4963,
+            "self_sample_count": 2,
+            "self_total_us": 5302
+          },
+          {
+            "phase": "capture.rows",
+            "count": 2,
+            "inclusive_total_us": 207974,
+            "p50_us": 25100,
+            "p95_us": 182874,
+            "max_us": 182874,
+            "self_sample_count": 2,
+            "self_total_us": 11075
+          },
+          {
+            "phase": "capture.schema",
+            "count": 2,
+            "inclusive_total_us": 12222,
+            "p50_us": 5489,
+            "p95_us": 6733,
+            "max_us": 6733,
+            "self_sample_count": 2,
+            "self_total_us": 12222
+          },
+          {
+            "phase": "control.inspect",
+            "count": 3,
+            "inclusive_total_us": 320984,
+            "p50_us": 105138,
+            "p95_us": 112744,
+            "max_us": 112744,
+            "self_sample_count": 3,
+            "self_total_us": 22999
+          },
+          {
+            "phase": "control.inspect_closure",
+            "count": 3,
+            "inclusive_total_us": 147557,
+            "p50_us": 49229,
+            "p95_us": 49243,
+            "max_us": 49243,
+            "self_sample_count": 3,
+            "self_total_us": 147557
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 5,
+            "inclusive_total_us": 129502857,
+            "p50_us": 14399385,
+            "p95_us": 85474301,
+            "max_us": 85474301,
+            "self_sample_count": 5,
+            "self_total_us": 461
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 5,
+            "inclusive_total_us": 125979915,
+            "p50_us": 14033674,
+            "p95_us": 84440270,
+            "max_us": 84440270,
+            "self_sample_count": 5,
+            "self_total_us": 125979915
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 6,
+            "inclusive_total_us": 3513566,
+            "p50_us": 316092,
+            "p95_us": 1217504,
+            "max_us": 1217504,
+            "self_sample_count": 6,
+            "self_total_us": 4763
+          },
+          {
+            "phase": "control.validate",
+            "count": 9,
+            "inclusive_total_us": 492198,
+            "p50_us": 49978,
+            "p95_us": 87439,
+            "max_us": 87439,
+            "self_sample_count": 9,
+            "self_total_us": 492198
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 6,
+            "inclusive_total_us": 344888,
+            "p50_us": 1429,
+            "p95_us": 299522,
+            "max_us": 299522,
+            "self_sample_count": 6,
+            "self_total_us": 344888
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 1,
+            "inclusive_total_us": 549,
+            "p50_us": 549,
+            "p95_us": 549,
+            "max_us": 549,
+            "self_sample_count": 1,
+            "self_total_us": 549
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 3,
+            "inclusive_total_us": 14807,
+            "p50_us": 4812,
+            "p95_us": 5399,
+            "max_us": 5399,
+            "self_sample_count": 3,
+            "self_total_us": 14807
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 3,
+            "inclusive_total_us": 16020,
+            "p50_us": 4822,
+            "p95_us": 6591,
+            "max_us": 6591,
+            "self_sample_count": 3,
+            "self_total_us": 57
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 1,
+            "inclusive_total_us": 607,
+            "p50_us": 607,
+            "p95_us": 607,
+            "max_us": 607,
+            "self_sample_count": 1,
+            "self_total_us": 607
+          },
+          {
+            "phase": "native.claim",
+            "count": 1,
+            "inclusive_total_us": 19473910,
+            "p50_us": 19473910,
+            "p95_us": 19473910,
+            "max_us": 19473910,
+            "self_sample_count": 1,
+            "self_total_us": 358063
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 6,
+            "inclusive_total_us": 1129,
+            "p50_us": 176,
+            "p95_us": 227,
+            "max_us": 227,
+            "self_sample_count": 6,
+            "self_total_us": 1129
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 22,
+            "inclusive_total_us": 5901803,
+            "p50_us": 379411,
+            "p95_us": 416111,
+            "max_us": 416467,
+            "self_sample_count": 22,
+            "self_total_us": 5901803
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 6,
+            "inclusive_total_us": 768585,
+            "p50_us": 73,
+            "p95_us": 592770,
+            "max_us": 592770,
+            "self_sample_count": 6,
+            "self_total_us": 768585
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 23,
+            "inclusive_total_us": 2117597,
+            "p50_us": 1810,
+            "p95_us": 602866,
+            "max_us": 836377,
+            "self_sample_count": 23,
+            "self_total_us": 42772
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 22,
+            "inclusive_total_us": 3634,
+            "p50_us": 126,
+            "p95_us": 348,
+            "max_us": 451,
+            "self_sample_count": 22,
+            "self_total_us": 3634
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 17,
+            "inclusive_total_us": 58,
+            "p50_us": 3,
+            "p95_us": 13,
+            "max_us": 13,
+            "self_sample_count": 17,
+            "self_total_us": 58
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 11,
+            "inclusive_total_us": 128,
+            "p50_us": 6,
+            "p95_us": 39,
+            "max_us": 39,
+            "self_sample_count": 11,
+            "self_total_us": 128
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 25,
+            "inclusive_total_us": 1809706,
+            "p50_us": 9,
+            "p95_us": 240283,
+            "max_us": 425765,
+            "self_sample_count": 25,
+            "self_total_us": 1809706
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 30,
+            "inclusive_total_us": 875,
+            "p50_us": 1,
+            "p95_us": 146,
+            "max_us": 345,
+            "self_sample_count": 30,
+            "self_total_us": 875
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 119175,
+            "p50_us": 119175,
+            "p95_us": 119175,
+            "max_us": 119175,
+            "self_sample_count": 1,
+            "self_total_us": 1205
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 86151773,
+            "p50_us": 86151773,
+            "p95_us": 86151773,
+            "max_us": 86151773,
+            "self_sample_count": 1,
+            "self_total_us": 469897
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 82,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795287828738844,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "action_id": "4686e055-7c16-f03f-f8fc-7f0273a2b328"
+            },
+            "status": "complete",
+            "inclusive_us": 86151773,
+            "observed_drops_during_scope": 0,
+            "self_us": 469897
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 83,
+            "phase": "control.predecessor",
+            "parent_id": 82,
+            "started_unix_us": 1795287828738934,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "action_id": "4686e055-7c16-f03f-f8fc-7f0273a2b328"
+            },
+            "status": "complete",
+            "inclusive_us": 85474301,
+            "observed_drops_during_scope": 0,
+            "self_us": 65
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 94,
+            "phase": "control.seal_pages",
+            "parent_id": 83,
+            "started_unix_us": 1795287829772950,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "action_id": "4686e055-7c16-f03f-f8fc-7f0273a2b328"
+            },
+            "status": "complete",
+            "inclusive_us": 84440270,
+            "observed_drops_during_scope": 0,
+            "self_us": 84440270
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 153,
+            "phase": "native.claim",
+            "parent_id": null,
+            "started_unix_us": 1795287916595801,
+            "binding": {
+              "task_id": "21ad2fe1-e631-476c-97a4-0636eb9d254f"
+            },
+            "status": "complete",
+            "inclusive_us": 19473910,
+            "observed_drops_during_scope": 0,
+            "self_us": 358063
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 158,
+            "phase": "canonical.prepare",
+            "parent_id": 153,
+            "started_unix_us": 1795287916946318,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "task_id": "21ad2fe1-e631-476c-97a4-0636eb9d254f",
+              "action_id": "0b4a7c5e-1b1b-7741-e5fc-60692c72d88c"
+            },
+            "status": "complete",
+            "inclusive_us": 16194620,
+            "observed_drops_during_scope": 0,
+            "self_us": 560081
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 159,
+            "phase": "control.predecessor",
+            "parent_id": 158,
+            "started_unix_us": 1795287916975142,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "task_id": "21ad2fe1-e631-476c-97a4-0636eb9d254f",
+              "action_id": "0b4a7c5e-1b1b-7741-e5fc-60692c72d88c"
+            },
+            "status": "complete",
+            "inclusive_us": 15239330,
+            "observed_drops_during_scope": 0,
+            "self_us": 147
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 170,
+            "phase": "control.seal_pages",
+            "parent_id": 159,
+            "started_unix_us": 1795287917242248,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a",
+              "task_id": "21ad2fe1-e631-476c-97a4-0636eb9d254f",
+              "action_id": "0b4a7c5e-1b1b-7741-e5fc-60692c72d88c"
+            },
+            "status": "complete",
+            "inclusive_us": 14972208,
+            "observed_drops_during_scope": 0,
+            "self_us": 14972208
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 171,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287917815144,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a"
+            },
+            "status": "complete",
+            "inclusive_us": 14399385,
+            "observed_drops_during_scope": 0,
+            "self_us": 92
+          }
+        ],
+        "incomplete_scopes": [
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 234,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795287951440282,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a"
+            },
+            "status": "incomplete"
+          },
+          {
+            "source": 0,
+            "pid": 1116655,
+            "scope_id": 245,
+            "phase": "control.seal_pages",
+            "parent_id": 234,
+            "started_unix_us": 1795287951773200,
+            "binding": {
+              "subject_id": "5df519ff-cbc5-44f4-869e-6db4aa24415a"
+            },
+            "status": "incomplete"
+          }
+        ]
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-06",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-73-16",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "bbb05f7c-d3a8-4482-962a-35d1eb44dacc",
+        "system_prompt_sha256": "d3d87b3d9c95542f279fbc827cafe8c7097cbe4872c9f5ae412aad92e0f46140",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116831,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 167.99009489099262,
+        "finished_at": "2026-11-21T19:08:45Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T19:05:57Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116831,
+        "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91",
+        "elapsed_seconds": 67.75367819299572
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/summary.json",
+          "bytes": 1392,
+          "sha256": "48b9e3df2bea19a36c52913c2764b5a9b79f1890dd401078a47e2a62ba96c280"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/first.ledger.json",
+          "bytes": 239247,
+          "sha256": "b4bac6c640e5b80b6b520483191ea419cc7791f94d12dde7ef360efa3dab5811"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/final.ledger.json",
+          "bytes": 242289,
+          "sha256": "50921ac94689e29df8f8e388370052550377ceb66ccc8a9bbe13392433b64b1c"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/first.observation.json",
+          "bytes": 5101,
+          "sha256": "979407bfd8367f804b549acfd065224eb8540816d3818e7968602fd6dd024fff"
+        }
+      ],
+      "first_request": {
+        "request_id": "bbb05f7c-d3a8-4482-962a-35d1eb44dacc",
+        "step_id": "6e5a8104-7099-4189-b3ab-be49672bf8f7",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:07:18"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 109
+          },
+          "created_at": "2026-11-21 19:08:35"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "6d47b19f-9baa-49d6-af2d-1508d4d6558c",
+            "seq": 112
+          },
+          "created_at": "2026-11-21 19:08:42"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1176,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13249,
+          "output_tokens": 1176,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:d6f646596a48b1ca47ed9797e77f4e3e7dd1c1bba10a3d1fbcd55b7c7344a74f",
+          "bytes": 60872,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/d6/f6/d6f646596a48b1ca47ed9797e77f4e3e7dd1c1bba10a3d1fbcd55b7c7344a74f",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:50ce4b13fcde070c12c7b76fadcbe3995b1bba193948187d43b118a9ca286250",
+          "bytes": 146574,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/50/ce/50ce4b13fcde070c12c7b76fadcbe3995b1bba193948187d43b118a9ca286250",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:f7c30b1c9ed0d18867fe716e62662ecdea43c22d295374c11f522eabb77ab70f",
+          "bytes": 5524,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/installation/cas/f7/c3/f7c30b1c9ed0d18867fe716e62662ecdea43c22d295374c11f522eabb77ab70f",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-06/first.runtime.log",
+            "bytes": 90822,
+            "sha256": "5328af6d9fcbdc6dce7667ef950239a760eb6fe6659a1c114e86c961a49e1d6e"
+          }
+        ],
+        "quality": {
+          "scope_count": 119,
+          "complete_count": 119,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 3,
+            "inclusive_total_us": 15678,
+            "p50_us": 5132,
+            "p95_us": 5470,
+            "max_us": 5470,
+            "self_sample_count": 3,
+            "self_total_us": 15678
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 3593,
+            "p50_us": 550,
+            "p95_us": 2500,
+            "max_us": 2500,
+            "self_sample_count": 3,
+            "self_total_us": 3593
+          },
+          {
+            "phase": "authority.order",
+            "count": 4,
+            "inclusive_total_us": 4001885,
+            "p50_us": 879486,
+            "p95_us": 2235920,
+            "max_us": 2235920,
+            "self_sample_count": 4,
+            "self_total_us": 4001885
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 1,
+            "inclusive_total_us": 887656,
+            "p50_us": 887656,
+            "p95_us": 887656,
+            "max_us": 887656,
+            "self_sample_count": 1,
+            "self_total_us": 200
+          },
+          {
+            "phase": "canonical.position",
+            "count": 1,
+            "inclusive_total_us": 79,
+            "p50_us": 79,
+            "p95_us": 79,
+            "max_us": 79,
+            "self_sample_count": 1,
+            "self_total_us": 79
+          },
+          {
+            "phase": "capture.closure",
+            "count": 1,
+            "inclusive_total_us": 1144,
+            "p50_us": 1144,
+            "p95_us": 1144,
+            "max_us": 1144,
+            "self_sample_count": 1,
+            "self_total_us": 1144
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 1,
+            "inclusive_total_us": 4837,
+            "p50_us": 4837,
+            "p95_us": 4837,
+            "max_us": 4837,
+            "self_sample_count": 1,
+            "self_total_us": 4837
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 1,
+            "inclusive_total_us": 7679,
+            "p50_us": 7679,
+            "p95_us": 7679,
+            "max_us": 7679,
+            "self_sample_count": 1,
+            "self_total_us": 7679
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 1,
+            "inclusive_total_us": 369,
+            "p50_us": 369,
+            "p95_us": 369,
+            "max_us": 369,
+            "self_sample_count": 1,
+            "self_total_us": 369
+          },
+          {
+            "phase": "capture.rows",
+            "count": 1,
+            "inclusive_total_us": 29609,
+            "p50_us": 29609,
+            "p95_us": 29609,
+            "max_us": 29609,
+            "self_sample_count": 1,
+            "self_total_us": 7731
+          },
+          {
+            "phase": "capture.schema",
+            "count": 1,
+            "inclusive_total_us": 7849,
+            "p50_us": 7849,
+            "p95_us": 7849,
+            "max_us": 7849,
+            "self_sample_count": 1,
+            "self_total_us": 7849
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 4,
+            "inclusive_total_us": 17473751,
+            "p50_us": 2254685,
+            "p95_us": 6940077,
+            "max_us": 6940077,
+            "self_sample_count": 4,
+            "self_total_us": 288
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 4,
+            "inclusive_total_us": 16506924,
+            "p50_us": 1988728,
+            "p95_us": 6519091,
+            "max_us": 6519091,
+            "self_sample_count": 4,
+            "self_total_us": 16506924
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 4,
+            "inclusive_total_us": 800678,
+            "p50_us": 106617,
+            "p95_us": 382238,
+            "max_us": 382238,
+            "self_sample_count": 4,
+            "self_total_us": 2389
+          },
+          {
+            "phase": "control.validate",
+            "count": 4,
+            "inclusive_total_us": 165861,
+            "p50_us": 38998,
+            "p95_us": 45114,
+            "max_us": 45114,
+            "self_sample_count": 4,
+            "self_total_us": 165861
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 1,
+            "inclusive_total_us": 1011,
+            "p50_us": 1011,
+            "p95_us": 1011,
+            "max_us": 1011,
+            "self_sample_count": 1,
+            "self_total_us": 1011
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 1,
+            "inclusive_total_us": 508,
+            "p50_us": 508,
+            "p95_us": 508,
+            "max_us": 508,
+            "self_sample_count": 1,
+            "self_total_us": 508
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 1,
+            "inclusive_total_us": 5709,
+            "p50_us": 5709,
+            "p95_us": 5709,
+            "max_us": 5709,
+            "self_sample_count": 1,
+            "self_total_us": 5709
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 1,
+            "inclusive_total_us": 6935,
+            "p50_us": 6935,
+            "p95_us": 6935,
+            "max_us": 6935,
+            "self_sample_count": 1,
+            "self_total_us": 35
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 1,
+            "inclusive_total_us": 683,
+            "p50_us": 683,
+            "p95_us": 683,
+            "max_us": 683,
+            "self_sample_count": 1,
+            "self_total_us": 683
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 4,
+            "inclusive_total_us": 741,
+            "p50_us": 172,
+            "p95_us": 208,
+            "max_us": 208,
+            "self_sample_count": 4,
+            "self_total_us": 741
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 10,
+            "inclusive_total_us": 1081743,
+            "p50_us": 60620,
+            "p95_us": 281182,
+            "max_us": 281182,
+            "self_sample_count": 10,
+            "self_total_us": 1081743
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 4,
+            "inclusive_total_us": 270,
+            "p50_us": 64,
+            "p95_us": 77,
+            "max_us": 77,
+            "self_sample_count": 4,
+            "self_total_us": 270
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 11,
+            "inclusive_total_us": 439762,
+            "p50_us": 1980,
+            "p95_us": 191676,
+            "max_us": 191676,
+            "self_sample_count": 11,
+            "self_total_us": 15980
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 10,
+            "inclusive_total_us": 979,
+            "p50_us": 86,
+            "p95_us": 203,
+            "max_us": 203,
+            "self_sample_count": 10,
+            "self_total_us": 979
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 7,
+            "inclusive_total_us": 19,
+            "p50_us": 3,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 7,
+            "self_total_us": 19
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 6,
+            "inclusive_total_us": 31,
+            "p50_us": 5,
+            "p95_us": 7,
+            "max_us": 7,
+            "self_sample_count": 6,
+            "self_total_us": 31
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 12,
+            "inclusive_total_us": 522366,
+            "p50_us": 12,
+            "p95_us": 189632,
+            "max_us": 189632,
+            "self_sample_count": 12,
+            "self_total_us": 522366
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 14,
+            "inclusive_total_us": 652,
+            "p50_us": 0,
+            "p95_us": 354,
+            "max_us": 354,
+            "self_sample_count": 14,
+            "self_total_us": 652
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 59309,
+            "p50_us": 59309,
+            "p95_us": 59309,
+            "max_us": 59309,
+            "self_sample_count": 1,
+            "self_total_us": 1123
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 6405800,
+            "p50_us": 6405800,
+            "p95_us": 6405800,
+            "max_us": 6405800,
+            "self_sample_count": 1,
+            "self_total_us": 144281
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288028928015,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91"
+            },
+            "status": "complete",
+            "inclusive_us": 6940077,
+            "observed_drops_during_scope": 0,
+            "self_us": 63
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 15,
+            "phase": "control.seal_pages",
+            "parent_id": 4,
+            "started_unix_us": 1795288029348983,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91"
+            },
+            "status": "complete",
+            "inclusive_us": 6519091,
+            "observed_drops_during_scope": 0,
+            "self_us": 6519091
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 70,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795288115887978,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91",
+              "action_id": "3df109e2-ff1c-0086-bd32-c11f4b4bad59"
+            },
+            "status": "complete",
+            "inclusive_us": 6405800,
+            "observed_drops_during_scope": 0,
+            "self_us": 144281
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 71,
+            "phase": "control.predecessor",
+            "parent_id": 70,
+            "started_unix_us": 1795288115888100,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91",
+              "action_id": "3df109e2-ff1c-0086-bd32-c11f4b4bad59"
+            },
+            "status": "complete",
+            "inclusive_us": 6182594,
+            "observed_drops_during_scope": 0,
+            "self_us": 84
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 82,
+            "phase": "control.seal_pages",
+            "parent_id": 71,
+            "started_unix_us": 1795288116037850,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91",
+              "action_id": "3df109e2-ff1c-0086-bd32-c11f4b4bad59"
+            },
+            "status": "complete",
+            "inclusive_us": 6032829,
+            "observed_drops_during_scope": 0,
+            "self_us": 6032829
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 19,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288038611608,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91"
+            },
+            "status": "complete",
+            "inclusive_us": 2254685,
+            "observed_drops_during_scope": 0,
+            "self_us": 61
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 16,
+            "phase": "authority.order",
+            "parent_id": null,
+            "started_unix_us": 1795288036204270,
+            "binding": {},
+            "status": "complete",
+            "inclusive_us": 2235920,
+            "observed_drops_during_scope": 0,
+            "self_us": 2235920
+          },
+          {
+            "source": 0,
+            "pid": 1116831,
+            "scope_id": 107,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288123253175,
+            "binding": {
+              "subject_id": "a2b14e2e-f9a9-4f1c-97ad-11dc3b836a91"
+            },
+            "status": "complete",
+            "inclusive_us": 2096395,
+            "observed_drops_during_scope": 0,
+            "self_us": 80
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-07",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-84-25",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [
+          "runtime cleanup was not clean; see shutdown"
+        ],
+        "interruptions": [],
+        "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+        "system_prompt_sha256": "cd27849e3c49b52e2a3e9ba20c5009bbe90c0debd0f6e31bc1f5309672a5a735",
+        "shutdown": {
+          "parent_exit": 1,
+          "parent_timed_out": false,
+          "clean": false,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1116958,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": false,
+        "elapsed_seconds": 160.74334724299842,
+        "finished_at": "2026-11-21T19:11:27Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T19:08:46Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1116958,
+        "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3",
+        "elapsed_seconds": 15.50473473200691
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/summary.json",
+          "bytes": 1394,
+          "sha256": "3e2706cb03071642005dcdeee9a7ebac7558e490cc6edcb9f7736f157c1e7db8"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/first.ledger.json",
+          "bytes": 596839,
+          "sha256": "fa70141f056ec06b1bb9b1371798e26ebca8f92d442b821326ad4ff9b85ae3b5"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/final.ledger.json",
+          "bytes": 598004,
+          "sha256": "a5ce54abc8a30e2c504996aabc8fa20c1be6a169c9efaf77c891f458733cb509"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/first.observation.json",
+          "bytes": 7443,
+          "sha256": "5461b5e5b5570354392e9ad7679239943e9d6a3e564bed2d62e68329ac0e818e"
+        }
+      ],
+      "first_request": {
+        "request_id": "f3a8914b-1d6f-4e77-81d1-81cf0c016f2a",
+        "step_id": "406198f9-b2e6-45eb-a599-ca9c07d4b49f",
+        "request_state": "terminal",
+        "step_state": "retired",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:09:05"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 26
+          },
+          "created_at": "2026-11-21 19:11:25"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "54e1a377-2936-4aa4-b588-c4bcce731482",
+            "seq": 29
+          },
+          "created_at": "2026-11-21 19:11:25"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "length",
+          "max_tokens": 4096,
+          "output_tokens": 4096,
+          "length": true
+        },
+        "usage": {
+          "input_tokens": 13245,
+          "output_tokens": 4096,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+          "bytes": 60873,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/49/ce/49ce38fb33987a77b846889326a37861da5bedec85797b48ee1401bffef87faf",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:753aab9f6c7a9a390cfedae1abac48df3205082682712d8de6da3c5e49302d03",
+          "bytes": 546419,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/75/3a/753aab9f6c7a9a390cfedae1abac48df3205082682712d8de6da3c5e49302d03",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": null,
+        "retry_reason_ref": {
+          "digest": "blake3:1b741f351b292f71a4c8ac85eee1b09a2418f071d2b5dc1eb9954bb298cc0c26",
+          "bytes": 1971,
+          "media_type": "application/json",
+          "store_namespace": "control_rejections",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/installation/cas/1b/74/1b741f351b292f71a4c8ac85eee1b09a2418f071d2b5dc1eb9954bb298cc0c26",
+          "codec": {
+            "name": "ControlOutputRejection",
+            "major": 3,
+            "digest": "blake3:2643fe488bda139d986dc906b1c8f87c7ec61c9133340686c65151f4f8c6b760"
+          }
+        },
+        "rejection": {
+          "code": "MODEL_RESULT_INCOMPLETE",
+          "line": null,
+          "correction": {
+            "prior_pinned_corrections": 0,
+            "replacement": {
+              "mode": "pinned_correction"
+            }
+          }
+        },
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": false,
+          "s1_requested_children_admitted": false
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-07/first.runtime.log",
+            "bytes": 72656,
+            "sha256": "8a6e3a749b046aae462fb2d8412280a84dd3289805581a21cbde142830d5b67e"
+          }
+        ],
+        "quality": {
+          "scope_count": 100,
+          "complete_count": 100,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 2,
+            "inclusive_total_us": 9991,
+            "p50_us": 4988,
+            "p95_us": 5003,
+            "max_us": 5003,
+            "self_sample_count": 2,
+            "self_total_us": 9991
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 2,
+            "inclusive_total_us": 1041,
+            "p50_us": 478,
+            "p95_us": 563,
+            "max_us": 563,
+            "self_sample_count": 2,
+            "self_total_us": 1041
+          },
+          {
+            "phase": "authority.order",
+            "count": 3,
+            "inclusive_total_us": 1935241,
+            "p50_us": 492615,
+            "p95_us": 1442602,
+            "max_us": 1442602,
+            "self_sample_count": 3,
+            "self_total_us": 1935241
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 3,
+            "inclusive_total_us": 2308877,
+            "p50_us": 715615,
+            "p95_us": 1098414,
+            "max_us": 1098414,
+            "self_sample_count": 3,
+            "self_total_us": 174
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 3,
+            "inclusive_total_us": 1988370,
+            "p50_us": 613284,
+            "p95_us": 993927,
+            "max_us": 993927,
+            "self_sample_count": 3,
+            "self_total_us": 1988370
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 3,
+            "inclusive_total_us": 201182,
+            "p50_us": 66191,
+            "p95_us": 74449,
+            "max_us": 74449,
+            "self_sample_count": 3,
+            "self_total_us": 926
+          },
+          {
+            "phase": "control.validate",
+            "count": 3,
+            "inclusive_total_us": 119151,
+            "p50_us": 39186,
+            "p95_us": 41723,
+            "max_us": 41723,
+            "self_sample_count": 3,
+            "self_total_us": 119151
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 3,
+            "inclusive_total_us": 508,
+            "p50_us": 166,
+            "p95_us": 178,
+            "max_us": 178,
+            "self_sample_count": 3,
+            "self_total_us": 508
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 12,
+            "inclusive_total_us": 522753,
+            "p50_us": 41286,
+            "p95_us": 62398,
+            "max_us": 62398,
+            "self_sample_count": 12,
+            "self_total_us": 522753
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 3,
+            "inclusive_total_us": 190,
+            "p50_us": 63,
+            "p95_us": 64,
+            "max_us": 64,
+            "self_sample_count": 3,
+            "self_total_us": 190
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 13,
+            "inclusive_total_us": 90457,
+            "p50_us": 1366,
+            "p95_us": 35254,
+            "max_us": 35254,
+            "self_sample_count": 13,
+            "self_total_us": 17052
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 12,
+            "inclusive_total_us": 968,
+            "p50_us": 84,
+            "p95_us": 96,
+            "max_us": 96,
+            "self_sample_count": 12,
+            "self_total_us": 968
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 10,
+            "inclusive_total_us": 30,
+            "p50_us": 3,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 10,
+            "self_total_us": 30
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 3,
+            "inclusive_total_us": 16,
+            "p50_us": 5,
+            "p95_us": 7,
+            "max_us": 7,
+            "self_sample_count": 3,
+            "self_total_us": 16
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 12,
+            "inclusive_total_us": 73157,
+            "p50_us": 9,
+            "p95_us": 33429,
+            "max_us": 33429,
+            "self_sample_count": 12,
+            "self_total_us": 73157
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 13,
+            "inclusive_total_us": 12,
+            "p50_us": 0,
+            "p95_us": 4,
+            "max_us": 4,
+            "self_sample_count": 13,
+            "self_total_us": 12
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 16,
+            "phase": "authority.order",
+            "parent_id": null,
+            "started_unix_us": 1795288143826688,
+            "binding": {},
+            "status": "complete",
+            "inclusive_us": 1442602,
+            "observed_drops_during_scope": 0,
+            "self_us": 1442602
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 4,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288142678706,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 1098414,
+            "observed_drops_during_scope": 0,
+            "self_us": 54
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 15,
+            "phase": "control.seal_pages",
+            "parent_id": 4,
+            "started_unix_us": 1795288142783180,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 993927,
+            "observed_drops_during_scope": 0,
+            "self_us": 993927
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 88,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288285970175,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 715615,
+            "observed_drops_during_scope": 0,
+            "self_us": 66
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 99,
+            "phase": "control.seal_pages",
+            "parent_id": 88,
+            "started_unix_us": 1795288286072488,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 613284,
+            "observed_drops_during_scope": 0,
+            "self_us": 613284
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 19,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288145316712,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 494848,
+            "observed_drops_during_scope": 0,
+            "self_us": 54
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 31,
+            "phase": "authority.order",
+            "parent_id": null,
+            "started_unix_us": 1795288145870708,
+            "binding": {},
+            "status": "complete",
+            "inclusive_us": 492615,
+            "observed_drops_during_scope": 0,
+            "self_us": 492615
+          },
+          {
+            "source": 0,
+            "pid": 1116958,
+            "scope_id": 30,
+            "phase": "control.seal_pages",
+            "parent_id": 19,
+            "started_unix_us": 1795288145430387,
+            "binding": {
+              "subject_id": "059dde04-2a59-4d25-8655-987ca390f0f3"
+            },
+            "status": "complete",
+            "inclusive_us": 381159,
+            "observed_drops_during_scope": 0,
+            "self_us": 381159
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    },
+    {
+      "case": "case-08",
+      "manifest": {
+        "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+        "binary": "/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-before-protocol",
+        "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+        "driver_sha256": "479af75b6494af43d035b47207e9f92c8de6cebefec068a9ed18d1d6a8033ec3",
+        "journey_helper_sha256": "f70c3ccdfd36158dfc9e41dd78a2d09aa3e3be677fc813f639629d89d8926352",
+        "model": "swift-qwen3.8-27b-nvfp4",
+        "model_url": "http://10.10.10.11:8000",
+        "startup_timeout_seconds": 300,
+        "phase_timeout_seconds": 900,
+        "configured_local_request_timeout_ms": "600000",
+        "request_path_timing": true
+      },
+      "binary_bytes": 89865568,
+      "summary": {
+        "scope": "first-request protocol and durable S1 admission only; no child completion, arithmetic correctness, recovery, latency or full-journey success claim",
+        "case_id": "multiply-56-39",
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "observation_recorded": true,
+        "evidence_retained": true,
+        "cleanup_complete": true,
+        "comparison_valid": true,
+        "errors": [],
+        "interruptions": [],
+        "request_id": "39cd1ba9-9402-4a4d-839b-4626dd891e51",
+        "system_prompt_sha256": "cf5bb34855b6e34d3ab3173c302d4258c104b3cc972603b6f3fc15ebdd9e154d",
+        "shutdown": {
+          "parent_exit": 0,
+          "parent_timed_out": false,
+          "clean": true,
+          "interrupted": false,
+          "group_cleanup": {
+            "pgid": 1117079,
+            "required": false,
+            "forced": false,
+            "signals": [],
+            "complete": true,
+            "after_parent": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "remaining": {
+              "live_pids": [],
+              "zombie_pids": [],
+              "live_thread_ids": [],
+              "alive": false
+            },
+            "parent_reaped": true
+          },
+          "errors": []
+        },
+        "protocol_passed": true,
+        "elapsed_seconds": 58.54869913600851,
+        "finished_at": "2026-11-21T19:12:26Z"
+      },
+      "startup": {
+        "schema_version": 1,
+        "phase": "first",
+        "started_at": "2026-11-21T19:11:27Z",
+        "startup_timeout_seconds": 300,
+        "ready": true,
+        "pid": 1117079,
+        "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+        "elapsed_seconds": 11.457036526990123
+      },
+      "files": [
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/summary.json",
+          "bytes": 1336,
+          "sha256": "f868d52c3fd7c64553f88abee1597226e6c79db569750237b60f41678ceb96ff"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/first.ledger.json",
+          "bytes": 243354,
+          "sha256": "be369febe17d7f115bcc5175d01c1f9501ccc51ecf0e4c30d4c5e5c0895f15d2"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/final.ledger.json",
+          "bytes": 284539,
+          "sha256": "73d711c33640b2e03580229e170f3c1e41f60cc1a21ee1bc892c9216b5a0eece"
+        },
+        {
+          "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/first.observation.json",
+          "bytes": 5102,
+          "sha256": "6458ea86b92e5146659988d87cbacece4c41ac2805a0564e59bda809426459e8"
+        }
+      ],
+      "first_request": {
+        "request_id": "39cd1ba9-9402-4a4d-839b-4626dd891e51",
+        "step_id": "e028bb01-abba-42ee-aa7c-8c11713c812c",
+        "request_state": "terminal",
+        "step_state": "committed",
+        "request_armed": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 17
+          },
+          "created_at": "2026-11-21 19:11:42"
+        },
+        "provider_terminal_recorded": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 127
+          },
+          "created_at": "2026-11-21 19:12:07"
+        },
+        "step_boundary": {
+          "ref": {
+            "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+            "seq": 130
+          },
+          "created_at": "2026-11-21 19:12:15"
+        },
+        "status": "success",
+        "termination": {
+          "kind": "provider_terminal",
+          "stop_reason": "stop",
+          "max_tokens": 4096,
+          "output_tokens": 1095,
+          "length": false
+        },
+        "usage": {
+          "input_tokens": 13247,
+          "output_tokens": 1095,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null
+        },
+        "sealed_input_ref": {
+          "digest": "blake3:7af41aa7838d4b0b7ea6675ad2a605b44121db44e1e9812d4ba45160925bec8c",
+          "bytes": 60872,
+          "media_type": "application/json",
+          "store_namespace": "input_plans",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/7a/f4/7af41aa7838d4b0b7ea6675ad2a605b44121db44e1e9812d4ba45160925bec8c",
+          "codec": {
+            "name": "subject_step_input",
+            "major": 15,
+            "digest": "blake3:be3346f6fde5094ec60d768d298ae7d00e3afc1c6aea64dbab49079b55aa096a"
+          }
+        },
+        "result_ref": {
+          "digest": "blake3:3a10c2a4bc2e38c6eab50f6c907425dabc8d88e3bc11661b23dde6cd56e92c89",
+          "bytes": 142536,
+          "media_type": "application/json",
+          "store_namespace": "subject_requests",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/3a/10/3a10c2a4bc2e38c6eab50f6c907425dabc8d88e3bc11661b23dde6cd56e92c89",
+          "codec": {
+            "name": "subject-request-result",
+            "major": 1,
+            "digest": "blake3:c95573db45b9c8311f9dba05fc5d95bea149993d832a574cd53669db4eade3e8"
+          }
+        },
+        "decision_ref": {
+          "digest": "blake3:3dbbb951191591bcd352c2771e9ead91b2f499fbfc5c3da78478f2ca05f9115e",
+          "bytes": 5929,
+          "media_type": "application/json",
+          "store_namespace": "decisions",
+          "locator": "file:///tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/installation/cas/3d/bb/3dbbb951191591bcd352c2771e9ead91b2f499fbfc5c3da78478f2ca05f9115e",
+          "codec": {
+            "name": "StepDecision",
+            "major": 9,
+            "digest": "blake3:d578faef3863ccbc4a20092b20dea36b832cfe9151150ab32fb82b55bbc21a39"
+          }
+        },
+        "retry_reason_ref": null,
+        "rejection": null,
+        "sealed_max_tokens": 4096,
+        "sealed_binding": {
+          "kind": "local",
+          "model": "swift-qwen3.8-27b-nvfp4",
+          "base_url": "http://10.10.10.11:8000",
+          "serializer_revision": 4,
+          "request_timeout_ms": 600000
+        },
+        "effective": {
+          "provider_binding": {
+            "kind": "local",
+            "base_url": "http://10.10.10.11:8000",
+            "model": "swift-qwen3.8-27b-nvfp4",
+            "allow_invalid_certs": false,
+            "serializer_revision": 4,
+            "default_max_tokens": 8192,
+            "request_timeout_ms": 600000
+          },
+          "profile_id": "local.openai.chat_completions",
+          "profile_revision": 4,
+          "api_version": null,
+          "max_tokens": 4096,
+          "native_options": {}
+        },
+        "checks": {
+          "input_in_first_seal": true,
+          "first_result_committed_without_r0": true,
+          "s1_requested_children_admitted": true
+        },
+        "comparison_valid": true
+      },
+      "later_subject_attempts": [
+        {
+          "request_id": "609bcf45-873e-4db1-b76c-931c212ce372",
+          "step_id": "0261d76b-94a7-46fc-b4ca-f6e800cb581b",
+          "state": "terminal",
+          "created_commit": {
+            "ref": {
+              "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+              "seq": 136
+            },
+            "created_at": "2026-11-21 19:12:20"
+          },
+          "terminal_recorded": {
+            "ref": {
+              "ledger_id": "1d4e7f93-ec08-4899-9a45-79298cb39ced",
+              "seq": 145
+            },
+            "created_at": "2026-11-21 19:12:23"
+          },
+          "status": "failed",
+          "termination": {
+            "kind": "unknown",
+            "stop_reason": null,
+            "max_tokens": null,
+            "output_tokens": null,
+            "length": false
+          }
+        }
+      ],
+      "timing": {
+        "logs": [
+          {
+            "path": "/tank/shared/projects/shenko/build/daily-readiness-20261122/protocol-before-r3/case-08/first.runtime.log",
+            "bytes": 160701,
+            "sha256": "aad89f2d34700f3b392f30cbd0809d3f570c488023ae8c4ccf6022f4cd509354"
+          }
+        ],
+        "quality": {
+          "scope_count": 195,
+          "complete_count": 195,
+          "incomplete_count": 0,
+          "invalid_events": [],
+          "observed_dropped_events": []
+        },
+        "phases": [
+          {
+            "phase": "authority.acquire",
+            "count": 7,
+            "inclusive_total_us": 37393,
+            "p50_us": 5302,
+            "p95_us": 5868,
+            "max_us": 5868,
+            "self_sample_count": 7,
+            "self_total_us": 37393
+          },
+          {
+            "phase": "authority.installation_wait",
+            "count": 7,
+            "inclusive_total_us": 1041676,
+            "p50_us": 17970,
+            "p95_us": 363821,
+            "max_us": 363821,
+            "self_sample_count": 7,
+            "self_total_us": 1041676
+          },
+          {
+            "phase": "authority.order",
+            "count": 7,
+            "inclusive_total_us": 6447346,
+            "p50_us": 898873,
+            "p95_us": 1373767,
+            "max_us": 1373767,
+            "self_sample_count": 7,
+            "self_total_us": 6447346
+          },
+          {
+            "phase": "canonical.admission",
+            "count": 2,
+            "inclusive_total_us": 2076714,
+            "p50_us": 905799,
+            "p95_us": 1170915,
+            "max_us": 1170915,
+            "self_sample_count": 2,
+            "self_total_us": 494
+          },
+          {
+            "phase": "canonical.apply",
+            "count": 1,
+            "inclusive_total_us": 309607,
+            "p50_us": 309607,
+            "p95_us": 309607,
+            "max_us": 309607,
+            "self_sample_count": 1,
+            "self_total_us": 137656
+          },
+          {
+            "phase": "canonical.position",
+            "count": 7,
+            "inclusive_total_us": 26871,
+            "p50_us": 99,
+            "p95_us": 26227,
+            "max_us": 26227,
+            "self_sample_count": 7,
+            "self_total_us": 938
+          },
+          {
+            "phase": "canonical.prepare",
+            "count": 2,
+            "inclusive_total_us": 4950290,
+            "p50_us": 2292596,
+            "p95_us": 2657694,
+            "max_us": 2657694,
+            "self_sample_count": 2,
+            "self_total_us": 242461
+          },
+          {
+            "phase": "capture.closure",
+            "count": 2,
+            "inclusive_total_us": 39752,
+            "p50_us": 1052,
+            "p95_us": 38700,
+            "max_us": 38700,
+            "self_sample_count": 2,
+            "self_total_us": 39752
+          },
+          {
+            "phase": "capture.evaluate",
+            "count": 2,
+            "inclusive_total_us": 4291,
+            "p50_us": 223,
+            "p95_us": 4068,
+            "max_us": 4068,
+            "self_sample_count": 2,
+            "self_total_us": 4291
+          },
+          {
+            "phase": "capture.postimages",
+            "count": 2,
+            "inclusive_total_us": 12222,
+            "p50_us": 4960,
+            "p95_us": 7262,
+            "max_us": 7262,
+            "self_sample_count": 2,
+            "self_total_us": 12222
+          },
+          {
+            "phase": "capture.preimages",
+            "count": 2,
+            "inclusive_total_us": 485,
+            "p50_us": 72,
+            "p95_us": 413,
+            "max_us": 413,
+            "self_sample_count": 2,
+            "self_total_us": 485
+          },
+          {
+            "phase": "capture.rows",
+            "count": 2,
+            "inclusive_total_us": 81134,
+            "p50_us": 26602,
+            "p95_us": 54532,
+            "max_us": 54532,
+            "self_sample_count": 2,
+            "self_total_us": 12967
+          },
+          {
+            "phase": "capture.schema",
+            "count": 2,
+            "inclusive_total_us": 11417,
+            "p50_us": 5484,
+            "p95_us": 5933,
+            "max_us": 5933,
+            "self_sample_count": 2,
+            "self_total_us": 11417
+          },
+          {
+            "phase": "control.inspect",
+            "count": 1,
+            "inclusive_total_us": 92682,
+            "p50_us": 92682,
+            "p95_us": 92682,
+            "max_us": 92682,
+            "self_sample_count": 1,
+            "self_total_us": 4201
+          },
+          {
+            "phase": "control.inspect_closure",
+            "count": 1,
+            "inclusive_total_us": 44121,
+            "p50_us": 44121,
+            "p95_us": 44121,
+            "max_us": 44121,
+            "self_sample_count": 1,
+            "self_total_us": 44121
+          },
+          {
+            "phase": "control.predecessor",
+            "count": 8,
+            "inclusive_total_us": 18215427,
+            "p50_us": 1106199,
+            "p95_us": 7709314,
+            "max_us": 7709314,
+            "self_sample_count": 8,
+            "self_total_us": 4592
+          },
+          {
+            "phase": "control.seal_pages",
+            "count": 8,
+            "inclusive_total_us": 17273646,
+            "p50_us": 1002471,
+            "p95_us": 7597101,
+            "max_us": 7597101,
+            "self_sample_count": 8,
+            "self_total_us": 17273646
+          },
+          {
+            "phase": "control.snapshot",
+            "count": 8,
+            "inclusive_total_us": 566081,
+            "p50_us": 64417,
+            "p95_us": 93665,
+            "max_us": 93665,
+            "self_sample_count": 8,
+            "self_total_us": 5045
+          },
+          {
+            "phase": "control.validate",
+            "count": 9,
+            "inclusive_total_us": 415468,
+            "p50_us": 46974,
+            "p95_us": 50330,
+            "max_us": 50330,
+            "self_sample_count": 9,
+            "self_total_us": 415468
+          },
+          {
+            "phase": "materialize.closure",
+            "count": 4,
+            "inclusive_total_us": 41004,
+            "p50_us": 905,
+            "p95_us": 38254,
+            "max_us": 38254,
+            "self_sample_count": 4,
+            "self_total_us": 41004
+          },
+          {
+            "phase": "materialize.postconditions",
+            "count": 2,
+            "inclusive_total_us": 627,
+            "p50_us": 60,
+            "p95_us": 567,
+            "max_us": 567,
+            "self_sample_count": 2,
+            "self_total_us": 627
+          },
+          {
+            "phase": "materialize.preconditions",
+            "count": 2,
+            "inclusive_total_us": 9834,
+            "p50_us": 4585,
+            "p95_us": 5249,
+            "max_us": 5249,
+            "self_sample_count": 2,
+            "self_total_us": 9834
+          },
+          {
+            "phase": "materialize.rows",
+            "count": 2,
+            "inclusive_total_us": 11243,
+            "p50_us": 4785,
+            "p95_us": 6458,
+            "max_us": 6458,
+            "self_sample_count": 2,
+            "self_total_us": 72
+          },
+          {
+            "phase": "materialize.writes",
+            "count": 2,
+            "inclusive_total_us": 710,
+            "p50_us": 105,
+            "p95_us": 605,
+            "max_us": 605,
+            "self_sample_count": 2,
+            "self_total_us": 710
+          },
+          {
+            "phase": "native.arm",
+            "count": 1,
+            "inclusive_total_us": 2297294,
+            "p50_us": 2297294,
+            "p95_us": 2297294,
+            "max_us": 2297294,
+            "self_sample_count": 1,
+            "self_total_us": 4558
+          },
+          {
+            "phase": "native.claim",
+            "count": 1,
+            "inclusive_total_us": 4282441,
+            "p50_us": 4282441,
+            "p95_us": 4282441,
+            "max_us": 4282441,
+            "self_sample_count": 1,
+            "self_total_us": 143232
+          },
+          {
+            "phase": "snapshot.cas_publication_wait",
+            "count": 8,
+            "inclusive_total_us": 1429,
+            "p50_us": 178,
+            "p95_us": 194,
+            "max_us": 194,
+            "self_sample_count": 8,
+            "self_total_us": 1429
+          },
+          {
+            "phase": "snapshot.closure",
+            "count": 10,
+            "inclusive_total_us": 448992,
+            "p50_us": 45589,
+            "p95_us": 51536,
+            "max_us": 51536,
+            "self_sample_count": 10,
+            "self_total_us": 448992
+          },
+          {
+            "phase": "snapshot.installation_wait",
+            "count": 8,
+            "inclusive_total_us": 25004,
+            "p50_us": 73,
+            "p95_us": 19331,
+            "max_us": 19331,
+            "self_sample_count": 8,
+            "self_total_us": 25004
+          },
+          {
+            "phase": "snapshot.rows",
+            "count": 11,
+            "inclusive_total_us": 194087,
+            "p50_us": 17328,
+            "p95_us": 40907,
+            "max_us": 40907,
+            "self_sample_count": 11,
+            "self_total_us": 18040
+          },
+          {
+            "phase": "snapshot.validate_facts",
+            "count": 10,
+            "inclusive_total_us": 1631,
+            "p50_us": 124,
+            "p95_us": 269,
+            "max_us": 269,
+            "self_sample_count": 10,
+            "self_total_us": 1631
+          },
+          {
+            "phase": "sqlite.begin_deferred",
+            "count": 3,
+            "inclusive_total_us": 9,
+            "p50_us": 3,
+            "p95_us": 3,
+            "max_us": 3,
+            "self_sample_count": 3,
+            "self_total_us": 9
+          },
+          {
+            "phase": "sqlite.begin_immediate",
+            "count": 12,
+            "inclusive_total_us": 73,
+            "p50_us": 5,
+            "p95_us": 12,
+            "max_us": 12,
+            "self_sample_count": 12,
+            "self_total_us": 73
+          },
+          {
+            "phase": "sqlite.commit",
+            "count": 14,
+            "inclusive_total_us": 374763,
+            "p50_us": 18206,
+            "p95_us": 107982,
+            "max_us": 107982,
+            "self_sample_count": 14,
+            "self_total_us": 374763
+          },
+          {
+            "phase": "sqlite.mutex_wait",
+            "count": 23,
+            "inclusive_total_us": 25963,
+            "p50_us": 0,
+            "p95_us": 6,
+            "max_us": 25932,
+            "self_sample_count": 23,
+            "self_total_us": 25963
+          },
+          {
+            "phase": "subject.apply_s1",
+            "count": 1,
+            "inclusive_total_us": 116512,
+            "p50_us": 116512,
+            "p95_us": 116512,
+            "max_us": 116512,
+            "self_sample_count": 1,
+            "self_total_us": 1104
+          },
+          {
+            "phase": "subject.prepare_s1",
+            "count": 1,
+            "inclusive_total_us": 7897194,
+            "p50_us": 7897194,
+            "p95_us": 7897194,
+            "max_us": 7897194,
+            "self_sample_count": 1,
+            "self_total_us": 114007
+          }
+        ],
+        "largest_scopes": [
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 40,
+            "phase": "subject.prepare_s1",
+            "parent_id": null,
+            "started_unix_us": 1795288327649606,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+              "action_id": "c111575c-c7af-51c5-8848-66bbcf7efc2b"
+            },
+            "status": "complete",
+            "inclusive_us": 7897194,
+            "observed_drops_during_scope": 0,
+            "self_us": 114007
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 41,
+            "phase": "control.predecessor",
+            "parent_id": 40,
+            "started_unix_us": 1795288327649700,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+              "action_id": "c111575c-c7af-51c5-8848-66bbcf7efc2b"
+            },
+            "status": "complete",
+            "inclusive_us": 7709314,
+            "observed_drops_during_scope": 0,
+            "self_us": 85
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 52,
+            "phase": "control.seal_pages",
+            "parent_id": 41,
+            "started_unix_us": 1795288327761897,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+              "action_id": "c111575c-c7af-51c5-8848-66bbcf7efc2b"
+            },
+            "status": "complete",
+            "inclusive_us": 7597101,
+            "observed_drops_during_scope": 0,
+            "self_us": 7597101
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 81,
+            "phase": "native.claim",
+            "parent_id": null,
+            "started_unix_us": 1795288336575867,
+            "binding": {
+              "task_id": "08731013-2130-4065-ae3d-d9f20e331ee4"
+            },
+            "status": "complete",
+            "inclusive_us": 4282441,
+            "observed_drops_during_scope": 0,
+            "self_us": 143232
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 86,
+            "phase": "canonical.prepare",
+            "parent_id": 81,
+            "started_unix_us": 1795288336719563,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+              "task_id": "08731013-2130-4065-ae3d-d9f20e331ee4",
+              "action_id": "3c7c79a8-db84-0592-623e-33f73c0bcfb1"
+            },
+            "status": "complete",
+            "inclusive_us": 2657694,
+            "observed_drops_during_scope": 0,
+            "self_us": 232312
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 99,
+            "phase": "control.predecessor",
+            "parent_id": null,
+            "started_unix_us": 1795288336853429,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce"
+            },
+            "status": "complete",
+            "inclusive_us": 2467702,
+            "observed_drops_during_scope": 0,
+            "self_us": 70
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 110,
+            "phase": "control.seal_pages",
+            "parent_id": 99,
+            "started_unix_us": 1795288336981877,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce"
+            },
+            "status": "complete",
+            "inclusive_us": 2339244,
+            "observed_drops_during_scope": 0,
+            "self_us": 2339244
+          },
+          {
+            "source": 0,
+            "pid": 1117079,
+            "scope_id": 87,
+            "phase": "control.predecessor",
+            "parent_id": 86,
+            "started_unix_us": 1795288336735103,
+            "binding": {
+              "subject_id": "524ebca0-f160-4d0d-ae72-f4c6de145dce",
+              "task_id": "08731013-2130-4065-ae3d-d9f20e331ee4",
+              "action_id": "3c7c79a8-db84-0592-623e-33f73c0bcfb1"
+            },
+            "status": "complete",
+            "inclusive_us": 2337624,
+            "observed_drops_during_scope": 0,
+            "self_us": 95
+          }
+        ],
+        "incomplete_scopes": []
+      },
+      "interpretation": "Frozen first.ledger defines the first request verdict. Later attempts and their shutdown Unknowns are retained separately. Timing phases summarize the whole closed runtime log (including startup and shutdown tail); nested durations must not be summed."
+    }
+  ],
+  "unfinished_cases": [],
+  "already_retained_cases": [
+    "case-01",
+    "case-02",
+    "case-03",
+    "case-04",
+    "case-05",
+    "case-06",
+    "case-07",
+    "case-08"
+  ],
+  "batch": {
+    "source_revision": "72fc70d3325dc8b2ddacd142744b0d4b8b184705",
+    "binary_sha256": "7d179ac65453a44e77e2e63091b753c7f68416cc1fd70187819ea09165e0aea7",
+    "startup_timeout_seconds": 300,
+    "requested_runs": 8,
+    "attempted_runs": 8,
+    "unattempted_runs": 0,
+    "completed_observations": 8,
+    "protocol_passed_runs": 1,
+    "canonical_case_table_sha256": "d7b9f0a2dfddffda823f1154e54fc6a5f0eef4c99445f6a40b5f9ccdea87359a",
+    "finished_at": "2026-11-21T19:12:26Z",
+    "errors": []
+  },
+  "interpretation": {
+    "sampling": "Only stopped cases with cleanup_complete are included. The batch may still be running; unattempted or active cases are not observations.",
+    "timing": "Best-effort structured wall-time scopes from the whole closed runtime. Inclusive parents contain children. Scope end does not prove successful operation or a physical model send.",
+    "timeline": "Commit-log created_at has one-second wall-clock resolution. request_armed is not a measured physical send timestamp; terminal-to-S1 includes all intervening work and cannot be called model latency.",
+    "protocol": "Raw frozen first-request checks and later cleanup errors are separate facts. Never relabel a shutdown Unknown or canceled admission as the first request's R0.",
+    "comparison": "Release-versus-earlier-debug scope distributions are descriptive only; code identity, workload, history, binary bytes and shutdown window differ."
+  },
+  "descriptive_counts": {
+    "completed_cases": 8,
+    "first_request_check_all_true": 6,
+    "original_summary_protocol_passed": 1,
+    "first_r0_codes": [
+      {
+        "case": "case-02",
+        "code": "MODEL_RESULT_INCOMPLETE"
+      },
+      {
+        "case": "case-07",
+        "code": "MODEL_RESULT_INCOMPLETE"
+      }
+    ],
+    "scope_count": 1164,
+    "complete_count": 1162,
+    "incomplete_count": 2,
+    "invalid_event_count": 0,
+    "drops": [
+      {
+        "case": "case-01",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-02",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-03",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-04",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-05",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-06",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-07",
+        "observed_dropped_events": []
+      },
+      {
+        "case": "case-08",
+        "observed_dropped_events": []
+      }
+    ],
+    "note": "Completed fixed eight-case batch. Raw first-request checks are separate from cleanup-inclusive original protocol_passed; neither is a full native/child/restart journey."
+  }
+}

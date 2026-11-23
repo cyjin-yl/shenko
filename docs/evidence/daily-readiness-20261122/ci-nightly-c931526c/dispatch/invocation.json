@@ -1,0 +1,7 @@
+{
+  "source_revision": "c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0",
+  "repository": "cyjin-yl/shenko",
+  "branch": "feat/daily-readiness-20261122",
+  "started_at_utc": "2026-11-22T00:47:00.543241+00:00",
+  "script": "/tank/shared/projects/shenko/build/daily-readiness-20261122-dispatch-reviewed-candidate.py"
+}

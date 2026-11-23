@@ -1,0 +1,32 @@
+{
+  "host-exit.txt": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r4/exit.txt",
+    "bytes": 38,
+    "sha256": "5ce878f1b71419b11ed986d83f169e819cb9cf7ce3b2762921fa966709938c60"
+  },
+  "host-host.log": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r4/host.log",
+    "bytes": 1066,
+    "sha256": "2a226a88b93bcac733daf0826671211c4b2a93250d6b6fcf40a165229f5d3b9b"
+  },
+  "host-container-image.txt": {
+    "path": "/tank/shared/projects/shenko/build/daily-web-pin-795b1b49-r4/container-image.txt",
+    "bytes": 72,
+    "sha256": "4e37df3be17f69180eae38be60ef64743ec0a670c635c13439fa0e59a767d827"
+  },
+  "container-exit.txt": {
+    "path": "/var/idw-target/daily-web-pin-795b1b49-r4/exit.txt",
+    "bytes": 43,
+    "sha256": "012b322a9a164036e34709a9e4cb8557532e50ee941d2c024ff318ab4dad0ff2"
+  },
+  "container-container.log": {
+    "path": "/var/idw-target/daily-web-pin-795b1b49-r4/container.log",
+    "bytes": 785,
+    "sha256": "372fb14a1ec44fdf2744a616132bc462db0e7fcf9a1b80c7e43bb7513527cfd9"
+  },
+  "rebuilt-manifest.json": {
+    "path": "/var/idw-target/daily-web-pin-795b1b49-r4/rebuild/source/src/static/build-manifest.json",
+    "bytes": 8972,
+    "sha256": "bbac4693f08acea079224112426625d7fb462d8e0ec5dd8c8c355f3a46d51ecd"
+  }
+}

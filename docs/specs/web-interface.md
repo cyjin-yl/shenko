@@ -30,12 +30,18 @@ Playground 让它长期保留兴趣和交流产生的作品。作品可以有前
 |---|---|
 | `hello` (v2) | `server_version` + `capabilities`（append/steer/withdraw/actions/documents/attachments/durable_input_receipts/committed_replay/streaming）+ `surface`（基线能力事实，revision 0） |
 | `capabilities` (v2) | `client_hello` 的应答：`surface` 重算（revision 递增，含 `valid_until`） |
-| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。携带流式前缀的 part 会额外发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
+| `timeline_part` (v2) | 已提交 part：全量正文，`chunk_seq=0`，`terminal=true`，`committed_only=true`；`stream/request/attempt` 缺省（当前 OutboxMessage 无此绑定，不推断）。流式前缀与正式正文不一致时，发出修正 part（`part_id="text/0@<commit>"`），客户端按替换处理 |
 | `stream_part` (v2) | 流式 public-text chunk（仅当真实生产者接入；`streaming:false` 时永不发送）。`step` 可为 0（尚无已提交步；客户端不得虚构）；其余 identity 与 `timeline_part` 同构 |
 | `document` (v1) | 已校验并按本连接能力降级的 SemanticDocument（见 [§3](../research/product-positioning.md#spec-3)） |
 | `document_error` (v1) | 文档块无法成为界面；原文仍可见，富层丢弃，原因可读 |
 | `identity` | 主体身份 revision 变化通知（既有） |
 | `receipt` (v2) / `submission_view` (v2) | 见 [§2](architecture.md#spec-2) |
+
+修正身份必须精确为 `text/0@${commit_ref}`，并绑定同一 `message_id=step_id`。
+它替换该消息的旧 `text/0` 流式视图（或同一提交引用的 base），清除对应旧流的
+待补分片；先收到修正或先收到旧流，以及重连重放，都保留实际 corrected part_id
+和完整提交正文。不同消息、part 或其他提交引用的事实不被替换。原流式账本不改写，
+也不把其 stream/request/attempt 身份推断到修正 part；对话与静默轮次仍按 §5.2 归类。
 
 ### 1.2 客户端 → 服务器
 
@@ -254,10 +260,28 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 记录本次从 `7521cd5` 升级到 `f29738eb6a80`。
+`web/upstream-pin.json` 当前固定到 Proto-UI `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68`，
+它整合 main `39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
+并保留上一 pin `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
+这是 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 的候选依赖，
+尚未冒充已合入主线或完成最终浏览器验收；迁移与真实运行边界见
+[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)。
+
+上一 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
+固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
+[上游 #1682](https://github.com/Proto-UI/Proto-UI/pull/1682) 的 compiler 测试挂载时序补正。
+原 [#1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 已合入；其帧队列排空仍可能早于
+Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公开的
+`happyDOM.waitUntilComplete()`，再判断帧队列是否为空；原八轮预算、测试期限、
+四项拒绝、50/70 位置断言、29 个断言及全部 28 项测试保持。新提交只改测试和
+诊断记录，上游运行代码与 lock 字节不变；不同时引入上游 main 的其他改动。
+原 c931 Nightly 失败、受控红绿对照及未插桩的 28 项回执见
+[运行证据](../evidence/nightly-environment-20261122.md#c931526c-compiler-failure-and-mutation-delivery-fix)。
+pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
+producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
 使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
-family：button、textarea、scroll-area、collapsible、drawer（主体详情）、
+family：button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
 separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 双重 Tab 停靠。
@@ -271,6 +295,11 @@ separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，
 生成资源、样式、许可及带资源摘要的 manifest。Rust 将这些资源嵌入二进制，
 因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
 不能证明升级生效。
+
+浏览器构建对整个依赖图显式使用 Shenko 的 tsconfig，并拒绝直接进入上游
+`packages/**/src` 的浏览器依赖。这样公共包只通过审定的 `dist` exports 消费，
+不会因上游开发用 `paths` 把 `core/src` 与 `core/dist` 混入同一页面。构建期
+compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图。
 
 ### compiler：构建期编译 Shenko 自己的 Prototype
 
@@ -639,6 +668,17 @@ Alma 发布归档主线固定为 [e22723b7c6ca8bb74c3bd1ed32e76df790c9d5ba](http
 
 <!-- /migrated-contract: SPEC:21.11 -->
 
+### 当前实现说明：共享 follow-tail（2026-11-22）
+
+当前 Inspect 与 IM 消费共享 Shadcn MessageScroller 的 `following`、
+`pauseFollowing()`、`jumpToEnd()`，不再各自按像素阈值维护 follow 状态机。
+稳定 message/part 锚点、选区、持久阅读模式与主体身份仍由 Shenko 拥有；
+组合关闭通用 anchor compensation，避免两个恢复者同时改变位置。重开时原始
+持久 key 保留到真实 reader 输入接管，不能被早到的 HTTP/replay fallback 覆盖。
+主体切换会退休旧阅读 owner；订阅、observer、timer 与 frame 只可作用于当前
+epoch。恢复按钮在保持键盘焦点时继续存在，随后失焦才按 follow 状态隐藏。
+消息正文中的控件接收焦点时（包括 Tab / Shift+Tab 导航）暂停共享 follow 并记录阅读锚点；输入区保留正常跟随，恢复按钮独立执行显式恢复。
+
 <a id="spec-21-12"></a>
 <!-- migrated-contract: SPEC:21.12 -->
 ## 21.12 默认 Web 界面：与主体直接交互的一条时间线
@@ -650,6 +690,14 @@ WebUI 初始只呈现主体的一条时间线和输入框。输入接入同一 s
 放置方式与 D3 的紧急程度分开。append 不是后台低优先级，不因主体永远思考而排不到；它不因自身到达打断当前主体 generation。对正在占槽的 child 是否抢占、何时处理积压及是否进入 DND，继续使用同一调度与主体政策。steer 也不因此获得管理员身份或新增工具权限。
 
 <!-- /migrated-contract: SPEC:21.12 -->
+
+### 当前统一发送入口
+
+上述迁移块保留首版原文。当前统一发送入口沿用已合入的
+[one-send 设计](https://github.com/cyjin-yl/shenko/commit/a0f008a7c262209f1b6ce6333aa5d00f8421c8a1)：
+当前连接的 `hello.capabilities.steer` 为真时请求 `steer`，否则在允许追加输入时请求
+`append`。这是当前默认发送行为的更新；实际接纳位置仍以持久回执为准，
+`steer` 的请求本身不证明已在活动模型请求内生效。
 
 <a id="spec-41-18"></a>
 <!-- migrated-contract: SPEC:41.18 -->

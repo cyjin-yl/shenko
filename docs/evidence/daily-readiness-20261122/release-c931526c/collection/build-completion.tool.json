@@ -1,0 +1,14 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "[Reading last 3 lines (total: 15 lines)]\n\nVerified build container image: sha256:28df77cc6beee4f88ee1f57922190dcb02414d78d284e8b0f91859e18728e565\n{\"source_revision\": \"c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0\", \"scoped_source_revision\": \"95cdc272866a5f31cedb790d263761523e9b0e2c\", \"scoped_summary_sha256\": \"edf76bbeaec0ab7a03fb9de1487382ee89b2683a3c458ee89a1dd717efc4b0dc\", \"scoped_executions_passed\": 10, \"scoped_targets\": 3, \"changed_paths_since_scoped_source\": [\"docs/development/canonical-capture-budget.md\", \"docs/development/canonical-native-first-claim.md\", \"docs/development/control-predecessor-publication.md\", \"docs/development/native-e1-incremental-closure.md\", \"docs/development/real-single-node-journey.md\", \"docs/evidence/daily-readiness-20261122/observer-result-consumption/receipt.json\", \"docs/evidence/daily-readiness-20261122/observer-result-consumption/unittest.log.gz\", \"docs/specs/durable-state.md\", \"scripts/fixtures/journey-output-consumption/README.md\", \"scripts/fixtures/journey-output-consumption/attempt-001.input-plan.json.gz\", \"scripts/fixtures/journey-output-consumption/attempt-002.input-plan.json.gz\", \"scripts/fixtures/journey-output-consumption/cases.json\", \"scripts/real_browser_witness.py\", \"scripts/real_single_node_journey.py\", \"scripts/real_single_node_journey_test.py\"], \"static_inventory_verified\": 12, \"static_manifest_sha256\": \"134521c95f3676cf5afdd9eeae55b44a8eff144d7fef95c7b39047940919cd89\", \"product_tree_identical_to_scoped_source\": true, \"model_journey_tested\": false}\n{\"source_revision\": \"c931526c8ae8cd16f3e0cf56d733f1e4275d5bb0\", \"binary\": \"/tank/shared/projects/shenko/build/daily-readiness-20261122/shenko-release-c931526c\", \"bytes\": 90370560, \"sha256\": \"1ad2899f2c7dff3c0cd5123a16d3dfbb893a9cc8ba85996d5f16a8023c0eeba1\", \"started_at_utc\": \"2026-11-22T00:46:07Z\", \"finished_at_utc\": \"2026-11-22T00:53:22Z\", \"profile\": \"release\", \"command\": [\"cargo\", \"build\", \"--offline\", \"--locked\", \"--release\", \"-p\", \"shenko\", \"-j4\"]}\n✅ Process completed with exit code 0 (runtime: 440.00s)"
+    },
+    {
+      "type": "text",
+      "text": "\n[executed on device: doesvm (ec69e76d-71fb-4bc8-8671-c089fd87096f)]"
+    }
+  ],
+  "structuredContent": null,
+  "isError": false
+}

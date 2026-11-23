@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
     authority::{CommitAdmission, CommitAuthorityGrant},
@@ -30,8 +30,8 @@ use crate::{
         NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, PreparedTransition, RowTransition, RowTransitionInput,
-        TableTransition,
+        Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA,
+        NativeReadSelector, PreparedTransition, RowTransition, RowTransitionInput, TableTransition,
     },
     native_facts::{CanonicalFact, narrow_task_read, validate_task_read},
     store::storage_error,
@@ -101,6 +101,20 @@ fn same(left: &impl Serialize, right: &impl Serialize) -> Result<bool, ShenkoErr
 }
 
 impl ArmPlan {
+    fn read_selectors(&self) -> [NativeReadSelector; 2] {
+        [
+            NativeReadSelector::ArmOperation {
+                operation_id: self.operation.operation_id,
+                task_id: self.task.task_id,
+                logical_key: self.operation.logical_key.clone(),
+            },
+            NativeReadSelector::ArmAttempt {
+                attempt_id: self.attempt.attempt_id,
+                operation_id: self.operation.operation_id,
+            },
+        ]
+    }
+
     fn position(&self) -> String {
         format!(
             "task/{}/operation/{}",
@@ -257,6 +271,10 @@ impl ArmTransition {
         };
         if name == "tasks" && self.canonical_claim.is_some() {
             validate_task_read(table, &self.plan.task)?;
+        } else if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA
+            && self.plan.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector))
+        {
+            // validate() binds this exact predicate set to the typed plan.
         } else if !table.complete_read {
             return Err(invalid(format!("incomplete {name} read condition")));
         }
@@ -292,6 +310,9 @@ impl ArmTransition {
     fn validate_absence(&self) -> Result<(), ShenkoError> {
         let plan = &self.plan;
         let operations = self.read_table("operations")?;
+        if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA && !operations.before.rows.is_empty() {
+            return Err(invalid("T1 original operation predicate is not absent"));
+        }
         for row in operations.before.rows.values() {
             let original: OperationRecord = json_row(operations, row)?;
             if column(operations, row, "operation_id")?
@@ -306,6 +327,9 @@ impl ArmTransition {
             }
         }
         let attempts = self.read_table("attempts")?;
+        if self.rows.schema_version == NATIVE_OPERATION_READ_SCHEMA && !attempts.before.rows.is_empty() {
+            return Err(invalid("T1 original attempt predicate is not absent"));
+        }
         for row in attempts.before.rows.values() {
             let original: AttemptRecord = json_row(attempts, row)?;
             if column(attempts, row, "attempt_id")?
@@ -334,6 +358,7 @@ impl ArmTransition {
         let head = &rows.original_head;
         let plan = &self.plan;
         plan.validate(head)?;
+        rows.validate_native_read_selectors(&plan.read_selectors())?;
         if self.canonical_claim.is_some()
             && (!plan.native_dispatch
                 || memo_uuid(&plan.task, NATIVE_OPERATION_ID) != Some(plan.operation.operation_id))
@@ -343,7 +368,8 @@ impl ArmTransition {
             ));
         }
         let position = plan.position();
-        if rows.schema_version != 1
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
+            || (rows.schema_version != 1 && self.canonical_claim.is_none())
             || rows.action_id != admission.action_id
             || rows.action_id
                 != EntityId::derived("commit-admission-action-v1", position.as_bytes())
@@ -518,6 +544,10 @@ impl Store {
         attempt: &mut AttemptRecord,
         native_dispatch: bool,
     ) -> Result<Option<OperationRecord>, ShenkoError> {
+        let _phase = crate::timing::Phase::bound("native.arm", crate::timing::Binding {
+            task_id: Some(invocation.task_id), operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id), ..Default::default()
+        });
         let (head, mut position) =
             self.task_admission_position(invocation.task_id, String::new())?;
         let task = position
@@ -540,7 +570,7 @@ impl Store {
         let canonical_claim = if native_dispatch
             && memo_uuid(&plan.task, NATIVE_OPERATION_ID) == Some(plan.operation.operation_id)
         {
-            let conn = self.ledger.conn.lock();
+            let conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
             self.direct_native_claim(&conn, &plan.task)?
                 .map(|(fact, original)| {
                     position.expected_steps.push(original.creator);
@@ -580,6 +610,10 @@ impl Store {
         position.reads.sort();
         position.reads.dedup();
         let action_id = EntityId::derived("commit-admission-action-v1", position.key.as_bytes());
+        let _phase = crate::timing::Phase::bound("canonical.prepare", crate::timing::Binding {
+            subject_id: Some(head.agent_id), task_id: Some(plan.task.task_id), action_id: Some(action_id),
+            operation_id: Some(plan.operation.operation_id), attempt_id: Some(plan.attempt.attempt_id),
+        });
         let input_digest = plan.input_digest(head)?;
         if let Some(prepared) = self.prepared_transition(action_id, &input_digest)? {
             return Ok((prepared, false));
@@ -594,8 +628,8 @@ impl Store {
             position.expected_steps.clone(),
         );
         authority.with_mutation(&self.ledger, || {
-            let mut conn = self.ledger.conn.lock();
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage_error)?;
+            let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+            let tx = crate::timing::immediate(&mut conn).map_err(storage_error)?;
             authority.check(&tx, self.capabilities.incarnation, Some(head.agent_id))?;
             if !self.native_invocation_current_tx(&tx, &plan.task, &plan.invocation).map_err(source_error)? {
                 return Err(conflict("source invocation was fenced before preparation"));
@@ -603,16 +637,23 @@ impl Store {
             if let Some(prepared) = crate::control_transition::prepared_transition_at(&tx, action_id, &input_digest)? { return Ok((prepared, false)); }
             // Local dispatcher/authority checks above do not become canonical
             // facts. The captured transaction contains shared state only.
-            let (mut rows, ()) = self.capture_row_transition(&tx, RowTransitionInput { action_id, input_digest: input_digest.clone(), head },
-                canonical_claim.as_ref().map(|_| &plan.task),
-                |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at))?;
+            let input = RowTransitionInput { action_id, input_digest: input_digest.clone(), head };
+            let evaluate = |commit, created_at| self.evaluate_arm(&tx, head, &plan, commit, created_at);
+            let (mut rows, ()) = if canonical_claim.is_some() {
+                let [creator] = position.expected_steps.as_slice() else {
+                    return Err(invalid("direct T1 requires its original creator"));
+                };
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
+            } else {
+                self.capture_row_transition(&tx, input, None, evaluate)?
+            };
             if canonical_claim.is_some() { narrow_task_read(&mut rows, &plan.task)?; }
             let transition = ArmTransition { rows, plan: plan.clone(), canonical_claim: canonical_claim.clone() };
             let result_commit = transition.rows.result_commit;
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("T1 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if canonical_claim.is_some() { 2 } else { 1 })?.object;
+                if canonical_claim.is_some() { 4 } else { 1 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -630,7 +671,7 @@ impl Store {
             tx.execute("INSERT INTO control_prepared_transitions(action_id,input_digest,admission,result_commit,transition_ref) VALUES(?1,?2,?3,?4,?5)",
                 params![action_id.to_string(),input_digest.0,serde_json::to_string(&admission)?,serde_json::to_string(&result_commit)?,serde_json::to_string(&transition_ref)?]).map_err(storage_error)?;
             self.record_subject_commit(&tx, result_commit, 1)?;
-            tx.commit().map_err(storage_error)?;
+            crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
             Ok((PreparedTransition { admission, transition_ref }, true))
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
@@ -700,7 +741,7 @@ impl Store {
     }
 
     fn read_arm_transition(&self, reference: &ObjectRef) -> Result<ArmTransition, ShenkoError> {
-        if !matches!(reference.codec.major, 1 | 2) {
+        if !matches!(reference.codec.major, 1..=4) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -709,7 +750,13 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: ArmTransition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if (reference.codec.major == 2) != transition.canonical_claim.is_some() {
+        if (reference.codec.major >= 2) != transition.canonical_claim.is_some()
+            || transition.rows.schema_version != match reference.codec.major {
+                4 => NATIVE_OPERATION_READ_SCHEMA,
+                3 => NATIVE_SUBJECT_READ_SCHEMA,
+                _ => 1,
+            }
+        {
             return Err(invalid(
                 "T1 reader version differs from its task dependency proof",
             ));
@@ -782,6 +829,11 @@ impl Store {
         let admission = authority
             .admission()
             .ok_or_else(|| invalid("missing T1 admission"))?;
+        let _phase = crate::timing::Phase::bound("canonical.apply", crate::timing::Binding {
+            subject_id: Some(admission.subject_id), action_id: Some(admission.action_id),
+            operation_id: admission.operation_id, attempt_id: admission.attempt_id,
+            ..Default::default()
+        });
         let transition = self.read_arm_transition(reference)?;
         transition.validate(admission)?;
         let envelope: serde_json::Value =
@@ -796,9 +848,8 @@ impl Store {
         }
         authority.with_mutation(&self.ledger,
             || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                let mut conn = crate::timing::measure("sqlite.mutex_wait", || self.ledger.conn.lock());
+                let tx = crate::timing::immediate(&mut conn)
                     .map_err(storage_error)?;
                 if admission_materialized(&tx, admission)? {
                     // A late E1 may have advanced these records. Read it, never
@@ -833,7 +884,7 @@ impl Store {
                     {
                         return Err(invalid("locally materialized T1 identity differs"));
                     }
-                    tx.commit().map_err(storage_error)?;
+                    crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                     authority.materialized();
                     return Ok(ArmedMaterialization {
                         operation,
@@ -889,7 +940,7 @@ impl Store {
                 self.record_subject_commit(&tx, local_commit, 3)?;
                 let (_, operation, attempt) =
                     transition.plan.projection(transition.rows.result_commit)?;
-                tx.commit().map_err(storage_error)?;
+                crate::timing::measure("sqlite.commit", || tx.commit()).map_err(storage_error)?;
                 authority.materialized();
                 Ok(ArmedMaterialization {
                     operation,
