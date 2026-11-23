@@ -70,7 +70,7 @@ impl AdmittedProcessLoad {
 /// unavailable here; their installation/trial state is never rewritten.
 #[derive(Debug)]
 pub enum ProcessLoadAdmission {
-    Admitted(AdmittedProcessLoad),
+    Admitted(Box<AdmittedProcessLoad>),
     Unavailable { unit: ProcessUnitIdentity, reason: String },
 }
 impl ProcessLoadAdmission {
@@ -260,8 +260,9 @@ impl<'a> Source<'a> {
                     params![unit.unit_id, unit.revision, unit.artifact_digest.0, spec.edge_id], |row| row.get(0)).optional()?;
                 Ok((&spec.edge_id, data))
             }).collect::<Result<Vec<_>>>()?;
-            self.seals.get_mut(unit).expect("captured version seal").edges =
-                Some(Digest::blake3(&serde_json::to_vec(&rows)?));
+            let seal = self.seals.get_mut(unit)
+                .context("PROCESS_LOAD_CLOSURE: the captured version seal is absent")?;
+            seal.edges = Some(Digest::blake3(&serde_json::to_vec(&rows)?));
             let mut edges = stored.unit.dependencies.iter().zip(rows).map(|(spec, (id, data))| -> Result<_> {
                 let edge: Option<ResolvedDependency> = data.as_deref().map(serde_json::from_str).transpose()?;
                 ensure!(edge.as_ref().is_none_or(|edge| id == &edge.edge_id),
@@ -274,8 +275,9 @@ impl<'a> Source<'a> {
             (edges, stored.unit.package_declaration()?)
         };
         if self.selection.environment.is_some() {
-            self.seals.get_mut(unit).expect("captured version seal").edges =
-                Some(Digest::blake3(&serde_json::to_vec(&edges)?));
+            let seal = self.seals.get_mut(unit)
+                .context("PROCESS_LOAD_CLOSURE: the captured version seal is absent")?;
+            seal.edges = Some(Digest::blake3(&serde_json::to_vec(&edges)?));
         }
         ensure!(edges.len() <= MAX_EDGES, "PROCESS_LOAD_CLOSURE: dependency count out of bounds");
         let mut ids = BTreeSet::new();
@@ -401,7 +403,7 @@ fn capture(conn: &rusqlite::Transaction<'_>) -> Result<ProcessLoadSnapshot> {
             source.admit(&selected.unit).map(Some)
         })();
         match candidate {
-            Ok(Some(load)) => admissions.push(ProcessLoadAdmission::Admitted(load)),
+            Ok(Some(load)) => admissions.push(ProcessLoadAdmission::Admitted(Box::new(load))),
             Ok(None) => {},
             // Database failures and whole-capture capacity are not a
             // plugin's unsupported-load status. Neither can be hidden as an
@@ -539,7 +541,7 @@ mod tests {
     }
     fn admitted<'a>(snapshot: &'a ProcessLoadSnapshot, id: &str) -> &'a AdmittedProcessLoad {
         match snapshot.admissions().iter().find(|entry| entry.unit().unit_id == id).expect("selected candidate") {
-            ProcessLoadAdmission::Admitted(load) => load,
+            ProcessLoadAdmission::Admitted(load) => load.as_ref(),
             ProcessLoadAdmission::Unavailable { reason, .. } => panic!("unexpected unavailable candidate: {reason}"),
         }
     }

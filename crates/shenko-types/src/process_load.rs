@@ -324,8 +324,10 @@ impl ProcessLoad {
         let mut objects = BTreeMap::new();
         for object in self.objects() {
             validate_object(object)?;
-            if let Some(previous) = objects.insert(&object.digest, object) {
-                if previous != object { return Err(invalid("one object digest has conflicting reference identities")); }
+            if let Some(previous) = objects.insert(&object.digest, object)
+                && previous != object
+            {
+                return Err(invalid("one object digest has conflicting reference identities"));
             }
         }
         let mut ids = BTreeSet::new();
