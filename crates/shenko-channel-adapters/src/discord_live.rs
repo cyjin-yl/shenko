@@ -1479,7 +1479,10 @@ impl GatewayProbe {
                 Err(error) => return Err(Box::new((facts, error))),
             },
         };
-        let url = connect_url(&gateway);
+        let url = match connect_url(&gateway) {
+            Ok(url) => url,
+            Err(error) => return Err(Box::new((facts, error))),
+        };
         facts.endpoint = Some(endpoint_provenance(&url));
 
         let wait = match remaining(deadline, "opening the Discord gateway") {
@@ -3017,13 +3020,22 @@ pub fn reply_kind_of(channel_type: i64) -> Option<&'static str> {
     }
 }
 
-fn connect_url(gateway: &str) -> String {
-    let base = gateway.trim_end_matches('/');
-    if base.contains("v=") {
-        return base.to_string();
+fn connect_url(gateway: &str) -> Result<String, DiscordLiveError> {
+    let mut url = url::Url::parse(gateway).map_err(|error| DiscordLiveError::Refused {
+        detail: format!("the gateway URL is invalid: {error}"),
+    })?;
+    let has_version = url.query_pairs().any(|(key, _)| key == "v");
+    let has_encoding = url.query_pairs().any(|(key, _)| key == "encoding");
+    if !has_version || !has_encoding {
+        let mut query = url.query_pairs_mut();
+        if !has_version {
+            query.append_pair("v", DISCORD_API_VERSION);
+        }
+        if !has_encoding {
+            query.append_pair("encoding", "json");
+        }
     }
-    let separator = if base.contains('?') { '&' } else { '?' };
-    format!("{base}{separator}v={DISCORD_API_VERSION}&encoding=json")
+    Ok(url.to_string())
 }
 
 fn remaining(deadline: Instant, stage: &str) -> Result<Duration, DiscordLiveError> {
@@ -3503,18 +3515,31 @@ mod tests {
     }
 
     #[test]
-    fn the_gateway_url_keeps_the_api_version_and_encoding() {
+    fn the_gateway_url_keeps_the_api_version_and_encoding() -> Result<(), DiscordLiveError> {
         assert_eq!(
-            connect_url("wss://gateway.discord.gg"),
+            connect_url("wss://gateway.discord.gg")?,
             "wss://gateway.discord.gg/?v=10&encoding=json"
         );
         assert_eq!(
-            connect_url("wss://gateway.discord.gg/?v=10&encoding=json"),
+            connect_url("wss://gateway.discord.gg/?v=10&encoding=json")?,
             "wss://gateway.discord.gg/?v=10&encoding=json"
         );
         assert_eq!(
-            connect_url("wss://resume.example/"),
+            connect_url("wss://resume.example/")?,
             "wss://resume.example/?v=10&encoding=json"
         );
+        assert_eq!(
+            connect_url("wss://resume.example/gateway?rev=2")?,
+            "wss://resume.example/gateway?rev=2&v=10&encoding=json"
+        );
+        assert_eq!(
+            connect_url("wss://resume.example/gateway?v=10&resume=one")?,
+            "wss://resume.example/gateway?v=10&resume=one&encoding=json"
+        );
+        assert!(matches!(
+            connect_url("not a gateway URL"),
+            Err(DiscordLiveError::Refused { .. })
+        ));
+        Ok(())
     }
 }
