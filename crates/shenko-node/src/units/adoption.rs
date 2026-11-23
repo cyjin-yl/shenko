@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::object::Digest;
 use super::codec::{MAX_ARTIFACT_BYTES, MAX_EDGES, MAX_TEXT_BYTES, UnitDescriptor};
-use super::installation::{StoredVersion, now, set_config_section};
+use super::installation::{StoredVersion, bump_unit_selection_revision, now, set_config_section};
 use super::trials::AttemptMeasurement;
 
 /// How one unit version was judged on this installation.
@@ -574,6 +574,7 @@ impl Node {
                 "UPDATE unit_current SET enabled=?2,updated_at=?3 WHERE unit_id=?1",
                 params![unit_id, i64::from(enable), recorded_at],
             )?;
+            bump_unit_selection_revision(&tx, unit_id)?;
         }
         tx.commit()?;
         let facts = self.retained_unit_facts(unit_id)?;

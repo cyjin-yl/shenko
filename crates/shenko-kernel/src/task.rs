@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::{
     agent::CallContext,
     effect::EffectContract,
+    egress::EgressDeclarationDraft,
     ids::EntityId,
     operation::{AuthorityRef, OperationRecord},
     plugin_runtime::NativeCapabilityDeclaration,
@@ -167,6 +168,39 @@ pub trait NativeTaskHandler: Send + Sync + 'static {
     /// keyword filter over the subject's requests.
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
         Vec::new()
+    }
+
+    /// The egress this definition performs while it is installed, one
+    /// declaration per capability it offers.
+    ///
+    /// The installing generation binds each draft to this definition's own
+    /// plugin identity and registers it with the root policy; the handler
+    /// therefore states a scope but never the identity it is judged under. A
+    /// declaration that names a capability this definition does not offer is
+    /// refused at install time, so a permission cannot outlive the thing it
+    /// was meant for. An empty list declares no egress: it is not a promise
+    /// that a request would be allowed, and the root policy refuses every
+    /// attempt the definition did not declare.
+    fn egress_declarations(&self) -> Vec<EgressDeclarationDraft> {
+        Vec::new()
+    }
+
+    /// Receive the root policy authority of one declaration this definition
+    /// authored, in the generation that installed it.
+    ///
+    /// A handler that performs egress keeps the authority and passes it to
+    /// [`crate::policy::PluginPolicyRegistry::admit`] before each attempt; the
+    /// authority becomes stale when the declaration is withdrawn or replaced,
+    /// so a retired definition cannot keep using its old scope. A handler that
+    /// declared egress but binds no authority simply has none to admit with,
+    /// and its attempts are refused instead of silently falling back to a
+    /// broader path.
+    fn bind_egress(
+        &self,
+        _plugin_id: EntityId,
+        _authority: &crate::policy::EgressAuthority,
+    ) -> Result<()> {
+        Ok(())
     }
 
     /// T1 and external effects belong to the handler. The returned operation is

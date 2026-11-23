@@ -108,10 +108,27 @@ NInfer、Strata、vLLM、1Cat-vLLM 各自有 profile 构造器（`profile::nativ
 
 `AdmissionController` 只管 C（同时执行的 generation 数）；`KvPoolState` 只管 K（可保留的上下文驻留）。C=1 不意味着只有一个上下文。
 
-- `ContextLease`：`side`（Main/Child/External）、`state`、`required_units`、`reusable_units`、`recompute_units`、`return_probability`、`priority`、`retention { guarantee, entitled_units, used_units, borrowed_units, reclaim_pending_units }`。
+- `ContextLease`：`side`（Main/Child/External）、`state`、`required_units`、`reusable_units`、`recompute_units`、`reported_usage?`、`return_probability`、`priority`、`retention { guarantee, entitled_units, used_units, borrowed_units, reclaim_pending_units }`。
 - 份额是算法的结果，不是输入。`AutomaticKvPolicy` 枚举候选（按需求比例、对称、相邻份额、保持当前），按加权代价（未覆盖 prefill/replay + 闲置份额 + 迁移代价）选择，并有滞回与最短保持时间。对称负载下"按需求比例"候选本身就是均分，因此 50/50 是涌现结果而不是写死的 0.5；负载变化后份额随之偏移。
 - 只有后端确实提供保留/配额控制时，lease 才能声明 `Reserved`；否则是 `BestEffort`/`Advisory`。容量未被观测时 `capacity_units` 保持 `None`，不改成 0，也不把估算当保证。
 - 份额数据来自**后端实际报告的输入 token**（`observe_kv`），不是字符估算。上下文窗口口径由 `shenko-context-policy` 拥有，broker 不做第二份估算。
+
+`reported_usage` 保留该 context 最近一次已完成请求的原 `request_id`，以及可选的
+`input_tokens`、`cache_read_tokens`、`cache_write_tokens`。未报告是 `null`，明确的零是
+`0`，正值按 provider 原口径保留；这些值不因规划上限而裁剪，也不推断 input 是否
+已包含 cached tokens。历史 lease／handoff 缺少整个字段时仍可读取，保持没有观察，
+序列化时不补造一条零值观察。既有 KV snapshot 和 handoff 携带同一字段。
+
+`reusable_units` 继续采用保守规划额度：有输入计数时为
+`min(cache_read_tokens.unwrap_or(0), input_tokens)`；`recompute_units` 是输入计数减去
+该额度。缺少 cache-read 报告时的零额度不证明发生了零命中，重算额度也不是实测的
+uncached prefill。缺少输入报告时不创建 lease、不更新既有需求；已有 lease 仍记录该
+请求的可选计数。需求更新被容量拒绝时同样保留原需求与这次原始观察。lease 是最新
+观察的诊断视图，完整历史仍由原始请求回执保存。
+
+这些观察不提高 `retention.guarantee`，不证明物理页、后续驻留、与此前请求的缓存
+连续性或迁移完成，也不产生计费或已支付量结论；相关证据仍遵守
+[§13.5](#spec-13-5)、[§41.10](#spec-41-10) 与[§42.6](quota-resources.md#spec-42-6)。
 
 ## 真实流式
 
