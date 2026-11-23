@@ -41,6 +41,7 @@ mod resolution;
 mod schema;
 mod transfer;
 mod trials;
+mod plugin_load;
 
 #[cfg(test)]
 mod test_support;
@@ -90,6 +91,10 @@ pub use schema::UNIT_TABLES;
 pub use trials::{
     AttemptMeasurement, GenericTrialProvenance, TrialAttemptFacts, TrialOutcome,
     TrialProvenance,
+};
+pub use plugin_load::{
+    PLUGIN_LOAD_RECEIPT_SCHEMA, InstalledPluginCode, PluginGenerationWitness, PluginLoadReceipt,
+    PluginLoadSelection, PluginSelectionKind,
 };
 
 use anyhow::Result;
