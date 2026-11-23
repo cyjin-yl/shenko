@@ -247,7 +247,9 @@ fn frozen_input(
         && (selection.policy_id == EntityId::nil() || selection.decision_id == EntityId::nil()
             || selection.profile_id.trim().is_empty()
             || input.provider_selection.binding != input.provider_binding
-            || input.payload.max_tokens != Some(u64::from(input.context.reserved_output_tokens)))
+            || input.payload.max_tokens != Some(u64::from(input.context.reserved_output_tokens))
+            || selection.effort.as_ref().is_some_and(|effort|
+                effort.requested.trim().is_empty() || !effort.native.matches_native_options(&input.payload.native_options)))
     {
         return Err(ShenkoError::conflict("recovery_blocked: pre-seal quota selection differs from the frozen request"));
     }
@@ -540,6 +542,7 @@ pub const DEFAULT_MAX_OUTPUT_TOKENS: u64 = 4096;
 struct PreparedSubjectModel {
     broker: shenko_broker::broker::BrokerHandle,
     capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
+    effort: Option<shenko_broker::effort::ProviderEffort>,
 }
 
 pub struct SubjectLoopState {
@@ -740,6 +743,10 @@ impl SubjectLoopState {
             Some(model) => &model.capabilities,
             None => &self.model_capabilities,
         }
+    }
+
+    pub(super) fn context_effort(&self) -> Option<shenko_broker::effort::ProviderEffort> {
+        self.prepared_model.as_ref().and_then(|model| model.effort)
     }
 
     /// Initialize the real model/prompt binding before preparing a context
@@ -1610,6 +1617,8 @@ async fn execute_step(
             };
             route
         };
+        let effort = route.selection.as_ref()
+            .and_then(|selection| selection.effort.as_ref().map(|effort| effort.native));
         if let Some(selected) = route.broker {
             let capabilities = if let Some(model) = &state.prepared_model
                 && model.broker.binding() == selected.binding()
@@ -1635,7 +1644,7 @@ async fn execute_step(
                 Some(Arc::new(probe.capabilities.ok_or_else(||
                     ShenkoError::conflict("selected model metadata omitted its exact capabilities"))?))
             };
-            state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities });
+            state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities, effort });
         } else {
             // A configured wait binding or absent policy keeps this path. A
             // previously selected model is not an implicit new default.
