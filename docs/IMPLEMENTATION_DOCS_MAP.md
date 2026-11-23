@@ -172,7 +172,8 @@
   - [§8.2](specs/wasm-tools.md#spec-8-2)
   - docs/specs/wasm-tools.md
   - `ToolArtifactRoots` 从安装清单枚举 ContentStore 工具的 chunk manifest 与分块；重组模块的摘要不是 CAS 对象根。原生消费者验证安装工具在回收后仍可读取、同命名空间无主对象被回收；此证据不代表生产 GC 调度器已接线。
-  - `CasGc::plan` 严格核对 registry、实际 producer 与各次枚举（含 `RecordedRoots`）的命名空间声明；多余、缺失、重复或漂移均拒绝，不限制根的跨命名空间引用。[声明一致性增量](development/cas-root-declarations.md)复用原工具根旅程，当前候选执行待 CI；Store 根生产者、共享 CAS 写入排他和运行时 GC 装配仍未完成。
+  - `CasGc::plan` 严格核对 registry、实际 producer 与各次枚举（含 `RecordedRoots`）的命名空间声明；多余、缺失、重复或漂移均拒绝，不限制根的跨命名空间引用。[声明一致性增量](development/cas-root-declarations.md)复用原工具根旅程，当前候选执行待 CI。
+  - `StoreLedgerRoots`（`crates/shenko-wasm/src/gc.rs`）是 Store 根生产者：它持有该实际安装 CAS 的排他 fence 与同库 SQLite 写租约，在整个 plan 与删除期间经该租约的只读连接枚举 ledger 引用；ledger 仍引用但 CAS 已缺的对象成为根并触发 `CAS_ROOT_OBJECT_MISSING` 拒绝。`CasGc::plan` 同时合并活跃 reader pin（`pinned_objects`），把读者保留作为排除而非 producer 根。原生安装案例（归档问题／来源／历史行 + 首份 E1 收据、live pin、三次回收与重开）已写入但待 CI 执行；运行时 GC 装配、全槽发现与持久 GC 任务／删除回执仍未完成。
   - `Store::retained_object_snapshot` 与 `check --retained-objects` 提供[单库只读保留对象审计](development/store-retained-objects.md)：绑定原 ledger/schema/水位，检查本地控制和 E1 收据、交付债、构建观察及递归 CAS 闭包，容量或缺失显式 incomplete。它不注册完整 GC producer，不证明所有槽或跨写入排他；新增三项保留观察待 CI 执行。
 
 - **REPL（shenko-repl：kernel、journal、state）** — 已接线（`ReplSessionHandler` 与 `ReplCellHandler` 共用会话 owner；会话参加升级交接。具体语言、WASM 兼容性与 R0/R1/R2 恢复证据分别核对）
