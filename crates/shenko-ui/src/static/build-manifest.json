@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-    "previous_reviewed_commit": "795b1b4958333cf904547e484acb4de9d4b3ee80",
+    "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+    "previous_reviewed_commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
     "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
-    "source_checkout": "/var/idw-target/ui-pin-8fcde0e1/source/proto-ui",
+    "source_checkout": "/workspace/scratch/eb30117f7b2a/sprint7",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/var/idw-target/ui-pin-8fcde0e1/generation/upstream-build.json",
-      "receipt_sha256": "abf820f98f7e1ec01ffba459c12093452fe50bbf4e0abe3bbf8d8168e8405985"
+      "receipt_path": "/workspace/scratch/eb30117f7b2a/s27-workflow/s7-public-build-node24221.json",
+      "receipt_sha256": "e0324ee62ba83735883aeaccfcadb5f4b56aa1eccf2bb38b783ba70fe726d581"
     }
   },
   "packages": [
@@ -22,6 +22,7 @@
     "button",
     "textarea",
     "scroll-area",
+    "message-scroller",
     "collapsible",
     "drawer",
     "toggle-group",
@@ -47,6 +48,11 @@
       },
       {
         "family": "scroll-area",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "message-scroller",
         "mode": "adapter",
         "compiler_blocker": "shenko#335"
       },
@@ -91,6 +97,7 @@
       "packages/prototypes/shadcn/dist/button/index.js",
       "packages/prototypes/shadcn/dist/textarea/index.js",
       "packages/prototypes/shadcn/dist/scroll-area/index.js",
+      "packages/prototypes/shadcn/dist/message-scroller/index.js",
       "packages/prototypes/shadcn/dist/collapsible/index.js",
       "packages/prototypes/shadcn/dist/drawer/index.js",
       "packages/prototypes/shadcn/dist/toggle-group/index.js",
@@ -114,13 +121,13 @@
     "package": "packages/compiler",
     "package_sha256": "393793c94cc5f71cef2d835edc1b4552412743bec00b76ea7f053e2d2cf20f2f",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "cdb8b12894027bf3d7a9e9dfd3cdf33c2113efb7f940c5739502316a664dcdfd",
-    "source_tree_sha256": "b93c484bd6e8ee690d49d4fc61a72f684e18ffab80d3a7328f326aa542bd70ad",
+    "entry_sha256": "0eef1147ef4daaeba697e8004d5f78b175092aa330a6c2e31f8679060f11d008",
+    "source_tree_sha256": "126fc4ae4f37a3d9f54043d0e8134edb61bc0adfea29b4a0ac1451355e86556a",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "5fd999a092eea1c08861995b65e8b4773b0239470adce0ac253ed37c94395de5",
-      "bytes": 2834329,
+      "sha256": "c47e9faa6e7f9bd28ac60f89f01e25318b3bb9cd68e8d997044b5ba563c90e80",
+      "bytes": 3005770,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -150,13 +157,13 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "374b96edef85ee9e6a41571de56b58dfdfff3b6e210f80aa20fd938d6a729496",
+        "generated_sha256": "b284643c66be259be713f1263928337c7f25533ecdd2b02db16845030d866c9c",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "d3dfb6211abb416831a0829d5f7aa9433a870823827be6be5b9329799fb3e536",
+        "provenance_sha256": "927ffadf7e8c5513d79658f79e14585daa883e005a8e6176c3d29e260bc339c3",
         "compiler_ir_version": 7,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
@@ -169,13 +176,13 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "a70a1e1a61d9a91247e6a476b8eb359d257c871165e83effff9874debd24e77d",
+        "generated_sha256": "0fcd3e607105f60f57cee1673b6178bfc96bb013f1741ecdca79118f48e175e3",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "bd1859e681d1ff4de6f65ccbba2654c6071a2620fb59bcd71cd1eadc2c113b89",
+        "provenance_sha256": "5bfcaf41133f1af311a4c2b49baad9c18383c401803a236a21a6a45ba677cc39",
         "compiler_ir_version": 7,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
@@ -189,16 +196,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/var/idw-target/ui-pin-8fcde0e1/source/shenko/crates/shenko-ui/web",
-  "built_at": "2026-11-22T01:43:40.210Z",
+  "web_root": "/workspace/scratch/eb30117f7b2a/shenko-sprint7/crates/shenko-ui/web",
+  "built_at": "2026-11-22T17:56:01.726Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1143122,
-      "sha256": "dd01c9a64a8ee6bc7aabdbf63bf0289f27ed93701c6f37b853b44c55e88ce19c"
+      "bytes": 1164508,
+      "sha256": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb"
     },
     "chunks/chunk-O3OVBR66.js": {
       "bytes": 65273,
@@ -209,16 +216,16 @@
       "sha256": "ba878393767fa080bdaf7a9cd520813e6299f65b71b541027280d8fe41fb6901"
     },
     "app.css": {
-      "bytes": 62760,
-      "sha256": "fc7f0e247c63b335fa486a661ffbe571989bcf0c5f5d53d1dc289ea3f3bc1304"
+      "bytes": 62853,
+      "sha256": "5ce400125a97a86886ad3c3dcf0ce956522d26ac99863342e318116e857105f1"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 165134,
-      "sha256": "d01eed72d9edc64970339c97e259991c02122cba737f8b4a752eea72590566b8"
+      "bytes": 166521,
+      "sha256": "bf25d0730b5e71c92cf1f2cf8170308d7318134dba42ad26d27f6feb45538f1a"
     },
     "shadcn-theme.css": {
       "bytes": 6473,

@@ -28,8 +28,10 @@ export interface ProjectionRenderer {
 
 export function createReactProjectionRenderer(host: HTMLElement, demoData?: DemoThreadData): ProjectionRenderer {
   const root: Root = createRoot(host);
+  let disposed = false;
   let dispatch: Dispatch = () => undefined;
   const patch = (projection: UiProjection) => {
+    if (disposed) return;
     root.render(<ProjectionView projection={projection} dispatch={dispatch} demoData={demoData} />);
   };
   return {
@@ -39,6 +41,8 @@ export function createReactProjectionRenderer(host: HTMLElement, demoData?: Demo
     },
     patch,
     dispose() {
+      if (disposed) return;
+      disposed = true;
       root.unmount();
     },
   };
@@ -238,6 +242,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             ? <FilesView source={demoData?.files ?? liveFiles} />
             : tab === 'im'
             ? <ImView
+              key={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
               threads={threads}
               selected={threadId}
               onSelect={setThreadId}
@@ -252,6 +257,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             />
             : <InspectContext.Provider value={inspect}>
               <TimelineSurface
+                key={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
                 node={timeline}
                 projection={projection}
                 emit={emit}

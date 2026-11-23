@@ -1,0 +1,5 @@
+{"tab":"inspect","width":1280,"status":"passed"}
+{"tab":"im","width":1280,"status":"passed"}
+{"tab":"inspect","width":390,"status":"passed"}
+{"tab":"im","width":390,"status":"passed"}
+{"status":"passed","runs":[{"tab":"inspect","viewport":{"width":1280,"height":900},"status":"passed"},{"tab":"im","viewport":{"width":1280,"height":900},"status":"passed"},{"tab":"inspect","viewport":{"width":390,"height":900},"status":"passed"},{"tab":"im","viewport":{"width":390,"height":900},"status":"passed"}],"output":"/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/s7/shenko-reading-link-fixture-attempt03/browser"}
