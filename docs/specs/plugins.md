@@ -143,6 +143,40 @@ fn capabilities(&self) -> Vec<shenko_types::plugin_runtime::NativeCapabilityDecl
 issue.submit、playground 等）的声明由各自所有者补全——契约类型、注册路径和
 `EffectContractBuilder` 已就位，缺的不是机制。
 
+## 出网声明与根命名空间的一次准入
+
+插件能做什么由它装机的实现声明，出网同样如此：一个 native 定义在 `capabilities()` 里报告能力，
+在 `egress_declarations()` 里为其中每项能力给出它在安装期间实际会发起的出网范围。声明是数据，
+不携带插件身份：安装路径把草稿绑定到定义自己的 `plugin_id`，并拒绝为它没有报告的能力作出声明，
+所以一个权限不能比它服务的实现活得更久，也不能借用别的插件身份。
+
+一条声明包含目的、协议（`http`/`https`/`tcp`/`udp`）、主机模式（精确主机、按标签边界的子域，
+或"任意主机"——后者只用于本身就是"访问调用方指定端点"的能力）以及端口区间。目的为空、没有范围、
+端口 0、重叠端口或无法规范化的主机模式都在准入声明时被拒绝，不会留下一个看起来更窄却永远匹配
+不到的范围。
+
+根 context 发布 `shenko.runtime.policy/v1`（`PluginPolicyRegistry`），与 hook 图和实时插件
+注册表同生共死。每个出网尝试都经过 `shenko_types::egress::evaluate_egress` 这一个判定函数，
+它只接受规范形式：主机大小写、结尾根点等 DNS 本身忽略的写法被归一，无法规范化的请求直接判为
+`invalid_request`，不做宽松比较。默认拒绝：没有声明的插件不得到达任何地方，没声明的能力不给
+准入，声明之外的目标不给准入；拒绝分别记为 `undeclared_plugin`、`undeclared_capability`、
+`protocol_not_declared`、`host_not_declared`、`port_not_declared`。
+
+`declare` 同时铸造一个 `EgressAuthority`，它绑定插件、能力与注册 epoch，且没有公开构造。准入必须
+携带它：把别的插件身份写进请求会得到 `authority_mismatch`；声明被替换或撤回后旧 authority 变成
+`authority_stale`，因此退役的实现不能继续花用旧范围。这里没有"内置插件例外"或"内部调用"旁路；
+内置定义与第三方定义走同一个 `declare`/`admit` 路径。
+
+每一次尝试都产生回执（`PolicyReceipt`），无论允许还是拒绝：回执记录规范请求、判定、命中的声明
+摘要与协议/主机/端口，以及被判定时的 policy revision；只有允许的判定返回 `EgressAdmission`，该
+类型没有公开构造，所以拿到它就意味着一次真实、在册且仍然有效的准入。注册表保留有限条最近回执并
+计数丢弃，调用方以自己收到的那份为准。
+
+`net.probe` 是第一个按此路径接线的执行：它在安装时声明 `native.net.probe` 对 `http`/`https` 的
+观察范围，每次测量前用冻结的 host/port 申请准入；被拒绝时回执随错误返回，DNS、TCP 与状态行都不
+发生，也不留下已 armed 的 operation。插件本身仍是被信任的进程内代码：这里的保证是"没有在册声明
+就没有准入令牌、声明之外没有准入、每次尝试都有回执"，不是对直接系统调用的沙箱化。
+
 ## 版本化的扩展点
 
 Hook 点是有名字、有版本的合同，不是六个固定的全局阶段。
