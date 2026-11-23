@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "kind": "reading-fixture-final-frame-visual-review",
+  "reviewer": "/root",
+  "observedAt": "2026-11-23T02:57:56.715Z",
+  "source": "03b80d770357fb8e7694c0fdac7a2c79911e970c",
+  "runnerSha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+  "reviewedOriginals": [
+    {
+      "path": "browser/inspect-390.png",
+      "sha256": "0981d78e026c0c36b2b9b1f4759b72b1273d1309c78925854bec039594c857c0",
+      "bytes": 76162
+    },
+    {
+      "path": "browser/inspect-1280.png",
+      "sha256": "2724427b8350eeffab7864524d91ae274f9bac2c3724368400b25bea25e94160",
+      "bytes": 118420
+    },
+    {
+      "path": "browser/im-390.png",
+      "sha256": "9288f5547b7767a20465264d8eea971b7e33bb99e63c4843bda057cb12f1ca98",
+      "bytes": 95336
+    },
+    {
+      "path": "browser/im-1280.png",
+      "sha256": "c5e8a0a29d2e1fce100cac11ce87bdf6a0d7e917d29d2bcfffda7f0ffa9b0b1b",
+      "bytes": 186178
+    }
+  ],
+  "observations": [
+    "Mixed Chinese/English message bodies and ordinary Markdown source links are visible in the unchanged production renderer.",
+    "The 390px frames wrap the message content; desktop frames use the existing centered reading columns. Composer and Go To Latest controls remain visible.",
+    "The existing focused-control outlines are visible in the final captures."
+  ],
+  "findings": [
+    {
+      "id": "READING-VIS-001",
+      "status": "retained-evidence-debt",
+      "observation": "The fixture emoji is rendered as a missing-glyph box in these Linux Chromium captures. This pass does not establish complete font/emoji coverage."
+    },
+    {
+      "id": "READING-VIS-002",
+      "status": "retained-evidence-debt",
+      "observation": "The desktop IM Go To Latest floating control overlaps the lower final-message-line area in the final frame. This bounded fixture correction neither changes nor accepts the full unobscured-reading visual contract."
+    }
+  ],
+  "limitations": [
+    "These four images are final frames, not a complete sequence of adjacent input states.",
+    "The actual 82-check browser receipt supplies behavioral evidence; pixels alone do not prove reader ownership, keyboard causality or lifecycle correctness.",
+    "No whole web-interface \u00a721.11 visual acceptance, assistive-technology or physical-device acceptance is inferred."
+  ],
+  "githubApproval": false
+}

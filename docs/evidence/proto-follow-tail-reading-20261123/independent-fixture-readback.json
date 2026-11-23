@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "kind": "shenko-reading-fixture-independent-readback",
+  "source": "03b80d770357fb8e7694c0fdac7a2c79911e970c",
+  "sourceStatus": "M scripts/web_reading_journey.mjs",
+  "runnerSha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+  "baseRunnerSha256": "5107d3a43538e610a347de2509018b5a782a8d97f6933adaf783944c9701fb6b",
+  "patchSha256": "772a2758762a238d464a9439c347b8fd5f580a5b7ff5e5705a7b51e8bec0e58d",
+  "allProductAssetsVerifiedAgainstGit": true,
+  "productAssetCount": 12,
+  "sameProductAssetsAllThreeAttempts": true,
+  "attempts": [
+    {
+      "directory": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/s7/shenko-reading-current-attempt01",
+      "executionSha256": "8422b85bc04e969e6d31e5b5d7b29a81ecd5f2e41c1716059eb5bd00e59e1efd",
+      "receiptSha256": "f4f84c01ad7b09f6875654f3032afa32f30181070e8d02733dba3a321eaeffbb",
+      "exitCode": 1,
+      "status": "failed",
+      "runnerSha256": "5107d3a43538e610a347de2509018b5a782a8d97f6933adaf783944c9701fb6b",
+      "manifestSha256": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+      "upstream": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+      "browser": {
+        "engine": "Chromium",
+        "version": "145.0.7632.6",
+        "headless": true
+      },
+      "runs": [
+        {
+          "tab": "inspect",
+          "width": 1280,
+          "status": "passed",
+          "checkCount": 20,
+          "passedCount": 20,
+          "failedChecks": [],
+          "focusTargets": null,
+          "focusRows": null,
+          "focusTags": null,
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 494,
+              "endGapAfter": 897
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 897,
+              "endGapAfter": 1300
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 1280,
+          "status": "failed",
+          "checkCount": 3,
+          "passedCount": 2,
+          "failedChecks": [
+            "trusted Shift+Tab reaches a historical message action away from the tail"
+          ],
+          "focusTargets": null,
+          "focusRows": null,
+          "focusTags": null,
+          "keyboardAnchorChecks": []
+        },
+        {
+          "tab": "inspect",
+          "width": 390,
+          "status": "passed",
+          "checkCount": 20,
+          "passedCount": 20,
+          "failedChecks": [],
+          "focusTargets": null,
+          "focusRows": null,
+          "focusTags": null,
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 764,
+              "endGapAfter": 1298
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 1298,
+              "endGapAfter": 1832
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 390,
+          "status": "failed",
+          "checkCount": 3,
+          "passedCount": 2,
+          "failedChecks": [
+            "trusted Shift+Tab reaches a historical message action away from the tail"
+          ],
+          "focusTargets": null,
+          "focusRows": null,
+          "focusTags": null,
+          "keyboardAnchorChecks": []
+        }
+      ]
+    },
+    {
+      "directory": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/s7/shenko-reading-focus-premise-attempt02",
+      "executionSha256": "d29452e0e9fa1511c26fc2e9e66201a58c374f038f83d6015ef40d33215807f0",
+      "receiptSha256": "6f8ae93384c2bf77db549ed2042a732ec7d2a70bf02a118ed6f41f5c53c615c3",
+      "exitCode": 1,
+      "status": "failed",
+      "runnerSha256": "fdbf82f787ad21dbf5d3e4105672b076147d1b63c568b0b96de819df5c5441a0",
+      "manifestSha256": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+      "upstream": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+      "browser": {
+        "engine": "Chromium",
+        "version": "145.0.7632.6",
+        "headless": true
+      },
+      "runs": [
+        {
+          "tab": "inspect",
+          "width": 1280,
+          "status": "passed",
+          "checkCount": 21,
+          "passedCount": 21,
+          "failedChecks": [],
+          "focusTargets": 62,
+          "focusRows": 31,
+          "focusTags": [
+            "DIV"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 494,
+              "endGapAfter": 897
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 897,
+              "endGapAfter": 1300
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 1280,
+          "status": "failed",
+          "checkCount": 3,
+          "passedCount": 2,
+          "failedChecks": [
+            "fixture supplies sequential focus targets in at least three messages"
+          ],
+          "focusTargets": 0,
+          "focusRows": 0,
+          "focusTags": [],
+          "keyboardAnchorChecks": []
+        },
+        {
+          "tab": "inspect",
+          "width": 390,
+          "status": "passed",
+          "checkCount": 21,
+          "passedCount": 21,
+          "failedChecks": [],
+          "focusTargets": 62,
+          "focusRows": 31,
+          "focusTags": [
+            "DIV"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 764,
+              "endGapAfter": 1298
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 1298,
+              "endGapAfter": 1832
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 390,
+          "status": "failed",
+          "checkCount": 3,
+          "passedCount": 2,
+          "failedChecks": [
+            "fixture supplies sequential focus targets in at least three messages"
+          ],
+          "focusTargets": 0,
+          "focusRows": 0,
+          "focusTags": [],
+          "keyboardAnchorChecks": []
+        }
+      ],
+      "originalRunnerVerified": true,
+      "patchSha256": "3aca4e282ffbd7b9615c07b6a34a417bf79cfad270fd5bdd62e9a13d9004aee4"
+    },
+    {
+      "directory": "/tank/shared/projects/proto-ui-agent/seven-sprints-20261123-chvf1ono/evidence/s7/shenko-reading-link-fixture-attempt03",
+      "executionSha256": "25cd1165c3d23db118022c1f59266fac69ebcd591809aa60e92ee4c5e942d3f4",
+      "receiptSha256": "0164a27f92498d3082b530e891c6c0e5369c6777c912377db6fad220e6d67504",
+      "exitCode": 0,
+      "status": "passed",
+      "runnerSha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+      "manifestSha256": "42ea5abe58a8636a6b04a3402b10deb3ec2a583d7d3c99e3abeebcdc0b21f277",
+      "upstream": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
+      "browser": {
+        "engine": "Chromium",
+        "version": "145.0.7632.6",
+        "headless": true
+      },
+      "runs": [
+        {
+          "tab": "inspect",
+          "width": 1280,
+          "status": "passed",
+          "checkCount": 21,
+          "passedCount": 21,
+          "failedChecks": [],
+          "focusTargets": 93,
+          "focusRows": 31,
+          "focusTags": [
+            "A",
+            "DIV"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 476,
+              "endGapAfter": 916
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 916,
+              "endGapAfter": 1356
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 1280,
+          "status": "passed",
+          "checkCount": 20,
+          "passedCount": 20,
+          "failedChecks": [],
+          "focusTargets": 31,
+          "focusRows": 31,
+          "focusTags": [
+            "A"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": 0.1875,
+              "endGapBefore": 554,
+              "endGapAfter": 870
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": 0.1875,
+              "endGapBefore": 870,
+              "endGapAfter": 1187
+            }
+          ]
+        },
+        {
+          "tab": "inspect",
+          "width": 390,
+          "status": "passed",
+          "checkCount": 21,
+          "passedCount": 21,
+          "failedChecks": [],
+          "focusTargets": 93,
+          "focusRows": 31,
+          "focusTags": [
+            "A",
+            "DIV"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 747,
+              "endGapAfter": 1318
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": -0.25,
+              "endGapBefore": 1318,
+              "endGapAfter": 1890
+            }
+          ]
+        },
+        {
+          "tab": "im",
+          "width": 390,
+          "status": "passed",
+          "checkCount": 20,
+          "passedCount": 20,
+          "failedChecks": [],
+          "focusTargets": 31,
+          "focusRows": 31,
+          "focusTags": [
+            "A"
+          ],
+          "keyboardAnchorChecks": [
+            {
+              "check": "append preserves Shift+Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": 0.1875,
+              "endGapBefore": 1165,
+              "endGapAfter": 1694
+            },
+            {
+              "check": "append preserves Tab focus and its reader anchor",
+              "passed": true,
+              "sameKey": true,
+              "offsetDelta": 0.1875,
+              "endGapBefore": 1165,
+              "endGapAfter": 1695
+            }
+          ]
+        }
+      ],
+      "originalRunnerVerified": true,
+      "patchSha256": "772a2758762a238d464a9439c347b8fd5f580a5b7ff5e5705a7b51e8bec0e58d"
+    }
+  ]
+}
