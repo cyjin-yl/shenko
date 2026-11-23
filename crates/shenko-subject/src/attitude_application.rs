@@ -647,7 +647,7 @@ fn metapackage_section(step_no: u64, metapackages: &[AppliedMetapackage], shown:
             (start + 1) % total,
         ));
     }
-    text
+    Ok(text)
 }
 
 fn attitude_line(index: usize, attitude: &AppliedAttitude) -> Result<String, ShenkoError> {
