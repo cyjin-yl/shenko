@@ -79,7 +79,12 @@ pub const MAX_SCENARIOS: usize = 8;
 mod tests;
 mod judge_receipt;
 mod preparation;
+mod rounds;
 pub use judge_receipt::{JudgeReceiptIdentity, SandboxJudgeContext};
+pub use rounds::{
+    CandidateBinding, RoundKind, RoundObservation, RoundObservationStatus, SandboxArtifact,
+    SandboxRoundRecord, SandboxRoundReport, SandboxRoundSpec, run_sandbox_rounds,
+};
 use judge_receipt::JudgeReceiptSink;
 use preparation::{PreparedTrial, prepare_condition, prepare_trial};
 
@@ -569,7 +574,9 @@ impl PreparedSandbox {
 #[derive(Serialize)]
 pub struct CommittedTrialOutput {
     pub installation: PathBuf,
-    pub message_event_id: EntityId,
+    /// The exact injected event this continuation consumed. `None` for an
+    /// idle round, which by definition has no external event.
+    pub message_event_id: Option<EntityId>,
     pub message_step_id: EntityId,
     pub step_id: EntityId,
     pub input_plan_ref: ObjectRef,
@@ -688,8 +695,16 @@ impl SandboxRuntime for CognitionTrialRuntime {
     }
 }
 
+/// What begins one observed round. A message round waits for that exact
+/// durable event; an idle round observes the next committed continuation the
+/// subject produces without one.
+enum TrialObserverInput {
+    Message(InboxEvent),
+    Idle,
+}
+
 struct TrialObserver {
-    message: InboxEvent,
+    input: TrialObserverInput,
     message_step_id: Option<EntityId>,
     pending: BTreeMap<EntityId, (EntityId, NativeTaskDefinition)>,
     consumed_results: Vec<TaskResult>,
@@ -698,8 +713,14 @@ struct TrialObserver {
 
 impl TrialObserver {
     fn deadline_error(&self) -> anyhow::Error {
-        anyhow!("sandbox deadline: message {} consumed at {:?}; unresolved delegated tasks: {:?}",
-            self.message.event_id, self.message_step_id, self.pending.keys().collect::<Vec<_>>())
+        match &self.input {
+            TrialObserverInput::Message(message) => anyhow!(
+                "sandbox deadline: message {} consumed at {:?}; unresolved delegated tasks: {:?}",
+                message.event_id, self.message_step_id, self.pending.keys().collect::<Vec<_>>()),
+            TrialObserverInput::Idle => anyhow!(
+                "sandbox deadline: idle round started at {:?}; unresolved delegated tasks: {:?}",
+                self.message_step_id, self.pending.keys().collect::<Vec<_>>()),
+        }
     }
 
     fn observe<R: SandboxRuntime>(
@@ -728,9 +749,23 @@ impl TrialObserver {
                 disposition.event_id == event_id && disposition.disposition != Disposition::Deferred)
                 && store.event_disposition_commit(agent, event_id)? == Some(commit))
         };
-        if self.message_step_id.is_none() && input.events.iter().any(|event| event == &self.message)
-            && consumed(self.message.event_id)? {
-            self.message_step_id = Some(step.step_id);
+        match &self.input {
+            TrialObserverInput::Message(message) => {
+                if self.message_step_id.is_none()
+                    && input.events.iter().any(|event| event == message)
+                    && consumed(message.event_id)? {
+                    self.message_step_id = Some(step.step_id);
+                }
+            }
+            // An idle round has no event to consume. The first committed
+            // decision after the previous round is this round's start; a
+            // decision that delegates work is not complete until the same
+            // pending bookkeeping below has consumed those results.
+            TrialObserverInput::Idle => {
+                if self.message_step_id.is_none() {
+                    self.message_step_id = Some(step.step_id);
+                }
+            }
         }
         let Some(message_step_id) = self.message_step_id else { return Ok(None) };
         for event in &input.events {
@@ -834,7 +869,11 @@ impl TrialObserver {
             return Ok(None);
         }
         Ok(Some(CommittedTrialOutput {
-            installation: installation.to_owned(), message_event_id: self.message.event_id,
+            installation: installation.to_owned(),
+            message_event_id: match &self.input {
+                TrialObserverInput::Message(message) => Some(message.event_id),
+                TrialObserverInput::Idle => None,
+            },
             message_step_id, step_id: step.step_id, input_plan_ref: decision.input_plan_ref,
             consumed_results: std::mem::take(&mut self.consumed_results),
             consumed_observations: std::mem::take(&mut self.consumed_observations), output: decision.output,
@@ -911,7 +950,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
     let mut identity_publication = None;
     let mut policy_publication = None;
     let mut observer = TrialObserver {
-        message: InboxEvent {
+        input: TrialObserverInput::Message(InboxEvent {
             event_id: EntityId::new(),
             kind: InboxEventKind::Message,
             payload: serde_json::json!({
@@ -923,7 +962,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
             }),
             created_at: chrono::Utc::now(),
             source: "napcat".into(),
-        },
+        }),
         message_step_id: None, pending: BTreeMap::new(), consumed_results: Vec::new(),
         consumed_observations: Vec::new(),
     };
@@ -952,7 +991,13 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
             .with_awareness(Arc::clone(&catalog))
             .with_native_capabilities(native.installed_prompt_sections());
         let state = runtime.prepare_subject(&supervisor, &prepared, state).await?;
-        inbox.sender().send(observer.message.clone()).await
+        let message = match &observer.input {
+            TrialObserverInput::Message(message) => message.clone(),
+            TrialObserverInput::Idle => {
+                unreachable!("the single-message sandbox always observes a message")
+            }
+        };
+        inbox.sender().send(message).await
             .map_err(|_| anyhow!("the sandbox inbox closed"))?;
         subject_task = Some(tokio::spawn(run_subject_loop(state, subject_stopping.clone())));
         dispatcher_task = Some(tokio::spawn(run_committed_dispatcher(Arc::clone(&store),
