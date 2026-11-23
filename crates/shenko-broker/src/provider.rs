@@ -549,6 +549,15 @@ impl ProviderRuntime for AnthropicProvider {
         true
     }
 
+    fn resolve_effort(&self, requested: &str) -> Option<crate::effort::ProviderEffort> {
+        // This adapter serializes the pinned Messages API contract. Resolving
+        // its exact native value is not a claim of remote model availability
+        // or a guaranteed number of generated/thinking tokens.
+        if self.api_version() != ANTHROPIC_API_VERSION { return None; }
+        crate::effort::AnthropicEffort::from_name(requested)
+            .map(|level| crate::effort::ProviderEffort::AnthropicMessages { level })
+    }
+
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
         AnthropicProvider::complete(self, request).await
     }
