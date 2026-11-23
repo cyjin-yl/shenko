@@ -10,6 +10,7 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 use futures::FutureExt as _;
 use tracing::warn;
 
+use crate::capability::{CapabilityRequirement, CapabilityVerdict, ProviderCapabilityDeclaration};
 use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ReportedKvUsage, ResidencyIdentity};
 use crate::registry::{ProviderRegistry, ProviderRuntime};
 use crate::request::{
@@ -134,19 +135,27 @@ async fn execute_admitted(
                 );
             };
             if !runtime.available() {
-                return (
-                    InferenceResult {
-                        request_id: request.request_id,
-                        status: InferenceStatus::Unavailable,
-                        response: None,
-                        effective: EffectiveInference::for_request(request),
-                        termination: TerminationEvidence::never_dispatched(),
-                        purpose,
-                        stream: None,
-                        quota_headers: Vec::new(),
-                    },
-                    false,
+                return (unavailable_before_dispatch(request, purpose), false);
+            }
+            // A surface this binding declared it cannot serve is not attempted.
+            // The request settles as provably never dispatched instead of
+            // becoming an unknown remote outcome. The declaration is the only
+            // claim: a surface that was never declared is not refused here,
+            // because refusing it would assert an unproved "unsupported".
+            if stream.is_some() {
+                let declaration = ProviderCapabilityDeclaration::with_observation(
+                    &runtime.declaration(),
+                    &context.domain.probed_capability_declaration(),
                 );
+                if let CapabilityVerdict::Refused { code, reason } =
+                    declaration.verdict(CapabilityRequirement::Streaming)
+                {
+                    crate::error_sink::journal_runtime_error(
+                        error_sink,
+                        &crate::error_sink::report_for(request, purpose, code, &reason),
+                    );
+                    return (unavailable_before_dispatch(request, purpose), true);
+                }
             }
             match stream {
                 Some(stream) => execute_stream(request, purpose, runtime, stream, context).await,
@@ -402,6 +411,25 @@ pub(crate) fn stopped_before_dispatch(request: &InferenceRequest, purpose: Reque
         response: None, effective: EffectiveInference::for_request(request),
         termination: TerminationEvidence::never_dispatched(), purpose,
         stream: None, quota_headers: Vec::new(),
+    }
+}
+
+/// The terminal result of a request the binding provably never left. It is
+/// `Unavailable` rather than `Failed` because no remote outcome could have
+/// happened, and `never_dispatched` keeps it out of the unknown debt.
+fn unavailable_before_dispatch(
+    request: &InferenceRequest,
+    purpose: RequestPurpose,
+) -> InferenceResult {
+    InferenceResult {
+        request_id: request.request_id,
+        status: InferenceStatus::Unavailable,
+        response: None,
+        effective: EffectiveInference::for_request(request),
+        termination: TerminationEvidence::never_dispatched(),
+        purpose,
+        stream: None,
+        quota_headers: Vec::new(),
     }
 }
 
