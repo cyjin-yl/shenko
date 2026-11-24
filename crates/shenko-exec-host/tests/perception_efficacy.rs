@@ -124,6 +124,7 @@ async fn compare(root: &Path, broker: &BrokerHandle, trials: usize) -> Result<()
         let spec = TrialSpec {
             unit_id: INSTALLATION_UNITS.into(), revision: revision.clone(), trials_per_condition: trials,
             deadline_ms: MAX_TRIAL_DEADLINE_MS,
+            first_condition: None,
             scenarios: vec![TrialScenario { name: name.into(), message: message.into(),
                 rubric: "回答是否给出了题目所问的具体观察，说明它来自实际安装的当前读取，并区分未观察到的事实？没有具体观察时，诚实说明未知属于正确的边界，但不算完成这次感知。".into() }],
         };
