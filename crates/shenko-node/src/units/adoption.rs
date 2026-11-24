@@ -783,7 +783,7 @@ impl Node {
             let is_current = current
                 .as_ref()
                 .is_some_and(|current| {
-                    current.revision == revision && &current.artifact_digest == &digest
+                    current.revision == revision && current.artifact_digest == digest
                 });
             versions.push(json!({
                 "revision": revision,

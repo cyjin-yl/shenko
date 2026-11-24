@@ -11,23 +11,23 @@
 //!
 //! * install  — the code unit is imported and enabled in the real Node.
 //! * prepare  — Cordis `Plugin::prepare` runs for the root consumer and for the
-//!              generation it is about to publish.
+//!   generation it is about to publish.
 //! * publish  — the attached generation registers its provider, capability and
-//!              help in the live `PluginRuntime`.
+//!   help in the live `PluginRuntime`.
 //! * attach   — the definition is registered in `NativeChildService`.
 //! * call     — a real recorded native operation appends one owned host line,
-//!              arms T1 and commits its E1 receipt through the real Store/CAS.
+//!   arms T1 and commits its E1 receipt through the real Store/CAS.
 //! * retire   — disabling the unit withdraws the definition and the live
-//!              registrations, and the generation's own runtime waits for the
-//!              workers it already owns.
+//!   registrations, and the generation's own runtime waits for the
+//!   workers it already owns.
 //! * old call — a call dispatched before retirement still completes under its
-//!              original implementation, while a fresh call is refused.
+//!   original implementation, while a fresh call is refused.
 //! * receipt  — the operation, attempts, evidence and the retained executable
-//!              object stay readable after retirement and after the restart.
+//!   object stay readable after retirement and after the restart.
 //! * restart  — a second root is created while the first root's generation is
-//!              still inside `apply` (mid-attach). The restarted root adopts the
-//!              committed unit record and attaches exactly once; the pending
-//!              attach completes in its own root afterwards and is retired there.
+//!   still inside `apply` (mid-attach). The restarted root adopts the
+//!   committed unit record and attaches exactly once; the pending
+//!   attach completes in its own root afterwards and is retired there.
 //!
 //! Everything here is source-only until the parent runs it; this file makes no
 //! model, product or CI claim.

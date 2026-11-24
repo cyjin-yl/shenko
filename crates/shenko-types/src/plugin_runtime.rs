@@ -466,14 +466,14 @@ impl PluginRootPhase {
     /// with a new attachment admission for a new process generation.
     pub fn can_advance_to(self, next: PluginRootPhase) -> bool {
         use PluginRootPhase::*;
-        match (self, next) {
+        matches!(
+            (self, next),
             (Prepared, Published)
-            | (Prepared, Retired)
-            | (Published, Attached)
-            | (Published, Retired)
-            | (Attached, Retired) => true,
-            _ => false,
-        }
+                | (Prepared, Retired)
+                | (Published, Attached)
+                | (Published, Retired)
+                | (Attached, Retired)
+        )
     }
 }
 
