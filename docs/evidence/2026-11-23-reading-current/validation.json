@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "applicationCommit": "7a8e5fc88404ac274e6b93a830e0744d010baebc",
+  "upstreamCandidate": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
+  "passed": true,
+  "sourceStable": true,
+  "assetStable": true,
+  "originalObserverSha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4",
+  "rawReceiptSha256": "6d7f2f813e1fcd1f9422fa36555bf6d055a60c4576c68c553f7fffcbbcaca629",
+  "buildManifestSha256": "876c52de5fa050bf6d71ebae5b57d607e5adddbed1972b5552be6767e423f9c4",
+  "startedAt": "2026-11-23T17:52:51.952279+00:00",
+  "finishedAt": "2026-11-23T17:54:02.858398+00:00",
+  "runs": [
+    {
+      "tab": "inspect",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "status": "passed",
+      "checks": 21,
+      "failure": null
+    },
+    {
+      "tab": "im",
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "status": "passed",
+      "checks": 20,
+      "failure": null
+    },
+    {
+      "tab": "inspect",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "status": "passed",
+      "checks": 21,
+      "failure": null
+    },
+    {
+      "tab": "im",
+      "viewport": {
+        "width": 390,
+        "height": 900
+      },
+      "status": "passed",
+      "checks": 20,
+      "failure": null
+    }
+  ],
+  "checks": 82,
+  "browser": {
+    "engine": "Chromium",
+    "version": "145.0.7632.6",
+    "headless": true
+  },
+  "browserExecutableSha256": "481fea1516a1f2b76454664272f12cd9dd1f20117b21e1f1498e08bc7f872c00",
+  "launchPolicy": "Exact original script chromium.launch({headless:true, executablePath when supplied}); no monkeypatch, added flags, environment bypass or retry.",
+  "scope": "Unmodified repository original four reading journeys; actual current production App assets with HTTP/WS fixtures.",
+  "physicalInput": false,
+  "modelOrBackendAcceptance": false,
+  "remaining": "#746 deterministic public activity/thought, tool, receipt and explicit-wait updates plus accepted-consumer/matrix review remain separate. This is not all 63 Harness rows."
+}

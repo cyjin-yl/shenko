@@ -1,0 +1,45 @@
+{
+  "schema": "shenko.inspector.validation/v1",
+  "createdAt": "2026-11-23T16:38:05.827519+00:00",
+  "appBase": "0e202f7aaecafc6ec761504dfb23cac437ee3e5e",
+  "upstreamCandidate": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
+  "archive": {
+    "path": "docs/evidence/2026-11-23-inspector-resizable/inspector-resizable-evidence.tar.gz",
+    "bytes": 2574689,
+    "sha256": "4846a93747f34becedd208246f9a5eee06903bb51ee88a3b770aca6b8bb55a35"
+  },
+  "payloadCount": 150,
+  "buildReceiptSha256": "1edf6073fc610fef8b582f206db1c7a33e4d46d1f47650aecd7450a967decedb",
+  "publicBuildReceiptSha256": "e154f9e5a3df7e80af42f1ef413fc5927694f092275a4ed4c3211d48b8a4fc5b",
+  "sourceHash": "2115d956e31653f9ed8d971eabc3c33b2d02ec63b17f80c6fe7f0e42602a223a",
+  "nativeReceiptSha256": "10af0e9909889dffc51816e8b5a1d102fff7b68f20f3f697c5425fb095740dad",
+  "observerSha256": "8740546502ba324396c28f1924ffe8d8d5516d109e54e4f10301182d415c0696",
+  "nativeFinishedAt": "2026-11-23T16:02:44.191Z",
+  "nativeCases": [
+    {
+      "name": "desktop-public-pointer-keyboard-and-pixel-bounds",
+      "status": "passed"
+    },
+    {
+      "name": "collapse-restore-focus-and-width-preference",
+      "status": "passed"
+    },
+    {
+      "name": "responsive-reflow-cancels-contact-and-keeps-real-main",
+      "status": "passed"
+    },
+    {
+      "name": "replaced-handle-rejects-late-contact-and-visible-focus",
+      "status": "passed"
+    }
+  ],
+  "pageErrors": [],
+  "cleanupErrors": [],
+  "sourceStable": true,
+  "screenshots": {
+    "desktop.png": "de1e0fb01961d35a2de5ad503f324557a0fdafda87e24b8cbfd5086da787d16c",
+    "phone.png": "325994eb1838472119d043f46387d64440f1deabca07e259d274284f66b30ac3"
+  },
+  "review": "Parent independently reviewed policy/resource retirement; final source/native archive awaits exact-commit independent integration review.",
+  "scope": "Existing actual App and explicit demo data; not backend/model/physical touch/AT/Apple/120Hz or full Harness acceptance."
+}
