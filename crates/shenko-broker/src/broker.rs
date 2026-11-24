@@ -1594,6 +1594,7 @@ mod tests {
                 "controlled provider panic after original dispatch");
             Ok(InferenceResponse {
                 content: "controlled fixture".into(),
+                reasoning: None,
                 stop_reason: "end_turn".into(),
                 raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                 usage: Some(TokenUsage {
@@ -1633,6 +1634,7 @@ mod tests {
             Ok(crate::stream::StreamOutcome {
                 response: InferenceResponse {
                     content: "第一段。\n第二段。\n[reply:private:12345] 不该出现在公开流里\n".into(),
+                    reasoning: None,
                     stop_reason: "end_turn".into(),
                     raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: Some(TokenUsage {

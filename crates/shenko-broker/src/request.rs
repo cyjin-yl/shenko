@@ -714,6 +714,11 @@ impl TerminationEvidence {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InferenceResponse {
     pub content: String,
+    /// The backend's native reasoning text, kept verbatim. A backend that
+    /// reports no reasoning field leaves this absent; it is not a claim that
+    /// the model reasoned about nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
     pub stop_reason: String,
     pub raw_response: String,
     pub usage: Option<TokenUsage>,
@@ -725,6 +730,24 @@ pub struct InferenceResponse {
     /// answer had none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub citations: Vec<ProviderCitation>,
+}
+
+impl InferenceResponse {
+    /// The answer the backend actually produced.
+    ///
+    /// A reasoning backend can end its turn with the visible content field
+    /// empty and the whole answer in its native reasoning field. Such a
+    /// reply is not empty: dropping the reasoning loses the model's only
+    /// output and leaves the subject with nothing to think about. The visible
+    /// content wins whenever the backend produced one; the reasoning is the
+    /// answer only when there is no visible answer at all.
+    pub fn visible_answer(&self) -> &str {
+        if self.content.trim().is_empty() {
+            self.reasoning.as_deref().unwrap_or(&self.content)
+        } else {
+            &self.content
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

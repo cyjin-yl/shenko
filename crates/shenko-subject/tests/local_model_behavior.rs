@@ -245,11 +245,16 @@ async fn local_model_follows_the_shipped_control_protocol() {
             .await
             {
                 Ok(Ok(response)) => {
-                    let parsed = parse_output(request.request_id, raw_object(&response.content), &response.content, &identity, &shenko_channel_napcat::qq_test_registry(), None);
+                    // The product's answer is the visible content when the
+                    // backend published one, and the native reasoning when it
+                    // did not. The measurement must judge what the product
+                    // judges.
+                    let answer = response.visible_answer().to_string();
+                    let parsed = parse_output(request.request_id, raw_object(&answer), &answer, &identity, &shenko_channel_napcat::qq_test_registry(), None);
                     match parsed {
-                        Ok(parsed) => (scenario.check)(&response.content, &parsed),
+                        Ok(parsed) => (scenario.check)(&answer, &parsed),
                         Err(error) => {
-                            Err(format!("output does not parse: {error}: {}", response.content))
+                            Err(format!("output does not parse: {error}: {answer}"))
                         }
                     }
                 }

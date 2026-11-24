@@ -3,11 +3,18 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 use shenko_broker::{AnthropicProvider, LocalModelProvider, InferenceMessage, InferencePayload,
-    InferencePriority, InferenceRequest};
+    InferencePriority, InferenceRequest, InferenceResponse};
 use shenko_types::ids::{ControllerEpoch, EntityId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 async fn provider_response(body: Value, anthropic: bool) -> Value {
+    let response = provider_reply(body, anthropic).await;
+    serde_json::to_value(response.usage).unwrap()
+}
+
+/// One scripted reply, kept whole so a test can read the answer the product
+/// would see, not only the usage envelope.
+async fn provider_reply(body: Value, anthropic: bool) -> InferenceResponse {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base_url = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -42,7 +49,42 @@ async fn provider_response(body: Value, anthropic: bool) -> Value {
     let response = if anthropic { anthropic_provider.complete(&request).await.unwrap() }
         else { local.complete(&request).await.unwrap() };
     server.await.unwrap();
-    serde_json::to_value(response.usage).unwrap()
+    response
+}
+
+#[tokio::test]
+async fn a_reasoning_only_reply_is_kept_and_is_the_answer() {
+    // A reasoning backend can end its turn with the visible content empty and
+    // the whole reply in its native reasoning field. That reply is not empty:
+    // the answer the product sees must be the text the model produced.
+    let response = provider_reply(
+        json!({
+            "choices":[{"message":{"role":"assistant","content":null,
+                "reasoning":"此刻没有待办，我在等待下一个信号。"},"finish_reason":"stop"}]
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(response.content, "");
+    assert_eq!(
+        response.reasoning.as_deref(),
+        Some("此刻没有待办，我在等待下一个信号。")
+    );
+    assert_eq!(response.visible_answer(), "此刻没有待办，我在等待下一个信号。");
+}
+
+#[tokio::test]
+async fn a_visible_answer_wins_over_the_reasoning() {
+    let response = provider_reply(
+        json!({
+            "choices":[{"message":{"role":"assistant","content":"答案",
+                "reasoning":"先想一遍。"},"finish_reason":"stop"}]
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(response.visible_answer(), "答案");
+    assert_eq!(response.reasoning.as_deref(), Some("先想一遍。"));
 }
 
 #[tokio::test]
