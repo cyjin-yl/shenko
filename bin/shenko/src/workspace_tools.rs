@@ -649,8 +649,9 @@ mod tests {
             "a saved profile must not change a running catalog"
         );
         first.stop().await?;
-        // The teardown withdraws the live registrations first and records the
-        // retirement after them.
+        // The plugin teardown withdraws the live registrations; the runtime
+        // root's own teardown records the retirement after them.
+        drop(first);
         for record in store.plugin_root_records(None, 16)? {
             assert_eq!(record.phase, PluginRootPhase::Retired);
         }
