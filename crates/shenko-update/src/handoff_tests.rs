@@ -207,25 +207,11 @@ fn installation() -> Installation {
         },
         route_authority_ref: route_ref,
     };
-    let mut root_task = TaskRecord::subject_root(
+    let root_task = TaskRecord::subject_root(
         head.subject_root_task_id,
         agent_id,
         seed_manifest,
         genesis.created_commit,
-    );
-    // The delta importer keeps imported work parked and marks it; a copied
-    // store whose root task differs from that shape trips the task-closure
-    // conflict rule even when the rows are byte-identical. Model the state
-    // an installation that already passed one handover carries — the same
-    // task identity, parked and marked, so the catch-up reads it as its own
-    // earlier delivery rather than a conflicting peer graft.
-    root_task.dispatch_eligibility = DispatchEligibility::Parked {
-        reason_ref: root_task.task_id,
-        until_utc: None,
-    };
-    root_task.memos.insert(
-        "cognition_imported".to_string(),
-        serde_json::json!({ "note": "imported work is parked on the receiving store" }),
     );
     store
         .initialize_genesis_with(&genesis, &head, &first_step, &root_task, Some(&selector))
@@ -2276,6 +2262,13 @@ fn prepare_keeps_its_build_observation_in_raw_history_and_the_recovery_closure()
         }));
         let record = prepared?;
         anyhow::ensure!(record.phase == ActivationPhase::Smoke);
+        let copied_store = Store::open(
+            candidate_slot(&fixture, &generation).join(SLOT_DB_FILENAME),
+            fixture.data_dir.join("cas"),
+        )?;
+        let copied_task = copied_store.external_task(original_head.subject_root_task_id)?;
+        anyhow::ensure!(copied_task.dispatch_eligibility == DispatchEligibility::Ready);
+        drop(copied_store);
         let closure = read_build_json(&fixture.store, &record.recovery_closure_ref)?;
         let receipt_ref: ObjectRef = serde_json::from_value(closure["build_receipt_ref"].clone())?;
         let receipt = read_build_json(&fixture.store, &receipt_ref)?;
