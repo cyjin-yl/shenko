@@ -127,7 +127,7 @@ SURFACE_KEYS = (
     "launch_receipt_generation", "head_generation", "selector_generation",
     "build_id", "slot_dir", "slot_artifact_path", "manifest_artifact_path",
     "route_artifact_path", "selector_revision", "selector_epoch", "slot_epoch",
-    "launch_receipt_revision", "head_epoch",
+    "launch_receipt_revision", "launch_receipt_epoch", "head_epoch",
 )
 GENERATION_NAMED_SURFACES = tuple(
     key for key in SURFACE_KEYS
@@ -665,13 +665,14 @@ def binding_pair_checks(a: dict, b: dict) -> dict:
         and a.get("slot_artifact_path") != b.get("slot_artifact_path"),
         "selector_revision_advanced_by_one":
             isinstance(a.get("selector_revision"), int)
-            and b.get("selector_revision") == a["selector_revision"] + 1,
+            and b.get("launch_receipt_revision") == a["selector_revision"] + 1,
         "selector_epoch_advanced_by_one":
             isinstance(a.get("selector_epoch"), int)
-            and b.get("selector_epoch") == a["selector_epoch"] + 1,
-        "head_epoch_advanced_by_one":
-            isinstance(a.get("head_epoch"), int)
-            and b.get("head_epoch") == a["head_epoch"] + 1,
+            and b.get("launch_receipt_epoch") == a["selector_epoch"] + 1,
+        "b_head_binds_started_controller_epoch":
+            isinstance(b.get("launch_receipt_epoch"), int)
+            and b.get("head_epoch") == b.get("selector_epoch")
+            and b["head_epoch"] == b["launch_receipt_epoch"] + 1,
         "b_manifest_artifact_inside_b_slot":
             inside(b.get("manifest_artifact_path"), b.get("slot_dir")),
         "b_route_artifact_inside_b_slot":
@@ -1364,6 +1365,18 @@ class Harness:
         state, pause_receipt = boundary
         selector = selector_of(state)
         head = head_of(state)
+        genesis_launch = launch_by_revision(state, 0) or {}
+        case.require("bootstrap_genesis_launch_binds_revision_zero",
+                     genesis_launch.get("selector_revision") == 0
+                     and genesis_launch.get("selector_epoch") == 1
+                     and genesis_launch.get("generation") == selector.get("generation")
+                     and (selector.get("origin") or {}).get("kind") == "genesis",
+                     launch=genesis_launch, selector=selector)
+        case.require("bootstrap_selector_binds_started_controller",
+                     selector.get("selector_revision") == 1
+                     and selector.get("active_epoch") == 2
+                     and selector.get("active_epoch") == head.get("controller_epoch"),
+                     selector=selector, head=head)
         bootstrap = {
             "pid": row["process"].pid,
             "generation": selector.get("generation"),
@@ -1378,10 +1391,7 @@ class Harness:
             "pause_request": pause,
             "pause_boundary": pause_receipt["boundary_at"],
         }
-        case.check("bootstrap_selector_is_genesis_revision_zero",
-                   selector.get("selector_revision") == 0
-                   and (selector.get("origin") or {}).get("kind") == "genesis",
-                   selector=selector)
+        case.note(bootstrap=bootstrap)
         self._cache["bootstrap"] = bootstrap
         self._cache["bootstrap_row"] = row
         return bootstrap
@@ -1395,6 +1405,29 @@ class Harness:
                           clean=fingerprint["status_clean"])
         return fingerprint
 
+    def _started_selection(self, slot_db, label, generation, launch_revision,
+                           launch_epoch, mode, timeout):
+        # Launch binds the selected authority before the new process takes over.
+        # The takeover advances the ongoing selector and head together.
+        def observe():
+            state = read_db(slot_db)
+            launch = launch_by_revision(state, launch_revision) or {}
+            if (launch.get("generation") != generation
+                    or launch.get("selector_epoch") != launch_epoch):
+                return None
+            selector = selector_of(state) or {}
+            head = head_of(state) or {}
+            if (selector.get("generation") == generation
+                    and selector.get("selector_revision") == launch_revision + 1
+                    and selector.get("active_epoch") == launch_epoch + 1
+                    and head.get("software_generation") == generation
+                    and head.get("controller_epoch") == launch_epoch + 1
+                    and head.get("mode") == mode):
+                return state, launch
+            return None
+
+        return self.wait_for(observe, label, timeout)
+
     def _install_a(self, bootstrap: dict) -> dict:
         case = self.case("AB-03", "native")
         before = self._source_material(case, "source_before_a")
@@ -1402,8 +1435,11 @@ class Harness:
         self.candidate_commit = before.get("head") or "UNBOUND"
         status = self.status("status_before_a")
         selector = status.get("selector") or {}
-        case.require("bootstrap_selector_still_revision_zero",
-                     selector.get("selector_revision") == 0, selector=selector)
+        case.require("bootstrap_selector_still_names_started_controller",
+                     selector.get("selector_revision") == bootstrap["selector_revision"]
+                     and selector.get("active_epoch") == bootstrap["selector_epoch"]
+                     and selector.get("generation") == bootstrap["generation"],
+                     selector=selector)
         record = self.prepare("prepare_a", self.generation_a)
         self._remember("prepared_a", record)
         case.require("a_prepare_targets_new_generation",
@@ -1423,13 +1459,15 @@ class Harness:
                    record.get("from_generation") == bootstrap["generation"],
                    observed=record.get("from_generation"),
                    bootstrap=bootstrap["generation"])
-        case.check("a_activation_expected_selector_revision_is_zero",
-                   record.get("expected_selector_revision") == 0,
-                   observed=record.get("expected_selector_revision"))
-        case.check("a_activation_target_epoch_advances_once",
-                   record.get("target_epoch") == bootstrap["selector_epoch"] + 1,
-                   observed=record.get("target_epoch"),
-                   bootstrap=bootstrap["selector_epoch"])
+        launch_revision = bootstrap["selector_revision"] + 1
+        launch_epoch = bootstrap["selector_epoch"] + 1
+        case.require("a_activation_expected_selector_revision_binds_bootstrap",
+                     record.get("expected_selector_revision") == launch_revision - 1,
+                     observed=record.get("expected_selector_revision"))
+        case.require("a_activation_target_epoch_advances_once",
+                     record.get("target_epoch") == launch_epoch,
+                     observed=record.get("target_epoch"),
+                     bootstrap=bootstrap["selector_epoch"])
         case.check("a_slot_manifest_generation_is_a",
                    facts["slot_manifest_generation"] == self.generation_a,
                    observed=facts["slot_manifest_generation"])
@@ -1461,13 +1499,10 @@ class Harness:
                      pid=bootstrap_row["process"].pid)
 
         slot_db = Path(facts["slot_dir"]) / SLOT_DB
-        committed = self.wait_for(
-            lambda: (lambda db: db if db
-                     and (selector_of(db) or {}).get("selector_revision") == 1
-                     and (selector_of(db) or {}).get("generation") == self.generation_a
-                     else None)(read_db(slot_db)),
-            "a_selected", 600)
-        case.require("a_selector_committed", bool(committed))
+        selected = self._started_selection(slot_db, "a_selected", self.generation_a,
+                                           launch_revision, launch_epoch, "active", 600)
+        case.require("a_started_authority_committed", bool(selected))
+        committed, launch = selected
         running = self.wait_for(
             lambda: scan_processes(self.data, Path(facts["slot_artifact_path"]))["runtimes"],
             "a_runtime_process", 600)
@@ -1481,9 +1516,6 @@ class Harness:
                          lambda: read_control_runtime_id(self.data)
                          != bootstrap["control_runtime_id"],
                          "a_control", 600)))
-        launch = self.wait_for(lambda: launch_by_revision(read_db(slot_db), 1),
-                               "a_launch_receipt", 300)
-        case.require("a_launch_receipt_recorded", bool(launch), launch=launch)
         selector_a = selector_of(committed)
         head_a = head_of(committed)
         _raw, route_a = read_cas(self.cas(), selector_a["route_authority_ref"])
@@ -1496,20 +1528,22 @@ class Harness:
                    == facts["activation_id"], origin=selector_a.get("origin"))
         case.check("a_launch_receipt_binds_generation",
                    (launch or {}).get("generation") == self.generation_a
-                   and (launch or {}).get("selector_revision") == 1
-                   and (launch or {}).get("selector_epoch") == 2
+                   and (launch or {}).get("selector_revision") == launch_revision
+                   and (launch or {}).get("selector_epoch") == launch_epoch
                    and os.path.realpath((launch or {}).get("slot_dir") or "/nonexistent")
                    == os.path.realpath(facts["slot_dir"]),
                    launch=launch)
         case.check("a_route_generation_binds_a",
                    (route_a or {}).get("generation") == self.generation_a
+                   and (route_a or {}).get("selector_revision") == launch_revision
+                   and (route_a or {}).get("active_epoch") == launch_epoch
                    and os.path.realpath((route_a or {}).get("artifact_path") or "/nonexistent")
                    == os.path.realpath(facts["slot_artifact_path"]),
                    route=route_a)
         case.check("a_head_active_in_selected_generation",
                    (head_a or {}).get("software_generation") == self.generation_a
                    and (head_a or {}).get("mode") == "active"
-                   and (head_a or {}).get("controller_epoch") == 2,
+                   and (head_a or {}).get("controller_epoch") == launch_epoch + 1,
                    head=head_a)
         case.check("a_launcher_pointer_names_a_slot",
                    os.path.realpath((read_pointer(self.data) or {}).get("slot_dir")
@@ -1680,6 +1714,8 @@ class Harness:
 
     def _switch(self, facts_a: dict, facts_b: dict) -> None:
         case = self.case("AB-05", "native")
+        launch_revision = facts_a["selector_revision"] + 1
+        launch_epoch = facts_a["selector_epoch"] + 1
         ack = self.activate("activate_b", facts_b["activation_id"],
                             facts_b["record"].get("expected_selector_revision"),
                             timeout=900)
@@ -1694,13 +1730,10 @@ class Harness:
                          "a_retired", 900)),
                      a_pid=old_pid)
         slot_db = Path(facts_b["slot_dir"]) / SLOT_DB
-        committed = self.wait_for(
-            lambda: (lambda db: db if db
-                     and (selector_of(db) or {}).get("generation") == self.generation_b
-                     and (selector_of(db) or {}).get("selector_revision") == 2
-                     else None)(read_db(slot_db)),
-            "b_selected", 900)
-        case.require("selector_switched_to_b", bool(committed))
+        selected = self._started_selection(slot_db, "b_selected", self.generation_b,
+                                           launch_revision, launch_epoch, "active", 900)
+        case.require("b_started_authority_committed", bool(selected))
+        committed, launch = selected
         selector_b = selector_of(committed)
         head_b = head_of(committed)
         _raw, route_b = read_cas(self.cas(), selector_b["route_authority_ref"])
@@ -1709,9 +1742,6 @@ class Harness:
             "b_runtime_process", 900)
         case.require("new_runtime_process_runs_b_artifact", bool(running),
                      processes=running)
-        launch = self.wait_for(lambda: launch_by_revision(read_db(slot_db), 2),
-                               "b_launch_receipt", 300)
-        case.require("b_launch_receipt_recorded", bool(launch), launch=launch)
         manifest_b = read_slot_manifest(facts_b["slot_dir"])
         self._refresh_selection(facts_b, selector_b, head_b, launch, route_b,
                                 manifest_b)
@@ -1720,11 +1750,9 @@ class Harness:
         self._cache["b_pid"] = running[0]["pid"]
 
         case.check("selector_revision_advanced_by_one",
-                   selector_b["selector_revision"]
-                   == facts_a["selector"]["selector_revision"] + 1)
+                   launch.get("selector_revision") == launch_revision)
         case.check("selector_epoch_advanced_by_one",
-                   selector_b["active_epoch"]
-                   == facts_a["selector"]["active_epoch"] + 1)
+                   launch.get("selector_epoch") == launch_epoch)
         case.check("selector_origin_is_activation_b",
                    (selector_b.get("origin") or {}).get("activation_id")
                    == facts_b["activation_id"])
@@ -1735,8 +1763,6 @@ class Harness:
                    pointer=read_pointer(self.data))
         case.check("launch_receipt_binds_b_generation",
                    (launch or {}).get("generation") == self.generation_b
-                   and (launch or {}).get("selector_revision") == 2
-                   and (launch or {}).get("selector_epoch") == 3
                    and os.path.realpath((launch or {}).get("slot_dir")
                                         or "/nonexistent")
                    == os.path.realpath(facts_b["slot_dir"]),
@@ -1748,10 +1774,12 @@ class Harness:
         case.check("b_head_active_in_selected_generation",
                    (head_b or {}).get("software_generation") == self.generation_b
                    and (head_b or {}).get("mode") == "active"
-                   and (head_b or {}).get("controller_epoch") == 3,
+                   and (head_b or {}).get("controller_epoch") == launch_epoch + 1,
                    head=head_b)
         case.check("b_route_generation_binds_b",
-                   (route_b or {}).get("generation") == self.generation_b,
+                   (route_b or {}).get("generation") == self.generation_b
+                   and (route_b or {}).get("selector_revision") == launch_revision
+                   and (route_b or {}).get("active_epoch") == launch_epoch,
                    route=route_b)
 
         retired = read_db(Path(facts_a["slot_dir"]) / SLOT_DB)
@@ -1762,7 +1790,8 @@ class Harness:
                    and (head_of(retired) or {}).get("software_generation")
                    == self.generation_a, head=head_of(retired))
         case.check("retired_selector_mirrors_selected_authority",
-                   mirrored.get("selector_revision") == 2
+                   mirrored.get("selector_revision") == launch_revision
+                   and mirrored.get("active_epoch") == launch_epoch
                    and mirrored.get("generation") == self.generation_b,
                    mirrored=mirrored)
         generations = self.status("status_after_switch").get("generations") or []
@@ -1814,48 +1843,42 @@ class Harness:
                      artifact=str(launcher_artifact))
 
         row = self.spawn_runtime("relaunch", artifact=launcher_artifact)
-        state = self.wait_for(
-            lambda: (lambda db: db if db
-                     and (selector_of(db) or {}).get("generation")
-                     == self.generation_b else None)(
-                read_db(Path(facts_b["slot_dir"]) / SLOT_DB)),
-            "relaunch_state", 600)
-        case.require("relaunch_opened_selected_store", bool(state))
+        launch_revision = facts_b["selector_revision"]
+        launch_epoch = facts_b["selector_epoch"]
+        slot_db = Path(facts_b["slot_dir"]) / SLOT_DB
+        selected = self._started_selection(slot_db, "relaunch_state", self.generation_b,
+                                           launch_revision, launch_epoch, "paused", 600)
+        case.require("relaunch_rebound_selected_store", bool(selected))
+        state, relaunch = selected
         running = self.wait_for(
             lambda: scan_processes(self.data, launcher_artifact)["runtimes"],
             "relaunch_process", 600)
         case.require("relaunched_process_runs_launcher_artifact", bool(running),
                      processes=running)
-        launches = self.wait_for(
-            lambda: (lambda rows: rows if len(rows) >= 2 else None)(
-                [row2 for row2 in (read_db(Path(facts_b["slot_dir"]) / SLOT_DB)
-                                   or {}).get("launches") or []
-                 if row2["selector_revision"] == 2]),
-            "second_launch_receipt", 600)
-        case.require("relaunch_recorded_a_new_launch_receipt", bool(launches),
-                     launches=launches)
-        ids = {row2["launch_id"] for row2 in launches}
-        bindings = {(row2["data"].get("generation"),
-                     row2["data"].get("selector_revision"),
-                     row2["data"].get("selector_epoch"),
-                     os.path.realpath(row2["data"].get("slot_dir") or "/nonexistent"))
-                    for row2 in launches}
-        case.check("launch_receipt_ids_are_distinct", len(ids) >= 2,
-                   ids=sorted(ids))
+        original = launch_by_revision(state, facts_b["launch_receipt_revision"]) or {}
+        case.check("relaunch_preserves_original_b_launch",
+                   original == facts_b["launch_receipt"], original=original)
+        ids = {original.get("launch_id"), relaunch.get("launch_id")}
+        case.check("launch_receipt_ids_are_distinct", None not in ids and len(ids) == 2,
+                   original=original, relaunch=relaunch)
         case.check("launch_receipts_bind_the_same_selected_generation",
-                   bindings == {(self.generation_b, 2, 3,
-                                 os.path.realpath(facts_b["slot_dir"]))},
-                   bindings=sorted(bindings))
+                   all(launch.get("generation") == self.generation_b
+                       and os.path.realpath(launch.get("slot_dir") or "/nonexistent")
+                       == os.path.realpath(facts_b["slot_dir"])
+                       for launch in (original, relaunch)),
+                   original=original, relaunch=relaunch)
         header = head_of(state) or {}
         case.check("deliberate_pause_preserved_across_relaunch",
                    header.get("mode") == "paused"
-                   and header.get("software_generation") == self.generation_b,
-                   head=header)
-        retired = read_db(Path(facts_a["slot_dir"]) / SLOT_DB)
-        a_launch = launch_by_revision(retired, 1) or launch_by_revision(state, 1)
+                   and any(record.get("request_id") == pause
+                           and record.get("state") == "paused"
+                           and record.get("epoch") == header.get("controller_epoch")
+                           and record.get("boundary_at") is not None
+                           and record.get("closed_at") is None
+                           for record in state["quiesce"]), head=header)
+        a_launch = self._retained_launch(facts_a)
         case.check("retired_a_launch_receipt_still_names_a",
-                   (a_launch or {}).get("generation") == self.generation_a
-                   and (a_launch or {}).get("selector_revision") == 1,
+                   a_launch == facts_a["launch_receipt"],
                    launch=a_launch)
         self.stop(row)
         case.check("relaunch_process_stopped", row["process"].poll() is not None)
@@ -1871,7 +1894,8 @@ class Harness:
         case.check("offline_status_matches_selected_generation",
                    (final.get("selector") or {}).get("generation")
                    == self.generation_b
-                   and (final.get("selector") or {}).get("selector_revision") == 2,
+                   and (final.get("selector") or {}).get("selector_revision") == launch_revision + 1
+                   and (final.get("selector") or {}).get("active_epoch") == launch_epoch + 1,
                    selector=final.get("selector"))
         case.check("offline_status_reports_two_generations",
                    len(final.get("generations") or []) >= 2,
@@ -1912,7 +1936,7 @@ class Harness:
         code, stdout, stderr = self.cli(
             "refuse_stale_revision", "update", "activate",
             "--activation", facts_b["activation_id"],
-            "--expected-selector-revision", "1", timeout=300)
+            "--expected-selector-revision", str(facts_a["selector_revision"]), timeout=300)
         row = self.expect_refusal("stale_revision", code, stdout, stderr,
                                   ["SELECTOR_REVISION_CONFLICT"])
         observations.append(row)
@@ -1922,8 +1946,7 @@ class Harness:
         code, stdout, stderr = self.cli(
             "refuse_unknown_activation", "update", "activate",
             "--activation", str(uuid.uuid4()),
-            "--expected-selector-revision", str(
-                (selector_before or {}).get("selector_revision", 2)),
+            "--expected-selector-revision", str(facts_b["selector_revision"]),
             timeout=300)
         row = self.expect_refusal("unknown_activation", code, stdout, stderr,
                                   ["activation missing"])
@@ -2119,6 +2142,7 @@ class Harness:
             "selector_epoch": facts.get("selector_epoch"),
             "slot_epoch": facts.get("slot_epoch"),
             "launch_receipt_revision": facts.get("launch_receipt_revision"),
+            "launch_receipt_epoch": facts.get("launch_receipt_epoch"),
             "head_epoch": facts.get("head_epoch"),
             "artifact_path": facts.get("artifact_path"),
         }
@@ -2126,10 +2150,11 @@ class Harness:
     def _retained_launch(self, facts: dict):
         retired = facts.get("retired_state") or read_db(
             Path(facts["slot_dir"]) / SLOT_DB)
-        return launch_by_revision(retired, 1)
+        return launch_by_revision(retired, facts["launch_receipt_revision"])
 
     def _current_launch(self, facts: dict):
-        return launch_by_revision(read_db(Path(facts["slot_dir"]) / SLOT_DB), 2)
+        return launch_by_revision(read_db(Path(facts["slot_dir"]) / SLOT_DB),
+                                  facts["launch_receipt_revision"])
 
     def _records_bind_generations(self, facts_a: dict, facts_b: dict) -> bool:
         state = read_db(Path(facts_b["slot_dir"]) / SLOT_DB)
