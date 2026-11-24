@@ -153,10 +153,6 @@ async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<
     let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> = Arc::new(
         shenko_channel_napcat::NapCatChannel::new(config.clone(), client.clone()),
     );
-    // Admission resolves the owning channel from the installed registry on
-    // every event, exactly as the running connector does.
-    let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
-    channel_registry.register(plugin.clone()).unwrap();
     let cancel = tokio_util::sync::CancellationToken::new();
     let connector = tokio::spawn(NapCatClient::run_connection_loop(
         config.clone(),
@@ -246,7 +242,7 @@ async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<
 
     let store = Arc::new(open_native_fixture(&dir));
     let (head, mut step) = store.load_subject(agent).unwrap();
-    let admitted = napcat_inbox_event(&store, agent, &client.spool, &channel_registry, replayed.clone())
+    let admitted = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
         .await?.context("planned replay did not retain its inbox event")?;
     assert_eq!(serde_json::to_vec(&admitted)?, old_event_bytes);
     assert_eq!(store.first_subject_input(agent, admitted.event_id)?
@@ -270,7 +266,7 @@ async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<
 
     let store = Arc::new(open_native_fixture(&dir));
     let (head, mut step) = store.load_subject(agent)?;
-    let sealed_replay = napcat_inbox_event(&store, agent, &client.spool, &channel_registry, replayed.clone())
+    let sealed_replay = napcat_inbox_event(&store, agent, &client.spool, &plugin, replayed.clone())
         .await?.context("sealed replay did not retain its inbox event")?;
     assert_eq!(serde_json::to_vec(&sealed_replay)?, old_event_bytes);
     assert_eq!(step.input_plan_ref.as_ref(), Some(&sealed_ref));
@@ -395,10 +391,9 @@ async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<
     let (client, _events, _actions) = NapCatClient::open_persistent(config.clone(), &spool_path)?;
     let client = Arc::new(client);
     let spool = client.spool.clone();
-    let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
-    channel_registry
-        .register(Arc::new(shenko_channel_napcat::NapCatChannel::new(config, client)))
-        .unwrap();
+    let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> = Arc::new(
+        shenko_channel_napcat::NapCatChannel::new(config, client),
+    );
     let pending = spool.consume(8).unwrap();
     assert_eq!(pending.len(), 1);
     let commit = store
@@ -406,7 +401,7 @@ async fn reopen_reconciles_spool_from_committed_subject_disposition() -> Result<
         .unwrap()
         .unwrap();
     assert_eq!(commit, receipt.commit_ref);
-    assert!(napcat_inbox_event(&store, agent, &spool, &channel_registry, replayed).await?.is_none());
+    assert!(napcat_inbox_event(&store, agent, &spool, &plugin, replayed).await?.is_none());
     assert_eq!(store.load_subject(agent)?.0.committed_step_no, 1);
     assert_eq!(spool.pending_count().unwrap(), 0);
     assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);

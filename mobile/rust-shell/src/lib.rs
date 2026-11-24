@@ -4,16 +4,10 @@
 //! The Kotlin `ShenkoNodeService` loads this cdylib and calls
 //! `nativeStart(filesDir, port)` on a dedicated thread. The shared owned host
 //! builds the Tokio runtime and drives the same assembly as the CLI
-//! (`shenko::run_embedded_start(filesDir, port)`) — no second runtime assembly,
+//! (`shenko::run_owned(Command::Start, filesDir)`) — no second runtime assembly,
 //! no renamed executable, no fork. The app files dir is the node data dir,
 //! so the store, CAS, and bridge socket (`<filesDir>/device_bridge.sock`)
 //! live in app-private storage owned by this uid.
-//!
-//! The service supplies only the app files dir and a port. The Start inputs are
-//! retained on the first start and must match exactly afterwards, and the
-//! selected installation's Store, stage, schema and frozen-Start custody is
-//! verified before the real runtime starts; a refused start returns the typed
-//! reason to the service log and never enters the runtime.
 //!
 //! This target is intentionally empty on non-Android hosts: the workspace
 //! must keep building on desktop CI while the real code path only links
@@ -55,7 +49,15 @@ mod android {
                     .unwrap_or(std::ptr::null_mut());
             }
         };
-        let result = shenko::run_embedded_start(data_dir, port);
+        let result = shenko::run_owned(
+            shenko::Command::Start {
+                port,
+                name: None,
+                napcat: None,
+                napcat_account: None,
+            },
+            data_dir,
+        );
         let status = match result {
             Ok(()) => "stopped".to_string(),
             Err(error) => format!("error: {error:#}"),

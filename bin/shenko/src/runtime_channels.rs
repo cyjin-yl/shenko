@@ -41,11 +41,6 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
     // the contract cannot promise an undeliverable reply. Plugins
     // register into this registry once their connector exists.
     let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
-    // Resolve the executable identity before any connector is spawned: a
-    // runtime that cannot identify the implementation it is about to seal
-    // fails closed instead of leaving half-started channel loops behind.
-    let executable = shenko_kernel::native_artifact::native_artifact_digest()
-        .context("identify the executable that contains the channel plugins")?;
 
     let contacts_plugin = runtime_napcat::install(runtime_napcat::NapCatInstall {
         supervisor, store, data_dir, agent_id, subject_inbox,
@@ -55,26 +50,13 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
         store, data_dir, agent_id, subject_inbox,
         &mut channel_registry, consumer_cancel, config.channels_config,
     ).await?;
-    // Bind everything this composition root installed to the exact prepared
-    // generation this process runs. The executable artifact names the compiled
-    // implementations; each channel's declared contract is its descriptor.
-    // From here discovery, capability disclosure and every message operation
-    // resolve through that one generation: a handle from a displaced
-    // generation refuses, and a plugin the sealed catalog does not publish is
-    // never advertised.
-    let prepared = shenko_types::channel::prepare_compiled_channels(
-        1,
-        executable,
-        channel_registry.compiled_plugins(),
-    )?;
-    channel_registry.attach_prepared_source(Arc::new(prepared))?;
     // Every installed channel declares what its platform can really
     // do, and the runtime records that declaration as a durable fact
     // the subject can read (RT19). The table comes
     // from the plugin contract, so the QQ plugin is described the
     // same way as the adapters: a capability nobody can reach is not
     // advertised, and an advertised one is reachable.
-    for (channel, account, capabilities) in channel_registry.capability_tables()? {
+    for (channel, account, capabilities) in channel_registry.capability_tables() {
         store.record_channel_fact(&shenko_store::channel::NewChannelFact {
             channel,
             account,
@@ -89,8 +71,7 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
     // offers before it promises a reply or an action
     //
     if let Some(self_knowledge) = self_knowledge {
-        let tables = channel_registry.capability_tables()?;
-        self_knowledge.install_channel_capabilities(&tables);
+        self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
     }
 
     Ok(ChannelServices { registry: channel_registry, _contacts_plugin: contacts_plugin })
@@ -114,7 +95,7 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
 /// is rewritten. Shared by the napcat spool admission and the adapter-source
 /// admission.
 pub(super) async fn prepare_channel_envelope(
-    plugin: &shenko_types::channel::InstalledChannel,
+    plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
     store: &shenko_store::store::Store,
     event_id: shenko_types::ids::EntityId,
     mut envelope: shenko_types::channel::ChannelEnvelope,

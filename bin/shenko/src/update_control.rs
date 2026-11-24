@@ -45,7 +45,7 @@ fn service(data_dir: &Path, store: Arc<shenko_store::Store>, participants: Arc<H
         Arc::new(shenko_update::build::CargoBuildProvider::default())).with_claim_source(authority), agent_id))
 }
 
-pub(crate) fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
+fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -56,7 +56,7 @@ pub(crate) fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     std::fs::File::open(path.parent().context("private control file has no parent")?)?.sync_all()?;
     Ok(())
 }
-pub(crate) fn private_read(path: &Path) -> Result<Vec<u8>> {
+fn private_read(path: &Path) -> Result<Vec<u8>> {
     use std::io::Read;
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -250,52 +250,23 @@ pub async fn complete_handoff(path: PathBuf, digest: String, data_dir: PathBuf) 
     exec_selected(&data_dir, &selected, owner)
 }
 
-/// Verify the selected route before either kind of successor start.
-///
-/// Both hosts read the same sealed route and compare it with the selector and
-/// the staged artifact. The store handle is released on return: an in-process
-/// successor then opens the selected slot with the retained owner, and an
-/// `exec` successor transfers the owner descriptor into the new process.
-#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
-fn verify_selected_route(
-    data_dir: &Path,
-    selector: &shenko_types::activation::ActivationSelector,
-) -> Result<shenko_types::activation::RouteAuthority> {
+fn exec_selected(data_dir: &Path, selector: &shenko_types::activation::ActivationSelector, owner: crate::runtime_owner::RuntimeOwner) -> Result<()> {
     let store = crate::runtime_bootstrap::open_installation_store(data_dir)?;
     let route: shenko_types::activation::RouteAuthority = serde_json::from_slice(&store.cas.read_object(&selector.route_authority_ref.digest)?)?;
     ensure!(route.generation == selector.generation && route.selector_revision == selector.selector_revision && route.active_epoch == selector.active_epoch, "selected route mismatch");
     ensure!(Digest::blake3(&std::fs::read(&route.artifact_path)?) == route.artifact_digest, "selected executable digest changed");
-    Ok(route)
-}
-
-/// Android has no selected CLI executable it may `exec`: the node is a cdylib
-/// inside this process. The committed successor generation is started in this
-/// same process, retaining the SAME locked `RuntimeOwner`, and
-/// `run_selected_in_process` proves the Store/stage/schema/frozen-Start custody
-/// before the real start. A missing witness refuses the start and leaves the
-/// committed selector readable for recovery.
-#[cfg(target_os = "android")]
-fn exec_selected(data_dir: &Path, selector: &shenko_types::activation::ActivationSelector, owner: crate::runtime_owner::RuntimeOwner) -> Result<()> {
-    let _route = verify_selected_route(data_dir, selector)?;
-    crate::run_selected_in_process(data_dir.to_path_buf(), selector.selector_revision, owner)
-        .context("in-process selected successor start failed; committed selector remains recoverable")
-}
-
-#[cfg(all(not(target_os = "android"), any(target_os = "linux", target_vendor = "apple")))]
-fn exec_selected(data_dir: &Path, selector: &shenko_types::activation::ActivationSelector, owner: crate::runtime_owner::RuntimeOwner) -> Result<()> {
-    let route = verify_selected_route(data_dir, selector)?;
-    use std::os::unix::process::CommandExt;
-    let fd = owner.prepare_exec_transfer()?;
-    let error = std::process::Command::new(&route.artifact_path).arg("--data-dir").arg(data_dir).arg("start")
-        .env("SHENKO_INHERITED_RUNTIME_OWNER", fd.to_string())
-        .env("SHENKO_SELECTED_LAUNCH_REVISION", selector.selector_revision.to_string()).exec();
-    Err(error).context("selected successor exec failed; committed selector remains recoverable")
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-fn exec_selected(_data_dir: &Path, _selector: &shenko_types::activation::ActivationSelector, owner: crate::runtime_owner::RuntimeOwner) -> Result<()> {
-    let _ = owner;
-    anyhow::bail!("this runtime-owner provider cannot transfer ownership across exec")
+    #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))] {
+        use std::os::unix::process::CommandExt;
+        let fd = owner.prepare_exec_transfer()?;
+        let error = std::process::Command::new(&route.artifact_path).arg("--data-dir").arg(data_dir).arg("start")
+            .env("SHENKO_INHERITED_RUNTIME_OWNER", fd.to_string())
+            .env("SHENKO_SELECTED_LAUNCH_REVISION", selector.selector_revision.to_string()).exec();
+        return Err(error).context("selected successor exec failed; committed selector remains recoverable");
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))] {
+        let _ = owner;
+        anyhow::bail!("this runtime-owner provider cannot transfer ownership across exec");
+    }
 }
 
 pub fn acquire_launch_owner(data_dir: &Path) -> Result<crate::runtime_owner::RuntimeOwner> {
