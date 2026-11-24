@@ -7,6 +7,8 @@
 mod subject_genesis;
 #[path = "../../../crates/shenko-store/tests/support/canonical_native.rs"]
 mod canonical_native;
+#[path = "../../../crates/shenko-store/tests/support/canonical_subject.rs"]
+mod canonical_subject;
 #[path = "support/process_runtime.rs"]
 mod process_runtime;
 #[path = "support/ssh_fixture.rs"]
@@ -14,9 +16,9 @@ mod ssh_fixture;
 
 use anyhow::{Context, Result, ensure};
 use canonical_native::{
-    NativeT2Authority, NativeT2AuthorityState, committed_candidate_with, draft_dispatch_operation,
-    recorded_result_with_docket,
+    NativeT2Authority, NativeT2AuthorityState, draft_dispatch_operation,
 };
+use canonical_subject::{committed_candidate_with, recorded_result_with_docket};
 use process_runtime::{OwnedProcess, append_json};
 use ssh_fixture::{copy_diagnostics, file_sha256, write_sshd_config};
 use serde_json::{Value, json};

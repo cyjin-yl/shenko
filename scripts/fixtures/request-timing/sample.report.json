@@ -1,0 +1,207 @@
+{
+  "schema": 2,
+  "logs": [
+    {
+      "run": 0,
+      "path": "scripts/fixtures/request-timing/sample.runtime.log.txt",
+      "bytes": 2109,
+      "sha256": "6ca7b6fd50b8312671fd9e62d482aa34a0e7183873c44d0d184efea1b35f3707"
+    }
+  ],
+  "scope_count": 4,
+  "complete_count": 4,
+  "incomplete_count": 0,
+  "runs_without_observations": [],
+  "invalid_events": [],
+  "observed_dropped_events": [],
+  "runs": [
+    {
+      "run": 0,
+      "path": "scripts/fixtures/request-timing/sample.runtime.log.txt",
+      "bytes": 2109,
+      "sha256": "6ca7b6fd50b8312671fd9e62d482aa34a0e7183873c44d0d184efea1b35f3707",
+      "scope_count": 4,
+      "complete_count": 4,
+      "incomplete_count": 0,
+      "processes": [
+        {
+          "pid": 42,
+          "scope_count": 4,
+          "complete_count": 4,
+          "incomplete_count": 0,
+          "observed_dropped_before_max": 0,
+          "root_scope_count": 2,
+          "observed_root_total_us": 130,
+          "observed_root_total_unknown": null,
+          "unmeasured_within_roots_us": 70,
+          "unmeasured_within_roots_unknown": null,
+          "phases": [
+            {
+              "phase": "control.snapshot",
+              "count": 1,
+              "inclusive_total_us": 60,
+              "p50_us": 60,
+              "p95_us": 60,
+              "max_us": 60,
+              "self_sample_count": 1,
+              "self_total_us": 40
+            },
+            {
+              "phase": "native.claim",
+              "count": 1,
+              "inclusive_total_us": 100,
+              "p50_us": 100,
+              "p95_us": 100,
+              "max_us": 100,
+              "self_sample_count": 1,
+              "self_total_us": 40
+            },
+            {
+              "phase": "native.t2",
+              "count": 1,
+              "inclusive_total_us": 30,
+              "p50_us": 30,
+              "p95_us": 30,
+              "max_us": 30,
+              "self_sample_count": 1,
+              "self_total_us": 30
+            },
+            {
+              "phase": "sqlite.mutex_wait",
+              "count": 1,
+              "inclusive_total_us": 20,
+              "p50_us": 20,
+              "p95_us": 20,
+              "max_us": 20,
+              "self_sample_count": 1,
+              "self_total_us": 20
+            }
+          ]
+        }
+      ],
+      "observed_root_total_us": 130,
+      "observed_root_total_unknown": null,
+      "unaccounted": {
+        "measurement_window_us": null,
+        "measurement_window_unknown": "no event records process start or stop, and log transport delay is unobserved",
+        "unaccounted_us": null,
+        "unaccounted_unknown": "the observation window is unknown, so time outside observed scopes cannot be computed"
+      }
+    }
+  ],
+  "phases": [
+    {
+      "phase": "control.snapshot",
+      "count": 1,
+      "inclusive_total_us": 60,
+      "p50_us": 60,
+      "p95_us": 60,
+      "max_us": 60,
+      "self_sample_count": 1,
+      "self_total_us": 40
+    },
+    {
+      "phase": "native.claim",
+      "count": 1,
+      "inclusive_total_us": 100,
+      "p50_us": 100,
+      "p95_us": 100,
+      "max_us": 100,
+      "self_sample_count": 1,
+      "self_total_us": 40
+    },
+    {
+      "phase": "native.t2",
+      "count": 1,
+      "inclusive_total_us": 30,
+      "p50_us": 30,
+      "p95_us": 30,
+      "max_us": 30,
+      "self_sample_count": 1,
+      "self_total_us": 30
+    },
+    {
+      "phase": "sqlite.mutex_wait",
+      "count": 1,
+      "inclusive_total_us": 20,
+      "p50_us": 20,
+      "p95_us": 20,
+      "max_us": 20,
+      "self_sample_count": 1,
+      "self_total_us": 20
+    }
+  ],
+  "scopes": [
+    {
+      "run": 0,
+      "source": 0,
+      "pid": 42,
+      "scope_id": 1,
+      "phase": "native.claim",
+      "parent_id": null,
+      "started_unix_us": 1700000000000001,
+      "binding": {},
+      "status": "complete",
+      "inclusive_us": 100,
+      "observed_drops_during_scope": 0,
+      "self_us": 40
+    },
+    {
+      "run": 0,
+      "source": 0,
+      "pid": 42,
+      "scope_id": 2,
+      "phase": "control.snapshot",
+      "parent_id": 1,
+      "started_unix_us": 1700000000000010,
+      "binding": {
+        "subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"
+      },
+      "status": "complete",
+      "inclusive_us": 60,
+      "observed_drops_during_scope": 0,
+      "self_us": 40
+    },
+    {
+      "run": 0,
+      "source": 0,
+      "pid": 42,
+      "scope_id": 3,
+      "phase": "sqlite.mutex_wait",
+      "parent_id": 2,
+      "started_unix_us": 1700000000000020,
+      "binding": {
+        "subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"
+      },
+      "status": "complete",
+      "inclusive_us": 20,
+      "observed_drops_during_scope": 0,
+      "self_us": 20
+    },
+    {
+      "run": 0,
+      "source": 0,
+      "pid": 42,
+      "scope_id": 4,
+      "phase": "native.t2",
+      "parent_id": null,
+      "started_unix_us": 1700000000000200,
+      "binding": {},
+      "status": "complete",
+      "inclusive_us": 30,
+      "observed_drops_during_scope": 0,
+      "self_us": 30
+    }
+  ],
+  "limits": [
+    "Only observed scopes are aggregated; a missing begin or end is reported, never reconstructed and never given a zero duration.",
+    "An observed duration has no inferred cause. No field names a lock, disk, CPU, network, scheduler or other resource as responsible for it.",
+    "A scope end is a stack-frame exit. It is not a successful commit, a durable receipt or a physical send.",
+    "A parent duration includes its children. Phase inclusive totals must never be summed as end-to-end latency.",
+    "Per-run and per-process phase percentiles are never pooled. The top-level phases list is the earlier pooled view for schema 1 readers and is not a run-to-run comparison.",
+    "The observation window is unknown because no event records process start or stop; unaccounted time outside observed scopes is therefore unknown rather than computed.",
+    "Start times exist only to correlate a log line with a scope. Elapsed durations come from a monotonic clock, so wall-clock changes do not move them.",
+    "These observations are diagnostics. They never change durable authority, transaction order, callback counts or an execution receipt."
+  ],
+  "interpretation": "Durations are monotonic wall time in microseconds, including instrumentation overhead. Aggregates are reported per run and per process; never sum phase totals as end-to-end latency because parent durations include children. self_us subtracts direct children only and is unknown for a source/process with an unobserved parent or observed queue loss. A null value with an accompanying *_unknown reason is an explicit unknown, not zero. Complete counts describe matched scope pairs, not a complete observation tree or product success. Scope completion is not a physical send and implies no cause. started_unix_us is for log correlation only; wall-clock changes do not affect elapsed_us."
+}

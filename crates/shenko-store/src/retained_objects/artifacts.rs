@@ -51,6 +51,27 @@ pub(super) fn readable_chunk_manifest(value: &Value) -> bool {
 }
 
 impl Reader<'_> {
+    /// SourceRef locators may be URLs, paths or plain source descriptions.
+    /// Their digest is retained and verified when local; the locator never
+    /// becomes read authority. Unknown fields fall back to the generic walk
+    /// so an unsupported shape cannot hide a required content edge.
+    pub(super) fn cognition_source(&mut self, map: &Map<String, Value>, origin: &RetentionOrigin) -> bool {
+        let identity = map.get("digest").and_then(Value::as_str).and_then(digest);
+        let known_shape = map.keys().all(|key| matches!(key.as_str(), "digest" | "locator"))
+            && map.get("locator").is_none_or(|value| value.is_null() || value.is_string());
+        if !known_shape || identity.is_none() {
+            self.gap("invalid_source_reference", origin.clone(), identity);
+            return false;
+        }
+        if let Some(digest) = identity {
+            self.reference(RetentionReference {
+                digest, object: None, required: false,
+                storage: RetentionStorage::OptionalDigest, origin: origin.clone(),
+            });
+        }
+        true
+    }
+
     pub(super) fn memory_locator(&mut self, bytes: &[u8], origin: &RetentionOrigin) {
         if let Ok(locator) = std::str::from_utf8(bytes)
             && let Some((parent, shard, hex)) = cas_locator(locator)

@@ -230,6 +230,11 @@ button, [role="button"], [data-pui-root][role="button"], .sk-button, .sk-toggle 
   display: inline-flex; align-items: center; gap: 6px; height: 24px;
   font-size: 12px; color: var(--muted); white-space: nowrap;
 }
+/* The compiled host wraps the authored span. The dot and label share this
+   inner row, so its dot receives a real flex-item box instead of inline width. */
+[data-pui-style~="shenko-status-chip"] > span {
+  display: inline-flex; align-items: center; gap: inherit;
+}
 [data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 [data-pui-style~="shenko-status-online"] [data-pui-style~="shenko-status-dot"] { background: var(--ok); }
 [data-pui-style~="shenko-status-reconnecting"] [data-pui-style~="shenko-status-dot"],

@@ -11,6 +11,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
+use shenko_kernel::policy::{EgressAdmission, EgressAuthority, PluginPolicyRegistry};
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
@@ -19,6 +20,10 @@ use shenko_types::{
         IdempotencyGuarantee, LifecycleContract, ResourceAccess,
     },
     evidence::{DecodeStatus, EvidenceReceipt},
+    egress::{
+        EgressDeclarationDraft, EgressPortSpan, EgressProtocol, EgressRequest, EgressScope,
+        HostPattern,
+    },
     ids::*,
     object::*,
     operation::*,
@@ -33,6 +38,9 @@ use std::{
 };
 
 pub const KIND: &str = "net.probe";
+/// The one capability this definition offers, and the name its egress
+/// declaration is registered under.
+pub const CAPABILITY: &str = "native.net.probe";
 pub const CONTRACT: &[u8] = b"shenko.net.probe/v1: one bounded reachability observation of a declared endpoint from this node (DNS, TCP connect, one HTTP status line); no body, no redirect, no credentials, no persistent state; reports only what this attempt measured";
 
 pub const MAX_URL_BYTES: usize = 1024;
@@ -301,17 +309,72 @@ fn elapsed(started: Instant) -> u64 {
 
 pub struct NetProbeHandler {
     store: Arc<Store>,
+    /// The root egress policy. A probe is an external attempt like any other:
+    /// the handler must hold an authority minted by the definition's own
+    /// declaration and obtain an admission before it touches the network.
+    policy: Arc<PluginPolicyRegistry>,
+    authority: parking_lot::RwLock<Option<EgressAuthority>>,
 }
 
 impl NetProbeHandler {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<Store>, policy: Arc<PluginPolicyRegistry>) -> Self {
+        Self {
+            store,
+            policy,
+            authority: parking_lot::RwLock::new(None),
+        }
     }
 
     fn plugin_id() -> EntityId {
         "5c71e2a4-8f0b-4b3e-9d62-7a1c4e8b0f25"
             .parse()
             .expect("fixed net.probe plugin UUID")
+    }
+
+    /// Ask the root policy to admit this exact observation attempt.
+    ///
+    /// The request describes the frozen target, not a range the handler would
+    /// like to have: the same bytes the probe is about to resolve and connect
+    /// are the ones judged. A refusal is returned with its receipt, and the
+    /// probe performs no DNS lookup, connect or HTTP status line.
+    fn admit(&self, frozen: &FrozenProbe) -> Result<EgressAdmission> {
+        let authority = self
+            .authority
+            .read()
+            .as_ref()
+            .cloned()
+            .context("net.probe holds no root policy authority; the definition was installed without its egress declaration")?;
+        let protocol = EgressProtocol::parse(&frozen.scheme).with_context(|| {
+            format!(
+                "net.probe cannot name the protocol of the frozen target {}",
+                frozen.scheme
+            )
+        })?;
+        let request = EgressRequest::new(
+            Self::plugin_id(),
+            CAPABILITY,
+            protocol,
+            frozen.host.clone(),
+            frozen.port,
+            format!(
+                "one bounded reachability observation of {}://{}:{}{}",
+                frozen.scheme, frozen.host, frozen.port, frozen.path
+            ),
+        );
+        match self.policy.admit(&authority, &request) {
+            Ok(admission) => Ok(admission),
+            Err(denial) => {
+                tracing::warn!(
+                    code = %denial.code(),
+                    receipt = %denial.receipt().receipt_id,
+                    policy_revision = denial.receipt().policy_revision,
+                    host = %frozen.host,
+                    port = frozen.port,
+                    "net.probe egress refused by the root policy"
+                );
+                Err(anyhow::Error::from(denial))
+            }
+        }
     }
 
     fn seal_bytes(&self, bytes: &[u8], schema: &str) -> Result<ObjectRef> {
@@ -426,7 +489,19 @@ impl NetProbeHandler {
         Ok((operation, attempt))
     }
 
-    fn observe(&self, operation: &OperationRecord, attempt: &AttemptRecord, frozen: &FrozenProbe) -> Result<OperationRecord> {
+    /// Perform the one measurement of the frozen target.
+    ///
+    /// `_admission` is held for the whole call: the DNS lookup, the TCP
+    /// connect and the HTTP status line happen only under a live root-policy
+    /// admission, and the receipt of that admission names this attempt's
+    /// canonical target.
+    fn observe(
+        &self,
+        operation: &OperationRecord,
+        attempt: &AttemptRecord,
+        frozen: &FrozenProbe,
+        _admission: &EgressAdmission,
+    ) -> Result<OperationRecord> {
         let observation = ProbeObservation::measure(frozen);
         let bytes = serde_json::to_vec(&observation)?;
         let raw = self.seal_bytes(&bytes, "net-probe-observation")?;
@@ -476,13 +551,22 @@ impl NetProbeHandler {
         );
         let input: ProbeInput = serde_json::from_value(std::mem::take(&mut invocation.input))?;
         let frozen = ProbeObservation::freeze(&input)?;
+        // Refused before any durable row is armed: an attempt the root policy
+        // did not admit leaves no operation to reconcile and contacts nothing.
+        let admission = self.admit(&frozen)?;
         let input_ref = self.seal(&frozen, "net-probe-frozen-input")?;
         let (mut operation, mut attempt) = self.operation_parts(&invocation, &frozen, input_ref)?;
         if let Some(existing) = self.store.arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)? {
             return Ok(existing);
         }
-        let handler = Self { store: Arc::clone(&self.store) };
-        let measured = tokio::task::spawn_blocking(move || handler.observe(&operation, &attempt, &frozen))
+        let handler = Self {
+            store: Arc::clone(&self.store),
+            policy: Arc::clone(&self.policy),
+            authority: parking_lot::RwLock::new(self.authority.read().as_ref().cloned()),
+        };
+        let measured = tokio::task::spawn_blocking(move || {
+            handler.observe(&operation, &attempt, &frozen, &admission)
+        })
             .await
             .context("net probe worker join failure")?;
         measured
@@ -549,11 +633,50 @@ impl NativeTaskHandler for NetProbeHandler {
 
     fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
         vec![NativeCapabilityDeclaration {
-            capability_id: "native.net.probe".into(),
+            capability_id: CAPABILITY.into(),
             version: "1".into(),
             description: "Observe whether this node can currently reach a declared endpoint, with per-stage measured timings".into(),
             usage: Some("delegate:net.probe:1 {\"url\":\"http://127.0.0.1:8000/v1/models\",\"timeout_ms\":2000}".into()),
         }]
+    }
+
+    /// A probe reaches whatever endpoint the caller declares; that is the
+    /// capability's actual contract, so it is declared explicitly and only for
+    /// the HTTP/HTTPS protocols this observer implements. An arbitrary endpoint
+    /// is not a hidden permission: the receipt of every attempt names this
+    /// declaration's digest and the exact host and port that were judged.
+    fn egress_declarations(&self) -> Vec<EgressDeclarationDraft> {
+        vec![EgressDeclarationDraft {
+            capability_id: CAPABILITY.into(),
+            capability_version: "1".into(),
+            purpose: "measure whether this node can currently reach a caller-declared HTTP or HTTPS endpoint, reading only a status line".into(),
+            scopes: vec![
+                EgressScope {
+                    protocol: EgressProtocol::Http,
+                    host: HostPattern::Any,
+                    ports: vec![EgressPortSpan::any()],
+                },
+                EgressScope {
+                    protocol: EgressProtocol::Https,
+                    host: HostPattern::Any,
+                    ports: vec![EgressPortSpan::any()],
+                },
+            ],
+        }]
+    }
+
+    fn bind_egress(&self, plugin_id: EntityId, authority: &EgressAuthority) -> Result<()> {
+        ensure!(
+            authority.plugin_id() == plugin_id,
+            "net.probe was handed a policy authority for another plugin"
+        );
+        ensure!(
+            authority.capability_id() == CAPABILITY,
+            "net.probe was handed a policy authority for capability {}",
+            authority.capability_id()
+        );
+        *self.authority.write() = Some(authority.clone());
+        Ok(())
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -574,7 +697,11 @@ impl NativeTaskHandler for NetProbeHandler {
             return Ok(operation);
         }
         let frozen = self.frozen(&operation)?;
-        self.observe(&operation, &attempt, &frozen)
+        // A re-measure is a new egress attempt, not a replay of the old
+        // conclusion: it needs its own admission, and it is refused after the
+        // definition's declaration was withdrawn.
+        let admission = self.admit(&frozen)?;
+        self.observe(&operation, &attempt, &frozen, &admission)
     }
 }
 

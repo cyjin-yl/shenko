@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/README.md",
+      "bytes": 4536,
+      "sha256": "6d0184f629c34ff51dd43330d3cc67927195c8d1e905662970d8cd989ceb3ce1"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/consumer-evidence.tar.xz",
+      "bytes": 1985768,
+      "sha256": "92e480fad7e72ee15fb4508cf544cf6930f042eba5c4bf6349f04b1a285d5545"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-check-receipt.json",
+      "bytes": 1265,
+      "sha256": "3a3befb85b494898a489a4dd67eeeed91d8689f950702ddd2810e2b171094988"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-check.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-check.stdout.log",
+      "bytes": 496,
+      "sha256": "8b59c1cea13a18ad2e478bad0e32ac0e58dc464ad552ed406186c2245dd9f61b"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-dependencies.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-dependencies.stdout.log",
+      "bytes": 2451,
+      "sha256": "60acf72446115a10e1652fbb58f53e2b24ea83a2617e04018291c8c46b423921"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-venv.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/docs-venv.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/manifest.json",
+      "bytes": 36035,
+      "sha256": "cf16517ee3acec6a3d6deb974573d6988f5d0694b1ef079e9478fc44b81b10d5"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/validation.json",
+      "bytes": 1622,
+      "sha256": "b3a10e6411c596471fbcbfb874d1acefca20fc672caff99f96f5c4ecf74ff915"
+    },
+    {
+      "path": "docs/evidence/sprint2-consumer-integration-f24720f8/publication-binding.json",
+      "bytes": 9996,
+      "sha256": "710a981278c5ce1ed6c3be8955568f24e593b345ab985a352041e114f2a83438"
+    }
+  ]
+}

@@ -64,6 +64,7 @@ pub(super) fn readable_row(value: &Value, origin: &RetentionOrigin) -> bool {
     }
     match (table.as_str(), column.as_str()) {
         ("control_prepared_transitions", "admission") => version_one::<CommitAdmission>(value),
+        ("cognition_attitudes", "reasons_json") => readable::<Vec<shenko_types::cognition::ReasonPointer>>(value),
         ("control_prepared_transitions", "result_commit") => readable::<CommitRef>(value),
         ("native_evidence_materializations", "data") =>
             version_one::<crate::native_evidence::EvidenceMaterialization>(value),

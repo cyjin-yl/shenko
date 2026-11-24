@@ -710,9 +710,11 @@ async fn a_timed_out_judge_retains_its_original_late_result_after_drain() -> Res
     let mut receipt = None;
     let (accepted, judged) = tokio::join!(
         tokio::time::timeout_at(outer, accepted_rx),
-        tokio::time::timeout_at(outer, judge(Arc::clone(&store), &handle,
-            &spec.scenarios[0].rubric, &spec.scenarios[0].message, &output,
-            &context, &mut receipt, stop)),
+        tokio::time::timeout_at(outer, judge(Arc::clone(&store), &handle, JudgeClaim {
+            rubric: &spec.scenarios[0].rubric,
+            message: &spec.scenarios[0].message,
+            output: &output,
+        }, &context, &mut receipt, stop)),
     );
     accepted.context("provider did not receive the original judge request")??;
     let failure = match judged.context("judge waiter did not terminate")? {

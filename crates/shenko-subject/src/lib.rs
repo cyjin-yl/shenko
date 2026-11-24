@@ -3,6 +3,7 @@
 pub mod child;
 pub mod dispatch;
 pub mod inbox;
+mod attitude_application;
 mod authored_controls;
 mod context_projection;
 pub mod loop_runner;

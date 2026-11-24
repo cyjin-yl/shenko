@@ -12,11 +12,14 @@ mod process_runtime;
 mod ssh_fixture;
 #[path = "support/runtime_health.rs"]
 mod runtime_health;
+#[path = "support/reserved_loopback_port.rs"]
+mod reserved_loopback_port;
 
 use anyhow::{Context, Result, ensure};
 use process_runtime::{OwnedProcess, append_json};
 use ssh_fixture::{copy_diagnostics, file_sha256, write_sshd_config};
 use runtime_health::{health, http_json};
+use reserved_loopback_port::ReservedLoopbackPort;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{Value, json};
 use shenko_node::{
@@ -953,11 +956,17 @@ fn journey(fixture: &mut Fixture) -> Result<()> {
     // and retains the actual wire; a POST still fails the journey. An absent
     // or refused model card no longer qualifies a configured process alone.
     let mut metadata = MetadataObserver::new(&fixture.logs())?;
-    let ui_ports = [port()?, port()?, port()?];
+    // Keep all three sockets owned together: dropping a temporary listener
+    // after each allocation lets the OS return the same port twice. Release
+    // each reservation only when launching its actual resident.
+    let a_ui = ReservedLoopbackPort::reserve()?;
+    let b_ui = ReservedLoopbackPort::reserve()?;
+    let c_ui = ReservedLoopbackPort::reserve()?;
+    let ui_ports = [a_ui.port(), b_ui.port(), c_ui.port()];
     let boundary = EntityId::new();
-    fixture.start(0, ui_ports[0], None, None)?;
-    fixture.start(2, ui_ports[2], None, None)?;
-    fixture.start(1, ui_ports[1], Some(boundary), Some(metadata.port))?;
+    fixture.start(0, a_ui.release(), None, None)?;
+    fixture.start(2, c_ui.release(), None, None)?;
+    fixture.start(1, b_ui.release(), Some(boundary), Some(metadata.port))?;
     let coordinator_health = fixture.ready(1, ui_ports[1])?;
     let coordinator_self = http_json(
         ui_ports[1],

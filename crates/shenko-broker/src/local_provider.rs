@@ -9,7 +9,10 @@ use base64::Engine as _;
 use tracing::{info, instrument};
 
 use crate::anthropic_rules::ProviderCitation;
-use crate::capability::{BackendCapabilitySnapshot, CapacityEntry, CapacityUnit, classify_operations};
+use crate::capability::{
+    BackendCapabilitySnapshot, CacheSurfaces, CapacityEntry, CapacityUnit, DeclaredCapability,
+    ProviderCapabilityDeclaration, QuotaSurfaces, classify_operations,
+};
 use crate::profile::{
     AuthBinding, AuthMethod, BackendFamily, ProviderProfile, SamplingCapabilities, TransportKind,
     UsageFieldMapping,
@@ -389,6 +392,27 @@ impl ProviderRuntime for LocalModelProvider {
 
     fn binding(&self) -> ProviderBinding {
         LocalModelProvider::binding(self)
+    }
+
+    fn declaration(&self) -> ProviderCapabilityDeclaration {
+        // Facts of this implementation: it implements the OpenAI-compatible
+        // SSE path and reads both the current and the older cache-hit usage
+        // shapes. Its OpenAI surface owns no quota observation contract, so no
+        // quota surface is declared even though an allowlisted header family
+        // would be retained verbatim; that contract belongs to another
+        // provider and is not borrowed from here.
+        ProviderCapabilityDeclaration {
+            streaming: DeclaredCapability::implemented(),
+            cache: CacheSurfaces {
+                cache_read_accounting: if self.profile.usage.cache_read_tokens_path.is_some() {
+                    DeclaredCapability::implemented()
+                } else {
+                    DeclaredCapability::UNDECLARED
+                },
+                ..CacheSurfaces::UNDECLARED
+            },
+            quota: QuotaSurfaces::UNDECLARED,
+        }
     }
 
     async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {

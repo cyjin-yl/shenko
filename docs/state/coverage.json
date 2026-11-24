@@ -6293,6 +6293,18 @@
       ]
     },
     "symbols": {
+      "crates/shenko-awareness-core/src/cognition.rs#CognitionUnit::is_metapackage": [
+        "docs/specs/cognition-units.md#spec-51-3"
+      ],
+      "crates/shenko-store/src/atoms.rs#APPLIED_ATTITUDE_ROLES": [
+        "docs/specs/cognition-units.md#spec-51-1"
+      ],
+      "crates/shenko-subject/src/lib.rs#attitude_application": [
+        "docs/specs/cognition-units.md#spec-51-10"
+      ],
+      "crates/shenko-subject/src/attitude_application.rs#revision_view": [
+        "docs/specs/cognition-units.md#spec-51-1"
+      ],
       "bin/shenko/src/cli.rs#UpdateCli": [
         "docs/specs/cognition-units.md#spec-51-4"
       ],
@@ -10932,7 +10944,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with": [
+      "crates/shenko-store/tests/support/canonical_subject.rs#committed_candidate_with": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit": [
@@ -11003,7 +11015,7 @@
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
-      "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket": [
+      "crates/shenko-store/tests/support/canonical_subject.rs#recorded_result_with_docket": [
         "docs/specs/durable-state.md#spec-41-2"
       ],
       "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait": [
@@ -31933,6 +31945,42 @@
     ],
     "citation_migration_content_sha256": "cd9d9044a712a3a98db58729b48c6a075c962f5a670b0e911cd3185147a045b2",
     "current_bindings": {
+      "229be3a0228de4c8e2b81bdaec16e030e098c2c62f2fd686cdf7495e201d57ea": {
+        "symbol_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs#CognitionUnit::is_metapackage"
+        ],
+        "binding_scope": "enclosing_declaration",
+        "citation_locations": {
+          "crates/shenko-awareness-core/src/cognition.rs": 1
+        }
+      },
+      "e3e560d5d5f3baf9f1a126c5eb19383f6c7b0427be8b25cdbb29167b620c3331": {
+        "symbol_refs": [
+          "crates/shenko-store/src/atoms.rs#APPLIED_ATTITUDE_ROLES"
+        ],
+        "binding_scope": "enclosing_declaration",
+        "citation_locations": {
+          "crates/shenko-store/src/atoms.rs": 1
+        }
+      },
+      "5d4190e36c66f8de8b29b613c4bd006cd87fa2fc8995d1239da258db6aa2032c": {
+        "symbol_refs": [
+          "crates/shenko-subject/src/lib.rs#attitude_application"
+        ],
+        "binding_scope": "module_declaration",
+        "citation_locations": {
+          "crates/shenko-subject/src/attitude_application.rs": 1
+        }
+      },
+      "f90f28651375271657d7c58ae83f60400823f92b19d6eba94d2f45bad4d78794": {
+        "symbol_refs": [
+          "crates/shenko-subject/src/attitude_application.rs#revision_view"
+        ],
+        "binding_scope": "enclosing_declaration",
+        "citation_locations": {
+          "crates/shenko-subject/src/attitude_application.rs": 1
+        }
+      },
       "001977248ef4aa8600550149af5fded1572ea162d63e479272d3fb94d1046053": {
         "symbol_refs": [
           "crates/shenko-update/src/cli.rs#UpdateCommand"
@@ -35050,7 +35098,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#claimed_native_task",
           "crates/shenko-store/tests/store_roundtrip.rs#commit_publication_step",
           "crates/shenko-store/tests/store_roundtrip.rs#committed_candidate",
-          "crates/shenko-store/tests/support/canonical_native.rs#committed_candidate_with",
+          "crates/shenko-store/tests/support/canonical_subject.rs#committed_candidate_with",
           "crates/shenko-store/tests/store_roundtrip.rs#competing_s1_rejects_stale_writer_without_partial_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#dispatch_cursor_reaches_later_work_and_wraps_without_starving",
           "crates/shenko-store/tests/store_roundtrip.rs#empty_batch_commit_returns_receipt",
@@ -35073,7 +35121,7 @@
           "crates/shenko-store/tests/store_roundtrip.rs#publication_state",
           "crates/shenko-store/tests/store_roundtrip.rs#publication_t1_claims_and_arms_in_one_commit",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result",
-          "crates/shenko-store/tests/support/canonical_native.rs#recorded_result_with_docket",
+          "crates/shenko-store/tests/support/canonical_subject.rs#recorded_result_with_docket",
           "crates/shenko-store/tests/store_roundtrip.rs#recorded_result_with_wait",
           "crates/shenko-store/tests/store_roundtrip.rs#recovery_task",
           "crates/shenko-store/tests/store_roundtrip.rs#s1_commit_advances_branch_head",
@@ -44743,6 +44791,58 @@
     },
     "citation_additions": [
       {
+        "source_path": "crates/shenko-awareness-core/src/cognition.rs",
+        "comment": "/// installed together (docs/specs/cognition-units.md#spec-51-3) — rather\n",
+        "binding_scope": "enclosing_declaration",
+        "symbol_refs": [
+          "crates/shenko-awareness-core/src/cognition.rs#CognitionUnit::is_metapackage"
+        ],
+        "literal_refs": [
+          "docs/specs/cognition-units.md#spec-51-3"
+        ],
+        "occurrences": 1,
+        "comment_sha256": "5773b9a95357ca062880778489c838d72862904324c45599f3debb9f4b334f6d"
+      },
+      {
+        "source_path": "crates/shenko-store/src/atoms.rs",
+        "comment": "/// reconciliation docket (docs/specs/cognition-units.md#spec-51-1).\n",
+        "binding_scope": "enclosing_declaration",
+        "symbol_refs": [
+          "crates/shenko-store/src/atoms.rs#APPLIED_ATTITUDE_ROLES"
+        ],
+        "literal_refs": [
+          "docs/specs/cognition-units.md#spec-51-1"
+        ],
+        "occurrences": 1,
+        "comment_sha256": "66593b7f34c83fdb807b358c493e794754463f31aaadc61f8aac63c86c6eac9a"
+      },
+      {
+        "source_path": "crates/shenko-subject/src/attitude_application.rs",
+        "comment": "//! 1. **No keyword gate** (`docs/specs/cognition-units.md#spec-51-10`). The\n",
+        "binding_scope": "module_declaration",
+        "symbol_refs": [
+          "crates/shenko-subject/src/lib.rs#attitude_application"
+        ],
+        "literal_refs": [
+          "docs/specs/cognition-units.md#spec-51-10"
+        ],
+        "occurrences": 1,
+        "comment_sha256": "1db3fa59bf4f77483964e1719bbb41c6b9aeca6f9a6ed4d494fa194e5155ba95"
+      },
+      {
+        "source_path": "crates/shenko-subject/src/attitude_application.rs",
+        "comment": "// docs/specs/cognition-units.md#spec-51-1: the default revision view is",
+        "binding_scope": "enclosing_declaration",
+        "symbol_refs": [
+          "crates/shenko-subject/src/attitude_application.rs#revision_view"
+        ],
+        "literal_refs": [
+          "docs/specs/cognition-units.md#spec-51-1"
+        ],
+        "occurrences": 1,
+        "comment_sha256": "f6528563d8e209d411080ff1381056852e36d719920a6e58fb69e9c7d576bfc9"
+      },
+      {
         "source_path": "crates/shenko-ui/web/src/projection.ts",
         "comment": "/** A committed message bound this part to an S1 step (either it carried the\n   *  full committed text, or a streamed prefix was absorbed by it). A part\n   *  without this binding is durable ledger content but not a committed step:\n   *  the view never prints a step number or m('timeline.committed') for it (docs/specs/web-interface.md#spec-21-11). */",
         "comment_sha256": "a3bfe148b4b17cd6cc3e04d0d6a1ab617902d247ff202f632c06496f1515d420",
@@ -44797,6 +44897,14 @@
       }
     ],
     "binding_sources": {
+      "crates/shenko-subject/src/attitude_application.rs": {
+        "bytes": 41015,
+        "sha256": "1d6ec768d6d049e58093aeb377303367632ca99af2e436122634741fabe4d1db"
+      },
+      "crates/shenko-subject/src/attitude_application.rs": {
+        "bytes": 41015,
+        "sha256": "1d6ec768d6d049e58093aeb377303367632ca99af2e436122634741fabe4d1db"
+      },
       "bin/shenko/src/cli.rs": {
         "bytes": 20241,
         "sha256": "c8dd060ae528edc0bc76b364a9255a556b8c0d8e0cc20c89d794366e13181e34"
