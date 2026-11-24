@@ -234,7 +234,16 @@ export function InspectorLayout({ openId, title, subtitle, telemetry, inspector,
             <div className="lens-head">
               <div className="lens-head-id">
                 <span className="lens-title">{title}</span>
-                {subtitle && <span className="lens-sub">{subtitle}</span>}
+                {subtitle
+                  ? <span className="lens-sub">{subtitle}</span>
+                  : telemetry && (
+                    <span className="lens-sub">
+                      {[
+                        telemetry.step ? `R·${telemetry.step}` : null,
+                        telemetry.activeTasks > 0 ? t('inspector.attentionTasks', { count: telemetry.activeTasks }) : null,
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
               </div>
               <div className="lens-head-actions">
                 <Button className="inspector-collapse" variant="ghost" size="icon"
@@ -261,21 +270,10 @@ export function InspectorLayout({ openId, title, subtitle, telemetry, inspector,
                       <Icon name={lens.icon} size={14} />
                       <span className="inspector-seg-label">{lens.title}</span>
                       {lens.badge !== undefined && lens.badge > 0 && (
-                        <span className={`inspector-seg-badge${lens.active ? ' is-live' : ''}`}>{lens.badge}</span>
+                        <span className="inspector-seg-count">{lens.badge}</span>
                       )}
                     </button>
                   ))}
-                </div>
-                <div className="inspector-telemetry">
-                  <span className="inspector-pill">
-                    {telemetry.step ? `R·${telemetry.step}` : t('shell.noSteps')}
-                  </span>
-                  {telemetry.activeTasks > 0 && (
-                    <span className="inspector-pill is-live">
-                      <span className="inspector-dot is-live" aria-hidden="true" />
-                      {t('inspector.attentionTasks', { count: telemetry.activeTasks })}
-                    </span>
-                  )}
                 </div>
                 {telemetry.pendingDecision && (
                   <div className="inspector-attention">

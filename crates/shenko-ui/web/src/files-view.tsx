@@ -174,6 +174,9 @@ export function FilesView({ source, recentHints = [] }: {
   const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
   const [visited, setVisited] = React.useState<VisitedPlace[]>([]);
   const searchRef = React.useRef<HTMLInputElement>(null);
+  const tableRef = React.useRef<HTMLDivElement>(null);
+  const typeAheadRef = React.useRef<{ buffer: string; timer: number | null }>({ buffer: '', timer: null });
+  const isApplePlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
 
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -186,6 +189,10 @@ export function FilesView({ source, recentHints = [] }: {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  React.useEffect(() => () => {
+    if (typeAheadRef.current.timer !== null) window.clearTimeout(typeAheadRef.current.timer);
   }, []);
 
   React.useEffect(() => {
@@ -277,7 +284,18 @@ export function FilesView({ source, recentHints = [] }: {
             type="search"
             className="files-search"
             value={filter}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
             onChange={(event) => setFilter(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                if (filter) setFilter('');
+                else searchRef.current?.blur();
+              }
+            }}
             placeholder={t('files.searchPlaceholder')}
             aria-label={t('files.searchPlaceholder')}
           />
@@ -291,7 +309,7 @@ export function FilesView({ source, recentHints = [] }: {
               <Icon name="close" size={12} />
             </button>
           ) : (
-            <kbd className="files-search-kbd" aria-hidden="true">⌘F</kbd>
+            <kbd className="files-search-kbd" aria-hidden="true">{isApplePlatform ? '⌘F' : 'Ctrl+F'}</kbd>
           )}
         </div>
         <ScrollBox className="files-side-scroll" viewportClassName="files-side-viewport">
@@ -388,9 +406,9 @@ export function FilesView({ source, recentHints = [] }: {
                             onClick={() => open(item.id)}
                             title={[item.label || item.guest_path, protocolLabel(item), modeLabel(item.mode), item.guest_path, item.note].filter(Boolean).join(' · ')}
                           >
-                            <span className={`files-status-dot${item.browsable ? ' is-live' : ' is-offline'}`} aria-hidden="true" />
                             <Icon name={rootIcon(item)} size={15} />
                             <span className="files-root-label">{item.label || item.guest_path}</span>
+                            {!item.browsable && <span className="files-status-dot is-offline" aria-hidden="true" />}
                             {badge && (
                               <span
                                 className="files-root-badge"
@@ -423,10 +441,14 @@ export function FilesView({ source, recentHints = [] }: {
                 data-browsable={item.browsable ? 'true' : 'false'}
                 onClick={() => open(item.id)}
               >
-                <span className={`files-status-dot${item.browsable ? ' is-live' : ' is-offline'}`} aria-hidden="true" />
+                {!item.browsable && <span className="files-status-dot is-offline" aria-hidden="true" />}
                 <Icon name={rootIcon(item)} size={14} />
                 <span>{item.label || item.guest_path}</span>
-                {shortMode(item.mode) && <span className="files-pill-mode">{shortMode(item.mode)}</span>}
+                {!item.browsable
+                  ? <span className="files-pill-mode is-offline">{t('files.badge.offline')}</span>
+                  : item.mode === 'read_only' || item.mode === 'copy_on_write'
+                    ? <span className="files-pill-mode">{shortMode(item.mode)}</span>
+                    : null}
               </button>
             ))}
           </div>
@@ -457,8 +479,7 @@ export function FilesView({ source, recentHints = [] }: {
           </ScrollBox>
           {root && (
             <span className="files-facts">
-              <span className="files-fact-chip">{protocolLabel(root)}</span>
-              {modeLabel(root.mode) && <span className="files-fact-chip">{modeLabel(root.mode)}</span>}
+              <span>{[protocolLabel(root), modeLabel(root.mode)].filter(Boolean).join(' · ')}</span>
               <code className="files-fact-path">{root.guest_path}</code>
             </span>
           )}
@@ -473,7 +494,7 @@ export function FilesView({ source, recentHints = [] }: {
         {root?.browsable && rootsAvailable && (
           <>
             <ScrollBox className="files-table-scroll" viewportClassName="files-table-viewport">
-              <div className="files-table" role="grid" aria-label={t('files.contents')}>
+              <div ref={tableRef} className="files-table" role="grid" aria-label={t('files.contents')}>
                 <div className="files-row files-head" role="row">
                   <span role="columnheader">{t('files.col.name')}</span>
                   <span role="columnheader">{t('files.col.modified')}</span>
@@ -485,18 +506,54 @@ export function FilesView({ source, recentHints = [] }: {
                 {entries && entries.length > 0 && visibleEntries?.length === 0 && (
                   <p className="files-empty">{t('files.noMatches')}</p>
                 )}
-                {visibleEntries?.map((entry) => (
+                {visibleEntries?.map((entry, index) => (
                   <div
                     key={entry.id}
                     role="row"
                     tabIndex={0}
+                    data-row-id={entry.id}
                     className="files-row"
                     data-kind={entry.kind}
                     data-selected={selected === entry.id ? '' : undefined}
                     onClick={() => setSelected(entry.id)}
                     onDoubleClick={() => enterFolder(entry)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') enterFolder(entry);
+                      const list = visibleEntries ?? [];
+                      const focusRow = (target: FileEntry | undefined) => {
+                        if (!target) return;
+                        setSelected(target.id);
+                        const rows = tableRef.current?.querySelectorAll<HTMLElement>('.files-row:not(.files-head)');
+                        const match = rows ? [...rows].find((el) => el.dataset.rowId === target.id) : undefined;
+                        match?.focus();
+                      };
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        enterFolder(entry);
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        setSelected(null);
+                      } else if ((event.key === 'Backspace' || (event.key === 'ArrowUp' && (event.metaKey || event.altKey))) && path.length > 0) {
+                        event.preventDefault();
+                        setPath(path.slice(0, -1));
+                        setSelected(null);
+                      } else if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        focusRow(list[Math.min(list.length - 1, index + 1)]);
+                      } else if (event.key === 'ArrowUp') {
+                        event.preventDefault();
+                        focusRow(list[Math.max(0, index - 1)]);
+                      } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                        // Native Finder-style type-ahead in lists.
+                        const ta = typeAheadRef.current;
+                        if (ta.timer !== null) window.clearTimeout(ta.timer);
+                        ta.buffer = (ta.buffer + event.key.toLowerCase()).slice(0, 24);
+                        ta.timer = window.setTimeout(() => { ta.buffer = ''; ta.timer = null; }, 700);
+                        const found = list.find((item) => item.name.toLowerCase().startsWith(ta.buffer));
+                        if (found) {
+                          event.preventDefault();
+                          focusRow(found);
+                        }
+                      }
                     }}
                   >
                     <span role="gridcell" className="files-name" aria-label={entry.name}>

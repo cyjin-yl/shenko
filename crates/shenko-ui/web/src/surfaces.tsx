@@ -105,8 +105,7 @@ export function MemorySurface({ node }: { node?: UiNode }) {
         : items.length === 0
           ? <Note text={node.props.data?.note || t('config.memoryEmpty')} />
           : <>
-            <div className="inspector-section-bar">
-              <span className="inspector-section-title">{t('config.memory')}</span>
+            <div className="inspector-section-bar is-quiet">
               <span className="inspector-section-stat">{t('files.itemsCount', { count: items.length })}</span>
             </div>
             <ul className="rows is-inset">{items.map((memory: Record<string, unknown>, index: number) => (
@@ -194,81 +193,86 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   const apiKeyValue = typeof config?.api_key_configured === 'boolean'
     ? (config.api_key_configured ? t('config.keyConfigured') : t('config.keyMissing'))
     : t('common.unknown');
+  const unknownText = t('common.unknown');
+  const subjectStateValue = unknown(self?.status);
+  const commitValue = node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit');
   return (
     <Page title={t('config.title')} lead={t('config.lead')} hidden={node.props.hidden} className="config">
-      <div className="inspector-stat-grid">
-        <div className="inspector-stat-card">
-          <span className="inspector-stat-label">{t('config.model')}</span>
-          <strong className="inspector-stat-value" title={modelValue}>{modelValue}</strong>
+      <dl className="inspector-kv-list" aria-label={t('config.title')}>
+        <div className="inspector-kv-row">
+          <dt>{t('config.model')}</dt>
+          <dd className={modelValue === unknownText ? 'is-muted' : undefined} title={modelValue}>{modelValue}</dd>
         </div>
-        <div className="inspector-stat-card">
-          <span className="inspector-stat-label">{t('config.subjectState')}</span>
-          <strong className="inspector-stat-value">{unknown(self?.status)}</strong>
+        <div className="inspector-kv-row">
+          <dt>{t('config.subjectState')}</dt>
+          <dd className={subjectStateValue === unknownText ? 'is-muted' : undefined}>{subjectStateValue}</dd>
         </div>
-        <div className="inspector-stat-card">
-          <span className="inspector-stat-label">{t('config.latestCommit')}</span>
-          <strong className="inspector-stat-value is-mono">{node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit')}</strong>
+        <div className="inspector-kv-row">
+          <dt>{t('config.latestCommit')}</dt>
+          <dd className={!node.props.step ? 'is-muted' : undefined}>{commitValue}</dd>
         </div>
-        <div className="inspector-stat-card">
-          <span className="inspector-stat-label">API key</span>
-          <strong className="inspector-stat-value">{apiKeyValue}</strong>
+        <div className="inspector-kv-row">
+          <dt>API key</dt>
+          <dd className={apiKeyValue === unknownText ? 'is-muted' : undefined}>{apiKeyValue}</dd>
         </div>
-      </div>
+      </dl>
 
       <Group title={t('config.entries')}>
         <ConfigEntries node={node} emit={emit} />
       </Group>
 
-      <CollapsibleRoot className="inspector-disclosure">
-        <CollapsibleTrigger className="inspector-disclosure-trigger">
-          <Icon name="chevron" size={13} />
-          <span>{t('inspector.capabilities')}</span>
-          <span className="inspector-disclosure-meta">
-            {caps.append ? t('composer.append') : t('common.unavailable')}
-            {caps.steer ? ` · ${t('composer.steer')}` : ''}
-          </span>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="inspector-disclosure-body">
-          <dl className="facts is-compact">
-            <Fact label={t('composer.append')} value={caps.append ? caps.durable_input_receipts ? t('config.durableAvailable') : t('config.transportAvailable') : t('common.unavailable')} />
-            <Fact label={t('config.steer')} value={caps.steer ? t('config.boundaryAvailable') : t('config.notOffered')} />
-            <Fact label={t('config.selectionReceipt')} value={caps.durable_input_receipts ? t('config.storeReceipt') : t('common.unavailable')} />
-            <Fact label={t('config.streaming')} value={caps.streaming ? t('config.streamingAvailable') : t('config.committedOnly')} />
-            <Fact label={t('config.replay')} value={caps.committed_replay ? t('config.connected') : t('common.unknown')} />
-          </dl>
-        </CollapsibleContent>
-      </CollapsibleRoot>
+      <div className="inspector-disclosures">
+        <CollapsibleRoot className="inspector-disclosure">
+          <CollapsibleTrigger className="inspector-disclosure-trigger">
+            <Icon name="chevron" size={13} />
+            <span>{t('inspector.capabilities')}</span>
+            <span className="inspector-disclosure-meta">
+              {caps.append ? t('composer.append') : t('common.unavailable')}
+              {caps.steer ? ` · ${t('composer.steer')}` : ''}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="inspector-disclosure-body">
+            <dl className="facts is-compact">
+              <Fact label={t('composer.append')} value={caps.append ? caps.durable_input_receipts ? t('config.durableAvailable') : t('config.transportAvailable') : t('common.unavailable')} />
+              <Fact label={t('config.steer')} value={caps.steer ? t('config.boundaryAvailable') : t('config.notOffered')} />
+              <Fact label={t('config.selectionReceipt')} value={caps.durable_input_receipts ? t('config.storeReceipt') : t('common.unavailable')} />
+              <Fact label={t('config.streaming')} value={caps.streaming ? t('config.streamingAvailable') : t('config.committedOnly')} />
+              <Fact label={t('config.replay')} value={caps.committed_replay ? t('config.connected') : t('common.unknown')} />
+            </dl>
+          </CollapsibleContent>
+        </CollapsibleRoot>
 
-      <CollapsibleRoot className="inspector-disclosure">
-        <CollapsibleTrigger className="inspector-disclosure-trigger">
-          <Icon name="chevron" size={13} />
-          <span>{t('inspector.runtimeBuild')}</span>
-          <span className="inspector-disclosure-meta is-mono">
-            {manifest ? manifest.upstream.commit.slice(0, 8) : unknown(node.props.server_version)}
-          </span>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="inspector-disclosure-body">
-          <dl className="facts is-compact">
-            <Fact label={t('config.transport')} value={projection.source === 'demo' ? t('transport.demo') : connectionAnnouncement(node.props.connection)} />
-            <Fact label="Runtime generation" value={unknown(config?.generation)} mono />
-            <Fact label={t('config.serverVersion')} value={unknown(node.props.server_version)} mono />
-            <Fact label={t('config.dataDirectory')} value={unknown(config?.data_dir)} mono />
-            <Fact label="WebSocket" value={wsUrl()} mono />
-            <Fact label="Subject ID" value={projection.subject_id ?? t('common.unknown')} mono />
-          </dl>
-          {manifest ? <dl className="facts is-compact">
-            <Fact label="Proto-UI" value={manifest.upstream.commit} mono />
-            <Fact label={t('config.packages')} value={manifest.packages.join(' · ')} mono />
-            <Fact label={t('config.families')} value={manifest.adopted_families.join(', ')} />
-            <Fact label="Compiler" value={compilerLabel(manifest.compiler)} />
-          </dl> : <Note text={t('config.manifestMissing')} />}
-          <p className="links">
-            <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">{t('config.protoLicense')}</a>
-            <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">{t('config.shadcnLicense')}</a>
-            <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">{t('config.reactLicense')}</a>
-          </p>
-        </CollapsibleContent>
-      </CollapsibleRoot>
+        <CollapsibleRoot className="inspector-disclosure">
+          <CollapsibleTrigger className="inspector-disclosure-trigger">
+            <Icon name="chevron" size={13} />
+            <span>{t('inspector.runtimeBuild')}</span>
+            <span className="inspector-disclosure-meta">
+              {manifest ? manifest.upstream.commit.slice(0, 8) : unknown(node.props.server_version)}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="inspector-disclosure-body">
+            <dl className="facts is-compact">
+              <Fact label={t('config.transport')} value={projection.source === 'demo' ? t('transport.demo') : connectionAnnouncement(node.props.connection)} />
+              <Fact label="Runtime generation" value={unknown(config?.generation)} mono />
+              <Fact label={t('config.serverVersion')} value={unknown(node.props.server_version)} mono />
+              <Fact label={t('config.dataDirectory')} value={unknown(config?.data_dir)} mono />
+              <Fact label="WebSocket" value={wsUrl()} mono />
+              <Fact label="Subject ID" value={projection.subject_id ?? t('common.unknown')} mono />
+            </dl>
+            {manifest ? <dl className="facts is-compact">
+              <Fact label="Proto-UI" value={manifest.upstream.commit} mono />
+              <Fact label={t('config.packages')} value={manifest.packages.join(' · ')} mono />
+              <Fact label={t('config.families')} value={manifest.adopted_families.join(', ')} />
+              <Fact label="Compiler" value={compilerLabel(manifest.compiler)} />
+            </dl> : <Note text={t('config.manifestMissing')} />}
+            <p className="links">
+              <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">{t('config.protoLicense')}</a>
+              <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">{t('config.shadcnLicense')}</a>
+              <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">{t('config.reactLicense')}</a>
+            </p>
+          </CollapsibleContent>
+        </CollapsibleRoot>
+      </div>
     </Page>
   );
 }
@@ -287,8 +291,7 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
         : playground?.available === false
           ? <Note text={t('work.storeRequired')} />
           : <>
-            <div className="inspector-section-bar">
-              <span className="inspector-section-title">{t('work.title')}</span>
+            <div className="inspector-section-bar is-quiet">
               <span className="inspector-section-stat">{t('files.itemsCount', { count: artifacts.length })}</span>
             </div>
             {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
@@ -296,7 +299,7 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
             )}
             {hasAuxiliary ? <>
               {roots.length > 0 && (
-                <Group title={t('work.rootTitle')} aside={<span className="inspector-count-pill">{roots.length}</span>}>
+                <Group title={t('work.rootTitle')} aside={<span className="inspector-count-text">{roots.length}</span>}>
                   <ul className="rows is-inset">{roots.map((root) => (
                     <li className="row" key={String(root.artifact_id)}>
                       <span className="row-main">
@@ -308,7 +311,7 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
                 </Group>
               )}
               {namespaces.length > 0 && (
-                <Group title={t('work.namespaces')} aside={<span className="inspector-count-pill">{namespaces.length}</span>}>
+                <Group title={t('work.namespaces')} aside={<span className="inspector-count-text">{namespaces.length}</span>}>
                   <ul className="rows is-inset">{namespaces.map((entry) => (
                     <li className="row" key={String(entry.namespace)}>
                       <span className="row-main">
@@ -320,17 +323,19 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
                 </Group>
               )}
             </> : (
-              <CollapsibleRoot className="inspector-disclosure">
-                <CollapsibleTrigger className="inspector-disclosure-trigger">
-                  <Icon name="chevron" size={13} />
-                  <span>{t('work.rootTitle')} &amp; {t('work.namespaces')}</span>
-                  <span className="inspector-disclosure-meta">{t('inspector.emptyAuxiliary', { roots: 0, namespaces: 0 })}</span>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="inspector-disclosure-body">
-                  <p className="muted">{t('work.rootsEmpty')}</p>
-                  <p className="muted">{t('work.namespacesEmpty')}</p>
-                </CollapsibleContent>
-              </CollapsibleRoot>
+              <div className="inspector-disclosures">
+                <CollapsibleRoot className="inspector-disclosure">
+                  <CollapsibleTrigger className="inspector-disclosure-trigger">
+                    <Icon name="chevron" size={13} />
+                    <span>{t('work.rootTitle')} &amp; {t('work.namespaces')}</span>
+                    <span className="inspector-disclosure-meta">{t('inspector.emptyAuxiliary', { roots: 0, namespaces: 0 })}</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="inspector-disclosure-body">
+                    <p className="muted">{t('work.rootsEmpty')}</p>
+                    <p className="muted">{t('work.namespacesEmpty')}</p>
+                  </CollapsibleContent>
+                </CollapsibleRoot>
+              </div>
             )}
           </>}
     </Page>

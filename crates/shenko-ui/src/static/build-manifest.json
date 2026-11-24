@@ -206,15 +206,15 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/worktrees/hig-sidebar-scroll-area-20261124/crates/shenko-ui/web",
-  "built_at": "2026-11-24T10:33:51.672Z",
+  "built_at": "2026-11-24T12:19:41.365Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1260501,
-      "sha256": "5be760217f4bb3d99a4d22ed6c97010f1452d7e1cb5a6c392c7b8114a6272a3a"
+      "bytes": 1261323,
+      "sha256": "b16446e33e52e26d618b435cabdeae7ef4c47089bb2b4628ba197bc9141913a7"
     },
     "chunks/chunk-KAQULBVM.js": {
       "bytes": 68523,
@@ -225,8 +225,8 @@
       "sha256": "495661e3bbc9a00c3e81a706d79e3cb0cf89a23c1489d1c93bde4f3db198e518"
     },
     "app.css": {
-      "bytes": 81437,
-      "sha256": "f765b01c4bbb4ee3c7574176254cf7914c20a61efb4b13ef0e9748412051b562"
+      "bytes": 81660,
+      "sha256": "58e16e0644241d7b061872be675203decd88a5a933cf9853ffcabf2201f22014"
     },
     "proto-ui-style.css": {
       "bytes": 294,

@@ -116,8 +116,7 @@ export function TaskHierarchy({ tasks, onOpenThread }: {
       : `delegation:${inspected.task_id}`)
     : undefined;
   return <>
-    <div className="inspector-section-bar">
-      <span className="inspector-section-title">{t('config.tasks')}</span>
+    <div className="inspector-section-bar is-quiet">
       <span className="inspector-section-stat">{t('inspector.summaryTasks', { active: activeCount, total: tasks.length })}</span>
     </div>
     <InspectorHierarchy
@@ -129,45 +128,36 @@ export function TaskHierarchy({ tasks, onOpenThread }: {
         <span className="task-name">{entry.label}</span>
       </>}
       renderMetadata={(entry) => <>
-        <span className="task-state-pill" data-state={entry.task.state}>{taskStateLabel(entry.task.state)}</span>
+        <span className="task-state-text" data-state={entry.task.state}>{taskStateLabel(entry.task.state)}</span>
         <time title={formatStamp(entry.task.created_at)}>{formatCompactAge(entry.task.created_at)}</time>
       </>}
       onActivate={(entry) => setInspectedId(entry.task.task_id)}
     />
     {inspectedId !== null && <section className="inspector-tree-details" aria-label={t('tree.details')}>
       <header className="inspector-details-head">
-        <h3>{inspected ? (inspected.name || inspected.kind || t('tree.details')) : t('tree.details')}</h3>
-        {inspected && <span className="task-state-pill" data-state={inspected.state}>{taskStateLabel(inspected.state)}</span>}
+        <div className="inspector-details-title">
+          <h3>{inspected ? (inspected.name || inspected.kind || t('tree.details')) : t('tree.details')}</h3>
+          {inspected && <span className="task-state-text" data-state={inspected.state}>{taskStateLabel(inspected.state)}</span>}
+        </div>
+        {openDelegation && (
+          <Button variant="outline" size="sm" className="inspector-open-thread" onClick={openDelegation}>
+            <Icon name="chat" size={13} />{t('inspector.openThread')}
+          </Button>
+        )}
       </header>
       {inspected ? <>
         {inspected.goal && <p className="inspector-details-goal">{inspected.goal}</p>}
-        {openDelegation && (
-          <div className="inspector-details-actions">
-            <Button variant="outline" size="sm" onClick={openDelegation}>
-              <Icon name="chat" size={14} />{t('inspector.openThread')}
-            </Button>
-          </div>
-        )}
         <dl className="facts is-compact">
           <div className="fact"><dt>{t('tree.taskIdentity')}</dt><dd className="is-mono">{inspected.task_id}</dd></div>
           <div className="fact"><dt>{t('tree.taskParent')}</dt><dd className="is-mono">{inspected.parent_task_id || '—'}</dd></div>
           <div className="fact"><dt>{t('tree.taskRole')}</dt><dd>{inspected.role}</dd></div>
           <div className="fact"><dt>{t('tree.taskKind')}</dt><dd className="is-mono">{inspected.kind}</dd></div>
           <div className="fact"><dt>{t('tree.taskCreated')}</dt><dd>{formatStamp(inspected.created_at)}</dd></div>
-          <div className="fact"><dt>{t('tree.taskGoal')}</dt><dd>{inspected.goal || '—'}</dd></div>
+          {!inspected.goal && <div className="fact"><dt>{t('tree.taskGoal')}</dt><dd>—</dd></div>}
         </dl>
       </> : <p className="muted">{t('tree.recordGone')}</p>}
     </section>}
   </>;
-}
-
-function shortMime(mime: string | undefined): string {
-  if (!mime) return '—';
-  const slash = mime.indexOf('/');
-  const sub = slash >= 0 ? mime.slice(slash + 1) : mime;
-  if (sub === 'markdown') return 'MD';
-  if (sub === 'plain') return 'TXT';
-  return sub.toUpperCase().slice(0, 6);
 }
 
 export function ArtifactHierarchy({
@@ -182,10 +172,10 @@ export function ArtifactHierarchy({
     label={t('work.title')}
     domain="artifacts"
     renderLabel={(entry) => entry.kind === 'mime'
-      ? <><span className="artifact-mime-tag">{shortMime(entry.mime)}</span><span>{entry.mime || t('config.unknownType')}</span></>
+      ? <><Icon name="folder" size={14} /><span className="artifact-mime-label">{entry.mime || t('config.unknownType')}</span></>
       : <><Icon name="file" size={14} /><span>{entry.label}</span></>}
     renderMetadata={(entry) => entry.kind === 'mime'
-      ? <span className="inspector-count-pill">{entry.count}</span>
+      ? <span className="inspector-count-text">{entry.count}</span>
       : <><span className="artifact-rev-tag" data-lifecycle={String(entry.artifact.lifecycle ?? 'draft')}>r{String(entry.artifact.revision ?? '—')} · {String(entry.artifact.lifecycle ?? 'draft')}{entry.artifact.backend ? ` · ${t('work.backend')}` : ''}</span>
           <time title={formatStamp(entry.artifact.updated_at)}>{formatCompactAge(entry.artifact.updated_at)}</time></>}
     onActivate={(entry) => {

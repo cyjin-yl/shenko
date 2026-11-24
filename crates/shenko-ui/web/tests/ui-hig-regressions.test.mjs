@@ -81,4 +81,11 @@ test('composed scroll projection hides WebKit scrollbars and ReadingViewport opt
   const css = readFileSync(join(srcDir, 'app.css'), 'utf8');
   assert.match(uiKit, /asScrollSurface\(\)\.configure\(\{\s*anchor:\s*\{\s*mode:\s*'off'\s*\},\s*projection:\s*'composed'\s*\}\)/);
   assert.match(css, /\[data-pui-scroll-projection="composed"\]::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
+  // Apple HIG / native-feel invariants: overlay scrollbars hidden at rest,
+  // chrome keeps default arrow cursor, no pulsing status dot halo, no gradient avatars.
+  assert.match(css, /\.sk-scrollbar,\s*\.timeline-scrollbar\s*\{[^}]*opacity:\s*0/);
+  assert.match(css, /\[data-pui-style~="cursor-pointer"\][^{]*\{[^}]*cursor:\s*default/);
+  assert.doesNotMatch(css, /@keyframes\s+avatar-live/);
+  assert.doesNotMatch(css, /\.monogram[^{]*linear-gradient/);
+  assert.doesNotMatch(css, /text-transform:\s*uppercase/);
 });
