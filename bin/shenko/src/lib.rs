@@ -36,6 +36,7 @@ mod runtime_model_health;
 mod runtime_napcat;
 mod runtime_owner;
 mod runtime_plugins;
+mod plugin_root;
 mod runtime_publications;
 mod runtime_sessions;
 mod runtime_start;

@@ -23,7 +23,7 @@ use shenko_types::ids::{EntityId, RuntimeGeneration};
 use shenko_types::object::Digest;
 use shenko_types::plugin_runtime::{
     PluginArtifactBinding, PluginAttachRequest, PluginPrepareRequest, PluginPublishRequest,
-    PluginRetireRequest, PluginRootIdentity,
+    PluginRootIdentity,
 };
 use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec};
 
@@ -247,9 +247,25 @@ async fn install_definition(
 ) -> Result<()> {
     let identity = plugin_root_identity(record, handler.as_ref())?;
     let runtime_generation = supervisor.lifecycle.generation.clone();
-    let installation_id = prepare_plugin_root(store, &identity, &record.revision, &runtime_generation)?;
-    register_retirement(supervisor, store, installation_id, &runtime_generation)?;
+    let installation_id =
+        prepare_plugin_root(store, &identity, &record.revision, &runtime_generation)?;
     supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
+    // The retirement is its own plugin, spawned after the definition it
+    // retires: the teardown disposes the fibers in spawn order, so the
+    // definition's own withdrawal runs first and the retirement is recorded
+    // after it.
+    supervisor
+        .spawn(
+            crate::plugin_root::PluginRootLifecyclePlugin,
+            crate::plugin_root::PluginRootRetirement {
+                store: Arc::clone(store),
+                installation_id,
+                runtime_generation: runtime_generation.clone(),
+                reason: "the runtime withdrew the definition at teardown".to_string(),
+                artifact_retained: true,
+            },
+        )
+        .await?;
     publish_and_attach(store, supervisor, installation_id, &runtime_generation)?;
     Ok(())
 }
@@ -276,40 +292,6 @@ fn prepare_plugin_root(
         },
     )?;
     Ok(installation_id)
-}
-
-/// Register the retirement of one installed definition.
-///
-/// The effect is registered before the plugin, so the teardown order is the
-/// reverse of the registration order: the live registrations are withdrawn
-/// first, and the retirement is recorded after them.
-fn register_retirement(
-    supervisor: &Supervisor,
-    store: &Arc<Store>,
-    installation_id: EntityId,
-    runtime_generation: &RuntimeGeneration,
-) -> Result<()> {
-    let retire_store = Arc::clone(store);
-    let retire_generation = runtime_generation.clone();
-    supervisor
-        .context()
-        .effect_sync(move || {
-            retire_store.retire_plugin_root(
-                installation_id,
-                &PluginRetireRequest {
-                    runtime_generation: retire_generation,
-                    reason: "the runtime withdrew the definition at teardown".to_string(),
-                    artifact_retained: true,
-                    evidence: Vec::new(),
-                },
-            )
-            .map(|_| ())
-            // The cleanup boundary reports a returned error, and it takes a
-            // standard error: the store's own error carries the detail.
-            .map_err(std::io::Error::other)
-        })
-        .map_err(|error| anyhow::anyhow!("plugin root retirement was not registered: {error}"))?;
-    Ok(())
 }
 
 /// Record the publication and the attachment of one installed definition.
@@ -649,9 +631,8 @@ mod tests {
             "a saved profile must not change a running catalog"
         );
         first.stop().await?;
-        // The plugin teardown withdraws the live registrations; the runtime
-        // root's own teardown records the retirement after them.
-        drop(first);
+        // The teardown withdraws the live registrations first and records the
+        // retirement after them.
         for record in store.plugin_root_records(None, 16)? {
             assert_eq!(record.phase, PluginRootPhase::Retired);
         }
