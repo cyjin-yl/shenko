@@ -314,7 +314,11 @@ A→B, completion must mirror and fence B, publish C and read back that exact
 selector; the historical A→B pair cannot make B resumable. Selected-side
 recovery also verifies the retired selector and source-generation fence after
 predecessor completion. Unfinished phase projections still require identical
-activation facts and the exact adjacent revisions. Once both ledgers reached
+activation facts and the exact adjacent revisions. When the selected controller
+has already started, the retired ledger retains the original selector. Recovery
+checks the original activation, state and route in both ledgers, the selected
+controller's equal revision and epoch advances, its preceding writable launch
+receipt and its current subject authority binding. Once both ledgers reached
 `Observing`, the selected runtime may freeze its later live rollback request
 and current resource receipts in that activation. Recovery preserves those
 later references only when the original selection facts and recovery closure

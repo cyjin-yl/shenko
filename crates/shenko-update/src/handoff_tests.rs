@@ -15,6 +15,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use shenko_types::authority::{
+    CommitAdmission, CommitAuthorityGrant, CommitAuthorityGuard, CommitAuthorityProvider,
+    CommitAuthorityStamp,
+};
 use shenko_types::ids::{BranchId, LedgerSeq};
 use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep, SubjectStepState};
 use shenko_types::task::{DispatchEligibility, TaskRecord};
@@ -47,6 +51,28 @@ fn authority_json() -> serde_json::Value {
         "primary_claim": null,
         "local_branch": { "local_installation": true },
     })
+}
+
+struct FixtureControllerAuthority(CommitAuthorityStamp);
+
+impl CommitAuthorityGuard for FixtureControllerAuthority {
+    fn stamp(&self) -> Option<&CommitAuthorityStamp> {
+        Some(&self.0)
+    }
+}
+
+impl CommitAuthorityProvider for FixtureControllerAuthority {
+    fn source_id(&self) -> &str {
+        &self.0.source_id
+    }
+
+    fn prepare(&self, _: &CommitAdmission) -> std::result::Result<Option<CommitAuthorityGrant>, ShenkoError> {
+        Ok(None)
+    }
+
+    fn acquire(&self, _: Option<&CommitAuthorityGrant>) -> std::result::Result<Box<dyn CommitAuthorityGuard>, ShenkoError> {
+        Ok(Box::new(Self(self.0.clone())))
+    }
 }
 
 /// One throwaway installation: a live slot with a real genesis store, the
@@ -389,6 +415,33 @@ fn commit_fixture_successor(
         data_dir: source.data_dir.clone(), live_slot: slot.slot_dir, store, service,
         agent_id: source.agent_id, generation: generation.clone(),
     }, committed, request_id)
+}
+
+fn record_fixture_launch(fixture: &Installation, slot: &Path) {
+    let selector = fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap();
+    let launch_id = EntityId::new();
+    fixture.store.record_activation_launch(launch_id, &selector, &serde_json::json!({
+        "launch_id": launch_id,
+        "slot_dir": slot,
+        "generation": selector.generation,
+        "selector_revision": selector.selector_revision,
+        "selector_epoch": selector.active_epoch,
+        "origin": selector.origin,
+        "read_only": false,
+    })).unwrap();
+}
+
+fn activate_fixture_controller(fixture: &Installation) -> ActivationSelector {
+    let (head, _) = fixture.store.load_subject(fixture.agent_id).unwrap();
+    fixture.store.attach_commit_authority(Arc::new(FixtureControllerAuthority(CommitAuthorityStamp {
+        source_id: "fixture-controller".into(),
+        holder_id: EntityId::new(),
+        subject_id: fixture.agent_id,
+        branch_id: head.branch_id.clone(),
+        revision: Digest::blake3(b"fixture-controller"),
+    }))).unwrap();
+    fixture.store.activate_runtime_authority(&head).unwrap();
+    fixture.store.activation_selector(fixture.agent_id).unwrap().unwrap()
 }
 
 fn smoke_report(
@@ -1136,9 +1189,26 @@ async fn committed_successor_precedes_historical_selected_recovery() {
     a.cleanup();
 }
 
-/// The live transport freezes rollback in the completed A->B record, then
-/// the real quiesce method writes current receipts before the helper's first
-/// finish call. That history must remain intact while rollback proceeds.
+#[tokio::test]
+async fn started_selection_refuses_launch_receipt_for_another_slot() {
+    let a = installation();
+    let (b, _, _) = commit_fixture_successor(&a, &RuntimeGeneration::new("gen-b"));
+    a.service.finish_committed_handoff(a.agent_id).unwrap();
+    record_fixture_launch(&b, &a.live_slot);
+    activate_fixture_controller(&b);
+    let retired_seq = a.store.current_commit_seq().unwrap();
+    let selected_seq = b.store.current_commit_seq().unwrap();
+    let error = b.service.finish_committed_handoff(b.agent_id).unwrap_err();
+    assert!(error.to_string().contains("launch receipt does not bind the selected controller"), "{error:#}");
+    assert_eq!(a.store.current_commit_seq().unwrap(), retired_seq);
+    assert_eq!(b.store.current_commit_seq().unwrap(), selected_seq);
+    assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(b.live_slot.clone()));
+    drop(b);
+    a.cleanup();
+}
+
+/// B records its launch, takes controller authority and freezes a rollback.
+/// The helper must recognize A's original mirror and retain B's new receipts.
 #[tokio::test]
 #[cfg(unix)]
 async fn live_rollback_request_preserves_completed_predecessor_recovery() {
@@ -1147,7 +1217,11 @@ async fn live_rollback_request_preserves_completed_predecessor_recovery() {
     a.service.finish_committed_handoff(a.agent_id).unwrap();
     let original = a.store.activation_record(ab.activation_id).unwrap().unwrap();
     assert_eq!(original.phase, ActivationPhase::Observing);
-    let selected = b.store.activation_selector(b.agent_id).unwrap().unwrap();
+    let mirrored = a.store.activation_selector(a.agent_id).unwrap().unwrap();
+    record_fixture_launch(&b, &b.live_slot);
+    let selected = activate_fixture_controller(&b);
+    assert_eq!(selected.selector_revision, mirrored.selector_revision + 1);
+    assert_eq!(selected.active_epoch, mirrored.active_epoch + 1);
     let request_id = EntityId::new();
     let command = crate::cli::UpdateCommand::Rollback {
         activation: ab.activation_id, expected_selector_revision: selected.selector_revision,
@@ -1180,9 +1254,10 @@ async fn live_rollback_request_preserves_completed_predecessor_recovery() {
     // into A nor overwrite the frozen request or resource receipts on B.
     b.service.finish_committed_handoff(b.agent_id).unwrap();
     b.service.finish_committed_handoff(b.agent_id).unwrap();
+    assert_eq!(a.store.activation_selector(a.agent_id).unwrap(), Some(mirrored));
     assert_eq!(a.store.activation_record(ab.activation_id).unwrap(), Some(original));
     assert_eq!(b.store.activation_record(ab.activation_id).unwrap(), Some(prepared.clone()));
-    assert_eq!(b.store.activation_selector(b.agent_id).unwrap(), Some(selected));
+    assert_eq!(b.store.activation_selector(b.agent_id).unwrap().as_ref(), Some(&selected));
     assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(b.live_slot.clone()));
     assert_eq!(b.store.subject_quiesce(request_id).unwrap().unwrap().state, SubjectQuiesceState::Paused);
     let saved: serde_json::Value = serde_json::from_slice(
@@ -1192,8 +1267,8 @@ async fn live_rollback_request_preserves_completed_predecessor_recovery() {
 
     let outcome = crate::cli::execute(command, &b.service, b.agent_id).await.unwrap();
     let next: ActivationSelector = serde_json::from_value(outcome["selector"].clone()).unwrap();
-    assert_eq!(next.selector_revision, 2);
-    assert_eq!(next.active_epoch, 3);
+    assert_eq!(next.selector_revision, selected.selector_revision + 1);
+    assert_eq!(next.active_epoch, selected.active_epoch + 1);
     assert_eq!(next.generation, a.generation);
     assert_eq!(slots::resolve_live_slot(&a.data_dir).unwrap(), Some(a.live_slot.clone()));
     assert_eq!(b.store.load_subject(b.agent_id).unwrap().0.mode, SubjectMode::Handoff);
@@ -1733,8 +1808,14 @@ fn paused_catchup_preserves_source_creation_times_for_a_later_successor() {
     drop(copied);
     let receiver = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap();
     assert_ne!(receiver.ledger.ledger_id(), fixture.store.ledger.ledger_id());
+    assert!(receiver.inspect_paused_subject().unwrap().is_none());
     let before_copy = receiver.current_commit_seq().unwrap();
     receiver.copy_paused_activation_boundary(&fixture.store, fixture.agent_id).unwrap();
+    assert_eq!(receiver.get_existing_agent_id().unwrap(), None);
+    let (inspected_head, inspected_step) = receiver.inspect_paused_subject().unwrap().unwrap();
+    assert_eq!(inspected_head.agent_id, fixture.agent_id);
+    assert_eq!(inspected_head.branch_id, paused.branch_id);
+    assert_eq!(inspected_step.step_id, successor);
     let local_boundary = receiver.subject_quiesce(request_id).unwrap().unwrap();
     let requested_at = local_boundary.requested_at;
     let boundary_at = local_boundary.boundary_at.unwrap();

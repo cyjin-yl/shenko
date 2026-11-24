@@ -8,7 +8,7 @@ use shenko_types::{
     commit::CommitRef,
     error::ShenkoError,
     ids::{ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration},
-    subject::{SubjectBranchHead, SubjectMode, SubjectStepState},
+    subject::{SubjectBranchHead, SubjectMode, SubjectStep, SubjectStepState},
 };
 
 use crate::{Store, store::{checked_head, checked_head_mode, read_step, storage_error}};
@@ -60,6 +60,33 @@ pub struct SubjectQuiesce {
 }
 
 impl Store {
+    /// Inspect the subject at a clean pause in this copy. The local pause
+    /// receipt and its successor are checked in the same snapshot. Selection
+    /// and writer authority still belong to the installation's other gates.
+    pub fn inspect_paused_subject(&self) -> Result<Option<(SubjectBranchHead, SubjectStep)>, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction().map_err(storage_error)?;
+        let agent = {
+            let mut query = tx.prepare("SELECT agent_id FROM subject_quiesce_requests WHERE state='paused' LIMIT 2")
+                .map_err(storage_error)?;
+            let mut rows = query.query([]).map_err(storage_error)?;
+            let Some(first) = rows.next().map_err(storage_error)? else { return Ok(None); };
+            let agent: String = first.get(0).map_err(storage_error)?;
+            if rows.next().map_err(storage_error)?.is_some() {
+                return Err(ShenkoError::conflict("the copy has more than one paused subject"));
+            }
+            agent.parse::<EntityId>().map_err(storage_error)?
+        };
+        let (head, step) = crate::store::read_subject(&tx, agent)?;
+        if head.mode != SubjectMode::Paused || step.state != SubjectStepState::Planned
+            || step.input_plan_ref.is_some() || step.active_request_id.is_some() || step.active_attempt_id.is_some()
+        {
+            return Err(ShenkoError::conflict("the copied pause has no clean planned successor"));
+        }
+        tx.commit().map_err(storage_error)?;
+        Ok(Some((head, step)))
+    }
+
     /// Stable request IDs make an uncertain commit queryable on reopen. This
     /// does not claim that a candidate is ready or stop an in-flight step.
     pub fn request_subject_quiesce(

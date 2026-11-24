@@ -308,15 +308,20 @@ fn local_checks(data_dir: &std::path::Path, cas_dir: &std::path::Path) -> Vec<Sm
                 detail: Some("the store is not in WAL mode".to_string()),
             }),
         }
-        let agent = store.get_existing_agent_id();
-        match agent {
-            Ok(Some(agent_id)) => {
+        let subject = store.get_existing_agent_id().and_then(|agent| {
+            if let Some(agent_id) = agent {
+                return Ok(Some((agent_id, store.load_subject(agent_id))));
+            }
+            Ok(store.inspect_paused_subject()?.map(|(head, step)| (head.agent_id, Ok((head, step)))))
+        });
+        match subject {
+            Ok(Some((agent_id, state))) => {
                 checks.push(SmokeCheckOutcome {
                     name: "subject_identity".into(),
                     passed: true,
                     detail: None,
                 });
-                match store.load_subject(agent_id) {
+                match state {
                     Ok((head, step)) => {
                         let binding_ok = step.step_id == head.next_step_id
                             && step.branch_id == head.branch_id;
