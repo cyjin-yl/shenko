@@ -315,6 +315,9 @@ The capability-gap efficacy experiment retains the required twelve held-out
 scenarios. That count is an experiment requirement, not evidence of efficacy:
 tentative cases remain unaccepted until the real model comparison supports
 them. Retained reports are not overwritten to hide unsuccessful trials.
+The held-out driver gives each pair its own deadline and alternates which
+condition starts across repetitions and scenarios. Its scenario summaries
+compute coverage and conservative bounds from every retained sample slot.
 
 The retained R7 run on source `22f27228bffc266e9290b3c157e9fb2524f65c27`
 planned 52 samples across thirteen scenarios and two repetitions per condition.
