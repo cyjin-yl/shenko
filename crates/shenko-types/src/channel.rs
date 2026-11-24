@@ -1802,26 +1802,6 @@ mod tests {
         PublicationTarget::new("stub", "stub-tag", "9", "stub:stub")
     }
 
-    fn attachment() -> ChannelAttachment {
-        ChannelAttachment {
-            attachment_id: "a1".into(),
-            kind: "file".into(),
-            name: None,
-            mime: None,
-            bytes: None,
-            hash: None,
-            locator: AttachmentLocator {
-                kind: "url".into(),
-                host: None,
-                path: None,
-                url: Some("https://example.invalid/a".into()),
-                params: None,
-            },
-            object: None,
-            expires_at: None,
-        }
-    }
-
     /// A source whose published generation and catalog can advance, standing
     /// in for the generation owner's one pointer swap.
     struct MutableSource {
@@ -2076,16 +2056,16 @@ mod tests {
             Err(ChannelBindingError::InvalidBinding { .. })
         ));
         let other = Arc::new(StubChannel::new("other", "other-src", "other-tag", "other"));
-        assert!(matches!(
+        assert!(
             PreparedChannelCatalog::new(
                 GenerationRef::new(1, Digest::blake3(b"gen")),
                 vec![
                     prepared(&plugin, b"artifact-1", b"descriptor-1"),
                     prepared(&other, b"artifact-2", b"descriptor-2"),
                 ]
-            ),
-            Ok(_)
-        ));
+            )
+            .is_ok()
+        );
     }
 
     /// Compiled sealing is content-derived: the same executable and declared
