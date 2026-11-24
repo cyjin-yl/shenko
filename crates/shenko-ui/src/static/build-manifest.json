@@ -201,7 +201,6 @@
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
         "generated_sha256": "48216e577cf49c3dcf89e621bf489e71e42ab5adca7d1afe0c72469e58e19869",
         "generated_imports": [
-          " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
@@ -220,7 +219,6 @@
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
         "generated_sha256": "28248ab69ab206f251b1b0f8295050d67cd08d69017f4f6144335f6d29f9f749",
         "generated_imports": [
-          " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
@@ -239,7 +237,7 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/var/idw-target/pr411-review-20261125-55114/source/crates/shenko-ui/web",
-  "built_at": "2026-11-24T19:17:46.782Z",
+  "built_at": "2026-11-24T20:20:57.507Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
