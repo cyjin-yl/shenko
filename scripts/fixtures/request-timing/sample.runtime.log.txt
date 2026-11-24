@@ -1,0 +1,10 @@
+INFO shenko: runtime starting
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "begin", "pid": 42, "scope_id": 1, "parent_id": null, "phase": "native.claim", "started_unix_us": 1700000000000001, "dropped_before": 0, "binding": {}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "begin", "pid": 42, "scope_id": 2, "parent_id": 1, "phase": "control.snapshot", "started_unix_us": 1700000000000010, "dropped_before": 0, "binding": {"subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "begin", "pid": 42, "scope_id": 3, "parent_id": 2, "phase": "sqlite.mutex_wait", "started_unix_us": 1700000000000020, "dropped_before": 0, "binding": {"subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "end", "pid": 42, "scope_id": 3, "parent_id": 2, "phase": "sqlite.mutex_wait", "started_unix_us": 1700000000000020, "elapsed_us": 20, "dropped_before": 0, "binding": {"subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "end", "pid": 42, "scope_id": 2, "parent_id": 1, "phase": "control.snapshot", "started_unix_us": 1700000000000010, "elapsed_us": 60, "dropped_before": 0, "binding": {"subject_id": "3f2a1b4c-5d6e-4f70-8a90-b1c2d3e4f506"}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "end", "pid": 42, "scope_id": 1, "parent_id": null, "phase": "native.claim", "started_unix_us": 1700000000000001, "elapsed_us": 100, "dropped_before": 0, "binding": {}}
+INFO shenko: unrelated message between scopes
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "begin", "pid": 42, "scope_id": 4, "parent_id": null, "phase": "native.t2", "started_unix_us": 1700000000000200, "dropped_before": 0, "binding": {}}
+DEBUG shenko_timing: store phase timing_json={"schema": 1, "event": "end", "pid": 42, "scope_id": 4, "parent_id": null, "phase": "native.t2", "started_unix_us": 1700000000000200, "elapsed_us": 30, "dropped_before": 0, "binding": {}}

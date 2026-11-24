@@ -1,0 +1,43 @@
+{
+  "kind": "documentation_integrity_only",
+  "product_tested": false,
+  "steps": [
+    {
+      "name": "docs-venv",
+      "argv": [
+        "python3",
+        "-m",
+        "venv",
+        "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/tools/shenko-docs-f247-venv"
+      ],
+      "exitCode": 0,
+      "started": "2026-11-24T00:26:13.990887+00:00",
+      "ended": "2026-11-24T00:26:16.569476+00:00"
+    },
+    {
+      "name": "docs-dependencies",
+      "argv": [
+        "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/tools/shenko-docs-f247-venv/bin/python",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "scripts/requirements-ci.txt"
+      ],
+      "exitCode": 0,
+      "started": "2026-11-24T00:26:16.570184+00:00",
+      "ended": "2026-11-24T00:26:20.033246+00:00"
+    },
+    {
+      "name": "docs-check",
+      "argv": [
+        "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/tools/shenko-docs-f247-venv/bin/python",
+        "scripts/check_docs.py"
+      ],
+      "exitCode": 0,
+      "started": "2026-11-24T00:26:20.033894+00:00",
+      "ended": "2026-11-24T00:26:42.205677+00:00"
+    }
+  ],
+  "reportSha256": "8b59c1cea13a18ad2e478bad0e32ac0e58dc464ad552ed406186c2245dd9f61b"
+}

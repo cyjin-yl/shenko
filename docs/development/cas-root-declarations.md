@@ -21,6 +21,11 @@ obligations remain in [the durable-state contract](../specs/durable-state.md#spe
    report read from a `RecordedRoots` durable record. Namespace ordering in a
    report is not significant.
 
+Before candidates are selected, the plan also reads the CAS's live reader pins
+(`pinned_objects`) and treats their verified closure as roots. A pin is an
+exclusion, not a producer declaration, so it is not part of any namespace
+claim; a pin whose object is missing makes the plan refuse.
+
 These are declaration checks. A namespace claim describes where the producer
 seals objects; it does not restrict which digests its roots may reference. A
 closure can retain objects from another producer's namespace, and a registered
@@ -65,25 +70,50 @@ integration CI must compile this candidate and execute
 `cargo test -p shenko-wasm --test tool_artifact_roots` before a runtime result
 is attributed to it.
 
-## Remaining Store GC boundary
+## Store root producer and remaining boundary
 
-No Store-aware root producer or shared-CAS runtime assembly is added. A fully
-declared Store namespace such as `commit-authority` is still uncovered and
-refused. If that namespace and its writers are omitted entirely, this API
-cannot discover the omission from the CAS digest paths.
+`StoreLedgerRoots` is the Store-aware root producer. It owns the
+installation's exclusive CAS fence and one exclusive SQLite write lease for
+its whole life, and enumerates the ledger's roots through that lease's own
+connection (`referenced_objects`). The caller keeps the producer alive across
+`plan`/`reclaim`, so no Store publication can seal an object after the roots
+were read: the fence blocks the shared publication lease a Store write must
+take first, and the SQLite lease blocks the row write itself. A digest the
+ledger still names but the CAS already lost becomes a root and therefore a
+`CAS_ROOT_OBJECT_MISSING` refusal rather than a silent omission.
 
-The existing modification-time check also does not protect an old object that
-is newly referenced after root enumeration: sealing an already present object
-does not change its modification time. A shared-CAS root publication/exclusion
-protocol must cover all participating Store slots and other writers before
-Store reclamation is enabled. The branch writer guards held by the current
-home/COW producer do not establish that general protocol, and the existing
-returned `GcReceipt` is not a durable Store GC task/deletion receipt.
+Live reader pins are now merged into every plan, not supplied by a producer:
+`pinned_objects` is read under the same exclusion, so a bounded reader that
+already resolved bytes keeps them until it drops its pin. Acquiring a pin
+needs the shared CAS lease, so the Store producer's exclusive fence also
+prevents a new pin from appearing after the read; a pin released after the
+read keeps its objects for this run and leaves them unreferenced only for a
+later run.
+
+The producer still needs a runtime assembly. Nothing schedules reclamation, so
+an installation is only collected by an explicit caller that already declared
+the complete producer and namespace sets. If a Store namespace and its writer
+are omitted entirely, this API cannot discover the omission from the CAS
+digest paths. The returned `GcReceipt` is a run report, not a durable Store GC
+task/deletion receipt, and one invocation covers one producer set over one
+database, not every slot of an installation.
+
+The `install_gc_closure` case exercises the new producer on a real
+installation Store: archived question/source/history rows and one first-E1
+receipt are retained, a live reader pin is retained until it ends, and
+unreferenced post-adoption orphans are collected exactly once across repeated
+runs and a reopen. It is not an all-slot, power-loss or scheduler acceptance.
+
+The modification-time check still does not protect an old object that is newly
+referenced after root enumeration: sealing an already present object keeps its
+modification time. The producer's exclusions are what prevents that
+publication from happening during its run; a caller that enumerates without
+them keeps the old hazard.
 
 These limitations, including the first-E1 source/application and delivery-debt
 closures, remain explicit in the [native E1 retention boundary](canonical-native-e1-delivery.md#cas-retention-boundary).
 
-The [Store retained-object inventory](store-retained-objects.md) now supplies a
+The [Store retained-object inventory](store-retained-objects.md) remains a
 bounded read-only audit of one committed database through `check
 --retained-objects`. It is not a registered producer or an all-slot deletion
-permit; the shared-CAS exclusion and runtime assembly obligations above remain.
+permit; the runtime assembly obligations above remain.

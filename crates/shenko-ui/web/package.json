@@ -12,7 +12,8 @@
     "proto": "node build.mjs --prototypes-only",
     "build": "node build.mjs",
     "check": "node build.mjs --prototypes-only && tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:inspector:browser": "node scripts/inspector-browser.mjs"
   },
   "dependencies": {
     "react": "19.3.1",

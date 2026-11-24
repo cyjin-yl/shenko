@@ -13,7 +13,7 @@ use super::codec::{
     UNIT_SCHEMA, UnitDescriptor, UnitExport, UnitPackage, b64_decode, b64_encode,
     external_artifact_of, validate_descriptor,
 };
-use super::installation::{InstalledUnit, StoredVersion, now, set_config_section};
+use super::installation::{InstalledUnit, StoredVersion, bump_unit_selection_revision, now, set_config_section};
 use super::materialization::normalize_root;
 use super::resolution::{
     EdgeStatus, ResolvedDependency, archive_edge, carry_edge, closure_value, edge_matches_spec,
@@ -276,6 +276,7 @@ impl Node {
                     && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id)))
                     && !(already_held && current_names_other);
                 if choose_current {
+                    bump_unit_selection_revision(&tx, &descriptor.unit_id)?;
                     let previous_enabled = current_row.as_ref().map(|row| row.2 != 0).unwrap_or(false);
                     let enabled = if already_held {
                         previous_enabled

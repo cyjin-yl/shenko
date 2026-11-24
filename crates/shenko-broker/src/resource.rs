@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 
 use crate::admission::AdmissionGuard;
 use crate::admission::{AdmissionController, CapacityPool, CapacityProvenance};
+use crate::capability::ProviderCapabilityDeclaration;
 use crate::kv::{
     AllocationPreferenceError, AutomaticAllocationPreferences, KvAllocator, KvPoolState,
     KvPreferenceState,
@@ -63,6 +64,9 @@ pub struct ResourceDomain {
     kv: RwLock<KvPoolState>,
     external: RwLock<Vec<ExternalClientUsage>>,
     debt: RwLock<Vec<UnknownDebt>>,
+    /// What this domain's deployment probe established, per fact. It starts
+    /// undeclared: an engine that was never probed declared nothing.
+    capabilities: RwLock<ProviderCapabilityDeclaration>,
 }
 
 /// Occupancy by a client this product does not control. It is only a hard
@@ -106,7 +110,27 @@ impl ResourceDomain {
             kv: RwLock::new(KvPoolState::new(kv_capacity, kv_provenance)),
             external: RwLock::new(Vec::new()),
             debt: RwLock::new(Vec::new()),
+            capabilities: RwLock::new(ProviderCapabilityDeclaration::UNDECLARED),
         })
+    }
+
+    /// What this domain's deployment probe established about its provider
+    /// binding. A domain that was never probed reports every fact undeclared.
+    pub fn probed_capability_declaration(&self) -> ProviderCapabilityDeclaration {
+        *self.capabilities.read()
+    }
+
+    /// Adopt the declaration one probe established.
+    ///
+    /// The probe replaces the previous declaration because it is the freshest
+    /// statement of the same deployment; a fact the probe never named is
+    /// simply not adopted here, and the installed implementation's own claim
+    /// stays visible through the broker read. Nothing is promoted from silence.
+    pub fn adopt_probed_capability_declaration(
+        &self,
+        declaration: ProviderCapabilityDeclaration,
+    ) {
+        *self.capabilities.write() = declaration;
     }
 
     pub fn identity(&self) -> ResourceDomainIdentity {

@@ -134,6 +134,7 @@ def validate_static(directory, manifest):
 
 def prepare(output):
     output.mkdir(parents=True, exist_ok=False)
+    node_pin = (ROOT / '.node-version').read_bytes()
     manifest = read_json(STATIC / 'build-manifest.json')
     pin = read_json(WEB / 'upstream-pin.json')
     validate_static(STATIC, manifest)
@@ -151,6 +152,10 @@ def prepare(output):
     shutil.copytree(WEB, fresh_web, ignore=shutil.ignore_patterns(*EXCLUDED))
     if files(fresh_web) != source_inputs:
         raise ValueError('The clean frontend source snapshot differs from the admitted input bytes')
+    # Keep the canonical pin with this snapshot, including external --output
+    # locations. The producer reads it before importing third-party code.
+    snapshot_node_pin = fresh_web.parent / '.node-version'
+    snapshot_node_pin.write_bytes(node_pin)
     upstream = output / 'proto-ui'
     upstream.mkdir()
     run(['git', 'init', str(upstream)], ROOT, output, 'upstream-init')
@@ -169,7 +174,7 @@ def prepare(output):
     state = {'pin': pin, 'package_manager': manager, 'public_entries': entries,
              'web_inputs': source_inputs, 'upstream_inputs': checkout_inputs(upstream),
              'committed_static': files(STATIC),
-             'node': (ROOT / '.node-version').read_text().strip()}
+             'node': node_pin.decode().strip(), 'node_pin': record(snapshot_node_pin)}
     write_json(output / 'inputs.json', state)
     if os.environ.get('GITHUB_ENV'):
         with open(os.environ['GITHUB_ENV'], 'a') as environment:
@@ -263,6 +268,9 @@ def check(output):
     rebuilt = output / 'source/src/static'
     if (web / 'node_modules').exists() or (web / 'generated').exists() or rebuilt.exists():
         raise ValueError('A fresh check cannot reuse installed dependencies, generated sources or static outputs')
+    if (record(output / 'source/.node-version') != state['node_pin'] or
+            record(ROOT / '.node-version') != state['node_pin']):
+        raise ValueError('The canonical Node pin changed before independent verification')
     node = subprocess.check_output(['node', '--version'], text=True).strip()
     pnpm = subprocess.check_output(['pnpm', '--version'], text=True).strip()
     if node != 'v' + state['node'] or state['package_manager'] != 'pnpm@' + pnpm:
@@ -312,6 +320,9 @@ def check(output):
     # complete artifact membership and byte checks as every other static file.
     errors.extend(differences(state['web_inputs'], files(web, EXCLUDED), 'rebuilt_web_inputs'))
     errors.extend(differences(state['upstream_inputs'], checkout_inputs(upstream), 'rebuilt_upstream_inputs'))
+    if (record(output / 'source/.node-version') != state['node_pin'] or
+            record(ROOT / '.node-version') != state['node_pin']):
+        errors.append('The canonical Node pin changed during independent verification')
     if files(STATIC) != state['committed_static'] or files(WEB, EXCLUDED) != state['web_inputs']:
         errors.append('The original checkout changed during independent verification')
     write_json(output / 'comparison.json', {

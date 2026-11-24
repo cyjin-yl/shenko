@@ -17,10 +17,27 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
-import { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } from './compiler.mjs';
 
 const webRoot = dirname(fileURLToPath(import.meta.url));
+// Read the same pin as CI before loading build dependencies or changing any
+// generated output. Independent source snapshots carry these original bytes.
+let nodePinRoot = webRoot;
+while (!existsSync(join(nodePinRoot, '.node-version'))) {
+  const parent = dirname(nodePinRoot);
+  if (parent === nodePinRoot) throw new Error('Missing .node-version for the Shenko UI build');
+  nodePinRoot = parent;
+}
+const nodePinPath = join(nodePinRoot, '.node-version');
+const requiredNode = readFileSync(nodePinPath, 'utf8').trim();
+if (!/^\d+\.\d+\.\d+$/.test(requiredNode)) {
+  throw new Error(`Expected an exact Node version in ${nodePinPath}`);
+}
+if (process.version !== `v${requiredNode}`) {
+  throw new Error(`Node v${requiredNode} required by ${nodePinPath}; running ${process.version}`);
+}
+const { build } = await import('esbuild');
+const { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } = await import('./compiler.mjs');
+
 const crateRoot = resolve(webRoot, '..');
 const staticDir = join(crateRoot, 'src', 'static');
 const pin = JSON.parse(readFileSync(join(webRoot, 'upstream-pin.json'), 'utf8'));
@@ -52,6 +69,8 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/input/index.js',
   'packages/prototypes/shadcn/dist/separator/index.js',
   'packages/prototypes/shadcn/dist/toggle/index.js',
+  'packages/prototypes/shadcn/dist/resizable/index.js',
+  'packages/prototypes/shadcn/dist/tree/index.js',
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.
@@ -249,7 +268,7 @@ const manifest = {
   },
   adoption: {
     runtime: 'createReactAdapter({ ...React, createPortal })',
-    why: 'Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.',
+    why: 'The explicitly pinned Proto-UI source provides the React runtime adapter and public family exports consumed by this build; its commit is recorded above, independently of the main branch.',
     style_profile: 'rhea (explicit); no Shadow split profile',
     source_assets: [
       'packages/adapters/react/dist/index.js',
@@ -263,6 +282,8 @@ const manifest = {
       'packages/prototypes/shadcn/dist/input/index.js',
       'packages/prototypes/shadcn/dist/separator/index.js',
       'packages/prototypes/shadcn/dist/toggle/index.js',
+      'packages/prototypes/shadcn/dist/resizable/index.js',
+      'packages/prototypes/shadcn/dist/tree/index.js',
       'packages/cli/bin/proto-ui.js',
       'packages/compiler/package.json',
       'packages/compiler/src/index.ts',

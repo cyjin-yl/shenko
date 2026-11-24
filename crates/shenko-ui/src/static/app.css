@@ -172,8 +172,27 @@ button, [role="button"], [data-pui-root][role="button"], .sk-button, .sk-toggle 
 .topbar-actions [data-pui-style~="shenko-status-chip"] { margin-right: 8px; }
 
 .body { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; position: relative; }
-.shell:not([data-lens="none"]) .body { grid-template-columns: minmax(0, 1fr) clamp(400px, 42vw, 680px); }
 .stream { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; min-width: 0; min-height: 0; }
+
+/* Resizable owns the split. Its normalized extent is the two Panels,
+   excluding the actual fixed separator; no padding or gap enters that sum. */
+.inspector-resize-group { padding: 0; gap: 0; min-width: 0; min-height: 0; }
+.inspector-stream-pane, .inspector-lens-pane {
+  display: grid; min-width: 0; min-height: 0; overflow: hidden;
+}
+.inspector-resize-handle { z-index: 1; }
+.body[data-inspector-state="closed"] .inspector-resize-handle,
+.body[data-inspector-state="closed"] .inspector-lens-pane,
+.body[data-inspector-state="collapsed"] .inspector-lens-pane { display: none; }
+.inspector-lens-pane > .lens { border-left: 0; }
+.lens-head .inspector-close { margin-left: 0; }
+.inspector-restore { position: absolute; inset-block-start: 6px; inset-inline-end: 10px; z-index: 2; }
+.body[data-inspector-layout="overlay"] .inspector-resize-handle,
+.body[data-inspector-layout="overlay"] .inspector-collapse { display: none; }
+.body[data-inspector-layout="overlay"] .inspector-lens-pane {
+  position: absolute; inset: 0; z-index: 20; width: auto;
+}
+.body[data-inspector-layout="overlay"] .inspector-close { margin-left: auto; }
 
 .lens {
   display: grid; grid-template-rows: 44px minmax(0, 1fr); min-width: 0; min-height: 0;
@@ -210,6 +229,11 @@ button, [role="button"], [data-pui-root][role="button"], .sk-button, .sk-toggle 
 [data-pui-style~="shenko-status-chip"] {
   display: inline-flex; align-items: center; gap: 6px; height: 24px;
   font-size: 12px; color: var(--muted); white-space: nowrap;
+}
+/* The compiled host wraps the authored span. The dot and label share this
+   inner row, so its dot receives a real flex-item box instead of inline width. */
+[data-pui-style~="shenko-status-chip"] > span {
+  display: inline-flex; align-items: center; gap: inherit;
 }
 [data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
 [data-pui-style~="shenko-status-online"] [data-pui-style~="shenko-status-dot"] { background: var(--ok); }
@@ -650,8 +674,6 @@ code.row-sub, code.row-title { font-size: 12px; }
 /* ── Narrow screens ────────────────────────────────────────────────────── */
 
 @media (max-width: 1099px) {
-  .shell:not([data-lens="none"]) .body { grid-template-columns: minmax(0, 1fr); }
-  .lens { position: absolute; inset: 0; z-index: 20; border-left: 0; }
   .lens-item { padding: 0 9px; }
 }
 
@@ -660,7 +682,7 @@ code.row-sub, code.row-title { font-size: 12px; }
   .body { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .topbar { grid-template-columns: minmax(0, 1fr) auto; padding: 0 6px 0 14px; }
   .topbar-actions .sk-toggle, .topbar-actions [data-pui-style~="shenko-status-chip"] { display: none; }
-  .lens { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
+  .body[data-inspector-layout="overlay"] .inspector-lens-pane { bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); }
   .timeline-column { padding: 16px 14px 28px; }
   .entries { padding-left: 22px; }
   .entries::before { left: 5px; }
@@ -1103,3 +1125,20 @@ code.row-sub, code.row-title { font-size: 12px; }
   .tab-item svg { display: none; }
   .tab-item { padding: 0 10px; }
 }
+
+
+/* Inspector composition: public Tree owns structure, visibility and focus. */
+.inspector-hierarchy { min-width: 0; }
+.inspector-tree-caret { display: inline-flex; flex: 0 0 14px; align-items: center; justify-content: center; }
+.inspector-tree-item[aria-expanded="true"] > .inspector-tree-caret { transform: rotate(90deg); }
+.inspector-tree-label { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-tree-label > span { overflow: hidden; text-overflow: ellipsis; }
+.inspector-tree-label > svg { flex-shrink: 0; }
+.inspector-tree-meta { display: flex; flex-direction: column; flex: 0 1 42%; align-items: flex-end; min-width: 0; color: var(--muted-foreground); font-size: 11px; }
+.inspector-tree-meta > span, .inspector-tree-meta > time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inspector-tree-meta > time { font-size: 10px; }
+.inspector-tree-invalid { display: none; margin: 8px 0; color: var(--muted-foreground); }
+.inspector-hierarchy:has(> .inspector-tree-root[aria-invalid="true"]) > .inspector-tree-invalid { display: block; }
+.inspector-tree-details { margin-top: 16px; }
+.inspector-tree-details h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+.inspector-tree-details dd { overflow-wrap: anywhere; }

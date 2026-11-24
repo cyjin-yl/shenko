@@ -5,12 +5,13 @@ import type {
   OpenedWork,
   OwnerState,
   PlaygroundView,
+  TaskSummary,
   TimelinePart,
   UiNode,
   UiProjection,
 } from './projection';
 import { ConfigEntries } from './config-panel';
-import { taskStateLabel } from './threads';
+import { TaskHierarchy, ArtifactHierarchy } from './inspector-trees';
 import {
   readContentRevisionDisclosure,
   readRevisionDisclosure,
@@ -18,7 +19,6 @@ import {
   type RevisionDisclosure,
 } from './revision-disclosure';
 import { Icon } from './icons';
-import { isPage } from './slots';
 import {
   Button,
   CollapsibleContent,
@@ -71,10 +71,10 @@ function Group({ title, children, aside }: { title: string; children: React.Reac
   );
 }
 
-export function TasksSurface({ node }: { node?: UiNode }) {
+export function TasksSurface({ node, ownerKey }: { node?: UiNode; ownerKey: string }) {
   if (!node) return null;
   const data = node.props.data;
-  const items = Array.isArray(data?.items) ? data.items : [];
+  const items: TaskSummary[] = Array.isArray(data?.items) ? data.items : [];
   return (
     <Page title={t('config.tasks')} lead={t('config.tasksLead')} hidden={node.props.hidden}>
       {node.props.error
@@ -83,16 +83,7 @@ export function TasksSurface({ node }: { node?: UiNode }) {
           ? <Note text={data?.note || t('config.tasksMissing')} />
           : items.length === 0
             ? <Note text={data?.note || t('config.tasksEmpty')} />
-            : <ul className="rows">{items.map((task: Record<string, unknown>, index: number) => (
-              <li className="row" key={String(task.task_id ?? index)}>
-                <span className="row-main">
-                  <span className="row-title">{String(task.kind ?? '—')}</span>
-                  <code className="row-sub">{String(task.task_id ?? '—')}</code>
-                </span>
-                <span className="row-state" data-state={String(task.state ?? 'unknown')}>{taskStateLabel(task.state)}</span>
-                <time className="row-time">{formatStamp(task.created_at)}</time>
-              </li>
-            ))}</ul>}
+            : <TaskHierarchy key={ownerKey} tasks={items} />}
     </Page>
   );
 }
@@ -231,7 +222,7 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   );
 }
 
-export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenWork?: (artifactId: string) => void }) {
+export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNode; ownerKey: string; onOpenWork?: (artifactId: string) => void }) {
   if (!node) return null;
   const playground: PlaygroundView | undefined = node.props.playground;
   const roots = Array.isArray(playground?.roots) ? playground.roots : [];
@@ -246,23 +237,7 @@ export function PlaygroundSurface({ node, onOpenWork }: { node?: UiNode; onOpenW
           : <>
             <Group title={t('work.title')}>
               {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
-                <ul className="rows">{artifacts.map((artifact) => (
-                  <li className="row" key={String(artifact.artifact_id)}>
-                    <Icon name="file" />
-                    <span className="row-main">
-                      <span className="row-title">{String(artifact.title ?? artifact.artifact_id)}</span>
-                      <span className="row-sub">
-                        r{String(artifact.revision ?? '—')} · {String(artifact.mime ?? '—')} · {artifact.backend ? t('work.backend') : t('work.content')}
-                      </span>
-                    </span>
-                    <span className="row-state">{String(artifact.lifecycle ?? 'draft')}</span>
-                    {isPage(artifact.mime) && onOpenWork
-                      ? <Button variant="outline" size="sm" onClick={() => onOpenWork(String(artifact.artifact_id))}>
-                        <Icon name="open" size={15} />打开
-                      </Button>
-                      : <time className="row-time">{formatStamp(artifact.updated_at)}</time>}
-                  </li>
-                ))}</ul>
+                <ArtifactHierarchy key={ownerKey} artifacts={artifacts} onOpenWork={onOpenWork} />
               )}
             </Group>
             <Group title={t('work.rootTitle')}>

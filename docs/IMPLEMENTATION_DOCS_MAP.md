@@ -172,7 +172,8 @@
   - [§8.2](specs/wasm-tools.md#spec-8-2)
   - docs/specs/wasm-tools.md
   - `ToolArtifactRoots` 从安装清单枚举 ContentStore 工具的 chunk manifest 与分块；重组模块的摘要不是 CAS 对象根。原生消费者验证安装工具在回收后仍可读取、同命名空间无主对象被回收；此证据不代表生产 GC 调度器已接线。
-  - `CasGc::plan` 严格核对 registry、实际 producer 与各次枚举（含 `RecordedRoots`）的命名空间声明；多余、缺失、重复或漂移均拒绝，不限制根的跨命名空间引用。[声明一致性增量](development/cas-root-declarations.md)复用原工具根旅程，当前候选执行待 CI；Store 根生产者、共享 CAS 写入排他和运行时 GC 装配仍未完成。
+  - `CasGc::plan` 严格核对 registry、实际 producer 与各次枚举（含 `RecordedRoots`）的命名空间声明；多余、缺失、重复或漂移均拒绝，不限制根的跨命名空间引用。[声明一致性增量](development/cas-root-declarations.md)复用原工具根旅程，当前候选执行待 CI。
+  - `StoreLedgerRoots`（`crates/shenko-wasm/src/gc.rs`）是 Store 根生产者：它持有该实际安装 CAS 的排他 fence 与同库 SQLite 写租约，在整个 plan 与删除期间经该租约的只读连接枚举 ledger 引用；ledger 仍引用但 CAS 已缺的对象成为根并触发 `CAS_ROOT_OBJECT_MISSING` 拒绝。`CasGc::plan` 同时合并活跃 reader pin（`pinned_objects`），把读者保留作为排除而非 producer 根。原生安装案例（归档问题／来源／历史行 + 首份 E1 收据、live pin、三次回收与重开）已写入但待 CI 执行；运行时 GC 装配、全槽发现与持久 GC 任务／删除回执仍未完成。
   - `Store::retained_object_snapshot` 与 `check --retained-objects` 提供[单库只读保留对象审计](development/store-retained-objects.md)：绑定原 ledger/schema/水位，检查本地控制和 E1 收据、交付债、构建观察及递归 CAS 闭包，容量或缺失显式 incomplete。它不注册完整 GC producer，不证明所有槽或跨写入排他；新增三项保留观察待 CI 执行。
 
 - **REPL（shenko-repl：kernel、journal、state）** — 已接线（`ReplSessionHandler` 与 `ReplCellHandler` 共用会话 owner；会话参加升级交接。具体语言、WASM 兼容性与 R0/R1/R2 恢复证据分别核对）
@@ -243,6 +244,8 @@
   - `crates/shenko-ui/web/src/messages.ts` 的 `MessageId`、`MessageArguments`、`UiMessage`、`message` 与 `resolveMessage` 拥有带参数的中文/英文消息目录。语言变体先经 `resolveLocale`，未知语言及缺译项确定地回到 `zh-CN`；服务器和模型原文继续按原文显示，`live-read-models.ts#HistoryReadError` 保留本地诊断的消息 ID 与参数。
   - `LiveController` 只协调连接和状态；`SocketTransport` 拥有 WS 与重连，`LiveReadModels` 拥有读取和历史页，input/timeline reducer、preferences、pending-input store 各守其状态边界。渲染由 timeline surface/entries、composer、delegation branches、submission history、work frame 直接组成；IM 的内容 `ResizeObserver` 阅读锚点与 Inspect 的选择恢复随其组件保留。
   - `main.tsx` 仅在 `?demo=1` 动态载入 `demo-controller`，后者才引入 `demo-fixtures`。`build.mjs` 通过 esbuild 的实际 outputs 记录分块模块及摘要；Rust 的 `build.rs` 按 manifest 嵌入具名 chunks，HTTP 只服务该生成集合。这里记录源码接线；实际浏览器请求、语言、重连及阅读稳定性仍由各自运行回执说明。
+  - `crates/shenko-ui/web/src/inspector-layout.tsx` 与 `inspector-sizing.ts` 已把可选桌面 Inspector 接到公共 Resizable Root/Panel/Handle：原 1100px 断点、400–680px 检查栏和 638px 主栏下限由 App 尺寸策略公开传入；输入、会话取消与键盘仍由 Proto 公共 owner 处理。窄屏沿用现有覆盖层；关闭恢复可见导航焦点，主栏与编辑器保持同一实例。候选依赖、原失败与浏览器观察见 [Inspector Resizable 证据](evidence/2026-11-23-inspector-resizable/README.md)。
+  - `inspector-trees.tsx` / `inspector-tree-model.ts` 将 Tasks 的显式父任务与 Playground 的 MIME 分类接入两个独立公共 Tree Root；应用仅组织记录及消费公开展开/激活提议，无 raw 输入或第二套焦点机器。无效关系不修复，拥有者按 surface/source/subject 退休；具体边界见 [Inspector Tree 域](specs/web-interface.md#inspector-中的两个-tree-域2026-11-23)。
 
 - **可执行策略配置（`bin/shenko/src/policy_config.rs`）** — 已接线（`shenko.quota/policy` 读回实际配额账本；`shenko.context-policy/compaction_preference` 修改实际策略选择器，重启恢复已保存顺序。未知策略 id 保留在请求顺序并在回执中披露；不把自然语言 `[policy]` 请求当成结构化配置执行，也不表示完整 S2 策略验收已完成）
   - [§43.1](specs/configuration-playground.md#spec-43-1)、[§12.3.1](specs/context-policies.md#spec-12-3-1)、[§42](specs/quota-resources.md#spec-42)

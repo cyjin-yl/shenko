@@ -22,6 +22,28 @@
 运行时注册表因此不是第二个安装数据库，也不是第二个单元库。它是一次进程生命周期内的
 **当前视图**：插件在自己的 `apply` 中注册，在自己的 teardown 中注销。
 
+## ProcessLoad 的安装读取接口
+
+实现入口是 `shenko_types::process_load` 与 `Node::process_load_snapshot()`。
+前者描述不可变 manifest、可移植文件目标和 task / provider / channel 导出；后者在同一
+SQLite 读取事务内捕获启用状态、精确版本、配置、环境锁定边、能力声明与闭包字节。
+对象只能来自实际选中包闭包中的 Node inline 工件，逐件核对摘要和长度；全局对象存在
+不能代替依赖选择，配置不能改写 manifest、授权或宿主程序路径。
+
+`Node::with_revalidated_process_loads()` 先取得现有物理安装许可和 Node 写事务，重新核对
+完整绑定，再调用同步的内存交换闭包。旧安装缺少的选择计数读取为零；导入、启停、采纳时
+启停、环境激活和当前版本卸载，将状态与递增计数放在各自同一事务内，失败一并回滚。
+已有环境选择器保留原修订和闭包摘要公式，不在查询时迁移。
+
+依赖解析只枚举身份与 `provides`，不因无关单元的损坏能力声明阻止导入或修复；每个实际
+选中闭包仍逐件验证声明，损坏项保持 unavailable。这沿用
+[§45.10.2](cognition-units.md#spec-45-10-2) 的“无关能力继续工作”和精确合同绑定。
+历史缺少 `selected_contract` 的边及已锁定环境保持原样；显式 `ResolveVersion` 可以为
+原精确选择登记声明的合同，后续新环境才取得新绑定。
+
+这些接口仅提供结构读取与发布围栏，不创建进程、登记角色、判断健康或授予执行权限。
+运行时准备和旧代退休由调用者在围栏外完成；源码接口不代表这些运行行为已经验收。
+
 ## 活的服务，不是启动快照
 
 `shenko-kernel::runtime::PluginRuntime` 是 Cordis 服务 `shenko.runtime.plugin/v1`，
@@ -120,6 +142,40 @@ fn capabilities(&self) -> Vec<shenko_types::plugin_runtime::NativeCapabilityDecl
 效果、checkpoint 是 guest epoch 级）。其余定义（computer_use、self.knowledge、errors.read、
 issue.submit、playground 等）的声明由各自所有者补全——契约类型、注册路径和
 `EffectContractBuilder` 已就位，缺的不是机制。
+
+## 出网声明与根命名空间的一次准入
+
+插件能做什么由它装机的实现声明，出网同样如此：一个 native 定义在 `capabilities()` 里报告能力，
+在 `egress_declarations()` 里为其中每项能力给出它在安装期间实际会发起的出网范围。声明是数据，
+不携带插件身份：安装路径把草稿绑定到定义自己的 `plugin_id`，并拒绝为它没有报告的能力作出声明，
+所以一个权限不能比它服务的实现活得更久，也不能借用别的插件身份。
+
+一条声明包含目的、协议（`http`/`https`/`tcp`/`udp`）、主机模式（精确主机、按标签边界的子域，
+或"任意主机"——后者只用于本身就是"访问调用方指定端点"的能力）以及端口区间。目的为空、没有范围、
+端口 0、重叠端口或无法规范化的主机模式都在准入声明时被拒绝，不会留下一个看起来更窄却永远匹配
+不到的范围。
+
+根 context 发布 `shenko.runtime.policy/v1`（`PluginPolicyRegistry`），与 hook 图和实时插件
+注册表同生共死。每个出网尝试都经过 `shenko_types::egress::evaluate_egress` 这一个判定函数，
+它只接受规范形式：主机大小写、结尾根点等 DNS 本身忽略的写法被归一，无法规范化的请求直接判为
+`invalid_request`，不做宽松比较。默认拒绝：没有声明的插件不得到达任何地方，没声明的能力不给
+准入，声明之外的目标不给准入；拒绝分别记为 `undeclared_plugin`、`undeclared_capability`、
+`protocol_not_declared`、`host_not_declared`、`port_not_declared`。
+
+`declare` 同时铸造一个 `EgressAuthority`，它绑定插件、能力与注册 epoch，且没有公开构造。准入必须
+携带它：把别的插件身份写进请求会得到 `authority_mismatch`；声明被替换或撤回后旧 authority 变成
+`authority_stale`，因此退役的实现不能继续花用旧范围。这里没有"内置插件例外"或"内部调用"旁路；
+内置定义与第三方定义走同一个 `declare`/`admit` 路径。
+
+每一次尝试都产生回执（`PolicyReceipt`），无论允许还是拒绝：回执记录规范请求、判定、命中的声明
+摘要与协议/主机/端口，以及被判定时的 policy revision；只有允许的判定返回 `EgressAdmission`，该
+类型没有公开构造，所以拿到它就意味着一次真实、在册且仍然有效的准入。注册表保留有限条最近回执并
+计数丢弃，调用方以自己收到的那份为准。
+
+`net.probe` 是第一个按此路径接线的执行：它在安装时声明 `native.net.probe` 对 `http`/`https` 的
+观察范围，每次测量前用冻结的 host/port 申请准入；被拒绝时回执随错误返回，DNS、TCP 与状态行都不
+发生，也不留下已 armed 的 operation。插件本身仍是被信任的进程内代码：这里的保证是"没有在册声明
+就没有准入令牌、声明之外没有准入、每次尝试都有回执"，不是对直接系统调用的沙箱化。
 
 ## 版本化的扩展点
 

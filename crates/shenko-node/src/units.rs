@@ -36,6 +36,7 @@ mod installation;
 mod materialization;
 mod membership;
 mod process;
+mod process_load;
 mod removal;
 mod resolution;
 mod schema;
@@ -81,6 +82,9 @@ pub use membership::{
 pub use process::{
     CommandTrialProvenance, DEFAULT_TRIAL_TIMEOUT_MS, MAX_ARGV, MAX_ARG_BYTES, MAX_OUTPUT_BYTES,
     MAX_TRIAL_TIMEOUT_MS, ProgramProbe, TrialEnvironment, TrialEvidence,
+};
+pub use process_load::{
+    AdmittedProcessLoad, ProcessLoadAdmission, ProcessLoadSnapshot, ProcessUnitIdentity,
 };
 pub use removal::{RemovedVersionFact, UnitActivation};
 pub use resolution::{

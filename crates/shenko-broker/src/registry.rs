@@ -124,6 +124,17 @@ pub trait ProviderRuntime: Send + Sync + 'static {
     fn available(&self) -> bool {
         true
     }
+
+    /// What this installed implementation declares it can do.
+    ///
+    /// The default is every fact undeclared: a provider that never declares
+    /// streaming, a cache surface or a quota surface is described as unknown,
+    /// never as supported. An installed implementation that really serves one
+    /// of these surfaces overrides exactly the facts it owns, and its claim is
+    /// then combined with what this deployment's probe established.
+    fn declaration(&self) -> crate::capability::ProviderCapabilityDeclaration {
+        crate::capability::ProviderCapabilityDeclaration::UNDECLARED
+    }
 }
 
 /// The token count a binding reported.

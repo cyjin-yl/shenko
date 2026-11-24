@@ -18,6 +18,7 @@ import { TimelineSurface } from './timeline-surface';
 import { SemanticDocumentView } from './timeline-entries';
 import { Composer } from './composer';
 import { SubmissionHistory } from './submission-history';
+import { InspectorLayout } from './inspector-layout';
 import { useConversations } from './conversation-data';
 
 export interface ProjectionRenderer {
@@ -236,7 +237,24 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
         </div>
       </header>
 
-      <div className="body">
+      <InspectorLayout
+        openId={openId}
+        title={String(lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? '')}
+        subtitle={open?.kind === 'work' ? t('shell.workLens') : undefined}
+        onClose={() => openLens(undefined)}
+        inspector={open?.kind === 'work'
+          ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
+          : <>
+            <TasksSurface node={nodes.tasks_surface} ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])} />
+            <MemorySurface node={nodes.memory_surface} />
+            <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
+            <PlaygroundSurface
+              node={nodes.playground_surface}
+              ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
+              onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
+            />
+          </>}
+      >
         <main className="stream" id="main" data-tab={tab}>
           {tab === 'files'
             ? <FilesView source={demoData?.files ?? liveFiles} />
@@ -269,31 +287,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               are a quiet status line, not a floating toast. */}
           <div className="statusline" role="status" aria-live="polite">{[resolveMessage(notice.props.text, projection.locale), conversations.error].filter(Boolean).join(' · ')}</div>
         </main>
-        <aside className="lens" hidden={open === null} aria-label={open === null ? undefined : lenses.find((lens) => lens.id === openId)?.title}>
-          <div className="lens-head">
-            <span className="lens-title">{lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? ''}</span>
-            {open?.kind === 'work' && (
-              <span className="lens-sub">{t('shell.workLens')}</span>
-            )}
-            <Button variant="ghost" size="icon" label={t('shell.closeLens')} onClick={() => openLens(undefined)}>
-              <Icon name="close" />
-            </Button>
-          </div>
-          <div className="lens-body">
-            {open?.kind === 'work'
-              ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
-              : <>
-                <TasksSurface node={nodes.tasks_surface} />
-                <MemorySurface node={nodes.memory_surface} />
-                <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
-                <PlaygroundSurface
-                  node={nodes.playground_surface}
-                  onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
-                />
-              </>}
-          </div>
-        </aside>
-      </div>
+      </InspectorLayout>
 
       <nav className="tabbar" aria-label={t('shell.views')}>
         {([

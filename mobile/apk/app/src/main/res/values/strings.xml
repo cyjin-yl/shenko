@@ -7,4 +7,27 @@
     <string name="node_start_failed">Node start could not be requested: %1$s</string>
     <string name="node_open_ui">Open Shenko</string>
     <string name="node_browser_unavailable">No browser is available to open the local UI.</string>
+    <string name="node_install_update">Install APK update</string>
+    <string name="package_install_hint">Choose a same-signer Shenko APK with a higher version. Android asks for installation permission and confirmation. This replaces the app package only; it does not select a runtime, start a replacement node or prove node readiness.</string>
+    <string name="package_install_choose">Choose APK</string>
+    <string name="package_install_permission">Open installation permission</string>
+    <string name="package_install_notifications">Allow installer notifications</string>
+    <string name="package_install_request">Request system installation</string>
+    <string name="package_install_observe">Observe installation state</string>
+    <string name="package_install_cancel">Request cancellation</string>
+    <string name="package_install_confirm">Open system confirmation</string>
+    <string name="package_install_working">Reading the selected package or installer state…</string>
+    <string name="package_install_select_first">Choose an APK before requesting installation.</string>
+    <string name="package_install_no_document_picker">No document picker is available on this device.</string>
+    <string name="package_install_no_notification_settings">Notification settings are unavailable on this device.</string>
+    <string name="package_install_notifications_granted">Installer notifications are allowed.</string>
+    <string name="package_install_notifications_denied">Installer notifications are not allowed; the system confirmation may only be reachable from this screen.</string>
+    <string name="package_install_selected">Selected %1$s version %2$s (SHA-256 %3$s…). Installation is not started yet.</string>
+    <string name="package_install_observation">Installer: %1$s, session %2$s, terminal confirmed %3$s. This does not confirm node activation.</string>
+    <string name="package_install_confirmation_ready">A system confirmation is available: use “Open system confirmation”.</string>
+    <string name="package_install_no_confirmation">No system confirmation is available in this process. Use the installer notification, or request installation again.</string>
+    <string name="package_install_failed">Installation request unresolved or refused: %1$s</string>
+    <string name="package_install_channel">Shenko update</string>
+    <string name="package_install_confirm_title">Confirm the Shenko update</string>
+    <string name="package_install_confirm_text">Tap to open the system installer. Shenko never confirms for you.</string>
 </resources>

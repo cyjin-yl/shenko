@@ -670,6 +670,15 @@ pub struct CognitionUnit {
     pub origin_node: Option<String>,
 }
 
+impl CognitionUnit {
+    /// Whether this installed unit is a metapackage — a group of units
+    /// installed together (docs/specs/cognition-units.md#spec-51-3) — rather
+    /// than one cognitive content unit.
+    pub fn is_metapackage(&self) -> bool {
+        self.kind == UnitKind::Metapackage
+    }
+}
+
 /// The short index entry of one installed cognition unit.
 ///
 /// A card states installation facts only. The call that fetches the body is a

@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cyjin-yl/shenko/blob/main/docs/development/request-path-timing-report.schema.json",
+  "title": "Shenko request-path timing report (schema 2)",
+  "description": "Structure of the JSON written by scripts/summarize_request_timing.py. A null paired with a *_unknown string is an explicit unknown: it is never zero, never estimated, and never names a cause. The schema admits shapes only; it does not assert that the observed work succeeded or that any duration is acceptable.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "logs", "scope_count", "complete_count", "incomplete_count",
+               "runs_without_observations", "invalid_events", "observed_dropped_events",
+               "runs", "phases", "scopes", "limits", "interpretation"],
+  "properties": {
+    "schema": {"const": 2},
+    "logs": {"type": "array", "items": {"$ref": "#/$defs/log"}},
+    "scope_count": {"type": "integer", "minimum": 0},
+    "complete_count": {"type": "integer", "minimum": 0},
+    "incomplete_count": {"type": "integer", "minimum": 0},
+    "runs_without_observations": {
+      "description": "Run indexes whose log contained no timing record. A nonempty list makes the summarizer exit nonzero.",
+      "type": "array", "items": {"type": "integer", "minimum": 0}
+    },
+    "invalid_events": {"type": "array", "items": {"$ref": "#/$defs/invalid_event"}},
+    "observed_dropped_events": {"type": "array", "items": {"$ref": "#/$defs/dropped_event"}},
+    "runs": {"type": "array", "items": {"$ref": "#/$defs/run"}},
+    "phases": {
+      "description": "Earlier pooled view across every input log, kept for readers of schema 1 reports. It mixes runs and must not be used for run-to-run comparison; read runs[].processes[].phases instead.",
+      "type": "array", "items": {"$ref": "#/$defs/phase"}
+    },
+    "scopes": {"type": "array", "items": {"$ref": "#/$defs/scope"}},
+    "limits": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "interpretation": {"type": "string", "minLength": 1}
+  },
+  "$defs": {
+    "log": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "path", "bytes", "sha256"],
+      "properties": {
+        "run": {"type": "integer", "minimum": 0},
+        "path": {"type": "string"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "count", "inclusive_total_us", "p50_us", "p95_us", "max_us",
+                   "self_sample_count", "self_total_us"],
+      "properties": {
+        "phase": {"type": "string", "minLength": 1},
+        "count": {"type": "integer", "minimum": 1},
+        "inclusive_total_us": {"type": "integer", "minimum": 0},
+        "p50_us": {"type": "integer", "minimum": 0},
+        "p95_us": {"type": "integer", "minimum": 0},
+        "max_us": {"type": "integer", "minimum": 0},
+        "self_sample_count": {"type": "integer", "minimum": 0},
+        "self_total_us": {
+          "description": "Null unless every sample of this phase in this process has a known self time.",
+          "type": ["integer", "null"], "minimum": 0
+        }
+      }
+    },
+    "process": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pid", "scope_count", "complete_count", "incomplete_count",
+                   "observed_dropped_before_max", "root_scope_count", "observed_root_total_us",
+                   "observed_root_total_unknown", "unmeasured_within_roots_us",
+                   "unmeasured_within_roots_unknown", "phases"],
+      "properties": {
+        "pid": {"type": "integer", "minimum": 0},
+        "scope_count": {"type": "integer", "minimum": 0},
+        "complete_count": {"type": "integer", "minimum": 0},
+        "incomplete_count": {"type": "integer", "minimum": 0},
+        "observed_dropped_before_max": {"type": "integer", "minimum": 0},
+        "root_scope_count": {"type": "integer", "minimum": 0},
+        "observed_root_total_us": {
+          "description": "Sum of this process's root-scope inclusive durations, or null while any root is incomplete or queue loss was observed.",
+          "type": ["integer", "null"], "minimum": 0
+        },
+        "observed_root_total_unknown": {"type": ["string", "null"], "minLength": 1},
+        "unmeasured_within_roots_us": {
+          "description": "Sum of the root scopes' self time: observed top-level time that no observed child accounts for. Contains uninstrumented work and instrumentation overhead and is not evidence for a cause.",
+          "type": ["integer", "null"], "minimum": 0
+        },
+        "unmeasured_within_roots_unknown": {"type": ["string", "null"], "minLength": 1},
+        "phases": {"type": "array", "items": {"$ref": "#/$defs/phase"}}
+      }
+    },
+    "unaccounted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measurement_window_us", "measurement_window_unknown", "unaccounted_us",
+                   "unaccounted_unknown"],
+      "properties": {
+        "measurement_window_us": {
+          "description": "Always null. No timing event records process start or stop.",
+          "type": "null"
+        },
+        "measurement_window_unknown": {"type": "string", "minLength": 1},
+        "unaccounted_us": {
+          "description": "Always null. Time outside observed scopes cannot be derived from an unknown window.",
+          "type": "null"
+        },
+        "unaccounted_unknown": {"type": "string", "minLength": 1}
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "path", "bytes", "sha256", "scope_count", "complete_count",
+                   "incomplete_count", "processes", "observed_root_total_us",
+                   "observed_root_total_unknown", "unaccounted"],
+      "properties": {
+        "run": {"type": "integer", "minimum": 0},
+        "path": {"type": "string"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "scope_count": {"type": "integer", "minimum": 0},
+        "complete_count": {"type": "integer", "minimum": 0},
+        "incomplete_count": {"type": "integer", "minimum": 0},
+        "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}},
+        "observed_root_total_us": {
+          "description": "Sum of the observed root totals of this run's processes, or null while any process total is unknown.",
+          "type": ["integer", "null"], "minimum": 0
+        },
+        "observed_root_total_unknown": {"type": ["string", "null"], "minLength": 1},
+        "unaccounted": {"$ref": "#/$defs/unaccounted"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run", "source", "pid", "scope_id", "phase", "parent_id",
+                   "started_unix_us", "binding", "status"],
+      "properties": {
+        "run": {"type": "integer", "minimum": 0},
+        "source": {"type": "integer", "minimum": 0},
+        "pid": {"type": "integer", "minimum": 0},
+        "scope_id": {"type": "integer", "minimum": 0},
+        "phase": {"type": "string", "minLength": 1},
+        "parent_id": {"type": ["integer", "null"], "minimum": 0},
+        "started_unix_us": {"type": "integer", "minimum": 0},
+        "binding": {"type": "object"},
+        "status": {"enum": ["complete", "incomplete", "invalid", "missing_begin"]},
+        "inclusive_us": {"type": "integer", "minimum": 0},
+        "observed_drops_during_scope": {"type": "integer", "minimum": 0},
+        "self_us": {
+          "description": "Absent when the scope is not a complete pair. Null when self time is unknown.",
+          "type": ["integer", "null"], "minimum": 0
+        }
+      }
+    },
+    "invalid_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "reason"],
+      "properties": {
+        "source": {"type": "integer", "minimum": 0},
+        "line": {"type": "integer", "minimum": 1},
+        "pid": {"type": "integer", "minimum": 0},
+        "scope_id": {"type": "integer", "minimum": 0},
+        "parent_id": {"type": "integer", "minimum": 0},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "dropped_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "pid", "cumulative_count"],
+      "properties": {
+        "source": {"type": "integer", "minimum": 0},
+        "pid": {"type": "integer", "minimum": 0},
+        "cumulative_count": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

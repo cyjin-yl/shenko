@@ -79,7 +79,13 @@ pub const MAX_SCENARIOS: usize = 8;
 mod tests;
 mod judge_receipt;
 mod preparation;
+mod rounds;
 pub use judge_receipt::{JudgeReceiptIdentity, SandboxJudgeContext};
+pub use rounds::{
+    CandidateBinding, RoundInputs, RoundKind, RoundObservation, RoundObservationStatus,
+    SandboxArtifact, SandboxRoundRecord, SandboxRoundReport, SandboxRoundSpec,
+    run_sandbox_rounds,
+};
 use judge_receipt::JudgeReceiptSink;
 use preparation::{PreparedTrial, prepare_condition, prepare_trial};
 
@@ -355,10 +361,35 @@ fn judge_verdict(text: &str) -> Result<JudgeVerdict> {
 
 fn seal_trial_object<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
     Ok(store.cas.seal_object(&serde_json::to_vec(value)?, "application/json",
-        "native-cognition", schema, 1).map_err(|error| {
+        "native-cognition", schema, 1).inspect_err(|_| {
             store.close_external_writer();
-            error
         })?.object)
+}
+
+/// The claim one judge call reads: the rubric, the user message and the
+/// committed output under judgement.
+pub(crate) struct JudgeClaim<'a> {
+    rubric: &'a str,
+    message: &'a str,
+    output: &'a ParsedOutput,
+}
+
+/// The committed step and the decision that sealed it.
+pub(crate) struct CommittedStep<'a> {
+    step: &'a SubjectStep,
+    decision: StepDecision,
+}
+
+/// Which condition and repetition one sample observes.
+pub(crate) struct SampleCase {
+    condition: Condition,
+    trial: usize,
+}
+
+/// The outer budget one sample observes within.
+pub(crate) struct SampleWindow {
+    stop: tokio::time::Instant,
+    window: Duration,
 }
 
 /// Judge one committed output against a rubric clause.
@@ -369,13 +400,12 @@ fn seal_trial_object<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &s
 async fn judge(
     store: Arc<Store>,
     broker: &BrokerHandle,
-    rubric: &str,
-    message: &str,
-    output: &ParsedOutput,
+    claim: JudgeClaim<'_>,
     context: &SandboxJudgeContext<'_>,
     receipt: &mut Option<JudgeReceiptIdentity>,
     stop: tokio::time::Instant,
 ) -> Result<JudgeVerdict> {
+    let JudgeClaim { rubric, message, output } = claim;
     let rendered = serde_json::json!({
         "reply_text": output.text,
         "controls": output.controls.iter().map(|control| &control.action).collect::<Vec<_>>(),
@@ -569,7 +599,9 @@ impl PreparedSandbox {
 #[derive(Serialize)]
 pub struct CommittedTrialOutput {
     pub installation: PathBuf,
-    pub message_event_id: EntityId,
+    /// The exact injected event this continuation consumed. `None` for an
+    /// idle round, which by definition has no external event.
+    pub message_event_id: Option<EntityId>,
     pub message_step_id: EntityId,
     pub step_id: EntityId,
     pub input_plan_ref: ObjectRef,
@@ -673,23 +705,29 @@ pub trait SandboxRuntime: Sync {
 struct CognitionTrialRuntime;
 
 impl SandboxRuntime for CognitionTrialRuntime {
-    fn install(
+    async fn install(
         &self,
         supervisor: &Supervisor,
         sandbox: &PreparedSandbox,
         catalog: &Arc<CognitionCatalog>,
-    ) -> impl std::future::Future<Output = Result<()>> + Send {
-        async move {
-            let reader: Arc<dyn NativeTaskHandler> = Arc::new(crate::CognitionReadHandler::new(
-                Arc::clone(sandbox.store()), Arc::clone(catalog)));
-            supervisor.spawn(NativeTaskHandlerPlugin, reader).await?;
-            Ok(())
-        }
+    ) -> Result<()> {
+        let reader: Arc<dyn NativeTaskHandler> = Arc::new(crate::CognitionReadHandler::new(
+            Arc::clone(sandbox.store()), Arc::clone(catalog)));
+        supervisor.spawn(NativeTaskHandlerPlugin, reader).await?;
+        Ok(())
     }
 }
 
+/// What begins one observed round. A message round waits for that exact
+/// durable event; an idle round observes the next committed continuation the
+/// subject produces without one.
+enum TrialObserverInput {
+    Message(InboxEvent),
+    Idle,
+}
+
 struct TrialObserver {
-    message: InboxEvent,
+    input: TrialObserverInput,
     message_step_id: Option<EntityId>,
     pending: BTreeMap<EntityId, (EntityId, NativeTaskDefinition)>,
     consumed_results: Vec<TaskResult>,
@@ -698,8 +736,14 @@ struct TrialObserver {
 
 impl TrialObserver {
     fn deadline_error(&self) -> anyhow::Error {
-        anyhow!("sandbox deadline: message {} consumed at {:?}; unresolved delegated tasks: {:?}",
-            self.message.event_id, self.message_step_id, self.pending.keys().collect::<Vec<_>>())
+        match &self.input {
+            TrialObserverInput::Message(message) => anyhow!(
+                "sandbox deadline: message {} consumed at {:?}; unresolved delegated tasks: {:?}",
+                message.event_id, self.message_step_id, self.pending.keys().collect::<Vec<_>>()),
+            TrialObserverInput::Idle => anyhow!(
+                "sandbox deadline: idle round started at {:?}; unresolved delegated tasks: {:?}",
+                self.message_step_id, self.pending.keys().collect::<Vec<_>>()),
+        }
     }
 
     fn observe<R: SandboxRuntime>(
@@ -708,10 +752,10 @@ impl TrialObserver {
         catalog: &CognitionCatalog,
         agent: EntityId,
         installation: &Path,
-        step: &SubjectStep,
-        decision: StepDecision,
+        committed: CommittedStep<'_>,
         runtime: &R,
     ) -> Result<Option<CommittedTrialOutput>> {
+        let CommittedStep { step, decision } = committed;
         let commit = step.commit_ref.context("sandbox committed step has no commit")?;
         ensure!(decision.step_id == step.step_id
             && step.input_plan_ref.as_ref() == Some(&decision.input_plan_ref),
@@ -728,9 +772,23 @@ impl TrialObserver {
                 disposition.event_id == event_id && disposition.disposition != Disposition::Deferred)
                 && store.event_disposition_commit(agent, event_id)? == Some(commit))
         };
-        if self.message_step_id.is_none() && input.events.iter().any(|event| event == &self.message)
-            && consumed(self.message.event_id)? {
-            self.message_step_id = Some(step.step_id);
+        match &self.input {
+            TrialObserverInput::Message(message) => {
+                if self.message_step_id.is_none()
+                    && input.events.iter().any(|event| event == message)
+                    && consumed(message.event_id)? {
+                    self.message_step_id = Some(step.step_id);
+                }
+            }
+            // An idle round has no event to consume. The first committed
+            // decision after the previous round is this round's start; a
+            // decision that delegates work is not complete until the same
+            // pending bookkeeping below has consumed those results.
+            TrialObserverInput::Idle => {
+                if self.message_step_id.is_none() {
+                    self.message_step_id = Some(step.step_id);
+                }
+            }
         }
         let Some(message_step_id) = self.message_step_id else { return Ok(None) };
         for event in &input.events {
@@ -834,7 +892,11 @@ impl TrialObserver {
             return Ok(None);
         }
         Ok(Some(CommittedTrialOutput {
-            installation: installation.to_owned(), message_event_id: self.message.event_id,
+            installation: installation.to_owned(),
+            message_event_id: match &self.input {
+                TrialObserverInput::Message(message) => Some(message.event_id),
+                TrialObserverInput::Idle => None,
+            },
             message_step_id, step_id: step.step_id, input_plan_ref: decision.input_plan_ref,
             consumed_results: std::mem::take(&mut self.consumed_results),
             consumed_observations: std::mem::take(&mut self.consumed_observations), output: decision.output,
@@ -911,7 +973,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
     let mut identity_publication = None;
     let mut policy_publication = None;
     let mut observer = TrialObserver {
-        message: InboxEvent {
+        input: TrialObserverInput::Message(InboxEvent {
             event_id: EntityId::new(),
             kind: InboxEventKind::Message,
             payload: serde_json::json!({
@@ -923,7 +985,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
             }),
             created_at: chrono::Utc::now(),
             source: "napcat".into(),
-        },
+        }),
         message_step_id: None, pending: BTreeMap::new(), consumed_results: Vec::new(),
         consumed_observations: Vec::new(),
     };
@@ -935,10 +997,10 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
         let (head, _) = store.load_subject(agent)?;
         policy_publication = Some(ctx
             .provide(Arc::new(PolicyRegistry::with_ledger(WindowLedger::new(Arc::new(
-                StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
+                StoreWindowLog::new(Arc::clone(store), EntityId(head.branch_id.0)),
             )))))
             .map_err(|error| anyhow!("context policy: {error}"))?);
-        supervisor.spawn(NativeChildPlugin, (Arc::clone(&store), generation)).await?;
+        supervisor.spawn(NativeChildPlugin, (Arc::clone(store), generation)).await?;
         runtime.install(&supervisor, &prepared, &catalog).await?;
         let native = ctx.try_service::<NativeChildService>()
             .map_err(|error| anyhow!("native child service: {error}"))?;
@@ -946,22 +1008,29 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
         let channel_config = NapCatConfig { bot_qq: 10000, ..Default::default() };
         let (channel_client, _events, _actions) = NapCatClient::open_persistent(
             channel_config.clone(), dir.join("napcat-ingress.db"))?;
-        let state = SubjectLoopState::new(agent, Arc::clone(&inbox), Arc::clone(&store),
+        let state = SubjectLoopState::new(agent, Arc::clone(&inbox), Arc::clone(store),
             ctx.clone(), qq_registry(channel_config, Arc::new(channel_client)))?
             .with_broker(broker.clone()).with_hooks(Arc::clone(&supervisor.hooks))
             .with_awareness(Arc::clone(&catalog))
             .with_native_capabilities(native.installed_prompt_sections());
         let state = runtime.prepare_subject(&supervisor, &prepared, state).await?;
-        inbox.sender().send(observer.message.clone()).await
+        let message = match &observer.input {
+            TrialObserverInput::Message(message) => message.clone(),
+            TrialObserverInput::Idle => {
+                unreachable!("the single-message sandbox always observes a message")
+            }
+        };
+        inbox.sender().send(message).await
             .map_err(|_| anyhow!("the sandbox inbox closed"))?;
         subject_task = Some(tokio::spawn(run_subject_loop(state, subject_stopping.clone())));
-        dispatcher_task = Some(tokio::spawn(run_committed_dispatcher(Arc::clone(&store),
+        dispatcher_task = Some(tokio::spawn(run_committed_dispatcher(Arc::clone(store),
             Arc::clone(&native), agent, Some(inbox.sender()), subject_stopping.clone(), dispatcher_cancel.clone())));
         let mut cursor = (0, None);
         loop {
             for (seq, step, decision) in store.committed_decisions_after(agent, cursor.0, cursor.1, 64)? {
                 cursor = (seq, Some(step.step_id));
-                if let Some(output) = observer.observe(store, &catalog, agent, dir, &step, decision, runtime)? {
+                if let Some(output) = observer.observe(store, &catalog, agent, dir,
+                    CommittedStep { step: &step, decision }, runtime)? {
                     let facts_ref = runtime.capture(&prepared, &step, &output).await?;
                     return Ok(SandboxExecution { committed: output, facts_ref });
                 }
@@ -1167,7 +1236,8 @@ async fn run_prepared_trial(
         for trial in 0..trials {
             for condition in condition_order(scenario_index, trial) {
                 scenario_samples.push(run_trial_sample(&store, &broker, &prepared,
-                    &sandbox_root, scenario, condition, trial, stop, window).await);
+                    &sandbox_root, scenario, SampleCase { condition, trial },
+                    SampleWindow { stop, window }).await);
             }
         }
         let candidate_totals = totals_of(&scenario_samples, Condition::Candidate);
@@ -1226,11 +1296,11 @@ async fn run_trial_sample(
     prepared: &PreparedTrial,
     sandbox_root: &Path,
     scenario: &TrialScenario,
-    condition: Condition,
-    trial: usize,
-    stop: tokio::time::Instant,
-    window: Duration,
+    case: SampleCase,
+    budget: SampleWindow,
 ) -> TrialSample {
+    let SampleCase { condition, trial } = case;
+    let SampleWindow { stop, window } = budget;
     // The attempt's window is the smaller of its even share and what the
     // outer trial budget still has left, so the sample states the window it
     // was actually held to.
@@ -1276,8 +1346,11 @@ async fn run_trial_sample(
             sample_digest: sample.receipt_digest.as_deref().context("sample receipt is absent")?,
             scenario: &scenario.name, condition, trial,
         };
-        judge(Arc::clone(store), broker, &scenario.rubric, &scenario.message,
-            &observation.output, &context, &mut sample.judge_receipt, sample_stop).await
+        judge(Arc::clone(store), broker, JudgeClaim {
+            rubric: &scenario.rubric,
+            message: &scenario.message,
+            output: &observation.output,
+        }, &context, &mut sample.judge_receipt, sample_stop).await
     }.await;
     match measured {
         Ok(JudgeVerdict::Effective(text)) => { sample.verdict = "effective".into(); sample.judge_text = text; }
@@ -1313,7 +1386,7 @@ impl CognitionTrialHandler {
     fn plugin_id() -> EntityId {
         "8b41f0d6-2c95-4a37-9e64-70d5a1c8b3f2"
             .parse()
-            .expect("fixed cognition-trial plugin UUID")
+            .unwrap_or_else(|error| panic!("fixed cognition-trial plugin UUID: {error}"))
     }
 
     fn seal_bytes(&self, bytes: &[u8], schema: &str) -> Result<ObjectRef> {

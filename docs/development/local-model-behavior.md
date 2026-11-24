@@ -50,6 +50,34 @@ cargo test -p shenko-subject --test local_model_behavior -- --nocapture
 - 当前在用的模型 ID 从引擎真实响应读取（`GET /v1/models`），不要从历史记录推断：
   `/tank/hot/models/...` 里的目录名不是服务名。
 
+## 多轮真实模型沙箱 / Repeated real-model turns
+
+单次 provider 调用的采样不能证明多轮上下文、持久步骤和输出解析在同一次安装里
+都成立。`cargo test -p shenko-exec-host --test real_model_rounds` 用同一套真实
+Store、subject 循环、dispatcher、provider wire 和 parser 顺序执行 N 个固定回合：
+消息回合注入到同一个 inbox，空闲回合观察主体下一次自主提交；中间不重建安装、
+不复制提示词、不替换 provider。
+
+```sh
+SHENKO_USE_LOCAL_MODEL=1 \
+SHENKO_LOCAL_MODEL_URL=http://127.0.0.1:8000 \
+SHENKO_LOCAL_MODEL=swift-qwen3.8-27b-nvfp4 \
+SHENKO_SOURCE_REVISION=$(git rev-parse HEAD) \
+SHENKO_REAL_MODEL_ROUNDS=4 SHENKO_REAL_MODEL_TIMEOUT_SECS=1020 \
+cargo test -p shenko-exec-host --test real_model_rounds -- --nocapture
+```
+
+固定观测只看可核对的产品事实：回合是否真正启动、是否提交决定、声明的消息是否
+被该轮提交消费、sealed input 和 model result 是否按摘要可读、parser 结果是否
+绑定同一 step、step 编号是否前进，以及候选的源码、可执行文件、提示词组件和
+模型身份是否在运行前已经绑定。没有关键词评分，也不把未启动或失败回合算作通过。
+
+每次运行在 `SHENKO_SANDBOX_ROOT`（默认 `build/real-model-rounds`）下保留独立的
+Store/CAS，并写入 `plan.json`、每回合的 sealed input、原始模型输出、提交决定、
+`report.json` 与 `ARTIFACTS.blake3`。原始输出是给后续 rubric 判断的材料；通过
+本 harness 只证明这些固定回合在真实链路上的协议、持久性和解析事实，不证明
+记忆正确性、V1-12/V1-14 完整验收、27B 质量或长期运行。
+
 ## What a run proves, and what it does not / 边界
 
 证明：

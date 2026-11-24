@@ -190,59 +190,50 @@ pub(super) fn archive_edge(tx: &rusqlite::Transaction<'_>, unit_id: &str, revisi
 /// One installed unit version a dependency declaration can resolve against.
 ///
 /// A candidate carries what resolution actually decides on: the identity, the
-/// declared `provides` entries (topic names and typed capability contracts) and
-/// the atomic capabilities the version uses. `enabled` is a local fact of this
-/// node and never travels with a package.
+/// declared `provides` entries (topic names and typed capability contracts).
+/// Resource declarations belong to admission of the selected closure; eagerly
+/// decoding every installed unit here would let an unrelated malformed Code
+/// declaration prevent its own correction or any other package import.
 #[derive(Clone, Debug)]
 pub(super) struct Candidate {
     pub(super) unit_id: String,
     pub(super) revision: String,
     pub(super) digest: Digest,
     pub(super) provides: Vec<String>,
-    pub(super) enabled: bool,
-    pub(super) atoms: Vec<AtomicCapability>,
 }
 
 impl Candidate {
-    fn of(descriptor: &UnitDescriptor, enabled: bool) -> Result<Self> {
-        Ok(Self {
+    fn of(descriptor: &UnitDescriptor) -> Self {
+        Self {
             unit_id: descriptor.unit_id.clone(),
             revision: descriptor.revision.clone(),
             digest: descriptor.artifact_digest.clone(),
             provides: descriptor.provides.clone(),
-            enabled,
-            atoms: descriptor
-                .package_declaration()?
-                .capabilities()
-                .map(|capabilities| capabilities.normalized().atoms)
-                .unwrap_or_default(),
-        })
+        }
     }
 }
 
 /// Current versions come first; retained non-current versions remain valid
 /// exact-digest candidates. This runs inside the import/resolution transaction.
 pub(super) fn resolution_candidates(conn: &rusqlite::Connection) -> Result<Vec<Candidate>> {
-    let current: Vec<(String, String, String, Option<String>, i64)> = conn.prepare(
-        "SELECT c.unit_id,c.revision,c.artifact_digest,v.data,c.enabled FROM unit_current AS c \
+    let current: Vec<(String, String, String, Option<String>)> = conn.prepare(
+        "SELECT c.unit_id,c.revision,c.artifact_digest,v.data FROM unit_current AS c \
          LEFT JOIN unit_versions AS v ON v.unit_id=c.unit_id AND v.revision=c.revision AND v.artifact_digest=c.artifact_digest \
          ORDER BY c.unit_id"
-    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    let retained: Vec<(String, String, String, Option<String>, i64)> = conn.prepare(
-        "SELECT v.unit_id,v.revision,v.artifact_digest,v.data,COALESCE(c.enabled,0) FROM unit_versions AS v \
-         LEFT JOIN unit_current AS c ON c.unit_id=v.unit_id AND c.revision=v.revision AND c.artifact_digest=v.artifact_digest \
-         ORDER BY v.unit_id,v.revision,v.artifact_digest"
-    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+    let retained: Vec<(String, String, String, Option<String>)> = conn.prepare(
+        "SELECT unit_id,revision,artifact_digest,data FROM unit_versions ORDER BY unit_id,revision,artifact_digest"
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut available: Vec<Candidate> = Vec::new();
-    for (unit_id, revision, digest, data, enabled) in current.into_iter().chain(retained) {
+    for (unit_id, revision, digest, data) in current.into_iter().chain(retained) {
         let stored: StoredVersion = serde_json::from_str(&data.context("current unit version is not retained")?)?;
         ensure!(stored.unit.unit_id == unit_id && stored.unit.revision == revision && stored.unit.artifact_digest.0 == digest,
             "stored unit version identity does not match its key");
         if !available.iter().any(|candidate| candidate.unit_id == unit_id
             && candidate.revision == revision && candidate.digest == stored.unit.artifact_digest) {
-            available.push(Candidate::of(&stored.unit, enabled != 0)?);
+            available.push(Candidate::of(&stored.unit));
         }
     }
     Ok(available)
@@ -257,11 +248,16 @@ pub(super) fn carry_edge(
     available: &[(String, String, Digest, Vec<String>)],
 ) -> Result<ResolvedDependency> {
     ensure!(edge_matches_spec(edge, spec), "dependency selection does not match its declaration");
+    let contract = dependency_contract(spec)?;
+    ensure!(edge.selected_contract.as_ref().is_none_or(|selected| Some(selected) == contract.as_ref()),
+        "pinned dependency contract does not match its declaration");
     let selected = match (&edge.selected_unit_id, &edge.selected_revision, &edge.selected_artifact_digest) {
         (None, None, None) => None,
         (Some(id), Some(revision), Some(digest)) => Some((id, revision, digest)),
         _ => bail!("dependency selection has an incomplete pinned reference"),
     };
+    ensure!(selected.is_some() || edge.selected_contract.is_none(),
+        "unselected dependency cannot carry a selected contract");
     if selected.is_none() {
         ensure!(edge.status != EdgeStatus::Satisfied, "satisfied dependency has no selected reference");
         ensure!(edge.status != EdgeStatus::Omitted || spec.strength == DependencyStrength::Recommended,
@@ -295,12 +291,30 @@ pub(super) fn carry_edge(
     Ok(result)
 }
 
+/// The contract explicitly requested by this declaration, never inferred from
+/// whichever other services a selected package happens to provide. Opaque
+/// content capabilities/topics retain their existing non-contract meaning.
+fn dependency_contract(spec: &DependencySpec) -> Result<Option<CapabilityContract>> {
+    match &spec.selector {
+        DependencySelector::Exact { contract_requirement, .. } => Ok(contract_requirement.clone()),
+        DependencySelector::Abstract { capability_ref: Some(reference), .. }
+            if CapabilityContract::is_contract_ref(reference) => CapabilityContract::parse(reference).map(Some),
+        _ => Ok(None),
+    }
+}
+
+fn provides_contract(provides: &[String], contract: &CapabilityContract) -> bool {
+    provides.iter().any(|reference| CapabilityContract::parse(reference)
+        .is_ok_and(|provided| contract.matches(&provided)))
+}
+
 pub(super) fn selection_matches(spec: &DependencySpec, unit_id: &str, revision: &str, digest: &Digest, provides: &[String]) -> bool {
     match &spec.selector {
-        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest, contract_requirement: _ } => {
+        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest, contract_requirement } => {
             unit_id == expected
                 && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
                 && artifact_digest.as_ref().is_none_or(|expected| expected == digest)
+                && contract_requirement.as_ref().is_none_or(|contract| provides_contract(provides, contract))
         }
         DependencySelector::Abstract { capability_ref, topic_ref } => {
             capability_ref.as_ref().is_none_or(|reference| provides.contains(reference))
@@ -326,6 +340,14 @@ pub(super) fn resolve_edge(
         coexisting_providers: Vec::new(),
         used_capabilities: Vec::new(),
         reason: String::new(),
+    };
+    let contract = match dependency_contract(spec) {
+        Ok(contract) => contract,
+        Err(error) => {
+            resolved.reason = format!("invalid requested capability contract: {error:#}");
+            if spec.strength == DependencyStrength::Recommended { resolved.status = EdgeStatus::Omitted; }
+            return resolved;
+        }
     };
     match &spec.selector {
         DependencySelector::Exact { unit_id, revision_requirement, artifact_digest, contract_requirement: _ } => {
@@ -358,10 +380,15 @@ pub(super) fn resolve_edge(
                         continue;
                     }
                 }
+                if contract.as_ref().is_some_and(|contract| !provides_contract(&candidate.3, contract)) {
+                    mismatch = Some("selected unit does not provide the required capability contract".into());
+                    continue;
+                }
                 resolved.status = EdgeStatus::Satisfied;
                 resolved.selected_unit_id = Some(candidate.0.clone());
                 resolved.selected_revision = Some(candidate.1.clone());
                 resolved.selected_artifact_digest = Some(candidate.2.clone());
+                resolved.selected_contract = contract;
                 resolved.reason =
                     format!("resolved to unit {} revision {}", candidate.0, candidate.1);
                 return resolved;
@@ -387,6 +414,7 @@ pub(super) fn resolve_edge(
                     resolved.selected_unit_id = Some(candidate.0.clone());
                     resolved.selected_revision = Some(candidate.1.clone());
                     resolved.selected_artifact_digest = Some(candidate.2.clone());
+                    resolved.selected_contract = contract;
                     resolved.reason = format!(
                         "unit {} declares providing the requested capability or topic",
                         candidate.0
@@ -556,10 +584,18 @@ impl Node {
             let old = old.filter(|edge| edge_matches_spec(edge, spec)).unwrap_or_else(|| {
                 legacy_ambiguous(spec, "no matching digest-bound edge is retained; make a new resolution for this version")
             });
-            let updated = if old.status == EdgeStatus::Satisfied {
-                old
-            } else if old.selected_artifact_digest.is_some() {
-                carry_edge(spec, &old, &available)?
+            let updated = if old.status == EdgeStatus::Satisfied || old.selected_artifact_digest.is_some() {
+                let mut updated = carry_edge(spec, &old, &available)?;
+                if updated.status == EdgeStatus::Satisfied && updated.selected_contract.is_none() {
+                    // This explicit repair may complete a legacy live edge's
+                    // missing contract, but never choose another provider or
+                    // rewrite a generation that already froze the old edge.
+                    updated.selected_contract = dependency_contract(spec)?;
+                    if updated.selected_contract.is_some() {
+                        updated.reason.push_str("; explicit resolution recorded the declared contract for the retained exact selection");
+                    }
+                }
+                updated
             } else {
                 let candidate = resolve_edge(spec, &available);
                 // A failed new attempt does not explain who owned the old row.
@@ -821,9 +857,38 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use crate::Node;
+    use crate::units::CapabilityContract;
     use crate::units::test_support::{exact, import, package, scratch};
     use serde_json::{Value, json};
-    use super::{DependencySelector, DependencySpec, DependencyStrength, EdgeStatus};
+    use shenko_types::object::Digest;
+    use super::{DependencySelector, DependencySpec, DependencyStrength, EdgeStatus, carry_edge, resolve_edge};
+
+    #[test]
+    fn contract_selections_record_requested_major_and_reject_incompatible_pins() {
+        let requested = CapabilityContract::parse("cap.fixture.process/1").unwrap();
+        let incompatible = CapabilityContract::parse("cap.fixture.process/2").unwrap();
+        let digest = Digest::blake3(b"contract-provider");
+        let available = vec![("provider".into(), "1.0.0".into(), digest.clone(), vec![requested.text()])];
+        for selector in [
+            DependencySelector::Exact { unit_id: "provider".into(), revision_requirement: Some("1.0.0".into()),
+                artifact_digest: Some(digest.clone()), contract_requirement: Some(requested.clone()) },
+            DependencySelector::Abstract { capability_ref: Some(requested.text()), topic_ref: None },
+        ] {
+            let spec = DependencySpec { edge_id: "provider".into(), strength: DependencyStrength::Required,
+                selector, purpose: None };
+            let selected = resolve_edge(&spec, &available);
+            assert_eq!(selected.status, EdgeStatus::Satisfied);
+            assert_eq!(selected.selected_contract.as_ref(), Some(&requested));
+            assert_eq!(carry_edge(&spec, &selected, &available).unwrap(), selected);
+            let wrong_major = vec![("provider".into(), "1.0.0".into(), digest.clone(), vec![incompatible.text()])];
+            assert_eq!(resolve_edge(&spec, &wrong_major).status, EdgeStatus::Unresolved);
+            let mut conflicting = selected.clone(); conflicting.selected_contract = Some(incompatible.clone());
+            assert!(carry_edge(&spec, &conflicting, &available).is_err());
+            let mut legacy = selected; legacy.selected_contract = None;
+            assert_eq!(carry_edge(&spec, &legacy, &available).unwrap().selected_contract, None,
+                "a historical transfer must not invent the missing contract; use explicit ResolveVersion");
+        }
+    }
 
     #[test]
     fn digest_versions_keep_independent_edges_and_re_resolve() {

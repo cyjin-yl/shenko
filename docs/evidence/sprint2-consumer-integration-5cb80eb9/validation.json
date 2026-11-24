@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "scope": "Existing Shenko #402 consumer, local normal source/production artifact validation; no remote publication, PR status change, browser or live backend/model claim.",
+  "app_base": "2816a6adc8edf7e797d5d794d68625d0be204138",
+  "previous_proto_commit": "6a9b575fbe744ccb2f54d1e45336ccc195f401f1",
+  "proto_commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+  "producer": {
+    "passed": true,
+    "selected_count": 42,
+    "plan_exact": true,
+    "receipt_sha256": "fe4b64eff3c921dcff1924f8868419f016dbdac8eae8077d83fba18db7a8be66",
+    "public_output_sha256": "995902870dcee3c340d610bf88f528b2e3e83f1e65a4df95cc28ed23c778cf8e"
+  },
+  "normal_build": {
+    "passed": true,
+    "receipt_sha256": "760dd34c1a210e29a85623bde55964893bbe5388ace8b3b41bef82e2e95fedfd",
+    "source_stable": true,
+    "extra_inputs_stable": true,
+    "sources": 57,
+    "extra_inputs": 6,
+    "tests": {
+      "passed": 59,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "todo": 0
+    },
+    "strict_types_exit": 0,
+    "assets": 12,
+    "build_manifest_sha256": "3e4b61ea3e4e48cec9579c9c05ddda2e9750a95f63d63ee0dac0b03138c28d47",
+    "prototype_manifest_sha256": "d3fec2301d6f60995bab564ccbd3b0f74089c1e82ed36fa2c6adf024b29f09dd"
+  },
+  "browser": {
+    "inspector": "not_executed_for_new_pin_in_this_local_receipt",
+    "tree": "not_executed_for_new_pin_in_this_local_receipt",
+    "reading": "not_executed_for_new_pin_in_this_local_receipt",
+    "launch_policy": "Existing chromiumSandbox:true observers kept unchanged; no local bypass or fallback flag."
+  },
+  "status": {
+    "source": "continuation of original #402 commits; no reimplementation",
+    "pr": "existing Draft; not modified by this work",
+    "compiler": "private source, build-time only; not a published compiler or browser runtime",
+    "upstream_candidate": "explicit frozen development integration, not a released version"
+  },
+  "artifacts": {
+    "path": "consumer-evidence.tar.gz",
+    "bytes": 1571164,
+    "sha256": "0269be4b7bb1e02c5f86447b230cb2bc8c2bf9b6fd6ad4b7716acc582e7bf343"
+  },
+  "documentation": {
+    "report_errors": 0,
+    "product_tested": false,
+    "original_failure": "1976 unavailable-parser diagnostics; exact scripts/requirements-ci.txt installed in an isolated Python environment, then report has no errors",
+    "exit_code_note": "The final subprocess return code was not retained after the task session interruption; the complete report and zero-error outcome were read back.",
+    "reports": [
+      {
+        "path": "docs-check-red.json.gz",
+        "uncompressed_sha256": "7e874bca1da453cb21652c2aa6999eb006b8dca7e2ec21f98764daabfec70c39",
+        "sha256": "93e6fdd109accd30ed75ed7e9c412d2d8262065e14dd0703f6fc233570dc9daa"
+      },
+      {
+        "path": "docs-install.log.gz",
+        "uncompressed_sha256": "dd060ff3c48b04e9c17ed10877bf8815de0d69d07b8dc07acfab71e7eb12f642",
+        "sha256": "7befadff0464b0f35fe38a26f44065268a8f2c28e714de2365aa5a3ce5c812b3"
+      },
+      {
+        "path": "docs-check-final.json",
+        "sha256": "7f69bff9c5d821830c569a4a6e30f79590eadf595d602ede53778297fdc19d0d"
+      }
+    ]
+  }
+}

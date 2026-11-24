@@ -174,11 +174,458 @@ impl BackendCapabilitySnapshot {
     }
 }
 
+/// The cache surface a routing or diagnostic read asks about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheSurface {
+    /// A reusable prefix the backend keeps for later requests.
+    PrefixCache,
+    /// A caller-supplied prompt cache hint key.
+    PromptCacheKey,
+    /// A request-level cache isolation salt.
+    CacheSalt,
+    /// KV transfer/connector parameters carried by the request.
+    KvTransferParams,
+    /// Native KV hint actions on the request envelope.
+    KvHints,
+    /// Provider-reported cache read/write counters.
+    CacheReadAccounting,
+}
+
+/// The quota observation surface a routing or diagnostic read asks about.
+///
+/// The names mirror the quota observer's source kinds, so one provider
+/// declaration and one recorded quota snapshot describe the same surface
+/// instead of two vocabularies. A binding that declares no support for a
+/// surface is not read through it, and one that never declared it stays
+/// unknown rather than being approximated by another surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QuotaSurface {
+    ApiHeaders,
+    AdminApi,
+    CliStatusline,
+    CliUi,
+    Manual,
+    LocalMeter,
+}
+
+/// How far up the evidence ladder one declared fact got.
+///
+/// None of these rungs proves that one request took effect: an installed
+/// implementation claiming a surface is not a deployment enabling it, and a
+/// deployment declaring it is not a terminal receipt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeclarationSource {
+    /// Neither the implementation nor this deployment's probe declared it.
+    Undeclared,
+    /// The installed provider implementation declares it.
+    ProviderImplementation,
+    /// This deployment's own probe response declared it.
+    Probe,
+}
+
+/// One declared fact: the support state together with the rung it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeclaredCapability {
+    pub support: OperationAvailability,
+    pub source: DeclarationSource,
+}
+
+impl DeclaredCapability {
+    /// The absence of a declaration. It is never a claim in either direction.
+    pub const UNDECLARED: Self = Self {
+        support: OperationAvailability::Unknown,
+        source: DeclarationSource::Undeclared,
+    };
+
+    /// This implementation declares the fact available.
+    pub const fn implemented() -> Self {
+        Self {
+            support: OperationAvailability::Available,
+            source: DeclarationSource::ProviderImplementation,
+        }
+    }
+
+    /// This implementation declares that it will not attempt the action.
+    pub const fn refused() -> Self {
+        Self {
+            support: OperationAvailability::Unsupported,
+            source: DeclarationSource::ProviderImplementation,
+        }
+    }
+
+    pub fn is_undeclared(self) -> bool {
+        self.source == DeclarationSource::Undeclared
+    }
+
+    /// Only an actual `available` declaration permits an action that needs the
+    /// fact.
+    pub fn is_available(self) -> bool {
+        matches!(self.support, OperationAvailability::Available)
+    }
+
+    /// The declaration says the action will not work as bound: unsupported, or
+    /// available only after configuration this binding does not have.
+    pub fn is_refusal(self) -> bool {
+        matches!(
+            self.support,
+            OperationAvailability::Unsupported | OperationAvailability::RequiresConfiguration
+        )
+    }
+}
+
+/// The cache surfaces of one provider binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheSurfaces {
+    pub prefix_cache: DeclaredCapability,
+    pub prompt_cache_key: DeclaredCapability,
+    pub cache_salt: DeclaredCapability,
+    pub kv_transfer_params: DeclaredCapability,
+    pub kv_hints: DeclaredCapability,
+    pub cache_read_accounting: DeclaredCapability,
+}
+
+impl CacheSurfaces {
+    /// No cache surface was declared by anyone.
+    pub const UNDECLARED: Self = Self {
+        prefix_cache: DeclaredCapability::UNDECLARED,
+        prompt_cache_key: DeclaredCapability::UNDECLARED,
+        cache_salt: DeclaredCapability::UNDECLARED,
+        kv_transfer_params: DeclaredCapability::UNDECLARED,
+        kv_hints: DeclaredCapability::UNDECLARED,
+        cache_read_accounting: DeclaredCapability::UNDECLARED,
+    };
+
+    pub fn support(self, surface: CacheSurface) -> DeclaredCapability {
+        match surface {
+            CacheSurface::PrefixCache => self.prefix_cache,
+            CacheSurface::PromptCacheKey => self.prompt_cache_key,
+            CacheSurface::CacheSalt => self.cache_salt,
+            CacheSurface::KvTransferParams => self.kv_transfer_params,
+            CacheSurface::KvHints => self.kv_hints,
+            CacheSurface::CacheReadAccounting => self.cache_read_accounting,
+        }
+    }
+}
+
+/// The quota observation surfaces of one provider binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuotaSurfaces {
+    pub api_headers: DeclaredCapability,
+    pub admin_api: DeclaredCapability,
+    pub cli_statusline: DeclaredCapability,
+    pub cli_ui: DeclaredCapability,
+    pub manual: DeclaredCapability,
+    pub local_meter: DeclaredCapability,
+}
+
+impl QuotaSurfaces {
+    /// No quota surface was declared by anyone.
+    pub const UNDECLARED: Self = Self {
+        api_headers: DeclaredCapability::UNDECLARED,
+        admin_api: DeclaredCapability::UNDECLARED,
+        cli_statusline: DeclaredCapability::UNDECLARED,
+        cli_ui: DeclaredCapability::UNDECLARED,
+        manual: DeclaredCapability::UNDECLARED,
+        local_meter: DeclaredCapability::UNDECLARED,
+    };
+
+    pub fn support(self, surface: QuotaSurface) -> DeclaredCapability {
+        match surface {
+            QuotaSurface::ApiHeaders => self.api_headers,
+            QuotaSurface::AdminApi => self.admin_api,
+            QuotaSurface::CliStatusline => self.cli_statusline,
+            QuotaSurface::CliUi => self.cli_ui,
+            QuotaSurface::Manual => self.manual,
+            QuotaSurface::LocalMeter => self.local_meter,
+        }
+    }
+}
+
+/// What one provider binding declared about the facts routing and diagnostics
+/// need.
+///
+/// The model name and the backend family are not declarations: a binding that
+/// never declared streaming, a cache surface or a quota surface stays
+/// `Unknown` per fact, and no consumer may read that as support. Only the
+/// installed implementation and this deployment's probe can declare a fact;
+/// a real terminal remains the only proof that it took effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderCapabilityDeclaration {
+    pub streaming: DeclaredCapability,
+    pub cache: CacheSurfaces,
+    pub quota: QuotaSurfaces,
+}
+
+impl ProviderCapabilityDeclaration {
+    /// No installed implementation and no probe declared anything.
+    pub const UNDECLARED: Self = Self {
+        streaming: DeclaredCapability::UNDECLARED,
+        cache: CacheSurfaces::UNDECLARED,
+        quota: QuotaSurfaces::UNDECLARED,
+    };
+
+    /// The declaration of an implementation that will not attempt anything:
+    /// every action it could be asked for is refused outright.
+    pub const fn refused() -> Self {
+        Self {
+            streaming: DeclaredCapability::refused(),
+            cache: CacheSurfaces {
+                prefix_cache: DeclaredCapability::refused(),
+                prompt_cache_key: DeclaredCapability::refused(),
+                cache_salt: DeclaredCapability::refused(),
+                kv_transfer_params: DeclaredCapability::refused(),
+                kv_hints: DeclaredCapability::refused(),
+                cache_read_accounting: DeclaredCapability::refused(),
+            },
+            quota: QuotaSurfaces {
+                api_headers: DeclaredCapability::refused(),
+                admin_api: DeclaredCapability::refused(),
+                cli_statusline: DeclaredCapability::refused(),
+                cli_ui: DeclaredCapability::refused(),
+                manual: DeclaredCapability::refused(),
+                local_meter: DeclaredCapability::refused(),
+            },
+        }
+    }
+
+    /// `true` when no fact of this binding was declared at all.
+    pub fn is_undeclared(&self) -> bool {
+        self.streaming.is_undeclared()
+            && [
+                self.cache.prefix_cache,
+                self.cache.prompt_cache_key,
+                self.cache.cache_salt,
+                self.cache.kv_transfer_params,
+                self.cache.kv_hints,
+                self.cache.cache_read_accounting,
+                self.quota.api_headers,
+                self.quota.admin_api,
+                self.quota.cli_statusline,
+                self.quota.cli_ui,
+                self.quota.manual,
+                self.quota.local_meter,
+            ]
+            .iter()
+            .all(|fact| fact.is_undeclared())
+    }
+
+    /// The fact one routing requirement asks about.
+    pub fn fact(&self, requirement: CapabilityRequirement) -> DeclaredCapability {
+        match requirement {
+            CapabilityRequirement::Streaming => self.streaming,
+            CapabilityRequirement::Cache(surface) => self.cache.support(surface),
+            CapabilityRequirement::Quota(surface) => self.quota.support(surface),
+        }
+    }
+
+    /// Classify the declaration from what this deployment's probe actually
+    /// declared.
+    ///
+    /// Cache surfaces map to the native operations that back them, and
+    /// streaming to a deployment declaration of its entry point. A snapshot
+    /// that never named a surface leaves it undeclared; naming a native
+    /// namespace or a backend family never grants one.
+    pub fn from_snapshot(snapshot: &BackendCapabilitySnapshot) -> Self {
+        Self {
+            streaming: probe_fact(snapshot, &[OP_STREAMING]),
+            cache: CacheSurfaces {
+                prefix_cache: probe_fact(
+                    snapshot,
+                    &[NATIVE_VLLM_PREFIX_CACHING, NATIVE_NINFER_PREFIX_REUSE],
+                ),
+                prompt_cache_key: probe_fact(snapshot, &[NATIVE_NINFER_PROMPT_CACHE_KEY]),
+                cache_salt: probe_fact(snapshot, &[NATIVE_VLLM_CACHE_SALT]),
+                kv_transfer_params: probe_fact(snapshot, &[NATIVE_VLLM_KV_TRANSFER_PARAMS]),
+                kv_hints: probe_fact(snapshot, &[NATIVE_VLLM_KV_HINTS]),
+                cache_read_accounting: probe_fact(snapshot, &[NATIVE_ONE_CAT_CACHE_READ_USAGE]),
+            },
+            // No current backend declares a quota observation surface in its
+            // probe response, and a model list never shows one. The quota
+            // surfaces therefore stay undeclared here; only their own
+            // configuration can declare them.
+            quota: QuotaSurfaces::UNDECLARED,
+        }
+    }
+
+    /// Apply a probe's declaration over the installed implementation's claims.
+    ///
+    /// A probe fact is the stronger rung and replaces an implementation claim.
+    /// A disagreement between the two rungs is `Unknown` instead of a winner
+    /// chosen by order, and a probe that stayed silent about a fact does not
+    /// erase what the implementation declared.
+    pub fn with_observation(declared: &Self, observed: &Self) -> Self {
+        Self {
+            streaming: strongest(declared.streaming, observed.streaming),
+            cache: CacheSurfaces {
+                prefix_cache: strongest(declared.cache.prefix_cache, observed.cache.prefix_cache),
+                prompt_cache_key: strongest(
+                    declared.cache.prompt_cache_key,
+                    observed.cache.prompt_cache_key,
+                ),
+                cache_salt: strongest(declared.cache.cache_salt, observed.cache.cache_salt),
+                kv_transfer_params: strongest(
+                    declared.cache.kv_transfer_params,
+                    observed.cache.kv_transfer_params,
+                ),
+                kv_hints: strongest(declared.cache.kv_hints, observed.cache.kv_hints),
+                cache_read_accounting: strongest(
+                    declared.cache.cache_read_accounting,
+                    observed.cache.cache_read_accounting,
+                ),
+            },
+            quota: QuotaSurfaces {
+                api_headers: strongest(declared.quota.api_headers, observed.quota.api_headers),
+                admin_api: strongest(declared.quota.admin_api, observed.quota.admin_api),
+                cli_statusline: strongest(
+                    declared.quota.cli_statusline,
+                    observed.quota.cli_statusline,
+                ),
+                cli_ui: strongest(declared.quota.cli_ui, observed.quota.cli_ui),
+                manual: strongest(declared.quota.manual, observed.quota.manual),
+                local_meter: strongest(declared.quota.local_meter, observed.quota.local_meter),
+            },
+        }
+    }
+
+    /// The routing read of one requirement. Only an actual declaration permits
+    /// the action; an undeclared fact stays unknown and is never promoted.
+    pub fn verdict(&self, requirement: CapabilityRequirement) -> CapabilityVerdict {
+        let fact = self.fact(requirement);
+        match fact.support {
+            OperationAvailability::Available => CapabilityVerdict::Declared,
+            OperationAvailability::Unsupported => CapabilityVerdict::Refused {
+                code: CAPABILITY_UNSUPPORTED_CODE,
+                reason: format!(
+                    "{} is declared unsupported by this provider binding",
+                    requirement.as_str()
+                ),
+            },
+            OperationAvailability::RequiresConfiguration => CapabilityVerdict::Refused {
+                code: CAPABILITY_REQUIRES_CONFIGURATION_CODE,
+                reason: format!(
+                    "{} requires configuration this provider binding does not have",
+                    requirement.as_str()
+                ),
+            },
+            OperationAvailability::Unknown => CapabilityVerdict::Undeclared {
+                reason: format!(
+                    "{} was not declared by the provider implementation or this deployment's probe",
+                    requirement.as_str()
+                ),
+            },
+        }
+    }
+}
+
+/// One fact routing asks a provider binding to have declared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityRequirement {
+    Streaming,
+    Cache(CacheSurface),
+    Quota(QuotaSurface),
+}
+
+impl CapabilityRequirement {
+    /// The stable name used in routing errors and diagnostics.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Streaming => "streaming",
+            Self::Cache(CacheSurface::PrefixCache) => "cache.prefix_cache",
+            Self::Cache(CacheSurface::PromptCacheKey) => "cache.prompt_cache_key",
+            Self::Cache(CacheSurface::CacheSalt) => "cache.cache_salt",
+            Self::Cache(CacheSurface::KvTransferParams) => "cache.kv_transfer_params",
+            Self::Cache(CacheSurface::KvHints) => "cache.kv_hints",
+            Self::Cache(CacheSurface::CacheReadAccounting) => "cache.cache_read_accounting",
+            Self::Quota(QuotaSurface::ApiHeaders) => "quota.api_headers",
+            Self::Quota(QuotaSurface::AdminApi) => "quota.admin_api",
+            Self::Quota(QuotaSurface::CliStatusline) => "quota.cli_statusline",
+            Self::Quota(QuotaSurface::CliUi) => "quota.cli_ui",
+            Self::Quota(QuotaSurface::Manual) => "quota.manual",
+            Self::Quota(QuotaSurface::LocalMeter) => "quota.local_meter",
+        }
+    }
+}
+
+/// The routing verdict of one declared requirement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CapabilityVerdict {
+    /// The binding declared the fact available.
+    Declared,
+    /// The declaration refuses the action; dispatch must not proceed.
+    Refused { code: &'static str, reason: String },
+    /// Nothing declared the fact. The action may still be attempted, but the
+    /// fact is never recorded as supported by that attempt.
+    Undeclared { reason: String },
+}
+
+impl CapabilityVerdict {
+    /// Whether the declaration forbids the action.
+    ///
+    /// An undeclared fact does not forbid it: refusing would assert an
+    /// unproved "unsupported" instead, and only a real declaration may claim
+    /// that.
+    pub fn refuses_dispatch(&self) -> bool {
+        matches!(self, Self::Refused { .. })
+    }
+
+    /// The reason of a refusal or of the absence of a declaration.
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Declared => None,
+            Self::Refused { reason, .. } | Self::Undeclared { reason } => Some(reason),
+        }
+    }
+}
+
+/// Read one declared fact from the probe's own operations. Only operations the
+/// probe actually classified count; several contradictory ones are `Unknown`.
+fn probe_fact(snapshot: &BackendCapabilitySnapshot, names: &[&str]) -> DeclaredCapability {
+    let mut declared: Option<OperationAvailability> = None;
+    for name in names {
+        let Some(operation) = snapshot.operation(name) else {
+            continue;
+        };
+        declared = Some(match declared {
+            None => operation.availability,
+            Some(previous) => merge_operation_availability(previous, operation.availability),
+        });
+    }
+    match declared {
+        None => DeclaredCapability::UNDECLARED,
+        Some(support) => DeclaredCapability {
+            support,
+            source: DeclarationSource::Probe,
+        },
+    }
+}
+
+/// The stronger of two rungs for one fact. Silence from the probe keeps the
+/// implementation's claim; an actual disagreement has no winner.
+fn strongest(declared: DeclaredCapability, observed: DeclaredCapability) -> DeclaredCapability {
+    if observed.is_undeclared() {
+        return declared;
+    }
+    if declared.is_undeclared() || declared.support == observed.support {
+        return observed;
+    }
+    DeclaredCapability {
+        support: OperationAvailability::Unknown,
+        source: DeclarationSource::Probe,
+    }
+}
+
 /// Candidate operations per backend family. They are candidates, not claims:
 /// each one is classified from the probe evidence, and stays `Unknown` when the
 /// deployment never demonstrated it.
 pub fn candidate_operations(family: &BackendFamily) -> Vec<(&'static str, &'static str)> {
-    let native = match family {
+    let mut operations = match family {
         BackendFamily::NInfer => vec![
             (NATIVE_NINFER_PREFIX_REUSE, NATIVE_NINFER_NAMESPACE),
             (NATIVE_NINFER_RESPONSES_CONTINUATION, NATIVE_NINFER_NAMESPACE),
@@ -209,12 +656,26 @@ pub fn candidate_operations(family: &BackendFamily) -> Vec<(&'static str, &'stat
         ],
         BackendFamily::OpenAiCompatible | BackendFamily::Other(_) => vec![(OP_TOKEN_COUNT, "")],
     };
-    native
+    // Every transport can be asked to stream, so the fact is a candidate for
+    // every binding. Only a deployment whose probe declares the entry point
+    // makes it available; the transport name itself declares nothing.
+    operations.push((OP_STREAMING, ""));
+    operations
 }
 
 pub const OP_TOKEN_COUNT: &str = "messages.count_tokens";
 pub const OP_MESSAGE_BATCH: &str = "messages.batch";
 pub const OP_MODEL_METADATA: &str = "model.metadata";
+/// The streaming entry point of one binding. A deployment that declares it can
+/// make the fact available; it is never assumed from the transport or family.
+pub const OP_STREAMING: &str = "inference.streaming";
+
+/// The routing error code of a binding that declared a requirement unsupported.
+pub const CAPABILITY_UNSUPPORTED_CODE: &str = "PROVIDER_CAPABILITY_UNSUPPORTED";
+/// The routing error code of a requirement the binding declared it needs
+/// configuration for.
+pub const CAPABILITY_REQUIRES_CONFIGURATION_CODE: &str =
+    "PROVIDER_CAPABILITY_REQUIRES_CONFIGURATION";
 
 pub const NATIVE_NINFER_NAMESPACE: &str = "native.ninfer";
 pub const NATIVE_NINFER_PREFIX_REUSE: &str = "ninfer.prefix_reuse";
@@ -293,7 +754,13 @@ pub fn classify_operations(
         // fact (the deployment enabled it), not a per-request control. The
         // guarantee stays best effort either way: an enabled cache is not a
         // reservation, and no probe shows one request took effect.
-        let operation = if declared == Some(OperationAvailability::Available) {
+        // A probe that never mentioned this operation has not classified it:
+        // silence is neither a refusal nor a claim, so no declaration is
+        // emitted for it and every reader keeps it undeclared.
+        let Some(support) = declared else {
+            continue;
+        };
+        let operation = if support == OperationAvailability::Available {
             OperationDeclaration {
                 name: name.to_string(),
                 availability: OperationAvailability::Available,
@@ -314,25 +781,21 @@ pub fn classify_operations(
         } else {
             OperationDeclaration {
                 name: name.to_string(),
-                availability: declared.unwrap_or(OperationAvailability::Unknown),
+                availability: support,
                 scope: OperationScope::Request,
                 guarantee: Guarantee::Advisory,
                 native_namespace: (!namespace.is_empty()).then(|| namespace.to_string()),
                 evidence: None,
-                reason: Some(match declared {
-                    Some(OperationAvailability::RequiresConfiguration) => {
+                reason: Some(match support {
+                    OperationAvailability::RequiresConfiguration => {
                         "the backend declared that this operation requires configuration"
                     }
-                    Some(OperationAvailability::Unsupported) => {
+                    OperationAvailability::Unsupported => {
                         "the backend declared that this operation is unsupported"
                     }
-                    Some(_) => {
+                    _ => {
                         "the probe declaration is unknown, nonaffirmative or conflicting; \
                          the raw evidence is retained and no operation support is claimed"
-                    }
-                    None => {
-                        "this deployment did not declare the operation in its probe response; \
-                         an accepted request is not evidence that it took effect"
                     }
                 }.into()),
             }

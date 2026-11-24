@@ -1826,12 +1826,18 @@ pub(super) fn prepare_context(
             ShenkoError::storage(format!("cognition disclosure failed: {error:#}"))
         })?
         .unwrap_or_default();
+    // §51 attitude application: the subject's own ledger decides how the
+    // material above reads at this step. It is bounded, rotated by the durable
+    // step number and carries its own provenance receipt; with nothing
+    // applicable it adds no text at all.
+    let attitude_application = crate::attitude_application::prepare(state, state.step.step_no)?;
     let mut frontier = state.store.subject_obligation_frontier(state.agent_id, state.step.step_no,
         &obligation_references(&recovered), OBLIGATION_FRONTIER_ITEMS)?;
     // The once-per-window reminder is READ here and answered by the commit of
     // the request that carries it. Reading it twice is idempotent.
     state.pending_reminder = state.context_registry.pending_rollover_reminder();
     let mut system_prompt = build_system_prompt(state, &awareness, &[]);
+    system_prompt.push_str(&attitude_application.text);
     // Leave three quarters of the remaining known input budget to raw input,
     // recovery controls and working history. The normal final budget check
     // still accounts for the whole payload, including this frontier.

@@ -1,0 +1,735 @@
+{
+  "schema_version": 1,
+  "created_at": "2026-11-23T20:52:27.084301+00:00",
+  "app_base": "2816a6adc8edf7e797d5d794d68625d0be204138",
+  "upstream_commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+  "payloads": [
+    {
+      "path": "assets/crates/shenko-ui/src/static/app.css",
+      "bytes": 65132,
+      "sha256": "8f4e1ae27447d3928243f2beb8a1c12f2ca30ecd600d04bfb73150b1d76772a4"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/app.js",
+      "bytes": 1241779,
+      "sha256": "eda33a9901ae55f3533a32077e2cf148091e5f7357b7d537c7df054d05d94ab1"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/build-manifest.json",
+      "bytes": 9593,
+      "sha256": "3e4b61ea3e4e48cec9579c9c05ddda2e9750a95f63d63ee0dac0b03138c28d47"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/chunks/chunk-CCOEKU5G.js",
+      "bytes": 66321,
+      "sha256": "20969647bb0238d85d2339b733ad85179d3d63c60bc36170aa3fb06f35b1f28c"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/chunks/demo-controller-UO6WU6NU.js",
+      "bytes": 16356,
+      "sha256": "c5d4cbbf0dac2b356c276476897a534a5023124b1b1dfa5b5b21ea0a35d40e72"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/licenses/PROTO-UI-LICENSE",
+      "bytes": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/licenses/REACT-DOM-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/licenses/REACT-LICENSE",
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/licenses/SHADCN-NOTICES.md",
+      "bytes": 8853,
+      "sha256": "fd8f2d99a6cc9642d902d63e623cc25f27e90a53bbd494ee77b91b982f2ecfcd"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/proto-ui-style.css",
+      "bytes": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/proto-ui-tokens.generated.css",
+      "bytes": 166579,
+      "sha256": "96e90280a08c81593289572a6dab3e7078739040f830e9b4d055d545484acc3c"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/shadcn-theme.css",
+      "bytes": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96"
+    },
+    {
+      "path": "assets/crates/shenko-ui/src/static/theme-bootstrap.js",
+      "bytes": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/compiler/proto-ui-compiler.mjs",
+      "bytes": 4049750,
+      "sha256": "7198e9aaee28658e4d610b96f29167710b88076deadba67e2e4c36682df8a836"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/manifest.json",
+      "bytes": 3067,
+      "sha256": "d3fec2301d6f60995bab564ccbd3b0f74089c1e82ed36fa2c6adf024b29f09dd"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/.proto-ui/context/react-v1.ts",
+      "bytes": 161,
+      "sha256": "ae7da902ad9ea792035e450ef3369ace8a5a4a9ddca44234437e9f0e9e68df78"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/.proto-ui/context/scope-v1.ts",
+      "bytes": 10689,
+      "sha256": "a667173c9d318568853afad0cd55e6b423ff3c87723d2ea43cc48571008f15b4"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/.proto-ui/style/native-v1.ts",
+      "bytes": 12902,
+      "sha256": "825ba77918ca5af221bced05f715ea57c88fddeb5f5a24fb481c7e35b7afcd29"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/Component.tsx",
+      "bytes": 46575,
+      "sha256": "aabfca3a098431a061c15c2032aa9bd85c3744099e2449afa1db927995b85a24"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/Component.tsx.map",
+      "bytes": 2416,
+      "sha256": "03c5fb4629f8888c6628020d6aef122f9309d792c92d098fb8339e3e07397a28"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/message-bubble/provenance.json",
+      "bytes": 2381,
+      "sha256": "4b4aec482fc2c6924e767d1149ae2d62163b7a900d80a6fdff7a060ef47ff85f"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/.proto-ui/context/react-v1.ts",
+      "bytes": 161,
+      "sha256": "ae7da902ad9ea792035e450ef3369ace8a5a4a9ddca44234437e9f0e9e68df78"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/.proto-ui/context/scope-v1.ts",
+      "bytes": 10689,
+      "sha256": "a667173c9d318568853afad0cd55e6b423ff3c87723d2ea43cc48571008f15b4"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/.proto-ui/style/native-v1.ts",
+      "bytes": 12902,
+      "sha256": "825ba77918ca5af221bced05f715ea57c88fddeb5f5a24fb481c7e35b7afcd29"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/Component.tsx",
+      "bytes": 46835,
+      "sha256": "f356aaf05cd15943acaa553b1c68209541b2c066deac0f63dfc080235fe5f59f"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/Component.tsx.map",
+      "bytes": 2876,
+      "sha256": "bec9e5603c7170e8c336bc85b858d221ada386c20e79855be30a69916ed9dcd8"
+    },
+    {
+      "path": "generated/crates/shenko-ui/web/generated/prototypes/transport-badge/provenance.json",
+      "bytes": 2383,
+      "sha256": "05eddbdd2902f706f7979bb41de48c488ad91f592bfea8cea390343ee4caaba4"
+    },
+    {
+      "path": "preparation/shenko-install-online.log",
+      "bytes": 1371,
+      "sha256": "ecbc076db83c07cf1eb47c36566ded35a9bed6a123bd229afdb5336dff8df87b"
+    },
+    {
+      "path": "preparation/shenko-install.log",
+      "bytes": 342,
+      "sha256": "b207aabceb86063bb2c0c33252b32ee0b7ec7403efe78f0232ac39a78f8b1aa1"
+    },
+    {
+      "path": "raw/app-01/app-build.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-build.stdout.log",
+      "bytes": 559,
+      "sha256": "7b555c67444c358b77d3ba8cc84c405a6aae86cd5b8cfeaa8a05fedcf971a88c"
+    },
+    {
+      "path": "raw/app-01/app-diff-before.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-diff-before.stdout.log",
+      "bytes": 6943,
+      "sha256": "f9de0a1fb5d62896a812e7859fa09452a58aaf728fdef182a617438a11837fe7"
+    },
+    {
+      "path": "raw/app-01/app-head.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-head.stdout.log",
+      "bytes": 41,
+      "sha256": "f8c96a2bd4861d3326362ce61b47f1e4352ab48841a8b063ab3c8b9fba4a96a1"
+    },
+    {
+      "path": "raw/app-01/app-node-tests.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-node-tests.stdout.log",
+      "bytes": 5854,
+      "sha256": "5c1cffade9087f183b1a0fd41b9480700aacc8d0f3268251d27966ad29abe48f"
+    },
+    {
+      "path": "raw/app-01/app-prototypes.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-prototypes.stdout.log",
+      "bytes": 207,
+      "sha256": "749e9a2bdb89e830292ed280abf488d0818581b4facd7047bd830884c6ee2a41"
+    },
+    {
+      "path": "raw/app-01/app-strict-types.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/app-strict-types.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/inspector-observer-syntax.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/inspector-observer-syntax.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/node-version.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/node-version.stdout.log",
+      "bytes": 9,
+      "sha256": "4409d3bfa08b82f385bd424eeda65fc63b756129f0e89e82df77f1fecafccc14"
+    },
+    {
+      "path": "raw/app-01/receipt.json",
+      "bytes": 29365,
+      "sha256": "760dd34c1a210e29a85623bde55964893bbe5388ace8b3b41bef82e2e95fedfd"
+    },
+    {
+      "path": "raw/app-01/tree-observer-syntax.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/tree-observer-syntax.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-clean-after.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-clean-after.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-clean-before.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-clean-before.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-head-after.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-head-after.stdout.log",
+      "bytes": 41,
+      "sha256": "b8db4edb30191a23da0c74bf7bcd9c76d92926c5f7f2327de1840f5b16bdf669"
+    },
+    {
+      "path": "raw/app-01/upstream-head.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/app-01/upstream-head.stdout.log",
+      "bytes": 41,
+      "sha256": "b8db4edb30191a23da0c74bf7bcd9c76d92926c5f7f2327de1840f5b16bdf669"
+    },
+    {
+      "path": "raw/producer-01/node-version.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/node-version.stdout.log",
+      "bytes": 9,
+      "sha256": "4409d3bfa08b82f385bd424eeda65fc63b756129f0e89e82df77f1fecafccc14"
+    },
+    {
+      "path": "raw/producer-01/pnpm-version.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/pnpm-version.stdout.log",
+      "bytes": 8,
+      "sha256": "f71ff3f5176cd06dce75ef9c6a6a4ea9eacefa43f5bd92c6cc9322dd2c8216a3"
+    },
+    {
+      "path": "raw/producer-01/public-build.json",
+      "bytes": 5199,
+      "sha256": "995902870dcee3c340d610bf88f528b2e3e83f1e65a4df95cc28ed23c778cf8e"
+    },
+    {
+      "path": "raw/producer-01/public-build.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/public-build.stdout.log",
+      "bytes": 5199,
+      "sha256": "995902870dcee3c340d610bf88f528b2e3e83f1e65a4df95cc28ed23c778cf8e"
+    },
+    {
+      "path": "raw/producer-01/public-plan.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/public-plan.stdout.log",
+      "bytes": 1458,
+      "sha256": "da89d0a13a4f9f49d145f1b3406828c9bd8d18c518676b5ac79ce28239a09114"
+    },
+    {
+      "path": "raw/producer-01/receipt.json",
+      "bytes": 10241,
+      "sha256": "fe4b64eff3c921dcff1924f8868419f016dbdac8eae8077d83fba18db7a8be66"
+    },
+    {
+      "path": "raw/producer-01/upstream-clean-after.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-clean-after.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-clean-before.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-clean-before.stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-head-after.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-head-after.stdout.log",
+      "bytes": 41,
+      "sha256": "b8db4edb30191a23da0c74bf7bcd9c76d92926c5f7f2327de1840f5b16bdf669"
+    },
+    {
+      "path": "raw/producer-01/upstream-head.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/upstream-head.stdout.log",
+      "bytes": 41,
+      "sha256": "b8db4edb30191a23da0c74bf7bcd9c76d92926c5f7f2327de1840f5b16bdf669"
+    },
+    {
+      "path": "raw/producer-01/variant-order.stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "raw/producer-01/variant-order.stdout.log",
+      "bytes": 49,
+      "sha256": "598efa4d5e65263011b5a0a852cd704b664c576d520949c1fb13c489b9fe1d72"
+    },
+    {
+      "path": "reproduce/build-consumer.py",
+      "bytes": 7784,
+      "sha256": "68e010812d3dccdecee8f4130c11614d14cfaab3d565549d72479c0a2a7f1b99"
+    },
+    {
+      "path": "reproduce/public-producer.py",
+      "bytes": 4524,
+      "sha256": "631e569ebdd315a693929e36b63f6a082f2b8dbbe75370c23aafe027defbab79"
+    },
+    {
+      "path": "source/crates/shenko-ui/src/index.html",
+      "bytes": 1078,
+      "sha256": "93362411a6aaa81790f6b76f5aa409e5a85b2efd95475947efb36d01dea078bb"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/build.mjs",
+      "bytes": 14156,
+      "sha256": "1228de7ed284febf57f10dc013804b945f877d096b60905f3e1ed46915b0629e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/compiler.mjs",
+      "bytes": 12478,
+      "sha256": "1add6a2d689845bca00043b0011c45781f6e7356e1c658abb270fba5578e8f30"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/package.json",
+      "bytes": 686,
+      "sha256": "94bad4c02116fae102094704b64e2a001dd08231be39115ce3337ffb25f63b1c"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/pnpm-lock.yaml",
+      "bytes": 10574,
+      "sha256": "567b7b1d37e6aef4ce9e6436f024cddf3e59993f716ad1a7bc724779d4756c3e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/prototypes/message-bubble.proto.ts",
+      "bytes": 1553,
+      "sha256": "50915675a5fb64b14bf4784594819ea64a76ceb2234e15f7db3321be03f61e8d"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/prototypes/transport-badge.proto.ts",
+      "bytes": 1995,
+      "sha256": "2ee02ccc9ca4fdd8bb4d031d4d390ba4fe78113d290cd9f011735f77c1d272ae"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/scripts/inspector-browser.mjs",
+      "bytes": 25194,
+      "sha256": "8740546502ba324396c28f1924ffe8d8d5516d109e54e4f10301182d415c0696"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/scripts/tree-browser.mjs",
+      "bytes": 32468,
+      "sha256": "0541ba1dc6e6532f7877aa984f8e6dcfc3fee8a58fffc6f4233e07823c96e294"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/app.css",
+      "bytes": 65132,
+      "sha256": "8f4e1ae27447d3928243f2beb8a1c12f2ca30ecd600d04bfb73150b1d76772a4"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/composer.tsx",
+      "bytes": 6677,
+      "sha256": "804e2be3454c1f42faf8bb0854fb14cc13e5b79d4946b6385d9787983a6a5df0"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/config-panel.tsx",
+      "bytes": 3756,
+      "sha256": "b073f75e6e939bbd67eec6702bdc1056b2e458fa8fa2a2286a9cb200dd59540f"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/conversation-data.ts",
+      "bytes": 1252,
+      "sha256": "e1f3ab94d10c1571dc270a0e69cee805fe1d90f7bf7617dd4389c832ebf0b231"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/delegation-branches.tsx",
+      "bytes": 4473,
+      "sha256": "7b6b64de2004fdbd174bb9b6f67dfd7071fa1b1220ba0a8aa79e7c81eedc031e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/demo-controller.ts",
+      "bytes": 12008,
+      "sha256": "143d235b10c49da81ac9fbb9c5028b4b82c4d5b67d98a78373efbbe9449346bc"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/demo-fixtures.ts",
+      "bytes": 7634,
+      "sha256": "dead61324f4559491e42001e353d9c18007be5213cfb18523af0278825f0b443"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/document-view.tsx",
+      "bytes": 14699,
+      "sha256": "31925e9fc8ce42c12208d030699ccfe25d03a7e791650b99ffbed98d48981703"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/files-view.tsx",
+      "bytes": 11712,
+      "sha256": "90cb59539e75d138de0c598d07874cfa4fdfedd7638814c7f5eaa2689d58b5a1"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/icons.tsx",
+      "bytes": 5817,
+      "sha256": "4d098a0bd6117394c8665aff8a412f29e5e58ce27d7e27568543b42583e25093"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/im.tsx",
+      "bytes": 19697,
+      "sha256": "65b8600acb55213e788903cbfc1337e4c3446130b13b146fe4a2ae0f97f7d9da"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/input-reducer.ts",
+      "bytes": 14894,
+      "sha256": "bcda3a7992cf28c5c112931930ca84f3a800439278ffb713e28df6b3b54ac95e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/inspector-layout.tsx",
+      "bytes": 10883,
+      "sha256": "28cc872d2bef4285b9cc7a36e3d61a6a722779ec0446500a2d87e5eec706f949"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/inspector-sizing.ts",
+      "bytes": 3275,
+      "sha256": "3ddde8f857f7cd413a3974aa424812b477eea2d1f0cae1ed2f5bf971de0c875d"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/inspector-tree-model.ts",
+      "bytes": 4044,
+      "sha256": "aa57a93932255768fe0b5bdb4e745d67c77c6894b858b660d2ccae71e019ef1a"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/inspector-trees.tsx",
+      "bytes": 6722,
+      "sha256": "09e5f4ea15832342a60aaae3d09eeb119cc40a38c8e3fc95073e37726eb388b4"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/live-controller.ts",
+      "bytes": 43490,
+      "sha256": "2299b298632e0438beaddb4e63ad0c88b8f02d15d99687b7fb6133318aa2fca6"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/live-read-models.ts",
+      "bytes": 18361,
+      "sha256": "ab95e7893dce51ca01ea8a24ee7db49d1707e78b9cd0b627522ccce43e2b7c37"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/live-state.ts",
+      "bytes": 2104,
+      "sha256": "2ea156de1531a58ad57c466f7b5b1f2e1e8303b9c9bb8a4e8b746ac6ebdde676"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/live-validation.ts",
+      "bytes": 1462,
+      "sha256": "e36755cce996ba25c09c2e713aae6b13869e0b941fa5629c1d0ad7b9e595dad2"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/main.tsx",
+      "bytes": 1248,
+      "sha256": "fb33bd2a136840dce1f5191ee8a65bd7b09029f8cead33305b4e054d2b5614fd"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/markdown.tsx",
+      "bytes": 7043,
+      "sha256": "ba282e4e91fc187a253e7196abf1f7f35d5e81df973de469371316b22d66f7ff"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/messages.ts",
+      "bytes": 49389,
+      "sha256": "2f403c3792ce130bfdb9d94ed4beff47df0338db39d2070ed3677238aa614268"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/pending-inputs.ts",
+      "bytes": 9848,
+      "sha256": "6216e409175ac220e547aa36a2e5d50b7679c2701ca3f6cb2152904a5da623df"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/projection.ts",
+      "bytes": 40973,
+      "sha256": "af3f932c9b9d545669d33e401c7714f623dc1875c835880b7b6160f35c656a68"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/react-renderer.tsx",
+      "bytes": 17852,
+      "sha256": "378abf5a8a9b602aba3caa33ee845a78f9f45d910d6c59ab88181319765d7c4b"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/reading-state.ts",
+      "bytes": 7906,
+      "sha256": "8e19f5c00e8758c170ad7c1031c0db83d9f5407a7630551f72a3ec828a332b51"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/revision-disclosure.ts",
+      "bytes": 4577,
+      "sha256": "ee3e3098e0522cc7f3db51a787a923edf0f336d870ebd57dd538d3da4ed3a89e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/slots.ts",
+      "bytes": 4809,
+      "sha256": "7495e1a01a85db77a85cded62bbc7bb3f7a7607c3323b93377d754b4acdba4ce"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/socket-transport.ts",
+      "bytes": 3303,
+      "sha256": "3360894d2695aba32b3a4c5f8ca385b56c5d01bfb2363db1187cc5b1f6830539"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/submission-history.tsx",
+      "bytes": 981,
+      "sha256": "bd1fb940b16b1897667179d4879aace989f4170cb4b2404569fb0b8c8ee5d783"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/surfaces.tsx",
+      "bytes": 22482,
+      "sha256": "b37ab6ce374c29558cd514e2c72f0e98098ea7f2dcd865b8f4dd60becf00c32b"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/theme-bootstrap.js",
+      "bytes": 770,
+      "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/threads.ts",
+      "bytes": 26779,
+      "sha256": "1aca979b5c6ef134c63dce93ec417ac2339f4ad7edcbc5cf27ead9d7758051f8"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/timeline-entries.tsx",
+      "bytes": 17779,
+      "sha256": "f088cf9cd30ab5862129ab66277a6711a1918cab09104b18b26ff72ed83a4ceb"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/timeline-reducer.ts",
+      "bytes": 14107,
+      "sha256": "aac00b994ed72d3479dbeb84205c8d730aa19e247564269c3edc9c730e3771cd"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/timeline-surface.tsx",
+      "bytes": 21194,
+      "sha256": "69f121e46f44ceb9c8ce9300f4b5c1d2627ba0174224c20a1a38d935a6559e0d"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/ui-api.ts",
+      "bytes": 1411,
+      "sha256": "faf9acf3f68f1c9697ffce47baa3f1c5b71ec8fa1fd35f323e5c5cebb475db0c"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/ui-kit.tsx",
+      "bytes": 10049,
+      "sha256": "963833d7f7ca407f875eb2120a7d094dfc721a54ae1d3e0558a963e6ed8cdb2e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/ui-preferences.ts",
+      "bytes": 8222,
+      "sha256": "927540c1592a40da83fc052c9fb8a74a7196f9353a9e1037eb17197eab0d212c"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/src/work-frame.tsx",
+      "bytes": 4238,
+      "sha256": "8c72ed323a78b370c43469f707cdfe2f941e0a8337d922417d2452b9b79c67db"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/files-boundaries.test.mjs",
+      "bytes": 3147,
+      "sha256": "beef3f95854db4b827d2e1cac157194b63bdbc9526e5961e235ed2cc97d7342e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/frontend-modules.test.mjs",
+      "bytes": 3883,
+      "sha256": "756d741434ef8225a543897fdab53364dcbf656e0daceeff39f4cddb76ee1013"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/inspector-sizing.test.mjs",
+      "bytes": 4974,
+      "sha256": "b7f744b19d41ac81a38f064cb4b6e13f42e716064d5e0ac86161ed3a68687440"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/inspector-tree-model.test.mjs",
+      "bytes": 5205,
+      "sha256": "00a7c549e2205744eddeda84b54c7584eb5e90cdfbd1378bec48ef8e4912bb2b"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/lenses.test.mjs",
+      "bytes": 2809,
+      "sha256": "cf3f47ed39b2cd83b05b92ccc4e08153c49dbdf6acf6a1f65dc36d9e3740a521"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/live-controller.test.mjs",
+      "bytes": 68716,
+      "sha256": "3d4987f7cfaf146e6c916f9fd74fa5f736933071dd55eb9e29889fbf9ecb945f"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/prototypes.test.mjs",
+      "bytes": 4704,
+      "sha256": "9162d29f50f5c3b238313604908b00007ef8ea74ee11d1eb9c1b38bd90c65eb9"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/rich-document.test.mjs",
+      "bytes": 7099,
+      "sha256": "e02bdb11a64850a6e268e0b30ae20ad40a7aa9823714945ebabd583f5d58a71a"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/task-projection.test.mjs",
+      "bytes": 8631,
+      "sha256": "2f9da3a4c5b425b47989daf6ac5bcf07440894ee2ba2d497b46f32288ad97ec3"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tests/timeline-state.test.mjs",
+      "bytes": 6380,
+      "sha256": "ecef30d0ae98ea8e421d1d9ab168423f1fb1b7d872e982e6a54aea001ac10f1e"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/tsconfig.json",
+      "bytes": 438,
+      "sha256": "94cf01b1b56aff05648327d50cb8e92b8ff80caa358f37f6eab4e55c7ad517e1"
+    },
+    {
+      "path": "source/crates/shenko-ui/web/upstream-pin.json",
+      "bytes": 1416,
+      "sha256": "38173047628527ba18bf967639ddfbdd3c63f86229b559e5c0b74b2ff97d407e"
+    },
+    {
+      "path": "source/scripts/web_reading_journey.mjs",
+      "bytes": 21751,
+      "sha256": "520674696a94cafa95023b605b96b109d9dd41e654be36ea26d5b6d60cdd49d4"
+    }
+  ],
+  "archive": {
+    "path": "consumer-evidence.tar.gz",
+    "bytes": 1571164,
+    "sha256": "0269be4b7bb1e02c5f86447b230cb2bc8c2bf9b6fd6ad4b7716acc582e7bf343"
+  },
+  "readback_verified": true,
+  "documentation_reports": [
+    {
+      "path": "docs-check-red.json.gz",
+      "uncompressed_sha256": "7e874bca1da453cb21652c2aa6999eb006b8dca7e2ec21f98764daabfec70c39",
+      "sha256": "93e6fdd109accd30ed75ed7e9c412d2d8262065e14dd0703f6fc233570dc9daa"
+    },
+    {
+      "path": "docs-install.log.gz",
+      "uncompressed_sha256": "dd060ff3c48b04e9c17ed10877bf8815de0d69d07b8dc07acfab71e7eb12f642",
+      "sha256": "7befadff0464b0f35fe38a26f44065268a8f2c28e714de2365aa5a3ce5c812b3"
+    },
+    {
+      "path": "docs-check-final.json",
+      "sha256": "7f69bff9c5d821830c569a4a6e30f79590eadf595d602ede53778297fdc19d0d"
+    }
+  ]
+}
