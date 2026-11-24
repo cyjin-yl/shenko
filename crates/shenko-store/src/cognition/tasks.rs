@@ -16,7 +16,7 @@ use crate::store::Store;
 
 use super::peers::{record_conflict, record_origin};
 use super::reconcile::{RecoveryFactOutcome, apply_recovery_fact};
-use super::rows::{TABLES, effective_row, memory_row_value, read_existing, spec_for};
+use super::rows::{TABLES, effective_row, memory_row_value, read_existing, rows_equivalent, spec_for};
 use super::{CognitionApplyOutcome, CognitionConflict, db};
 
 fn task_row_json(row: &CognitionRow) -> Option<serde_json::Value> {
@@ -46,6 +46,7 @@ pub(super) fn apply_task_closures<'a>(
     peer_id: EntityId,
     seq: LedgerSeq,
     manifest: &CognitionManifest,
+    local_control_handover: bool,
 ) -> Result<(
     CognitionApplyOutcome,
     HashSet<(&'a str, &'a str)>,
@@ -129,10 +130,15 @@ pub(super) fn apply_task_closures<'a>(
     for (task_id, mut group) in groups {
         let parent = tasks.get(task_id.as_str()).copied();
         let mut conflict = parent.is_none() || invalid_groups.contains(&task_id);
+        let mut preserve_copied_task = false;
         if let Some(parent) = parent {
             // An immutable action input cannot change, even if the nil-peer
             // baseline happens to match the local record from another source.
             if let Some(local) = read_existing(tx, task_spec, parent)? {
+                // A same-installation copy already holds this task. Confirm it
+                // verbatim so peer parking cannot manufacture a divergence.
+                preserve_copied_task = local_control_handover
+                    && rows_equivalent(task_spec, &local, &parent.values);
                 let local = memory_row_value(&local, "data").and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok());
                 let incoming = task_row_json(parent);
                 if local.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
@@ -157,7 +163,11 @@ pub(super) fn apply_task_closures<'a>(
         if !conflict {
             for row in &group {
                 let spec = spec_for(&row.table).context("unregistered task recovery table")?;
-                let effective = effective_row(row, spec)?;
+                let effective = if preserve_copied_task && row.table == "tasks" {
+                    std::borrow::Cow::Borrowed(*row)
+                } else {
+                    std::borrow::Cow::Owned(effective_row(row, spec)?)
+                };
                 match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
                     RecoveryFactOutcome::Conflict => { conflict = true; break; }
                     RecoveryFactOutcome::Inserted => part.inserted += 1,
