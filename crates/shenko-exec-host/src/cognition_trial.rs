@@ -111,6 +111,10 @@ pub struct TrialSpec {
     pub trials_per_condition: usize,
     #[serde(default = "default_deadline")]
     pub deadline_ms: u64,
+    /// Starting condition for the first pair. Separate trial calls can use
+    /// this to alternate order while giving each pair its own budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_condition: Option<Condition>,
     pub scenarios: Vec<TrialScenario>,
 }
 
@@ -1074,38 +1078,46 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
     }
 }
 
-/// The totals of one condition inside a list of samples.
-fn totals_of(samples: &[TrialSample], condition: Condition) -> ConditionTotals {
-    let mut totals = ConditionTotals::default();
-    for sample in samples {
-        if sample.condition != condition {
-            continue;
-        }
-        totals.attempted += 1;
-        if !sample.started {
-            totals.unstarted += 1;
-            continue;
-        }
-        match sample.verdict.as_str() {
-            "effective" => {
-                totals.scored += 1;
-                totals.effective += 1;
+impl ConditionTotals {
+    /// Summarize one condition across its planned sample slots.
+    pub fn from_samples<'a>(
+        samples: impl IntoIterator<Item = &'a TrialSample>,
+        condition: Condition,
+    ) -> Self {
+        let mut totals = Self::default();
+        for sample in samples {
+            if sample.condition != condition {
+                continue;
             }
-            "ineffective" => totals.scored += 1,
-            _ => totals.failed += 1,
+            totals.attempted += 1;
+            if !sample.started {
+                totals.unstarted += 1;
+                continue;
+            }
+            match sample.verdict.as_str() {
+                "effective" => {
+                    totals.scored += 1;
+                    totals.effective += 1;
+                }
+                "ineffective" => totals.scored += 1,
+                _ => totals.failed += 1,
+            }
         }
+        totals.rate_over_scored = if totals.scored == 0 {
+            0.0
+        } else {
+            totals.effective as f64 / totals.scored as f64
+        };
+        totals.scored_coverage = if totals.attempted == 0 {
+            0.0
+        } else {
+            totals.scored as f64 / totals.attempted as f64
+        };
+        let unknown = totals.attempted - totals.scored;
+        totals.effect_lower = wilson_bounds(totals.effective, totals.attempted).0;
+        totals.effect_upper = wilson_bounds(totals.effective + unknown, totals.attempted).1;
+        totals
     }
-    totals.rate_over_scored = if totals.scored == 0 {
-        0.0
-    } else {
-        totals.effective as f64 / totals.scored as f64
-    };
-    totals.scored_coverage = if totals.attempted == 0 { 0.0 }
-        else { totals.scored as f64 / totals.attempted as f64 };
-    let unknown = totals.attempted.saturating_sub(totals.scored);
-    totals.effect_lower = wilson_bounds(totals.effective, totals.attempted).0;
-    totals.effect_upper = wilson_bounds(totals.effective + unknown, totals.attempted).1;
-    totals
 }
 
 /// Wilson 95% interval for a binary measurement. Applying its lower endpoint
@@ -1204,8 +1216,8 @@ fn sample_window(deadline_ms: u64, planned: usize) -> Duration {
 
 /// Alternate which condition goes first across repetitions and scenarios.
 /// The order is deterministic and recorded by the ordered sample receipts.
-fn condition_order(scenario: usize, trial: usize) -> [Condition; 2] {
-    if (scenario + trial).is_multiple_of(2) {
+fn condition_order(first: Condition, scenario: usize, trial: usize) -> [Condition; 2] {
+    if (scenario + trial).is_multiple_of(2) == (first == Condition::Candidate) {
         [Condition::Candidate, Condition::Control]
     } else {
         [Condition::Control, Condition::Candidate]
@@ -1221,6 +1233,7 @@ async fn run_prepared_trial(
 ) -> Result<TrialReport> {
     let trials = spec.trials_per_condition.clamp(1, MAX_TRIALS_PER_CONDITION);
     let deadline_ms = spec.deadline_ms.clamp(1_000, MAX_TRIAL_DEADLINE_MS);
+    let first = spec.first_condition.unwrap_or(Condition::Candidate);
     let started_at = chrono::Utc::now().to_rfc3339();
     let stop = tokio::time::Instant::now() + Duration::from_millis(deadline_ms);
     let window = sample_window(deadline_ms, trials * 2 * spec.scenarios.len().max(1));
@@ -1235,14 +1248,14 @@ async fn run_prepared_trial(
         let rubric_digest = Digest::blake3(scenario.rubric.as_bytes()).0;
         let mut scenario_samples: Vec<TrialSample> = Vec::new();
         for trial in 0..trials {
-            for condition in condition_order(scenario_index, trial) {
+            for condition in condition_order(first, scenario_index, trial) {
                 scenario_samples.push(run_trial_sample(&store, &broker, &prepared,
                     &sandbox_root, scenario, SampleCase { condition, trial },
                     SampleWindow { stop, window }).await);
             }
         }
-        let candidate_totals = totals_of(&scenario_samples, Condition::Candidate);
-        let control_totals = totals_of(&scenario_samples, Condition::Control);
+        let candidate_totals = ConditionTotals::from_samples(&scenario_samples, Condition::Candidate);
+        let control_totals = ConditionTotals::from_samples(&scenario_samples, Condition::Control);
         let (verdict, reason) = verdict_of(&candidate_totals, &control_totals);
         scenarios.push(ScenarioReport {
             name: scenario.name.clone(),
@@ -1256,8 +1269,8 @@ async fn run_prepared_trial(
         samples.extend(scenario_samples);
     }
 
-    let candidate_totals = totals_of(&samples, Condition::Candidate);
-    let control_totals = totals_of(&samples, Condition::Control);
+    let candidate_totals = ConditionTotals::from_samples(&samples, Condition::Candidate);
+    let control_totals = ConditionTotals::from_samples(&samples, Condition::Control);
     let (verdict, reason) = verdict_of(&candidate_totals, &control_totals);
     let shenko_node::UnitExport { root_unit_id, root_revision, root_artifact_digest, .. } = prepared.export;
     Ok(TrialReport {
@@ -1543,7 +1556,7 @@ impl CognitionTrialHandler {
         let unit_id = &prepared.export.root_unit_id;
         let revision = prepared.export.root_revision.as_deref().context("the frozen root revision is absent")?;
         let artifact = prepared.export.root_artifact_digest.as_ref().context("the frozen root artifact is absent")?;
-        Ok(serde_json::json!({
+        let mut plan = serde_json::json!({
             "unit_id": unit_id,
             "revision": revision,
             "artifact_digest": artifact,
@@ -1559,7 +1572,11 @@ impl CognitionTrialHandler {
             "model": self.broker.binding().model(),
             "trials_per_condition": spec.trials_per_condition.clamp(1, MAX_TRIALS_PER_CONDITION),
             "deadline_ms": spec.deadline_ms.clamp(1_000, MAX_TRIAL_DEADLINE_MS),
-        }))
+        });
+        if let Some(first) = spec.first_condition {
+            plan["first_condition"] = serde_json::to_value(first)?;
+        }
+        Ok(plan)
     }
 
     /// Run the comparison and record it in the installation authority.
