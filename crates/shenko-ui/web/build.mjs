@@ -35,13 +35,33 @@ if (!/^\d+\.\d+\.\d+$/.test(requiredNode)) {
 if (process.version !== `v${requiredNode}`) {
   throw new Error(`Node v${requiredNode} required by ${nodePinPath}; running ${process.version}`);
 }
+const prototypesOnly = process.argv.includes('--prototypes-only');
+// A full generation must carry its upstream build evidence. Refuse a missing
+// or incomplete receipt before replacing any compiler, chunks or static bytes.
+let upstreamBuild = null;
+if (!prototypesOnly) {
+  const receiptPath = process.env.PROTO_UI_BUILD_RECEIPT;
+  if (!receiptPath) {
+    throw new Error('PROTO_UI_BUILD_RECEIPT must name the real public-closure build receipt before publishing static assets');
+  }
+  const receiptBytes = readFileSync(receiptPath);
+  const receipt = JSON.parse(receiptBytes.toString('utf8'));
+  if (receipt.selectedCount !== 42 || receipt.results?.length !== 42) {
+    throw new Error('Unexpected upstream build receipt shape');
+  }
+  upstreamBuild = {
+    script: 'scripts/build/public-packages.mjs',
+    selected_package_count: receipt.selectedCount,
+    receipt_path: receiptPath,
+    receipt_sha256: createHash('sha256').update(receiptBytes).digest('hex'),
+  };
+}
 const { build } = await import('esbuild');
 const { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } = await import('./compiler.mjs');
 
 const crateRoot = resolve(webRoot, '..');
 const staticDir = join(crateRoot, 'src', 'static');
 const pin = JSON.parse(readFileSync(join(webRoot, 'upstream-pin.json'), 'utf8'));
-const prototypesOnly = process.argv.includes('--prototypes-only');
 const upstreamRoot = process.env.PROTO_UI_SOURCE;
 if (!upstreamRoot || !existsSync(upstreamRoot)) {
   throw new Error('PROTO_UI_SOURCE must name the separately checked out pinned upstream source');
@@ -57,30 +77,16 @@ if (actualCommit !== pin.commit) throw new Error(`Proto-UI is ${actualCommit}, e
 const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const actualLock = sha256(join(sourceRoot, 'pnpm-lock.yaml'));
 if (actualLock !== pin.lock_sha256) throw new Error('Proto-UI pnpm-lock.yaml does not match the reviewed pin');
-for (const relative of [
+const sourceAssets = [
   'packages/adapters/react/dist/index.js',
-  'packages/prototypes/shadcn/dist/button/index.js',
-  'packages/prototypes/shadcn/dist/textarea/index.js',
-  'packages/prototypes/shadcn/dist/scroll-area/index.js',
-  'packages/prototypes/shadcn/dist/message-scroller/index.js',
-  'packages/prototypes/shadcn/dist/collapsible/index.js',
-  'packages/prototypes/shadcn/dist/drawer/index.js',
-  'packages/prototypes/shadcn/dist/toggle-group/index.js',
-  'packages/prototypes/shadcn/dist/input/index.js',
-  'packages/prototypes/shadcn/dist/separator/index.js',
-  'packages/prototypes/shadcn/dist/toggle/index.js',
-  'packages/prototypes/shadcn/dist/resizable/index.js',
-  'packages/prototypes/shadcn/dist/tree/index.js',
-  'packages/prototypes/shadcn/dist/card/index.js',
-  'packages/prototypes/shadcn/dist/tabs/index.js',
-  'packages/prototypes/shadcn/dist/context-menu/index.js',
-  'packages/prototypes/shadcn/dist/dropdown/index.js',
+  ...pin.adopted_families.map((family) => `packages/prototypes/shadcn/dist/${family}/index.js`),
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.
   'packages/compiler/package.json',
   'packages/compiler/src/index.ts',
-]) {
+];
+for (const relative of sourceAssets) {
   if (!existsSync(join(sourceRoot, relative))) throw new Error(`Missing audited upstream artifact: ${relative}`);
 }
 
@@ -220,20 +226,6 @@ const licenseCopies = [
 for (const [source, name] of licenseCopies) copyFileSync(source, join(licenseDir, name));
 
 const packageVersion = (relative) => JSON.parse(readFileSync(join(webRoot, relative), 'utf8')).version;
-const receiptPath = process.env.PROTO_UI_BUILD_RECEIPT;
-let upstreamBuild = null;
-if (receiptPath) {
-  const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
-  if (receipt.selectedCount !== 42 || receipt.results?.length !== 42) {
-    throw new Error('Unexpected upstream build receipt shape');
-  }
-  upstreamBuild = {
-    script: 'scripts/build/public-packages.mjs',
-    selected_package_count: receipt.selectedCount,
-    receipt_path: receiptPath,
-    receipt_sha256: sha256(receiptPath),
-  };
-}
 const artifactNames = [
   'theme-bootstrap.js',
   ...modules,
@@ -274,24 +266,7 @@ const manifest = {
     runtime: 'createReactAdapter({ ...React, createPortal })',
     why: 'The explicitly pinned Proto-UI source provides the React runtime adapter and public family exports consumed by this build; its commit is recorded above, independently of the main branch.',
     style_profile: 'rhea (explicit); no Shadow split profile',
-    source_assets: [
-      'packages/adapters/react/dist/index.js',
-      'packages/prototypes/shadcn/dist/button/index.js',
-      'packages/prototypes/shadcn/dist/textarea/index.js',
-      'packages/prototypes/shadcn/dist/scroll-area/index.js',
-      'packages/prototypes/shadcn/dist/message-scroller/index.js',
-      'packages/prototypes/shadcn/dist/collapsible/index.js',
-      'packages/prototypes/shadcn/dist/drawer/index.js',
-      'packages/prototypes/shadcn/dist/toggle-group/index.js',
-      'packages/prototypes/shadcn/dist/input/index.js',
-      'packages/prototypes/shadcn/dist/separator/index.js',
-      'packages/prototypes/shadcn/dist/toggle/index.js',
-      'packages/prototypes/shadcn/dist/resizable/index.js',
-      'packages/prototypes/shadcn/dist/tree/index.js',
-      'packages/cli/bin/proto-ui.js',
-      'packages/compiler/package.json',
-      'packages/compiler/src/index.ts',
-    ],
+    source_assets: sourceAssets,
     shadcn_provenance: {
       rhea_luma: 'shadcn-ui/ui@25af02b1b467fcd53b63e0c6d6d324c57c16ef18',
       new_york: 'shadcn-ui/ui@02cad61166c4c20edbc8a3f71bd720eed4c1f49b',
