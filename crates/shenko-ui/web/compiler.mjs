@@ -4,11 +4,11 @@
  * The reviewed Proto-UI pin (web/upstream-pin.json) carries a *private*
  * `@proto.ui/compiler` package whose default export is `./src/index.ts`: it has no
  * built `dist`, it is not part of the pinned `scripts/build/public-packages.mjs`
- * selection, and no published compiler profile exists. Shenko therefore cannot
- * import the compiler through a package artifact and must not pretend a
- * runtime compiler exists.
+ * selection, and no registry compiler release exists. Upstream also supports a
+ * source-pinned artifact builder; this consumer retains its audited source seam
+ * and uses the compiler only at build time.
  *
- * What this module does instead:
+ * What this module does:
  *
  * 1. audits the pinned compiler sources it is about to consume (existence,
  *    package identity, exported entry, source-tree digest);

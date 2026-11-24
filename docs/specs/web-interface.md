@@ -280,12 +280,17 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 当前固定到 Sprint 2 整合候选
-`5cb80eb937f20982dd7dc8cbc93a90e91d665c31`，上一消费版本是
-`6a9b575fbe744ccb2f54d1e45336ccc195f401f1`。它仍是明确固定的开发候选，
-不称为已发布版本。新的源码、普通 producer、严格类型、既有测试、正常资源
-构建与浏览器结果分别绑定，见[本次消费记录](../evidence/sprint2-consumer-integration-5cb80eb9/README.md)；
+`web/upstream-pin.json` 当前固定到已合入 Proto-UI 主线的
+`b939afe35d30a1a436766d80beea7093a46e4fb2`，上一消费版本是
+`f24720f870cd76f86c81ee8343359486afd3f0de`。三个公开入口与构建期 compiler
+来自同一提交；这是精确源码消费版本，不是 compiler 的 registry 发行。
+本次重新生成的资源、类型检查、既有测试与浏览器结果分别绑定，见
+[主线升级记录](../evidence/proto-ui-mainline-b939afe-20261124.md)；
 修改 pin 本身不提供这些检查的成功证据。
+
+此前 Sprint 2 整合候选 `5cb80eb937f20982dd7dc8cbc93a90e91d665c31`
+及其前代 `6a9b575fbe744ccb2f54d1e45336ccc195f401f1` 的消费证据，
+保留在[当时的集成记录](../evidence/sprint2-consumer-integration-5cb80eb9/README.md)。
 
 此前 `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68` 整合 main
 `39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
@@ -333,9 +338,9 @@ compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图
 ### compiler：构建期编译 Shenko 自己的 Prototype
 
 该 pin 的 `@proto.ui/compiler` 是私有源码包：默认导出指向
-`./src/index.ts`，另有源码 `./browser` 入口；没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
-当包产物导入，也不能假装存在运行期编译器。现行路径是**构建期编译**
-（`web/compiler.mjs`）：
+`./src/index.ts`，另有源码 `./browser` 入口；没有 `dist`，也不在 42 个公开包的构建选择里。
+上游另外提供独立的 source-pinned artifact 构建路线；那不代表 registry 发行。
+Shenko 本次保留已审计的**构建期源码编译**路径（`web/compiler.mjs`），浏览器不导入 compiler：
 
 - 用同一份审查过的源码，审计 `packages/compiler/package.json` 的包身份、私有标记
   与 `exports` 入口，再对其 `src/` 计算确定性目录摘要；
@@ -360,8 +365,8 @@ compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图
 <a id="6-compiler-mode"></a>
 ### compiler 模式是目标（owner 决定，2026-11-13）
 
-owner 决定：Shenko 的界面以 compiler 模式交付。运行时 adapter 是过渡桥，只用在
-pin 的 compiler 还编译不了的上游 family 上，不是终点。
+owner 决定：Shenko 的界面以 compiler 模式交付。运行时 adapter 是上游 family
+在当前 pin 上完成源码编译与行为验收前的过渡桥，不是终点。
 
 **Why（实测，候选 `c0497fb`，Proto-UI `35195a6`，React 19.3.1 production，
 headless Chromium）：**
@@ -378,10 +383,12 @@ headless Chromium）：**
 - **真实界面（demo 数据）。** 对话与 Inspect 来回切换，每次 50–138 ms。十次切换里，
   Proto-UI 的 JS 时间是 693 ms，React 是 130 ms，Shenko 是 71 ms。
 
-**为什么还不能全部切换。** pin 的 compiler 能编译的 shadcn 文件是 0/216。界面用到的
-每个 family 都在 compiler 里有具体阻塞，见下表（`react-dom-source-v1`，第一处诊断）。
-shadcn 层先全部卡在 `PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；
-解决之后，base 层还有：
+**2026-11-13 的历史迁移阻塞。** 以下 0/216 与诊断表来自上述 Proto-UI
+`35195a6` / Shenko 候选 `c0497fb`，不代表当前 `b939afe3` 的编译准入范围。
+当时 compiler 能编译的 shadcn 文件是 0/216；每个已采用 family 的首处诊断如下
+（`react-dom-source-v1`）。当时 shadcn 层全部卡在
+`PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；
+解决这一层后，base 层还有：
 
 | family | base 层阻塞 |
 | --- | --- |
@@ -393,6 +400,11 @@ shadcn 层先全部卡在 `PUI1003 Unsupported source package @proto.ui/prototyp
 | input、textarea | `PUI1003 asControlLabel` |
 | separator | `PUI1006` 只准入已声明的原始 prop |
 | drawer | `defineHook`、`asAxisInput`、数据类型、模板插值 |
+
+当前实际交付仍由 `build-manifest.json.realisation` 说明：transport-badge 与
+message-bubble 经 compiler 生成，已采用的上游 family 仍经 adapter。
+后续切换需要在当前精确 pin 上逐 family 重验编译、事件、焦点与生命周期；
+这次版本升级不把历史阻塞表换成未经本轮验收的通过率。
 
 **禁止的捷径。** 在 Shenko 里用 compiler 可编译的子集重写这些 family，或者构建前把
 shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、无障碍和 collection 行为就和
@@ -413,7 +425,7 @@ shadcn/base「拍平」成本地文件再编译，都不允许。那样焦点、
   4. scroll-area；
   5. input、textarea；
   6. toggle、separator、drawer。
-- **体积。** 编译产物现在每个组件各带一份辅助运行时：两个小组件就是 40 KiB（#295 F6）。
+- **体积。** 上述历史候选的编译产物每个组件各带一份辅助运行时：当时两个小组件就是 40 KiB（#295 F6）。
   所以体积要等 F6 解决后再比较，不能假设 compiler 一定更小（§21.2）。
 - **插件界面。** 插件界面以 Prototype 交付。目标是在安装时编译；在此之前，插件界面
   经 adapter 渲染。
