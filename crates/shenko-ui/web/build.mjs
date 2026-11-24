@@ -17,10 +17,27 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
-import { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } from './compiler.mjs';
 
 const webRoot = dirname(fileURLToPath(import.meta.url));
+// Read the same pin as CI before loading build dependencies or changing any
+// generated output. Independent source snapshots carry these original bytes.
+let nodePinRoot = webRoot;
+while (!existsSync(join(nodePinRoot, '.node-version'))) {
+  const parent = dirname(nodePinRoot);
+  if (parent === nodePinRoot) throw new Error('Missing .node-version for the Shenko UI build');
+  nodePinRoot = parent;
+}
+const nodePinPath = join(nodePinRoot, '.node-version');
+const requiredNode = readFileSync(nodePinPath, 'utf8').trim();
+if (!/^\d+\.\d+\.\d+$/.test(requiredNode)) {
+  throw new Error(`Expected an exact Node version in ${nodePinPath}`);
+}
+if (process.version !== `v${requiredNode}`) {
+  throw new Error(`Node v${requiredNode} required by ${nodePinPath}; running ${process.version}`);
+}
+const { build } = await import('esbuild');
+const { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } = await import('./compiler.mjs');
+
 const crateRoot = resolve(webRoot, '..');
 const staticDir = join(crateRoot, 'src', 'static');
 const pin = JSON.parse(readFileSync(join(webRoot, 'upstream-pin.json'), 'utf8'));
