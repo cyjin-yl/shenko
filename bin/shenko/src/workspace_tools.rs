@@ -19,7 +19,12 @@ use shenko_node::{
 };
 use shenko_store::Store;
 use shenko_subject::NativeTaskHandlerPlugin;
+use shenko_types::ids::{EntityId, RuntimeGeneration};
 use shenko_types::object::Digest;
+use shenko_types::plugin_runtime::{
+    PluginArtifactBinding, PluginAttachRequest, PluginPrepareRequest, PluginPublishRequest,
+    PluginRetireRequest, PluginRootIdentity,
+};
 use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec};
 
 use crate::cli::ToolProfileCommand;
@@ -220,10 +225,151 @@ pub async fn install(
         require_compiled(&record)?;
         let tools = WorkspaceTools::new(Arc::clone(store), config_of(&record)?)?;
         for handler in tools.handlers() {
-            supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
+            install_definition(supervisor, store, &record, handler).await?;
         }
     }
     Ok(())
+}
+
+/// Install one definition and record its durable plugin-root lifecycle.
+///
+/// The live plugin registry is a projection of this process; the durable
+/// record is what survives a crash: the Node installation that was prepared,
+/// the publication that made the definition visible, the process generation
+/// that attached it, and the retirement that stopped new calls while the
+/// installation, the frozen operation contracts and the evidence receipts stay
+/// readable.
+async fn install_definition(
+    supervisor: &Supervisor,
+    store: &Arc<Store>,
+    record: &InstalledUnitFact,
+    handler: Arc<dyn shenko_kernel::task::NativeTaskHandler>,
+) -> Result<()> {
+    let identity = plugin_root_identity(record, handler.as_ref())?;
+    let runtime_generation = supervisor.lifecycle.generation.clone();
+    let installation_id = prepare_plugin_root(store, &identity, &record.revision, &runtime_generation)?;
+    register_retirement(supervisor, store, installation_id, &runtime_generation)?;
+    supervisor.spawn(NativeTaskHandlerPlugin, handler).await?;
+    publish_and_attach(store, supervisor, installation_id, &runtime_generation)?;
+    Ok(())
+}
+
+/// Record the prepared phase: the Node installation is retained and its
+/// compiled artifact matches the record this process adopted.
+fn prepare_plugin_root(
+    store: &Store,
+    identity: &PluginRootIdentity,
+    revision: &str,
+    runtime_generation: &RuntimeGeneration,
+) -> Result<EntityId> {
+    let installation_id = identity.installation_id();
+    store.prepare_plugin_root(
+        identity,
+        &PluginPrepareRequest {
+            runtime_generation: runtime_generation.clone(),
+            artifact: PluginArtifactBinding::InstallationUnit { retained: true },
+            reason: format!(
+                "the Node installation {UNIT_ID}@{} is retained and its compiled artifact matches",
+                revision
+            ),
+            evidence: Vec::new(),
+        },
+    )?;
+    Ok(installation_id)
+}
+
+/// Register the retirement of one installed definition.
+///
+/// The effect is registered before the plugin, so the teardown order is the
+/// reverse of the registration order: the live registrations are withdrawn
+/// first, and the retirement is recorded after them.
+fn register_retirement(
+    supervisor: &Supervisor,
+    store: &Arc<Store>,
+    installation_id: EntityId,
+    runtime_generation: &RuntimeGeneration,
+) -> Result<()> {
+    let retire_store = Arc::clone(store);
+    let retire_generation = runtime_generation.clone();
+    supervisor
+        .context()
+        .effect_sync(move || {
+            retire_store.retire_plugin_root(
+                installation_id,
+                &PluginRetireRequest {
+                    runtime_generation: retire_generation,
+                    reason: "the runtime withdrew the definition at teardown".to_string(),
+                    artifact_retained: true,
+                    evidence: Vec::new(),
+                },
+            )
+            .map(|_| ())
+            // The cleanup boundary reports a returned error, and it takes a
+            // standard error: the store's own error carries the detail.
+            .map_err(std::io::Error::other)
+        })
+        .map_err(|error| anyhow::anyhow!("plugin root retirement was not registered: {error}"))?;
+    Ok(())
+}
+
+/// Record the publication and the attachment of one installed definition.
+///
+/// The publication names the registry and capability revisions observed after
+/// the live registration; the attachment names the process generation that
+/// may now use it.
+fn publish_and_attach(
+    store: &Store,
+    supervisor: &Supervisor,
+    installation_id: EntityId,
+    runtime_generation: &RuntimeGeneration,
+) -> Result<()> {
+    store.publish_plugin_root(
+        installation_id,
+        &PluginPublishRequest {
+            runtime_generation: runtime_generation.clone(),
+            observed_registry_revision: supervisor.runtime.revision(),
+            observed_capability_revision: supervisor.runtime.capability_revision(),
+            observed_hook_graph_digest: None,
+            reason: "the definition is registered in the live plugin runtime".to_string(),
+            evidence: Vec::new(),
+        },
+    )?;
+    store.attach_plugin_root(
+        installation_id,
+        &PluginAttachRequest {
+            runtime_generation: runtime_generation.clone(),
+            observed_registry_revision: supervisor.runtime.revision(),
+            observed_capability_revision: supervisor.runtime.capability_revision(),
+            reason: "the definition is callable in this process generation".to_string(),
+            evidence: Vec::new(),
+        },
+    )?;
+    Ok(())
+}
+
+/// The exact identity of one installed definition.
+///
+/// The unit fields name the Node installation the definition came from, the
+/// plugin id and the implementation name the exact runtime implementation, and
+/// the provider and capability lists name what this installation publishes.
+fn plugin_root_identity(
+    record: &InstalledUnitFact,
+    handler: &dyn shenko_kernel::task::NativeTaskHandler,
+) -> Result<PluginRootIdentity> {
+    let descriptor = handler.descriptor()?;
+    Ok(PluginRootIdentity {
+        unit_id: UNIT_ID.to_string(),
+        unit_revision: record.revision.clone(),
+        unit_artifact_digest: record.artifact_digest.clone(),
+        plugin_id: descriptor.implementation_ref.plugin_id,
+        implementation: descriptor.implementation(),
+        provider_ids: vec![format!("native.{}", descriptor.kind)],
+        capability_ids: handler
+            .capabilities()
+            .iter()
+            .map(|declaration| declaration.capability_id.clone())
+            .collect(),
+    })
 }
 
 fn report(node: Option<&Node>) -> Result<Value> {
@@ -357,6 +503,7 @@ mod tests {
     use super::*;
     use shenko_subject::{NativeChildPlugin, NativeChildService};
     use shenko_types::ids::{EntityId, RuntimeGeneration};
+    use shenko_types::plugin_runtime::PluginRootPhase;
 
     async fn runtime(store: &Arc<Store>) -> Result<Supervisor> {
         let supervisor = Supervisor::new(RuntimeGeneration::default());
@@ -477,6 +624,17 @@ mod tests {
         let original = kinds(&first)?;
         assert_eq!(original.len(), 4);
         assert!(original.contains(&"workspace.edit.replace".into()));
+        // The durable plugin-root lifecycle of every installed definition:
+        // prepared, published and attached in this process generation, each
+        // with its own admission receipt.
+        let attached = store.plugin_root_records(None, 16)?;
+        assert_eq!(attached.len(), 4);
+        for record in &attached {
+            assert_eq!(record.phase, PluginRootPhase::Attached);
+            assert_eq!(record.attached_runtime_generation.as_ref(), Some(&RuntimeGeneration::default()));
+            let admissions = store.plugin_root_admissions(record.installation_id)?;
+            assert_eq!(admissions.len(), 3, "one admission per phase");
+        }
 
         command(
             &dir,
@@ -491,6 +649,11 @@ mod tests {
             "a saved profile must not change a running catalog"
         );
         first.stop().await?;
+        // The teardown withdraws the live registrations first and records the
+        // retirement after them.
+        for record in store.plugin_root_records(None, 16)? {
+            assert_eq!(record.phase, PluginRootPhase::Retired);
+        }
         let second = runtime(&store).await?;
         install(&second, &store, &dir).await?;
         let selected = kinds(&second)?;
