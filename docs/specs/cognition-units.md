@@ -145,9 +145,13 @@ re-observes state, it never replays.
   one bounded page of cards with the total, the next index and the revision
   the page was cut from. Read-only.
 - `cognition.unit.evidence:1` — input `{unit_id}`; returns the observations
-  this installation registered for the unit and the trial records the Node
-  holds for it. Read-only. This is where a judgement finds real facts to
-  cite.
+  registered for the current version (`observations`), the same for every
+  retained version (`retained`, each with `revision`, `artifact_digest`,
+  `current` and its own observations) and the trial records the Node holds
+  for the unit. Read-only. A replaced source stops producing readings, but
+  the readings it already registered stay bound to their exact version and
+  remain readable here instead of being answered for by the replacement's
+  observations. This is where a judgement finds real facts to cite.
 - `cognition.unit.write:1` — input carries the authored unit plus optional
   `derived_from` (the real observation it came from: kind + reference +
   optional digest) and optional `judgement` (`adopt|reject|retire`, `method`,
@@ -1242,6 +1246,8 @@ WASM 线性内存、执行栈和解释器对象图都在这个版本化根里。
 当前运行时仍把认知单元显示为可阅读的卡片与正文，没有态度/理由指针这种一等记录，没有宏包 kind，也没有按「旧版本数量 + 最新修改时间」投影修订链。这些缺口不把本节降回旧的文档读法。概念上的待决列表已经清空；还没改的是运行代码。见决策 0002 的盘点表。
 
 <!-- /migrated-contract: SPEC:51.6 -->
+
+**当前落地状态（2026-11-24）。** 安装与账本层已有一等记录：`shenko-store::atoms` 的 `cognition_contents` / `cognition_attitudes`（内容按摘要封存、态度只追加、理由指针与置信显式），`shenko-store::cognitive_root` 的自有版本化根（链尾追加、回退不倒退指针），`crates/shenko-node/src/units/codec.rs` 的 `metapackage` kind 与成员查询，以及 `shenko-context-policy::taste` 的修订投影与 `shenko-store::atoms::revision_disclosure` 的计数。仍未闭合的是运行时采用面：主体 S0 仍以卡片和正文披露认知单元，单元自己的旧版本数量尚未进入披露投影；记忆默认 recall 的修订投影已按 [memory](memory.md) 接入；态度与认知根在主体提示中的投影仍由并行切片实现。存储机制的存在不构成上述采用面的验收，见决策 0002 的盘点表。
 
 <a id="spec-51-7"></a>
 <!-- migrated-contract: SPEC:51.7 -->

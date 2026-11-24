@@ -27,7 +27,9 @@ use shenko_types::ids::EntityId;
 use shenko_types::object::ObjectRef;
 use shenko_types::subject::{MemoryIntent, MemoryIntentKind};
 
-use crate::backend::{MemoryHit, MemoryRequest, MemorySupersessionStatus, RecallQuery};
+use crate::backend::{
+    MemoryHit, MemoryRequest, MemoryRevisionDisclosure, MemorySupersessionStatus, RecallQuery,
+};
 use crate::excerpt::excerpt_for;
 
 /// Stable reference returned to callers after an intent is accepted.
@@ -557,25 +559,59 @@ impl MemoryStore {
             scopes: &query.scopes,
             include_retired: query.include_retired,
         }, query.limit.max(1)).map_err(|e| anyhow::anyhow!("recall memory: {e}"))?;
-        let hits = entries
-            .into_iter()
-            .map(|entry| {
-                let excerpt = if query.text.trim().is_empty() {
-                    None
-                } else {
-                    Some(excerpt_for(&entry.content, &query.text))
-                };
-                let supersession = if entry.superseded_by.is_some() {
-                    MemorySupersessionStatus::Superseded
-                } else if entry.supersedes.is_some() {
-                    MemorySupersessionStatus::Superseding
-                } else {
-                    MemorySupersessionStatus::Current
-                };
-                MemoryHit { entry, excerpt, supersession }
-            })
-            .collect();
+        let mut hits = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let excerpt = if query.text.trim().is_empty() {
+                None
+            } else {
+                Some(excerpt_for(&entry.content, &query.text))
+            };
+            let supersession = if entry.superseded_by.is_some() {
+                MemorySupersessionStatus::Superseded
+            } else if entry.supersedes.is_some() {
+                MemorySupersessionStatus::Superseding
+            } else {
+                MemorySupersessionStatus::Current
+            };
+            let revision = self.revision_projection(store.as_ref(), &entry)?;
+            hits.push(MemoryHit { entry, excerpt, supersession, revision });
+        }
         Ok(hits)
+    }
+
+    /// The default projection of one recalled fact's retained revisions.
+    ///
+    /// Only a fact that names a supersession relation pays for the lineage
+    /// walk; a single-revision fact has no history to show. The projection is a
+    /// display fact: it does not filter, hide or rewrite a revision, and the
+    /// older text stays reachable through the explicit lineage/read paths.
+    fn revision_projection(
+        &self,
+        store: &Store,
+        entry: &MemoryEntry,
+    ) -> Result<Option<MemoryRevisionDisclosure>, anyhow::Error> {
+        if entry.superseded_by.is_none() && entry.supersedes.is_none() {
+            return Ok(None);
+        }
+        let lineage = store
+            .memory_supersession_lineage(entry.entry_id)
+            .map_err(|error| anyhow::anyhow!("recall memory lineage: {error}"))?;
+        if lineage.len() <= 1 {
+            return Ok(None);
+        }
+        let head = lineage
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("memory supersession lineage is empty"))?;
+        let latest_modified_at_ms = lineage
+            .iter()
+            .map(|revision| revision.created_at_ms)
+            .max()
+            .unwrap_or(head.created_at_ms);
+        Ok(Some(MemoryRevisionDisclosure {
+            latest_entry_id: head.entry_id,
+            old_version_count: u32::try_from(lineage.len() - 1).unwrap_or(u32::MAX),
+            latest_modified_at_ms,
+        }))
     }
 
     fn seal_text(&self, content: &str) -> Result<ObjectRef, anyhow::Error> {

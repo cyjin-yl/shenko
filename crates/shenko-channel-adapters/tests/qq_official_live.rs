@@ -475,6 +475,11 @@ fn classify_error(error: &ChannelError) -> LiveOutcome {
             code: None,
             http_status: None,
         },
+        ChannelError::GenerationRefused { detail, .. } => LiveOutcome::Refused {
+            message: detail.clone(),
+            code: None,
+            http_status: None,
+        },
     }
 }
 

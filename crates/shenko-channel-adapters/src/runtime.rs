@@ -456,7 +456,7 @@ mod tests {
         let data_dir = deps.data_dir.clone();
         let mut registry = ChannelRegistry::new();
         let adapters = register_adapters(&mut registry, deps).unwrap();
-        assert_eq!(registry.plugins().count(), 1);
+        assert_eq!(registry.plugins().len(), 1);
         assert_eq!(adapters.ingress().len(), 1);
         let ledger = &adapters.ingress()[0];
         assert_eq!(ledger.channel(), FEISHU_CHANNEL_ID);
@@ -473,7 +473,7 @@ mod tests {
         let observations = adapters.observations();
         assert_eq!(observations[0].source, "feishu");
         assert!(registry.channel_for_source("feishu").is_some());
-        assert_eq!(registry.reply_channel("feishu-chat"), Some("feishu"));
+        assert_eq!(registry.reply_channel("feishu-chat"), Some("feishu".to_string()));
         // Two accounts of the same channel never share a ledger.
         let other = register_adapters(
             &mut ChannelRegistry::new(),
@@ -577,7 +577,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(registry.plugins().count(), 0);
+        assert_eq!(registry.plugins().len(), 0);
         assert!(adapters.ingress().is_empty());
         assert!(adapters.observations().is_empty());
     }

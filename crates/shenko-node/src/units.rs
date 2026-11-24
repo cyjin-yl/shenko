@@ -42,6 +42,7 @@ mod resolution;
 mod schema;
 mod transfer;
 mod trials;
+mod plugin_load;
 
 #[cfg(test)]
 mod test_support;
@@ -94,6 +95,10 @@ pub use schema::UNIT_TABLES;
 pub use trials::{
     AttemptMeasurement, GenericTrialProvenance, TrialAttemptFacts, TrialOutcome,
     TrialProvenance,
+};
+pub use plugin_load::{
+    PLUGIN_LOAD_RECEIPT_SCHEMA, InstalledPluginCode, PluginGenerationWitness, PluginLoadReceipt,
+    PluginLoadSelection, PluginSelectionKind,
 };
 
 use anyhow::Result;
@@ -237,8 +242,17 @@ pub enum UnitRequest {
         kind: String,
         bytes: Vec<u8>,
     },
-    /// The observations registered for one unit version.
+    /// The observations registered for the current version of one unit.
     Observations { unit_id: String },
+    /// The observations registered for every retained version of one unit.
+    ///
+    /// A version update retires the source that spoke for the previous
+    /// revision; the raw observations it registered stay durable facts bound
+    /// to that exact version. This read returns them per retained version, so
+    /// a later judgement can still cite an observation taken under a version
+    /// that is no longer current. It never observes, retires or rewrites
+    /// anything.
+    RetainedObservations { unit_id: String },
     /// The retained versions of one unit and the supersession relations
     /// between them.
     Lineage { unit_id: String },
@@ -414,6 +428,9 @@ impl Node {
                 bytes,
             } => self.unit_register_observation(&unit_id, &revision, &artifact_digest, &kind, &bytes)?,
             UnitRequest::Observations { unit_id } => self.unit_observations(&unit_id)?,
+            UnitRequest::RetainedObservations { unit_id } => {
+                self.unit_retained_observations(&unit_id)?
+            }
             UnitRequest::Lineage { unit_id } => self.unit_lineage(&unit_id)?,
             UnitRequest::Uninstall {
                 unit_id,

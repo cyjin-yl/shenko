@@ -416,3 +416,39 @@ durability mechanisms from actual model behavior.
 因此 RT19 的验收证据等级是明确的：**能力表与可达动作的对照已经做完（doc-vs-doc 与源码级），真实平台往返尚未验收**。RT19 的命题——"能力表只列 `describe` 实际能产出的动作；不可达的动作不计入能力"——目前只在源码与文档层面成立；它在真实平台上的成立还需要一次带真实账号的往返证据，今天不存在。
 
 声明 `proactive: true` 的四条通道（NapCat、QQ 官方、iLinkBot、飞书）都受同一条限制约束：除 QQ 官方那条有平台文档记载的窗口与频控事实外，主动触达在真实平台上的可达性、被动回复窗口与频控额度都还没有测量值。能力表里的 `true` 表示"这条插件会去尝试"，不表示"已经观察它成功过"。
+
+<a id="channel-installed-generation"></a>
+## Implementation appendix: channel same-generation binding (2026-11-22)
+
+`ChannelRegistry` is a view of one installed channel generation. A composition
+root registers its compiled plugins and then seals them with
+`prepare_compiled_channels`: the running executable's own bytes are the artifact
+identity of every compiled role, each channel's declared contract (channel id,
+account scope, sources, reply grammar, capability table) is its descriptor, and
+the generation digest is derived from that content instead of a process counter.
+Two processes that run the same binary with the same declarations name the same
+generation; a changed executable or declaration names a different one. `seq`
+stays diagnostic and `GenerationRef::same_content` is the comparison.
+
+Discovery and every message operation are bound to that generation. `plugins`,
+`channel_for_source`, `plugin_for_kind`, `channel`, `reply_channel` and
+`capability_tables` read the prepared catalog only; a compiled plugin the
+catalog does not publish is not advertised even as a fallback, and registration
+after the seal is refused (`GenerationInstalled`). `capability_tables` returns a
+`Result`, so a declaration that stopped being current is never advertised.
+
+A discovered handle (`InstalledChannel`) proves the binding before it classifies
+a payload, renders staged text, resolves a reply id, describes or dispatches an
+action, or reads an attachment. The proof is exact: the source must still
+publish the same generation content, the role binding must still match every
+captured identity (`matches_exact`), and the live plugin allocation must be the
+one the generation publishes. A displaced handle refuses with
+`ChannelBindingError::{StaleGeneration,RetiredBinding,ForeignPlugin}` before any
+provider call; `describe`/`dispatch` turn that into
+`ChannelError::GenerationRefused` (deterministic, effect none) and attachment
+resolution into `AttachmentError::GenerationRefused` (`generation_refused`).
+Rendering a displaced generation's payload falls back to the durable raw
+`[source]` header instead of reinterpreting it. The attachment helper in
+`shenko-types::generation::PreparedAttachmentError` is the same single-shot
+attachment rule the provider registry applies. These are source contracts; no
+real platform round-trip or runtime execution is claimed here.

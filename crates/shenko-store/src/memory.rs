@@ -1229,18 +1229,34 @@ impl Store {
         let conn = self.ledger.conn.lock();
         let mut lineage = Vec::new();
         let mut cursor = entry_id;
-        // Walk to the oldest version of the fact.
+        // Walk to the oldest version of the fact. A corrupt chain must not
+        // hang a caller: a row visited twice means the chain loops, which is
+        // reported rather than followed forever.
+        let mut seen = std::collections::HashSet::new();
         while let Some(entry) = read_entry_by_id(&conn, cursor)? {
+            if !seen.insert(cursor) {
+                return Err(ShenkoError::storage(
+                    "memory supersession lineage contains a cycle",
+                ));
+            }
             let Some(previous) = entry.supersedes else {
                 break;
             };
             cursor = previous;
         }
-        // Walk forward to the newest version.
+        // Walk forward to the newest version. The forward walk starts at the
+        // oldest entry the backward walk already visited, so it keeps its own
+        // visited set.
+        let mut seen = std::collections::HashSet::new();
         loop {
             let Some(entry) = read_entry_by_id(&conn, cursor)? else {
                 break;
             };
+            if !seen.insert(cursor) {
+                return Err(ShenkoError::storage(
+                    "memory supersession lineage contains a cycle",
+                ));
+            }
             lineage.push(entry.clone());
             let Some(next) = entry.superseded_by else {
                 break;

@@ -278,6 +278,61 @@ impl std::fmt::Display for SealedGenerationBinding {
     }
 }
 
+/// A refused single-shot attachment of a prepared generation port.
+///
+/// Both the provider registry and the channel registry accept exactly one
+/// prepared source for the life of a process. The identity rule is the same in
+/// both places: a source must publish a generation, re-attaching the exact
+/// same source is idempotent, and a different source may not replace the
+/// installed port even when its generation content happens to be identical.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PreparedAttachmentError {
+    /// A different attachment already owns the port.
+    #[error("a prepared source is already attached")]
+    AlreadyAttached,
+    /// The source has no published generation, so it cannot be authoritative.
+    #[error("no prepared generation is published")]
+    NoGenerationPublished,
+    /// Another generation is already installed.
+    #[error("prepared source for generation {incoming:?} replaces the attached generation {attached:?}")]
+    DifferentGeneration {
+        /// The generation the installed port already names.
+        attached: Option<GenerationRef>,
+        /// The generation the refused source publishes.
+        incoming: Option<GenerationRef>,
+    },
+}
+
+impl PreparedAttachmentError {
+    /// Check one attachment without changing the port.
+    ///
+    /// `same_source` is `true` only when the incoming source is the exact
+    /// allocation already attached. Identical generation content from another
+    /// source is not the same port: it is [`Self::AlreadyAttached`] when the
+    /// catalog content agrees — the publication sequence is diagnostic — and
+    /// [`Self::DifferentGeneration`] otherwise.
+    pub fn check(
+        same_source: bool,
+        attached: Option<GenerationRef>,
+        incoming: Option<GenerationRef>,
+    ) -> Result<(), Self> {
+        let Some(incoming) = incoming else {
+            return Err(Self::NoGenerationPublished);
+        };
+        if same_source {
+            return Ok(());
+        }
+        match attached {
+            None => Ok(()),
+            Some(attached) if attached.same_content(&incoming) => Err(Self::AlreadyAttached),
+            Some(attached) => Err(Self::DifferentGeneration {
+                attached: Some(attached),
+                incoming: Some(incoming),
+            }),
+        }
+    }
+}
+
 /// A malformed generation identity. These are refusals, never repairs: a
 /// binding that cannot be read exactly is not reinterpreted as a looser one.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -366,6 +421,42 @@ mod tests {
         first.validate().unwrap();
         assert!(first.same_content(&restarted));
         assert_ne!(first, restarted);
+    }
+
+    /// The shared attachment fence: one published port per process, and an
+    /// identical catalog attached by another process is not the same port.
+    #[test]
+    fn prepared_attachment_requires_one_published_generation() {
+        let digest = Digest::blake3(b"catalog");
+        let first = GenerationRef::new(1, digest.clone());
+        let restarted = GenerationRef::new(7, digest.clone());
+        let other = GenerationRef::new(2, Digest::blake3(b"other"));
+        assert_eq!(
+            PreparedAttachmentError::check(false, None, None),
+            Err(PreparedAttachmentError::NoGenerationPublished)
+        );
+        assert_eq!(
+            PreparedAttachmentError::check(false, None, Some(first.clone())),
+            Ok(())
+        );
+        assert_eq!(
+            PreparedAttachmentError::check(false, Some(first.clone()), Some(first.clone())),
+            Err(PreparedAttachmentError::AlreadyAttached)
+        );
+        assert_eq!(
+            PreparedAttachmentError::check(true, Some(first.clone()), Some(first.clone())),
+            Ok(())
+        );
+        // The sequence is diagnostic: matching content from another process is
+        // still a different attachment of the same catalog.
+        assert_eq!(
+            PreparedAttachmentError::check(false, Some(first.clone()), Some(restarted)),
+            Err(PreparedAttachmentError::AlreadyAttached)
+        );
+        assert!(matches!(
+            PreparedAttachmentError::check(false, Some(first), Some(other)),
+            Err(PreparedAttachmentError::DifferentGeneration { .. })
+        ));
     }
 }
 

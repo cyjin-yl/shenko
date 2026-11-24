@@ -786,6 +786,22 @@ pub struct CognitionObservation {
     pub bytes_held: bool,
 }
 
+/// The registered observations of one retained unit version.
+///
+/// An observation is bound to the exact version that was installed when it
+/// was taken. A replacement version never inherits it, and a receipt that
+/// names the older version has to be able to read it back after the source
+/// or the version was replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CognitionRetainedObservations {
+    pub revision: String,
+    pub artifact_digest: String,
+    /// Whether this is the version the installation currently offers.
+    pub current: bool,
+    pub observations: Vec<CognitionObservation>,
+}
+
 // -------------------------------------------------------------- catalog ----
 
 /// The read model over the installation authority.
@@ -1190,36 +1206,103 @@ impl CognitionCatalog {
         })
     }
 
-    /// The observations registered for one unit version.
+    /// Parse the observation entries of one node response.
+    fn parse_observations(value: &Value) -> Vec<CognitionObservation> {
+        value
+            .get("observations")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        Some(CognitionObservation {
+                            digest: entry.get("digest")?.as_str()?.to_string(),
+                            kind: entry.get("kind")?.as_str()?.to_string(),
+                            bytes: entry.get("bytes").and_then(Value::as_u64).unwrap_or(0),
+                            recorded_at: entry
+                                .get("recorded_at")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
+                                .to_string(),
+                            bytes_held: entry
+                                .get("bytes_held")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The observations registered for the current unit version.
     pub fn observations(&self, unit_id: &str) -> Result<Vec<CognitionObservation>> {
         let mut node = self.node.lock();
         let value = node.handle_unit_request(UnitRequest::Observations {
             unit_id: unit_id.to_string(),
         })?;
-        let entries = value
-            .get("observations")
+        Ok(Self::parse_observations(&value))
+    }
+
+    /// The observations registered for every retained version of one unit.
+    ///
+    /// A retired source stops producing readings, but the readings it already
+    /// registered stay bound to the exact version. This read returns them per
+    /// retained version so a later judgement can cite the original
+    /// observation instead of the replacement's; `observations` alone answers
+    /// only for the current version.
+    pub fn retained_observations(
+        &self,
+        unit_id: &str,
+    ) -> Result<Vec<CognitionRetainedObservations>> {
+        let mut node = self.node.lock();
+        let value = node.handle_unit_request(UnitRequest::RetainedObservations {
+            unit_id: unit_id.to_string(),
+        })?;
+        let versions = value
+            .get("versions")
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        Ok(entries
+        Ok(versions
             .iter()
-            .filter_map(|entry| {
-               Some(CognitionObservation {
-                    digest: entry.get("digest")?.as_str()?.to_string(),
-                    kind: entry.get("kind")?.as_str()?.to_string(),
-                    bytes: entry.get("bytes").and_then(Value::as_u64).unwrap_or(0),
-                    recorded_at: entry
-                        .get("recorded_at")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string(),
-                    bytes_held: entry
-                        .get("bytes_held")
+            .filter_map(|version| {
+                Some(CognitionRetainedObservations {
+                    revision: version.get("revision")?.as_str()?.to_string(),
+                    artifact_digest: version.get("artifact_digest")?.as_str()?.to_string(),
+                    current: version
+                        .get("current")
                         .and_then(Value::as_bool)
                         .unwrap_or(false),
-        })
-        })
+                    observations: Self::parse_observations(version),
+                })
+            })
             .collect())
+    }
+
+    /// The registered observations of one retained, possibly non-current,
+    /// version.
+    ///
+    /// A revision with several retained artifact digests is ambiguous: the
+    /// caller has to name the artifact, exactly as an exact-version body read
+    /// does. The registry never picks one of them for the caller.
+    pub fn observations_at(
+        &self,
+        unit_id: &str,
+        revision: &str,
+    ) -> Result<Vec<CognitionObservation>> {
+        let mut matching = self
+            .retained_observations(unit_id)?
+            .into_iter()
+            .filter(|version| version.revision == revision);
+        let version = matching.next().with_context(|| {
+            format!("unit '{unit_id}' has no retained revision '{revision}'")
+        })?;
+        ensure!(
+            matching.next().is_none(),
+            "unit '{unit_id}' revision '{revision}' retains several artifacts; name the artifact digest"
+        );
+        Ok(version.observations)
     }
     /// The trial evidence this installation recorded for one unit.
     ///

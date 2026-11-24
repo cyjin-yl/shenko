@@ -114,6 +114,10 @@ pub use channel::{ArmedPublication, ChannelFact, NewChannelFact};
 pub mod media;
 pub mod quota;
 
+/// Durable plugin-root lifecycle: prepared → published → attached → retired,
+/// with append-only phase admissions and restart recovery.
+pub mod plugin_lifecycle;
+
 /// Durable source-bound content stream journal.
 pub mod content_stream;
 pub mod trajectory;

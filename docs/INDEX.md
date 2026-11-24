@@ -15,6 +15,7 @@
 - [内核收敛计划](development/kernel-convergence.md)：代码向内核合同收敛的步骤；[依赖边界基线](state/kernel-boundary.json)由 `scripts/check_kernel_boundary.py` 检查，只查结构。
 - [AGENTS](../AGENTS.md) 与 [shenko-dev](../.agents/skills/shenko-dev/SKILL.md)：开发哲学与协作。
 - [实现地图](IMPLEMENTATION_DOCS_MAP.md)：调用点与实现缺口，不冒充运行验收。
+- [构建来源与 CI](development/build-provenance.md)：固定工具链与依赖锁、离线安装所需缓存、前端摘要清单，以及六个必需 CI 检查各自验证什么；是方法说明，不是产品验收。
 - [Poppy：身份、账号与商务接入](specs/ecosystem-adapters.md#poppy-foundation)：Issue #297 的可选安装、公开身份托管、节点凭据、原生账号/API/UCP 接口与未知结果恢复边界。
 - [DSH 工具插件兼容 v0](specs/ecosystem-adapters.md#dsh-tool-compat-v0)：2026-11-20 作者请求的部分插件复用；可选 Node/Cordis 工具宿主经既有 MCP 接入，支持范围、安装与验证边界见[使用说明](../adapters/dsh/README.md)。
 - [可选外部历史研究](specs/external-history.md)：Obelisk 查询、完整原文归档、可追溯引用；[实施 TODO 与验收](development/obelisk-history.md)。

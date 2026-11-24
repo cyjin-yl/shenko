@@ -137,6 +137,10 @@ impl Fixture {
     }
 
     async fn write_unit(&self, unit_id: &str) -> Result<String> {
+        self.write_unit_at(unit_id, "1").await
+    }
+
+    async fn write_unit_at(&self, unit_id: &str, revision: &str) -> Result<String> {
         let observed = Digest::blake3(b"durable query fixture provenance");
         self.store.cas.seal_object(
             b"durable query fixture provenance", "text/plain", "fixture", "observation", 1,
@@ -146,7 +150,7 @@ impl Fixture {
         );
         let operation = self.execute(&write, serde_json::json!({
             "unit_id": unit_id,
-            "revision": "1",
+            "revision": revision,
             "kind": "awareness",
             "title": "Query fixture",
             "capability_card": "observations retain their source",
@@ -195,6 +199,45 @@ async fn evidence_public_input_selects_the_units_retained_observation() -> Resul
         entry["bytes_held"].as_bool().expect("held bytes"),
     )).collect();
     assert_eq!(facts, vec![(Digest::blake3(expected).0, "fixture-report".into(), expected.len() as u64, true)]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn evidence_keeps_an_earlier_retained_versions_observations() -> Result<()> {
+    let fixture = Fixture::new();
+    let unit_id = "awareness.query.retained";
+    let earlier = b"the replaced version's real reading";
+    fixture.observation(unit_id, earlier).await?;
+    fixture.write_unit_at(unit_id, "2").await?;
+    let handler = CognitionQueryHandler::evidence(
+        Arc::clone(&fixture.store), Arc::clone(&fixture.catalog),
+    );
+    let operation = fixture.execute(&handler, serde_json::json!({
+        "unit_id": unit_id,
+    })).await?;
+    let result = Fixture::result(&fixture.store, operation.operation_id);
+    assert_eq!(operation.outcome, Some(OperationOutcome::Succeeded), "{result}");
+    assert!(
+        result["observations"].as_array().expect("current observations").is_empty(),
+        "the replacement version has no observations of its own: {result}"
+    );
+    let retained = result["retained"].as_array().expect("retained versions");
+    assert_eq!(retained.len(), 2, "{result}");
+    let first = retained
+        .iter()
+        .find(|version| version["revision"] == "1")
+        .expect("the replaced version stays retained");
+    assert_eq!(first["current"], serde_json::json!(false));
+    let observations = first["observations"].as_array().expect("earlier observations");
+    assert_eq!(observations.len(), 1, "{result}");
+    assert_eq!(observations[0]["digest"], serde_json::json!(Digest::blake3(earlier).0));
+    assert_eq!(observations[0]["bytes_held"], serde_json::json!(true));
+    let second = retained
+        .iter()
+        .find(|version| version["revision"] == "2")
+        .expect("the current version is listed");
+    assert_eq!(second["current"], serde_json::json!(true));
+    assert!(second["observations"].as_array().expect("current version observations").is_empty());
     Ok(())
 }
 
