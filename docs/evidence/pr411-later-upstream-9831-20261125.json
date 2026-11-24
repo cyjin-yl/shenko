@@ -1,0 +1,341 @@
+{
+  "baseline": "6ca8f262a074ed19cb24b35d5cc199b5b0e23e08",
+  "observedMain": "9831f4209392588c5a7a02dfda3da105460b1581",
+  "observedMainTree": "bc2bdf27e9a7c96b449314809322a31ebfb233b0",
+  "mainCommittedAt": "2026-11-24T20:42:13Z",
+  "comparison": {
+    "aheadBy": 28,
+    "behindBy": 0,
+    "packagesTreesTruncated": false
+  },
+  "sources": [
+    "https://api.github.com/repos/Proto-UI/Proto-UI/compare/6ca8f262a074ed19cb24b35d5cc199b5b0e23e08...9831f4209392588c5a7a02dfda3da105460b1581",
+    "https://api.github.com/repos/Proto-UI/Proto-UI/git/trees/fbc3c925898bc8ac84fb3db9e82aa1cfe73dc0bb?recursive=1",
+    "https://api.github.com/repos/Proto-UI/Proto-UI/git/trees/0a1767fff4ed148fce6e9d54e0cbb2713da0cb13?recursive=1"
+  ],
+  "rootCompare": [
+    {
+      "path": ".github",
+      "before": "6ae02d62fe38fa607a4b97a879c8fdcc2e0ebbe2",
+      "after": "6a4361bf4a84dadeaecbdd73e3b8c8f3bbce2b9c",
+      "identical": false
+    },
+    {
+      "path": ".prettierignore",
+      "before": "4c2cfae1ce50aaee4dc013dda14de320e44f5fd3",
+      "after": "e6862ed3782efc53c26861929854f7392c3d19f5",
+      "identical": false
+    },
+    {
+      "path": "apps",
+      "before": "55ea554d3fb314fdabdb1194531186db90c5f4f3",
+      "after": "4ae63d99020a31a26119068b10fbe280af59ad40",
+      "identical": false
+    },
+    {
+      "path": "internal",
+      "before": "430a0bfbd01807ec91b17fe3ea04c9de199acdc3",
+      "after": "c597245fa39a06cc1b1c0844001dfe6b714e6f70",
+      "identical": false
+    },
+    {
+      "path": "native",
+      "before": "5c7f27e680824dbf652628ac161f7785123be951",
+      "after": "5c7f27e680824dbf652628ac161f7785123be951",
+      "identical": true
+    },
+    {
+      "path": "package.json",
+      "before": "466fc96d11ac6cc7fdc204e35b3fef8c7de25df2",
+      "after": "466fc96d11ac6cc7fdc204e35b3fef8c7de25df2",
+      "identical": true
+    },
+    {
+      "path": "packages",
+      "before": "fbc3c925898bc8ac84fb3db9e82aa1cfe73dc0bb",
+      "after": "0a1767fff4ed148fce6e9d54e0cbb2713da0cb13",
+      "identical": false
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "before": "cedbb8fde664399668dba0550cd1a8eda5bdad74",
+      "after": "cedbb8fde664399668dba0550cd1a8eda5bdad74",
+      "identical": true
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "before": "b1513cd0909dc492bc097118f4400018ddfb71dd",
+      "after": "b1513cd0909dc492bc097118f4400018ddfb71dd",
+      "identical": true
+    },
+    {
+      "path": "scripts",
+      "before": "e152d7e380cc7a09c963bb472832263e1a017b2d",
+      "after": "7442ab0947e32dce314667f40bf73c9ebd0eba3a",
+      "identical": false
+    },
+    {
+      "path": "shared",
+      "before": "5d407d67fbb50c74b9b31cc23b1c5e3102fa503c",
+      "after": "5d407d67fbb50c74b9b31cc23b1c5e3102fa503c",
+      "identical": true
+    },
+    {
+      "path": "spec",
+      "before": "7e42d930a2eeb8a760d3d92d98d02800edea3096",
+      "after": "fac83fc75819868988ff98e0a73bb5414ba034b4",
+      "identical": false
+    },
+    {
+      "path": "tsconfig.json",
+      "before": "8cd0366aac84e42f91513c5103e263248a777384",
+      "after": "8cd0366aac84e42f91513c5103e263248a777384",
+      "identical": true
+    },
+    {
+      "path": "vitest.config.ts",
+      "before": "01e0b8b985842720d12229df2700d08262570fdb",
+      "after": "01e0b8b985842720d12229df2700d08262570fdb",
+      "identical": true
+    }
+  ],
+  "graph": [
+    {
+      "path": "packages/compiler",
+      "before": "3e90a28a68a1cc716c8603148ec18e2cf6f9d043",
+      "after": "3e90a28a68a1cc716c8603148ec18e2cf6f9d043",
+      "identical": true
+    },
+    {
+      "path": "packages/compiler/src",
+      "before": "6fa3970e1c1113117bccd3f38fe7a81ec47d331c",
+      "after": "6fa3970e1c1113117bccd3f38fe7a81ec47d331c",
+      "identical": true
+    },
+    {
+      "path": "packages/compiler/test",
+      "before": "5526fae4f4ed83c7aa84c2a848eef8926bc9c4ee",
+      "after": "5526fae4f4ed83c7aa84c2a848eef8926bc9c4ee",
+      "identical": true
+    },
+    {
+      "path": "packages/compiler/src/native-support/web-host-sources.generated.ts",
+      "before": "98f061e7cd750e5a5359a5d858e8213d8ccb8326",
+      "after": "98f061e7cd750e5a5359a5d858e8213d8ccb8326",
+      "identical": true
+    },
+    {
+      "path": "packages/compiler/src/native-support/web-target-alignment.ts",
+      "before": "3dee465c558ce20d14ab3fc32670637bfaad12b4",
+      "after": "3dee465c558ce20d14ab3fc32670637bfaad12b4",
+      "identical": true
+    },
+    {
+      "path": "packages/cli",
+      "before": "e353923d692575e3ceaf3739bc4119248284b51a",
+      "after": "e353923d692575e3ceaf3739bc4119248284b51a",
+      "identical": true
+    },
+    {
+      "path": "packages/adapters/react",
+      "before": "c56e0830fa0bb9fbcff6618e786b7cac9d745951",
+      "after": "c56e0830fa0bb9fbcff6618e786b7cac9d745951",
+      "identical": true
+    },
+    {
+      "path": "packages/adapters/base/src",
+      "before": "77673f2a9b9085075507713bfc6c55c59bef5789",
+      "after": "77673f2a9b9085075507713bfc6c55c59bef5789",
+      "identical": true
+    },
+    {
+      "path": "packages/prototypes/shadcn",
+      "before": "3a0646739351f71229f6552adab6aa8f2e4f3cf2",
+      "after": "3a0646739351f71229f6552adab6aa8f2e4f3cf2",
+      "identical": true
+    },
+    {
+      "path": "packages/prototypes/brutalist",
+      "before": "184f78bf36401bb37295f4a0f011d07cdbfd4d45",
+      "after": "184f78bf36401bb37295f4a0f011d07cdbfd4d45",
+      "identical": true
+    },
+    {
+      "path": "packages/prototypes/base",
+      "before": "72b09934507db2494158f2a6e80e8ce1b9a722de",
+      "after": "ed132e0e132b444226b46b6e05c66ef02fb567d9",
+      "identical": false
+    },
+    {
+      "path": "packages/modules/positioning",
+      "before": "df11f0a9b93a3cef38e5dba9085981948f1b77f7",
+      "after": "f0483c55eea63b5cdc8ed5c11d93c7d3e36ae1c8",
+      "identical": false
+    },
+    {
+      "path": "packages/core",
+      "before": "ab497950f3ece92fc10d95431ac34d84391c011d",
+      "after": "ab497950f3ece92fc10d95431ac34d84391c011d",
+      "identical": true
+    },
+    {
+      "path": "packages/hooks",
+      "before": "5b8b7f4e4a26f00da91227ead43604e7145afb53",
+      "after": "5b8b7f4e4a26f00da91227ead43604e7145afb53",
+      "identical": true
+    },
+    {
+      "path": "packages/runtime",
+      "before": "423d5dca5117b387392c2159ae422ded63654bec",
+      "after": "423d5dca5117b387392c2159ae422ded63654bec",
+      "identical": true
+    }
+  ],
+  "packageChanges": [
+    {
+      "path": "packages/adapters/base/test/fixtures/overlay-focus-conformance.ts",
+      "before": "31485c433f61e36b74489a6102515cc196b9298d",
+      "after": "9b7a5ec4f5c5e39bf6a52cb78629add3d83ef51a"
+    },
+    {
+      "path": "packages/modules/positioning/src/web/floating-ui-host.ts",
+      "before": "5d9819e2ad1882a4cf98372dc043b93b926d8f57",
+      "after": "03f1048668c98840d408a312c35ca17cb57be2aa"
+    },
+    {
+      "path": "packages/modules/positioning/src/web/owned-style-lease.ts",
+      "before": "f30bd2d8bd48c3d1bf38f11fa6ae0484665e564b",
+      "after": "67afbb0bb459b40d08a999eb9e000c07f572be4b"
+    },
+    {
+      "path": "packages/modules/positioning/test/available-projection-ownership.test.ts",
+      "before": "197ad44dbf0aba6cc0a7ef875e5b4bd66a270e98",
+      "after": "d179727cea82577365c383dfa6815cc6cac96c68"
+    },
+    {
+      "path": "packages/modules/positioning/test/floating-ui-host-intrinsic-invalidation.test.ts",
+      "before": null,
+      "after": "40fb02074cff9b4edbdd761fcdd522f3d9a44ccc"
+    },
+    {
+      "path": "packages/modules/positioning/test/floating-ui-host.test.ts",
+      "before": "a7601e0deae0607d28f9eff4889bb9f6d59ff9e6",
+      "after": "830defea0eb1538d80e059eb33202370bc68590e"
+    },
+    {
+      "path": "packages/modules/positioning/test/lease-generation.test.ts",
+      "before": "5de958796cd1b10d6c7a99dc7d543ba3cd9d277c",
+      "after": "56e2225ed5e9fe7aa0877a125872c8872b39f762"
+    },
+    {
+      "path": "packages/modules/positioning/test/owned-style-lease.test.ts",
+      "before": null,
+      "after": "9f79c0f68646caa1096f98efcf188698191f6437"
+    },
+    {
+      "path": "packages/prototypes/base/src/dialog/content.proto.ts",
+      "before": "014c1e2a9aa44ec4daabe970d332473e8f24ca3b",
+      "after": "d432a166975d10b07129f34ac54e3fbe3860eccb"
+    },
+    {
+      "path": "packages/prototypes/base/src/dialog/types.ts",
+      "before": "27722c1306a2ea41f5a5e07d7b2f2afffe17ed8e",
+      "after": "45a2b9baf529c451bb336320e9b79055e6b79187"
+    },
+    {
+      "path": "packages/prototypes/base/test/dialog-focus-entry.test.ts",
+      "before": "507403bc4521792c1108930b97474f79f1c45cdd",
+      "after": "15bc7325854f65f3e0c6c52c31e66ab56b8aaeef"
+    }
+  ],
+  "scriptChanges": [
+    {
+      "path": "scripts/coverage-matrices/browser-compiler-imports.mjs",
+      "before": "9025c3084370339be7f90d7d364161bf9ce45861",
+      "after": "0bc83ab220877a6c8499ffd30904fce418271899"
+    },
+    {
+      "path": "scripts/coverage-matrices/check-coverage-matrices.mjs",
+      "before": "4797bc0b1bc93e7c6343674cd46380f6a2647512",
+      "after": "c0cfa25ddf92d423edbe503531b188360ad9cb81"
+    },
+    {
+      "path": "scripts/coverage-matrices/test/check-coverage-matrices.test.mjs",
+      "before": "6673c97963f26d7fe8e49f5eb1b2795e4acc4652",
+      "after": "c9e37dd5951b4d713d1d54b2f75cb8a94b81725b"
+    },
+    {
+      "path": "scripts/coverage-matrices/test/fixtures/documentation-image-controls-be2f4a9.txt",
+      "before": null,
+      "after": "b482b89e127960cd7e6fec2fbe8600263ee624cf"
+    },
+    {
+      "path": "scripts/coverage-matrices/test/fixtures/documentation-image-reading-viewport-be2f4a9.txt",
+      "before": null,
+      "after": "78e758dba432fa3a8022adeead6d25bc12a6cd20"
+    },
+    {
+      "path": "scripts/coverage-matrices/test/fixtures/website-markup-provenance-723cf85.json",
+      "before": null,
+      "after": "bc491e404b2ec66ffa3c81f24506d35d9920363f"
+    },
+    {
+      "path": "scripts/coverage-matrices/test/fixtures/website-markup-provenance-current.json",
+      "before": "bc491e404b2ec66ffa3c81f24506d35d9920363f",
+      "after": "1a0e3255a751c8806a01274f28e958ee800cde51"
+    },
+    {
+      "path": "scripts/docs/test/whitepaper-diagram-evidence-receipts.test.mjs",
+      "before": "b9b2d6f70350560c3da8267a149a9ccf231e3734",
+      "after": "28a7016a09b6b0eda998c8c2181d9202d52e10ec"
+    },
+    {
+      "path": "scripts/release/consumer-smoke-css.mjs",
+      "before": "1c0ae45daeba46462d0698af832f62a34f7f5444",
+      "after": "a464a6da27ed38044c26a8e3c886e3ea3d7a650c"
+    },
+    {
+      "path": "scripts/release/consumer-smoke/README.md",
+      "before": "665556e0897356b517b30f96c549638f2ea211e9",
+      "after": "f240ba77aff8e180c94ccc170a6708a75331efd0"
+    },
+    {
+      "path": "scripts/release/test/consumer-smoke-css.test.mjs",
+      "before": "733e7421b0ee180b1ade49d59597afbd46670647",
+      "after": "df2ebb6eaa82451c0cfa5d1bb52dcad03ea85464"
+    },
+    {
+      "path": "scripts/release/test/lifecycle-readiness.test.mjs",
+      "before": "7cb6b258b1673cd506abcf8d42452cb242d96d49",
+      "after": "3eab929a2c92f6c49dcbe6a487f0620411510508"
+    }
+  ],
+  "pr1817Files": [
+    "apps/www/src/components/PrototypePreviewer/previewer-client.ts",
+    "apps/www/src/components/PrototypePreviewer/runtime-preview-surface.test.ts",
+    "apps/www/src/components/PrototypePreviewer/runtime-preview-surface.ts",
+    "apps/www/src/components/PrototypePreviewer/runtime-tabs-focus.test.ts",
+    "apps/www/src/components/site-code-surface.ts",
+    "apps/www/src/components/site-library-family.ts",
+    "internal/website/self-hosting-coverage-matrix.md",
+    "scripts/coverage-matrices/test/fixtures/website-markup-provenance-723cf85.json",
+    "scripts/coverage-matrices/test/fixtures/website-markup-provenance-current.json"
+  ],
+  "buildTree": {
+    "before": "c07eb066942ab850a9f79dc7d4983660bf6ab9db",
+    "after": "c07eb066942ab850a9f79dc7d4983660bf6ab9db"
+  },
+  "consumerAssessment": {
+    "floatingUiHost": "Potentially consumed by current public runtime: unchanged React adapter runtime/modules.ts:606 registers createFloatingUiAnchoredPositionHost. New intrinsic-size measurement and scroll-origin handling can affect anchored context-menu/dropdown panels. No observed Shenko consumer failure established that adopting these new bytes is necessary for PR411.",
+    "ownedStyleLease": "Adds withBaseline and revision/priority tracking used by the new Floating UI measurement. This is a real transitive runtime change despite unchanged Shadcn/React package source trees.",
+    "dialog": "Adds focusEntry:'content' and reentrancy guards. The 16 adopted Shadcn family definitions do not import prototypes-base/dialog or asDialogContent; Drawer uses independent asDrawerContent, with unchanged dialog/style only for paint. No direct use of the new content-entry policy is established in Shenko.",
+    "compilerSnapshot": "Compiler package and canonical web-host generated snapshot are unchanged. The runtime owned-style-lease source changed, while native-support lowering continues to read the old embedded canonical snapshot; this audit does not promote a whole-graph test claim.",
+    "knownFailures": "Target-alignment root-space-observer import mapping/embedded host and Brutalist new Set source remain unchanged. CLI closure scanner/tests/timeouts are unchanged; no 9831 tests were run or claimed.",
+    "publicationDecision": "Keeping the already verified 6ca source snapshot is a bounded delivery choice; record 9831 as separately observed newer main with real unvalidated runtime changes. Do not call 6ca current upstream HEAD."
+  },
+  "packageManifestsExportsChanged": false,
+  "lockGitBlob": "cedbb8fde664399668dba0550cd1a8eda5bdad74",
+  "lockSha256": "eae18430bd967c94def36809b6d3305fa156a96548b08215a18dfe8a43923c07",
+  "testsRun": false,
+  "sourceMutations": false
+}

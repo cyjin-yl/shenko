@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "bdc564c0da040a9b8438b1a94b3eaea74cb94b67",
+    "commit": "6ca8f262a074ed19cb24b35d5cc199b5b0e23e08",
     "previous_reviewed_commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
     "lock_sha256": "eae18430bd967c94def36809b6d3305fa156a96548b08215a18dfe8a43923c07",
     "source_checkout": "/var/idw-target/pr411-review-20261125-55114/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/var/idw-target/pr411-review-20261125-55114/upstream-build.json",
-      "receipt_sha256": "26bac62aa01a257986b77a28fcb94bcdd4a39140a3b7221c39a1a7453d6e3997"
+      "receipt_path": "/var/idw-target/pr411-review-20261125-55114/upstream-r3/upstream-build.json",
+      "receipt_sha256": "cfc51fb160b4c18cb35f64e893c938f84c6e12b659254f4732fce5e5f3a994cb"
     }
   },
   "packages": [
@@ -168,8 +168,8 @@
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "bfddefd66a8ef7d8d29d2ffdec76793d9cdec6951d753ee1c24f998ec95f9a9e",
-      "bytes": 4220837,
+      "sha256": "05e90def13a0a7e4cd37d5974e94566e45ddd5e8d9c57a6bec819709f497eaf0",
+      "bytes": 4220952,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -237,15 +237,15 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/var/idw-target/pr411-review-20261125-55114/source/crates/shenko-ui/web",
-  "built_at": "2026-11-24T20:20:57.507Z",
+  "built_at": "2026-11-24T20:34:40.216Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1382875,
-      "sha256": "c7a3696d01998abef6a086735bdc545037308346c32c6b316057a7709f441947"
+      "bytes": 1391532,
+      "sha256": "46fbd724d380ccd0270cc2270c19b60a039f56c70b7ebc10cd41e964e49fc0a2"
     },
     "chunks/chunk-SD6RZHGX.js": {
       "bytes": 75257,
@@ -264,8 +264,8 @@
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 175967,
-      "sha256": "43e03b222d7e2f8b0e2a5a3f8a9e98a7b4da9a8d52e25ea89d3c504f55218fd9"
+      "bytes": 178963,
+      "sha256": "882bdf50c85b466abfe5eb29e53b40e1b0d676ea31c0b8413ba085254b78839f"
     },
     "shadcn-theme.css": {
       "bytes": 6473,
