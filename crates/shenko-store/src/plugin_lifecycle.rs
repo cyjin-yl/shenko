@@ -121,38 +121,47 @@ fn admission_id(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn make_admission(
+/// The facts one phase admission is built from. Every phase shares one
+/// constructor, so the inputs travel as one record instead of a long
+/// parameter list.
+struct AdmissionInput<'a> {
     installation_id: EntityId,
     generation: u64,
     phase: PluginRootPhase,
     record_revision: u64,
-    runtime_generation: &RuntimeGeneration,
+    runtime_generation: &'a RuntimeGeneration,
     observed_registry_revision: u64,
     observed_capability_revision: u64,
     observed_hook_graph_digest: Option<Digest>,
     artifact: PluginArtifactBinding,
-    reason: &str,
-    evidence: &[shenko_types::object::ObjectRef],
+    reason: &'a str,
+    evidence: &'a [shenko_types::object::ObjectRef],
     unresolved_operations: Option<u64>,
     committed_at: CommitRef,
-) -> PluginPhaseAdmission {
+}
+
+fn make_admission(input: AdmissionInput<'_>) -> PluginPhaseAdmission {
     PluginPhaseAdmission {
         schema_version: 1,
-        admission_id: admission_id(installation_id, generation, phase, runtime_generation),
-        installation_id,
-        generation,
-        phase,
-        record_revision,
-        runtime_generation: runtime_generation.clone(),
-        observed_registry_revision,
-        observed_capability_revision,
-        observed_hook_graph_digest,
-        artifact,
-        reason: reason.to_owned(),
-        evidence: evidence.to_vec(),
-        unresolved_operations,
-        committed_at,
+        admission_id: admission_id(
+            input.installation_id,
+            input.generation,
+            input.phase,
+            input.runtime_generation,
+        ),
+        installation_id: input.installation_id,
+        generation: input.generation,
+        phase: input.phase,
+        record_revision: input.record_revision,
+        runtime_generation: input.runtime_generation.clone(),
+        observed_registry_revision: input.observed_registry_revision,
+        observed_capability_revision: input.observed_capability_revision,
+        observed_hook_graph_digest: input.observed_hook_graph_digest,
+        artifact: input.artifact,
+        reason: input.reason.to_owned(),
+        evidence: input.evidence.to_vec(),
+        unresolved_operations: input.unresolved_operations,
+        committed_at: input.committed_at,
     }
 }
 
@@ -436,19 +445,21 @@ impl Store {
                                 );
                                 let revision = existing.record_revision + 1;
                                 let prepared = make_admission(
-                                    installation_id,
-                                    generation,
-                                    PluginRootPhase::Prepared,
-                                    revision,
-                                    &request.runtime_generation,
-                                    0,
-                                    0,
-                                    None,
-                                    request.artifact.clone(),
-                                    &request.reason,
-                                    &request.evidence,
-                                    None,
-                                    committed_at,
+                                    AdmissionInput {
+                                        installation_id,
+                                        generation,
+                                        phase: PluginRootPhase::Prepared,
+                                        record_revision: revision,
+                                        runtime_generation: &request.runtime_generation,
+                                        observed_registry_revision: 0,
+                                        observed_capability_revision: 0,
+                                        observed_hook_graph_digest: None,
+                                        artifact: request.artifact.clone(),
+                                        reason: &request.reason,
+                                        evidence: &request.evidence,
+                                        unresolved_operations: None,
+                                        committed_at,
+                                    },
                                 );
                                 let record = PluginRootRecord {
                                     schema_version: 1,
@@ -488,19 +499,21 @@ impl Store {
                     let committed_at =
                         CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
                     let prepared = make_admission(
-                        installation_id,
-                        0,
-                        PluginRootPhase::Prepared,
-                        0,
-                        &request.runtime_generation,
-                        0,
-                        0,
-                        None,
-                        request.artifact.clone(),
-                        &request.reason,
-                        &request.evidence,
-                        None,
-                        committed_at,
+                        AdmissionInput {
+                            installation_id,
+                            generation: 0,
+                            phase: PluginRootPhase::Prepared,
+                            record_revision: 0,
+                            runtime_generation: &request.runtime_generation,
+                            observed_registry_revision: 0,
+                            observed_capability_revision: 0,
+                            observed_hook_graph_digest: None,
+                            artifact: request.artifact.clone(),
+                            reason: &request.reason,
+                            evidence: &request.evidence,
+                            unresolved_operations: None,
+                            committed_at,
+                        },
                     );
                     let record = PluginRootRecord {
                         schema_version: 1,
@@ -598,19 +611,21 @@ impl Store {
                         CommitRef::new(self.ledger.ledger_id(), self.ledger.allocate_seq(&tx)?);
                     let revision = record.record_revision + 1;
                     let admission = make_admission(
-                        installation_id,
-                        record.generation,
-                        PluginRootPhase::Published,
-                        revision,
-                        &request.runtime_generation,
-                        request.observed_registry_revision,
-                        request.observed_capability_revision,
-                        request.observed_hook_graph_digest.clone(),
-                        record.prepared.artifact.clone(),
-                        &request.reason,
-                        &request.evidence,
-                        None,
-                        committed_at,
+                        AdmissionInput {
+                            installation_id,
+                            generation: record.generation,
+                            phase: PluginRootPhase::Published,
+                            record_revision: revision,
+                            runtime_generation: &request.runtime_generation,
+                            observed_registry_revision: request.observed_registry_revision,
+                            observed_capability_revision: request.observed_capability_revision,
+                            observed_hook_graph_digest: request.observed_hook_graph_digest.clone(),
+                            artifact: record.prepared.artifact.clone(),
+                            reason: &request.reason,
+                            evidence: &request.evidence,
+                            unresolved_operations: None,
+                            committed_at,
+                        },
                     );
                     insert_admission(&tx, &admission)?;
                     record.phase = PluginRootPhase::Published;
@@ -712,19 +727,21 @@ impl Store {
                         .map(|published| published.artifact.clone())
                         .unwrap_or_else(|| record.prepared.artifact.clone());
                     let admission = make_admission(
-                        installation_id,
-                        record.generation,
-                        PluginRootPhase::Attached,
-                        revision,
-                        &request.runtime_generation,
-                        request.observed_registry_revision,
-                        request.observed_capability_revision,
-                        None,
-                        published_artifact,
-                        &request.reason,
-                        &request.evidence,
-                        None,
-                        committed_at,
+                        AdmissionInput {
+                            installation_id,
+                            generation: record.generation,
+                            phase: PluginRootPhase::Attached,
+                            record_revision: revision,
+                            runtime_generation: &request.runtime_generation,
+                            observed_registry_revision: request.observed_registry_revision,
+                            observed_capability_revision: request.observed_capability_revision,
+                            observed_hook_graph_digest: None,
+                            artifact: published_artifact,
+                            reason: &request.reason,
+                            evidence: &request.evidence,
+                            unresolved_operations: None,
+                            committed_at,
+                        },
                     );
                     insert_admission(&tx, &admission)?;
                     record.phase = PluginRootPhase::Attached;
@@ -815,19 +832,21 @@ impl Store {
                         .map(|published| published.artifact.clone())
                         .unwrap_or_else(|| record.prepared.artifact.clone());
                     let admission = make_admission(
-                        installation_id,
-                        record.generation,
-                        PluginRootPhase::Retired,
-                        revision,
-                        &request.runtime_generation,
-                        0,
-                        0,
-                        None,
-                        artifact,
-                        &request.reason,
-                        &request.evidence,
-                        Some(unresolved),
-                        committed_at,
+                        AdmissionInput {
+                            installation_id,
+                            generation: record.generation,
+                            phase: PluginRootPhase::Retired,
+                            record_revision: revision,
+                            runtime_generation: &request.runtime_generation,
+                            observed_registry_revision: 0,
+                            observed_capability_revision: 0,
+                            observed_hook_graph_digest: None,
+                            artifact,
+                            reason: &request.reason,
+                            evidence: &request.evidence,
+                            unresolved_operations: Some(unresolved),
+                            committed_at,
+                        },
                     );
                     insert_admission(&tx, &admission)?;
                     record.phase = PluginRootPhase::Retired;
