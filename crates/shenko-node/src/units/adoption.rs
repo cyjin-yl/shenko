@@ -802,6 +802,7 @@ mod tests {
     use crate::units::test_support::{import, package, scratch};
     use crate::units::trials::TrialOutcome;
     use serde_json::{Value, json};
+    use shenko_types::object::Digest;
     use super::{
         AdoptionDecision, AdoptionEvidence, AdoptionEvidenceRejected, AdoptionEvidenceRejection,
         AdoptionMethod,
