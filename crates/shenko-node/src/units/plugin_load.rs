@@ -237,7 +237,7 @@ impl Node {
             None => Vec::new(),
         };
         let witness = |expected: &PluginGenerationWitness| -> Result<()> {
-            let active = selector.context(
+            let active = selector.as_ref().context(
                 "PLUGIN_LOAD_ENVIRONMENT: this installation has no active environment generation; \
                  load by current version or exact retained identity, without a generation witness",
             )?;
@@ -257,7 +257,7 @@ impl Node {
             Ok(())
         };
         let pin_of = |unit_id: &str, revision: &str, digest: &Digest| -> Option<EnvironmentPin> {
-            let selector = selector?;
+            let selector = selector.as_ref()?;
             members
                 .iter()
                 .find(|member| {
@@ -275,7 +275,7 @@ impl Node {
         };
         let (fact, kind, environment) = match selection {
             PluginLoadSelection::Environment { expected } => {
-                let active = selector.context(
+                let active = selector.as_ref().context(
                     "PLUGIN_LOAD_ENVIRONMENT: this installation has no active environment \
                      generation; prepare and activate one before loading its pin",
                 )?;
@@ -330,7 +330,7 @@ impl Node {
                     fact.revision
                 );
                 if expected.is_some() {
-                    let active = selector.context(
+                    let active = selector.as_ref().context(
                         "PLUGIN_LOAD_GENERATION: a verified witness requires an active selector",
                     )?;
                     let member = members
