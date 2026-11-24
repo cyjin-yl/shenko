@@ -5,12 +5,12 @@
     "commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
     "previous_reviewed_commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
     "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
-    "source_checkout": "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/Proto-UI-shenko-producer",
+    "source_checkout": "/__w/shenko/shenko/.ci/web/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/evidence/shenko-public-packages-f247-02/public-packages.json",
-      "receipt_sha256": "2371cddf0f7995311ddfa403ef243de54ae1fe6c1dfc494e54491fdb4b79a162"
+      "receipt_path": "/__w/shenko/shenko/.ci/web/upstream-build.json",
+      "receipt_sha256": "314e432001a15ef15315f03f8c6d8d8d69336bab5f2b8b827fd6d27beaf4c6c5"
     }
   },
   "packages": [
@@ -204,14 +204,14 @@
     ]
   },
   "toolchain": {
-    "node": "v24.22.3",
+    "node": "v24.22.1",
     "pnpm": "10.32.1",
     "esbuild": "0.25.12",
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/proto-ui-agent/s2-completion-20261124-b202/Shenko-final/crates/shenko-ui/web",
-  "built_at": "2026-11-24T00:13:55.380Z",
+  "web_root": "/__w/shenko/shenko/.ci/web/source/web",
+  "built_at": "2026-11-24T00:38:08.608Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
