@@ -1747,8 +1747,14 @@ fn paused_catchup_preserves_source_creation_times_for_a_later_successor() {
     drop(copied);
     let receiver = Store::open(slot.db_path.clone(), fixture.data_dir.join("cas")).unwrap();
     assert_ne!(receiver.ledger.ledger_id(), fixture.store.ledger.ledger_id());
+    assert!(receiver.inspect_paused_subject().unwrap().is_none());
     let before_copy = receiver.current_commit_seq().unwrap();
     receiver.copy_paused_activation_boundary(&fixture.store, fixture.agent_id).unwrap();
+    assert_eq!(receiver.get_existing_agent_id().unwrap(), None);
+    let (inspected_head, inspected_step) = receiver.inspect_paused_subject().unwrap().unwrap();
+    assert_eq!(inspected_head.agent_id, fixture.agent_id);
+    assert_eq!(inspected_head.branch_id, paused.branch_id);
+    assert_eq!(inspected_step.step_id, successor);
     let local_boundary = receiver.subject_quiesce(request_id).unwrap().unwrap();
     let requested_at = local_boundary.requested_at;
     let boundary_at = local_boundary.boundary_at.unwrap();
