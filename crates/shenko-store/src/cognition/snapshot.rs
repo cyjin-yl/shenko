@@ -236,6 +236,9 @@ impl Store {
         // export must say so instead of shipping an archive that claims
         // recoverability.
         gaps.extend(archive_membership_gaps(&rows));
+        if let Err(error) = super::root_facts::validate_root_facts(&rows) {
+            gaps.push(CognitionGap { kind: "root_required_fact".into(), detail: error.to_string(), blocking: true });
+        }
         if let Err(error) = self.validate_obligation_rows(&rows) {
             gaps.push(CognitionGap { kind: "obligation_required_fact".into(), detail: error.to_string(), blocking: true });
         }
@@ -439,9 +442,9 @@ fn fingerprint_parts<'a>(
 ) -> Digest {
     let mut buffer: Vec<u8> = Vec::new();
     buffer.extend_from_slice(b"shenko-cognition-fingerprint/2\n");
-    let mut rows: Vec<&CognitionRow> = rows.iter().collect();
-    rows.sort_by(|a, b| a.table.cmp(&b.table).then(a.key.cmp(&b.key)));
-    for row in rows {
+    let mut ordered_rows: Vec<&CognitionRow> = rows.iter().collect();
+    ordered_rows.sort_by(|a, b| a.table.cmp(&b.table).then(a.key.cmp(&b.key)));
+    for row in ordered_rows {
         buffer.extend_from_slice(b"row\t");
         buffer.extend_from_slice(row.table.as_bytes());
         buffer.push(b'\t');
@@ -454,6 +457,13 @@ fn fingerprint_parts<'a>(
                 buffer.extend_from_slice(value.as_bytes());
             }
         }
+        buffer.push(b'\n');
+    }
+    // The imported application rows have new storage autoids. Preserve their
+    // relative append order using their original durable identities.
+    for row in rows.iter().filter(|row| row.table == "cognitive_root_applications") {
+        buffer.extend_from_slice(b"root-application-order\t");
+        buffer.extend_from_slice(row.key.as_bytes());
         buffer.push(b'\n');
     }
     let mut objects: Vec<&CognitionObjectDescriptor> = objects.iter().collect();

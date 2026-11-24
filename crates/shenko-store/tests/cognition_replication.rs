@@ -506,6 +506,7 @@ fn version_ref(name: &str) -> VersionedRef {
 
 struct Seeded {
     store: Arc<Store>,
+    db_path: PathBuf,
     agent_id: EntityId,
     genesis_id: EntityId,
     session_id: EntityId,
@@ -522,7 +523,8 @@ struct Seeded {
 /// attempt that was armed for it and the receipt that observed it.
 fn seeded_store() -> Seeded {
     let dir = tmp_dir();
-    let store = Arc::new(Store::open(dir.join("a.db"), dir.join("cas")).unwrap());
+    let db_path = dir.join("a.db");
+    let store = Arc::new(Store::open(db_path.clone(), dir.join("cas")).unwrap());
 
     let home = store
         .cas
@@ -766,6 +768,7 @@ fn seeded_store() -> Seeded {
 
     Seeded {
         store,
+        db_path,
         agent_id,
         genesis_id,
         session_id,
@@ -1280,4 +1283,86 @@ fn file_retirement_reservation_survives_a_rolled_back_import() {
     }).unwrap();
     assert!(export.manifest.files.iter().all(|file| !file.path.contains(".shenko-retired")),
         "{:?}", export.manifest.files.iter().map(|file| &file.path).collect::<Vec<_>>());
+}
+
+#[test]
+fn refused_evidence_keeps_both_bound_task_units_atomic() -> anyhow::Result<()> {
+    let source = seeded_store();
+    let mut task = source.store.external_task(source.task_id)?;
+    task.task_id = EntityId::new();
+    let second_task = task.task_id;
+    let mut operation = source.store.external_operation(source.operation_id)?;
+    operation.operation_id = EntityId::new();
+    operation.task_id = second_task;
+    operation.logical_key = "second-refused-event".into();
+    let second_operation = operation.operation_id;
+    let mut attempt = source.store.external_attempt(source.attempt_id)?;
+    attempt.attempt_id = EntityId::new();
+    attempt.operation_id = second_operation;
+    attempt.invocation_id = EntityId::new();
+    let second_attempt = attempt.attempt_id;
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(task);
+    batch.operation_upserts.push(operation);
+    batch.attempt_upserts.push(attempt);
+    source.store.commit(batch)?;
+
+    let mut original = source.store.external_operation_evidence(source.operation_id)?.remove(0);
+    original.receipt_id = EntityId::new();
+    original.source_id = "root-linked-recovery".into();
+    original.source_event_key = Some("original".into());
+    let mut batch = WriteBatch::new();
+    batch.evidence_upserts.push(original.clone());
+    source.store.commit(batch)?;
+    let mut refused = original;
+    refused.receipt_id = EntityId::new();
+    refused.operation_id = Some(second_operation);
+    refused.attempt_id = Some(second_attempt);
+    refused.raw_ref = source.store.cas.seal_object(
+        b"different original reported under the same source event key",
+        "text/plain", "evidence", "raw", 1,
+    )?.object;
+    let mut batch = WriteBatch::new();
+    batch.evidence_upserts.push(refused);
+    let refusal = source.store.commit(batch).expect_err("a different original must conflict");
+    assert!(matches!(&refusal, shenko_types::error::ShenkoError::Protocol(error) if error.code == "RECEIPT_KEY_CONFLICT"), "{refusal}");
+    let refused = source.store.external_receipt_conflicts(second_operation)?.remove(0);
+
+    let root = tmp_dir();
+    let db = root.join("receiver.db");
+    let cas = root.join("cas");
+    let receiver = Store::open(db.clone(), cas.clone())?;
+    let peer = EntityId::new();
+    let options = CognitionImportOptions { peer_id: Some(peer), ..Default::default() };
+    let export = |store: &Store| -> anyhow::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        assert!(store.write_cognition_archive(&Default::default(), None, &mut bytes)?.complete);
+        Ok(bytes)
+    };
+    let first = export(&source.store)?;
+    assert!(receiver.import_cognition_archive(&first[..], &options)?.ack(peer).verified);
+    let ids = [source.task_id, second_task];
+    let before = ids.map(|id| receiver.external_task(id).unwrap());
+    let mut batch = WriteBatch::new();
+    for id in ids {
+        let mut task = source.store.external_task(id)?;
+        task.record_revision = task.record_revision.next();
+        task.memos.insert("continued".into(), true.into());
+        batch.task_upserts.push(task);
+    }
+    source.store.commit(batch)?;
+    let source_db = rusqlite::Connection::open(&source.db_path)?;
+    source_db.execute("UPDATE evidence_receipt_conflicts SET data=json_set(data,'$.receipt.producer_epoch',99) WHERE conflict_id=?1",
+        [refused.conflict_id.to_string()])?;
+    let changed = export(&source.store)?;
+    let outcome = receiver.import_cognition_archive(&changed[..], &options)?;
+    assert!(!outcome.ack(peer).verified);
+    assert!(ids.iter().all(|id| outcome.conflicts.iter().any(|c| c.table == "tasks" && c.key == id.to_string())));
+    drop(receiver);
+    let reopened = Store::open(db, cas)?;
+    for (id, expected) in ids.into_iter().zip(before) {
+        assert_eq!(serde_json::to_value(reopened.external_task(id)?)?, serde_json::to_value(expected)?);
+    }
+    assert_eq!(serde_json::to_value(reopened.external_receipt_conflicts(second_operation)?)?, serde_json::json!([refused]));
+    Ok(())
 }

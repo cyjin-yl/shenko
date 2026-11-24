@@ -357,6 +357,15 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
+    TableSpec {
+        name: "evidence_receipt_conflicts",
+        key: &["conflict_id"],
+        columns: &["conflict_id", "receipt_id", "original_receipt_id", "operation_id", "source_id",
+            "source_instance_id", "source_event_key", "data", "updated_commit_seq", "created_at"],
+        // The persisted sequence is part of the original receipt identity.
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
     // Durable media truth: stream identity and latest state first, then the
     // immutable terminal notices and raw revision facts bound to it. Origin
     // CommitRefs travel verbatim: local import sequencing never changes an
@@ -1029,6 +1038,38 @@ pub(super) const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::Verbatim,
     },
+    // Root revisions and original CommitRefs survive recovery. Effects and
+    // applications never transfer their storage-local autoids.
+    TableSpec {
+        name: "cognitive_root_nodes",
+        key: &["root_revision"],
+        columns: &["root_revision", "agent_id", "schema_version", "content_digest", "content_record_json",
+            "attitude_id", "fence_json", "reinstated_from_json", "recorded_commit_ledger", "recorded_commit_seq", "recorded_at_ms"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "cognitive_root_requests",
+        key: &["request_id"],
+        columns: &["request_id", "agent_id", "kind", "root_revision", "content_digest", "target_json",
+            "recorded_commit_ledger", "recorded_commit_seq", "recorded_at_ms"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "cognitive_root_effects",
+        key: &["root_revision", "effect_id"],
+        columns: &["root_revision", "effect_id", "disposition"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "cognitive_root_applications",
+        key: &["root_revision", "scope", "updated_commit_ledger", "updated_commit_seq"],
+        columns: &["root_revision", "scope", "state_json", "updated_commit_ledger", "updated_commit_seq"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
 ];
 
 pub(super) fn spec_for(table: &str) -> Option<&'static TableSpec> {
@@ -1186,7 +1227,8 @@ pub(crate) fn archive_rows(conn: &rusqlite::Connection) -> Result<Vec<CognitionR
 /// Read one replicated table.
 pub(super) fn read_table(conn: &rusqlite::Connection, spec: &TableSpec) -> Result<Vec<CognitionRow>> {
     let columns = spec.columns.join(", ");
-    let order = spec.key.join(", ");
+    // Root applications are append-only, including a relay's local entries.
+    let order = if spec.name == "cognitive_root_applications" { "id".into() } else { spec.key.join(", ") };
     let sql = format!(
         "SELECT {columns} FROM {table} ORDER BY {order}",
         table = spec.name
