@@ -309,7 +309,8 @@ impl PreparedAttachmentError {
     /// `same_source` is `true` only when the incoming source is the exact
     /// allocation already attached. Identical generation content from another
     /// source is not the same port: it is [`Self::AlreadyAttached`] when the
-    /// full reference agrees and [`Self::DifferentGeneration`] otherwise.
+    /// catalog content agrees — the publication sequence is diagnostic — and
+    /// [`Self::DifferentGeneration`] otherwise.
     pub fn check(
         same_source: bool,
         attached: Option<GenerationRef>,
@@ -323,7 +324,7 @@ impl PreparedAttachmentError {
         }
         match attached {
             None => Ok(()),
-            Some(attached) if attached == incoming => Err(Self::AlreadyAttached),
+            Some(attached) if attached.same_content(&incoming) => Err(Self::AlreadyAttached),
             Some(attached) => Err(Self::DifferentGeneration {
                 attached: Some(attached),
                 incoming: Some(incoming),
