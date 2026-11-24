@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
-    "previous_reviewed_commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+    "commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
+    "previous_reviewed_commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
     "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
-    "source_checkout": "/__w/shenko/shenko/.ci/web/proto-ui",
+    "source_checkout": "/tank/shared/projects/shenko/build/compiler-mainline-b939afe-20261124/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
-      "receipt_path": "/__w/shenko/shenko/.ci/web/upstream-build.json",
-      "receipt_sha256": "314e432001a15ef15315f03f8c6d8d8d69336bab5f2b8b827fd6d27beaf4c6c5"
+      "receipt_path": "/tank/shared/projects/shenko/build/compiler-mainline-b939afe-20261124/upstream-build.json",
+      "receipt_sha256": "885c4e87fd06e306bfc2c695fe8b1df0c54dc437f8aa7081c72660874ecf2bd2"
     }
   },
   "packages": [
@@ -135,13 +135,13 @@
     "package": "packages/compiler",
     "package_sha256": "1664972b337d48996e9a40d32095ba0b65677d3a5ea7f1c2374ef00b546ed37b",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "70599eb52802956381ba1982632fd4a14303df1aeccd9b6260436b9668a6f071",
-    "source_tree_sha256": "ef91f423ef47952897a10fb0ce0b0413cc582ef14ed1ab27a0658a178e8e4237",
+    "entry_sha256": "f0597edb3c73641e3ab51a30c40a0611d30c5dd8b2f02fe88edc65abe47da6d0",
+    "source_tree_sha256": "89ad0836a365a4bc4c504ec83d689895845426f5613058d1a7737776d2ad1017",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "f5e3c1841da08b60d0ad796071a4de97b0cf732e783afb5639c781b6deb08ef3",
-      "bytes": 4062597,
+      "sha256": "3afc47975433c26f49ad7115e6e8fcd5ad826c1063b69d1d77660bf00e5b4253",
+      "bytes": 4185006,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -171,13 +171,13 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "f356aaf05cd15943acaa553b1c68209541b2c066deac0f63dfc080235fe5f59f",
+        "generated_sha256": "48216e577cf49c3dcf89e621bf489e71e42ab5adca7d1afe0c72469e58e19869",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "05eddbdd2902f706f7979bb41de48c488ad91f592bfea8cea390343ee4caaba4",
+        "provenance_sha256": "b93be98738c00bb6021ed8b5cc7e8b971509b2b73a57ac933118e259ff6ff98e",
         "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
@@ -190,13 +190,13 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "aabfca3a098431a061c15c2032aa9bd85c3744099e2449afa1db927995b85a24",
+        "generated_sha256": "28248ab69ab206f251b1b0f8295050d67cd08d69017f4f6144335f6d29f9f749",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "4b4aec482fc2c6924e767d1149ae2d62163b7a900d80a6fdff7a060ef47ff85f",
+        "provenance_sha256": "03d7439d41eec86d7be9cab795336142d9678ed161880c40d80e754126542ae5",
         "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
@@ -210,16 +210,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/__w/shenko/shenko/.ci/web/source/web",
-  "built_at": "2026-11-24T00:38:08.608Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/compiler-mainline-b939afe-20261124/crates/shenko-ui/web",
+  "built_at": "2026-11-24T08:21:53.398Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1241843,
-      "sha256": "e27911534dd4ee63fdc058e747bbe38ed297a9e78d841cb666e187e5e599be93"
+      "bytes": 1244208,
+      "sha256": "af470f2fab7c395ac3127e25f47bd292a72ca4eb9fce44080e3958d79d418768"
     },
     "chunks/chunk-CCOEKU5G.js": {
       "bytes": 66321,
@@ -238,8 +238,8 @@
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 171765,
-      "sha256": "0c9adae67ef0e497b371eb8f8233371c99921a3eebdf1b2ba55a68ab55a7ead9"
+      "bytes": 163718,
+      "sha256": "b97be764155b2e51efb21af1cbc2bbf952867984d9966c4bae68720dbda5572a"
     },
     "shadcn-theme.css": {
       "bytes": 6473,
