@@ -711,6 +711,7 @@ impl SandboxRuntime for CognitionTrialRuntime {
         sandbox: &PreparedSandbox,
         catalog: &Arc<CognitionCatalog>,
     ) -> Result<()> {
+        supervisor.spawn(crate::RuntimePerceptionPlugin, Arc::clone(catalog)).await?;
         let reader: Arc<dyn NativeTaskHandler> = Arc::new(crate::CognitionReadHandler::new(
             Arc::clone(sandbox.store()), Arc::clone(catalog)));
         supervisor.spawn(NativeTaskHandlerPlugin, reader).await?;
