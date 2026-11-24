@@ -50,7 +50,7 @@ use serde_json::{Value, json};
 use shenko_compat::installation::{plugin_export, plugin_package};
 use shenko_compat::recorded::{RecordedCall, Workers, joined};
 use shenko_compat::runtime::{AdapterHost, watch_installed};
-use shenko_kernel::Supervisor;
+use shenko_kernel::{Service, Supervisor};
 use shenko_kernel::task::{
     ChildToolCall, NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation,
 };
