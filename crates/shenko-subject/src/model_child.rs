@@ -40,6 +40,7 @@ use shenko_store::{
     child::{DialogueDelivery, MAX_CHILD_DIALOGUE_BYTES, NATIVE_OPERATION_ID, PeerMessage, PeerSend, memo_uuid},
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
+        MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA, MODEL_CHILD_QUOTA_STEP_SCHEMA,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
     },
 };
@@ -66,7 +67,8 @@ use shenko_kernel::task::{
     NativeTaskInvocation,
 };
 use crate::quota_gate::{
-    QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal,
+    FrozenQuotaSelection, QuotaGate, QuotaRouteOwner, observe_quota_response, quota_dispatch_gate,
+    select_quota_route, settle_quota_terminal,
 };
 
 /// The native definition kind of a model child task. The store admits the
@@ -82,8 +84,6 @@ const TRANSPORT_CONTRACT_SCHEMA: u32 = 3;
 /// target's audience kind. Sealed contracts of that version keep their own
 /// derivation, so a historical run still recovers exactly as it was sealed.
 const LEGACY_CONTRACT_SCHEMA: u32 = 2;
-/// The frozen step input version.
-const STEP_SCHEMA: u32 = 2;
 /// Public display text retained after decoding the complete model result.
 const MAX_STEP_TEXT_BYTES: usize = 64 * 1024;
 /// Bounded tool result handed back to the model.
@@ -404,6 +404,8 @@ struct FrozenModelChildStep {
     /// twice and the sealed bytes prove exactly what this step was told.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     dialogue: Vec<DialogueDelivery>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quota_selection: Option<FrozenQuotaSelection>,
 }
 
 fn read_contribution_plan<'de, D: serde::Deserializer<'de>>(
@@ -694,8 +696,8 @@ fn child_route_catalog(bindings: &[ProviderBinding]) -> String {
 
 fn contract_digest() -> Digest {
     // Protocol/role identity changes only with its published contract. The
-    // implementation is pinned independently to the actual executable bytes.
-    Digest::blake3(format!("{ROLE};contract={CONTRACT_SCHEMA};step={STEP_SCHEMA};{ROLE_CONTRACT}").as_bytes())
+    // child step codec version is recorded independently on each operation.
+    Digest::blake3(format!("{ROLE};contract={CONTRACT_SCHEMA};step={MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA};{ROLE_CONTRACT}").as_bytes())
 }
 
 fn seal<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
@@ -739,10 +741,16 @@ fn read_step(store: &Store, object: &ObjectRef) -> Result<FrozenModelChildStep> 
         "model child step input closure mismatch"
     );
     let step: FrozenModelChildStep = serde_json::from_slice(&bytes)?;
-    ensure!(
-        matches!((step.schema_version, &step.contribution_plan), (1, None) | (STEP_SCHEMA, Some(_))),
-        "unsupported model child step input"
-    );
+    match (step.schema_version, &step.contribution_plan, &step.quota_selection) {
+        (1, None, None) | (MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA, Some(_), None) => {}
+        (MODEL_CHILD_QUOTA_STEP_SCHEMA, Some(_), Some(selection)) => {
+            ensure!(selection.effort.as_ref().is_none_or(|effort| {
+                !effort.requested.trim().is_empty()
+                    && effort.native.matches_native_options(&step.payload.native_options)
+            }), "model child effort differs from the sealed payload");
+        }
+        _ => anyhow::bail!("unsupported model child step input"),
+    }
     Ok(step)
 }
 
@@ -2121,6 +2129,17 @@ impl ModelChildHandler {
             "shenko.model-child.request",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
         );
+        // The child uses the parent's installed strategies with its own
+        // frozen provider binding. Quota selection can wait before T1.
+        let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
+        let route = select_quota_route(
+            &self.store, Some(broker), &invocation.cancellation, &quota_strategies,
+            QuotaRouteOwner::FiniteChild,
+        ).await?.context("model child cancelled before quota selection")?;
+        self.refresh_invocation(invocation)?;
+        if let Some(effort) = route.selection.as_ref().and_then(|selection| selection.effort.as_ref()) {
+            effort.native.apply(&mut payload.native_options)?;
+        }
         // Preparation belongs to plugins. This path only reads prepared
         // material and seals it in this request before reserving quota, never in
         // the rolling transcript reconstructed from model/tool results.
@@ -2138,7 +2157,11 @@ impl ModelChildHandler {
         };
         let sealed_contract_digest = contract_digest_of(contract)?;
         let step = FrozenModelChildStep {
-            schema_version: STEP_SCHEMA,
+            schema_version: if route.selection.is_some() {
+                MODEL_CHILD_QUOTA_STEP_SCHEMA
+            } else {
+                MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA
+            },
             contract_digest: sealed_contract_digest,
             step_index,
             request_id,
@@ -2148,20 +2171,18 @@ impl ModelChildHandler {
             payload,
             contribution_plan: Some(contribution_plan),
             dialogue: dialogue.clone(),
+            quota_selection: route.selection,
         };
         let input_ref = seal_value(
             &self.store,
             &serde_json::to_value(&step)?,
             "model-child-step-input",
-            STEP_SCHEMA,
+            step.schema_version,
         )?;
         let operation_id = derived_id(
             "shenko.model-child.step",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
         );
-        // The child decides with the same installed strategy set as its
-        // parent: a finite child request is not a second policy source.
-        let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
         let quota_send = match quota_dispatch_gate(
             &self.store,
             broker,
@@ -2169,10 +2190,7 @@ impl ModelChildHandler {
             &invocation.cancellation,
             &quota_strategies,
             Some(&invocation.task_invocation),
-            // A finite child's round is not a committed subject step: the
-            // subject's measured useful work is a different unit and is not
-            // projected onto the child's expectation.
-            None,
+            step.quota_selection.as_ref(),
         )
         .await?
         {
@@ -2235,7 +2253,7 @@ impl ModelChildHandler {
             task_id: contract.task_id,
             logical_key,
             operation_name: MODEL_CHILD_STEP_OPERATION.into(),
-            input_schema_version: STEP_SCHEMA,
+            input_schema_version: step.schema_version,
             output_schema_version: 1,
             final_input_ref: input_ref.clone(),
             input_digest: input_ref.digest.clone(),

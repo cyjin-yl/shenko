@@ -1040,14 +1040,15 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -
     // Install the synthetic policy after the scripted parent result; that
     // fixture does not claim to perform a cloud subject inference under quota.
     let window = |key: &str| WindowRef { provider_id: "anthropic".into(), account_scope_ref: "synthetic-child-quota".into(), window_key: key.into() };
+    let costs = vec![
+        WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).unwrap() },
+        WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).unwrap() },
+    ];
     let policy = QuotaPolicy {
         policy_id: EntityId::new(), revision: 1,
         profiles: vec![ModelProfile { profile_id: "cloud-child-profile".into(), model_ref: "cloud-child".into(), local: false,
-            cost_per_request: vec![
-                WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).unwrap() },
-                WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).unwrap() },
-            ],
-            effort_levels: Vec::new(),
+            effort_levels: vec![EffortLevel { effort: "high".into(), cost_per_request: costs.clone() }],
+            cost_per_request: costs,
         }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
         decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
@@ -1073,10 +1074,16 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -
     native.run_once().await.unwrap();
     let wire = tokio::time::timeout(Duration::from_secs(5), wire_rx).await.unwrap().unwrap();
     assert_eq!(wire["model"], "cloud-child");
+    assert_eq!(wire["max_tokens"], 64);
+    assert_eq!(wire["output_config"]["effort"], "high");
     assert!(wire["system"].as_str().unwrap().contains("Independent finite reviewer."));
     let step = child_step(&store, task.task_id);
     let operation_id = step.operation_id;
     let operation = store.external_operation(operation_id).unwrap();
+    let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.final_input_ref.digest)?)?;
+    assert_eq!(frozen["quota_selection"]["profile_id"], "cloud-child-profile");
+    assert_eq!(frozen["quota_selection"]["effort"]["requested"], "high");
+    assert_eq!(frozen["payload"]["native_options"]["output_config"], wire["output_config"]);
     let attempt = store.external_operation_attempt(operation_id).unwrap();
     let selected: InferenceSendBinding = serde_json::from_slice(&store.cas.read_object(&attempt.transport_ref.unwrap().digest).unwrap()).unwrap();
     let send = selected.send_id.context("configured cloud quota must bind its exact send")?;

@@ -8,7 +8,7 @@
 use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
-use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, SubjectQuotaRoute, select_subject_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, QuotaRoute, QuotaRouteOwner, select_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -169,7 +169,7 @@ fn semantic_wait_route(
     store: &shenko_store::Store,
     broker: Option<&shenko_broker::broker::BrokerHandle>,
     wait: &SemanticWait,
-) -> Result<SubjectQuotaRoute, ShenkoError> {
+) -> Result<QuotaRoute, ShenkoError> {
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, &wait.context_ref)?)?;
     if !matches!(input.get("schema_version").and_then(serde_json::Value::as_u64), Some(12..=15))
         || input.get("step_id") != Some(&serde_json::to_value(wait.created_step_id)?)
@@ -195,7 +195,7 @@ fn semantic_wait_route(
             "semantic wait original provider is unavailable; wait preserved: {error:#}",
         )))?)
     };
-    Ok(SubjectQuotaRoute { broker: selected, selection: None })
+    Ok(QuotaRoute { broker: selected, selection: None })
 }
 
 fn frozen_input(
@@ -1610,8 +1610,9 @@ async fn execute_step(
         let route = if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
             semantic_wait_route(&store, state.broker.as_ref(), wait)?
         } else {
-            let Some(route) = select_subject_quota_route(
-                &store, state.broker.as_ref(), cancel, &state.quota_strategies, state.agent_id,
+            let Some(route) = select_quota_route(
+                &store, state.broker.as_ref(), cancel, &state.quota_strategies,
+                QuotaRouteOwner::Subject(state.agent_id),
             ).await? else {
                 return Ok(None);
             };

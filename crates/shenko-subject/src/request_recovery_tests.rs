@@ -1122,8 +1122,9 @@ async fn quota_policy_change_and_reopen_preserve_active_wait_until_subject_ends_
     // The current policy would normally choose the other installed provider.
     let policy = preseal_policy();
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
-    let candidate = crate::quota_gate::select_subject_quota_route(
-        &store, Some(&handle), &cancel, &subject.quota_strategies, agent,
+    let candidate = crate::quota_gate::select_quota_route(
+        &store, Some(&handle), &cancel, &subject.quota_strategies,
+        crate::quota_gate::QuotaRouteOwner::Subject(agent),
     ).await.unwrap().unwrap();
     assert_eq!(candidate.broker.unwrap().binding(), &alternate_binding);
     let continued_step = subject.step.step_id;

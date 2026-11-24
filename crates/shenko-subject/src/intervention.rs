@@ -1050,8 +1050,7 @@ impl PmaEvaluateHandler {
             &tokio_util::sync::CancellationToken::new(),
             &self.quota_strategies,
             Some(&invocation.task_invocation),
-            // This worker's rounds are not subject branch rounds, so the
-            // subject's measured useful work is not its unit: unknown.
+            // The intervention payload declares implicit effort.
             None,
         )
         .await?

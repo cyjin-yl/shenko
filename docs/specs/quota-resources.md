@@ -561,3 +561,11 @@ Planned 步先由 Store 观察等待的固定截止时间。仍活动的等待�
 提议的主体回归使用真实 `AnthropicProvider` 和 loopback Messages HTTP：先用真实 StopUnit hook 停在已封口 S0，确认上下文身份、payload 和类型化 effort；替换 effort 政策必须在新 admission/send 之前拒绝；恢复原政策后，同一 seal/request 的实际 HTTP body 必须携带精确的 high 与原输出预留；取消 waiter 后的迟到原终态在更换政策、原 runtime 不存在的重开中仍可提交。另有已知原生名称落到无映射 runtime 的前置拒绝对照，原有未知名称拒绝回归保留。这些新增回归尚未运行。
 
 本候选未迁移有限模型 child 的封口前 effort 路径，也未实现 quota-derived 输出预算、其它 provider 的 effort 映射、语义变化后的自动取消/替代重封口或物理 KV transport；它们继续按各自合同和证据边界跟踪，不以本候选冒充 §42.6 全部闭合。
+
+### 有限模型 child 的封口前 effort
+
+每个新 child step 使用委派中冻结的 provider 和模型，通过当前安装的额度策略选择可运行的 profile 与原生 effort。等待与选择发生在 step 封口和额度预留之前。声明了额度选择的 step 使用 schema 3，记录策略、决定、profile 与所选 effort。Store 在 T1 核对该形状、原委派和精确 send，再原子消费 send 的派发权。既有 schema 1 和 2 的恢复沿用各自的封口和回执，缺省策略的新 step 仍使用 schema 2。
+
+新的发送需要当前计价 effort 与封口中的语义一致。使用隐式 effort 的 PMA 同样受此检查。已 admitted 或 armed 的原 send 继续读取其历史额度绑定。输出 token 预留沿用委派中的预算。
+
+原生验证使用真实 Store、T1/E1/T2 和 Anthropic 适配器。回环 HTTP 请求的 `output_config.effort` 为 `high`，`max_tokens` 为 64。实际响应结算到最初选定的 send，另外预留的 send 保留原状态。旧 child 重开从原 E1 读取结果。额度输出预算和物理 KV transport 仍由各自的合同跟踪。

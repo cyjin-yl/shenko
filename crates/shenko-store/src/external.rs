@@ -10,6 +10,8 @@ use shenko_types::{commit::CommitRef, ids::*, operation::*, task::*};
 /// One model step of a finite model child: one broker send with its own
 /// T1/E1/T2 on the shared inference ledger.
 pub const MODEL_CHILD_STEP_OPERATION: &str = "model.child.generate.v1";
+pub const MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA: u32 = 2;
+pub const MODEL_CHILD_QUOTA_STEP_SCHEMA: u32 = 3;
 /// The model child's own run operation. It carries the child's result, not a
 /// provider send, and is bound to the same sealed delegation contract.
 pub const MODEL_CHILD_RESULT_OPERATION: &str = "model.child.result.v1";
@@ -628,8 +630,17 @@ impl Store {
                     let step = read(&op.final_input_ref)?;
                     ensure!(op.input_digest == op.final_input_ref.digest,
                         "model child step input is not its own closure");
-                    ensure!(op.input_schema_version == 2
-                        && step.get("schema_version").and_then(|value| value.as_u64()) == Some(2),
+                    let quota_selection = step.get("quota_selection");
+                    let supported = match op.input_schema_version {
+                        MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA => quota_selection.is_none(),
+                        MODEL_CHILD_QUOTA_STEP_SCHEMA => binding.send_id.is_some()
+                            && quota_selection.is_some_and(serde_json::Value::is_object),
+                        _ => false,
+                    };
+                    ensure!(supported
+                        && op.final_input_ref.codec.major == op.input_schema_version
+                        && step.get("schema_version").and_then(|value| value.as_u64())
+                            == Some(u64::from(op.input_schema_version)),
                         "unsupported model child step input");
                     let plan = step.get("contribution_plan")
                         .ok_or_else(|| anyhow::anyhow!("model child step lacks its contribution plan"))?;
