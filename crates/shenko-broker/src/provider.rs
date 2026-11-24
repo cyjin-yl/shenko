@@ -278,7 +278,7 @@ impl AnthropicProvider {
 
         let raw_response = resp.text().await?;
         let raw: serde_json::Value = serde_json::from_str(&raw_response)?;
-        let (content, citations) = anthropic_content_and_citations(&raw);
+        let (content, reasoning, citations) = anthropic_content_and_citations(&raw);
 
         let stop_reason = raw["stop_reason"].as_str().unwrap_or_default().to_string();
 
@@ -294,6 +294,7 @@ impl AnthropicProvider {
         info!(model=%self.profile.model_id, stop_reason=%stop_reason, in_tokens=?usage.as_ref().and_then(|u|u.input_tokens), out_tokens=?usage.as_ref().and_then(|u|u.output_tokens), "inference complete");
         Ok(InferenceResponse {
             content,
+            reasoning,
             stop_reason,
             raw_response,
             usage,
@@ -409,6 +410,7 @@ impl AnthropicProvider {
         let mut decoder = SseDecoder::new();
         let mut raw_frames: Vec<String> = Vec::new();
         let mut content = String::new();
+        let mut reasoning = String::new();
         let mut stop_reason = String::new();
         let mut usage: Option<TokenUsage> = None;
         let mut events = 0u64;
@@ -425,6 +427,7 @@ impl AnthropicProvider {
                     events += 1;
                     match &event {
                         StreamEvent::TextDelta { text } => content.push_str(text),
+                        StreamEvent::ReasoningDelta { text } => reasoning.push_str(text),
                         StreamEvent::MessageStop { stop_reason: reason } => {
                             if !reason.is_empty() {
                                 stop_reason = reason.clone();
@@ -456,6 +459,7 @@ impl AnthropicProvider {
         Ok(StreamOutcome {
             response: InferenceResponse {
                 content,
+                reasoning: (!reasoning.is_empty()).then_some(reasoning),
                 stop_reason,
                 raw_response: raw_frames.join("\n"),
                 usage,
@@ -712,11 +716,14 @@ fn anthropic_body(payload: &InferencePayload, model: &str) -> Result<serde_json:
 }
 
 /// The plain text and the citations of one Anthropic response.
-fn anthropic_content_and_citations(raw: &serde_json::Value) -> (String, Vec<ProviderCitation>) {
+fn anthropic_content_and_citations(
+    raw: &serde_json::Value,
+) -> (String, Option<String>, Vec<ProviderCitation>) {
     let mut content = String::new();
+    let mut reasoning = String::new();
     let mut citations = Vec::new();
     let Some(blocks) = raw["content"].as_array() else {
-        return (content, citations);
+        return (content, None, citations);
     };
     for block in blocks {
         match block["type"].as_str() {
@@ -738,10 +745,18 @@ fn anthropic_content_and_citations(raw: &serde_json::Value) -> (String, Vec<Prov
             Some("tool_use") => {
                 content.push_str("");
             }
+            // An extended-thinking turn can carry the whole reply in a
+            // thinking block. The text is kept as the backend reported it so
+            // the response can still say what the model answered.
+            Some("thinking") => {
+                if let Some(text) = block["thinking"].as_str() {
+                    reasoning.push_str(text);
+                }
+            }
             _ => {}
         }
     }
-    (content, citations)
+    (content, (!reasoning.is_empty()).then_some(reasoning), citations)
 }
 
 /// Anthropic message content: the plain string a text-only message keeps, and
