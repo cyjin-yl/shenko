@@ -309,7 +309,8 @@ export function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit 
   const document = node.props.document as DegradedDocument;
   const receipts = (node.props.receipts ?? []) as ActionReceiptView[];
   const latest = (actionId: string): ActionReceiptView | undefined => receipts
-    .filter((row) => row.action_id === actionId)
+    .filter((row) => row.document_id === document.document_id
+      && row.revision === document.revision && row.action_id === actionId)
     .at(-1);
   // An admitted decision awaiting disposition must not be admitted twice by a
   // second click; the option stays visible with its durable stage shown.
