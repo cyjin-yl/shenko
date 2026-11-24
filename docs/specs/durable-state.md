@@ -136,8 +136,8 @@ This adds O(object_count) digest metadata to the predecessor root. It does not
 remove full snapshot collection, object verification, row reconstruction or the
 history-growth costs described in the
 [predecessor design](../development/control-predecessor-publication.md#frozen-membership-in-control-predecessor-codec-2).
-All new exports use 13,
-including snapshots without those objects. A schema-12 reader therefore refuses
+During the schema-13 cutover every export used 13, including snapshots without
+those objects. A schema-12 reader therefore refuses
 the manifest before CAS payload callbacks, SQL facts or files are published;
 this writer offers no version-label downgrade. Old archives 2–7 and 10–12 and
 their native transition codecs retain their original interpretation, including
@@ -155,6 +155,24 @@ rules, and their earlier execution receipts remain historical evidence.
 Schemas 10–13 share the
 same family-membership gate. This source update is not a new runtime pass claim;
 actual candidate execution is reported with its own source identity.
+
+### Schema 14 Root facts and refused receipts
+
+Every schema-14 export declares the Root nodes, requests, external effect
+dispositions, application history and refused evidence receipt classes. The
+archive binds each Root node to its content, attitude and original commit.
+Reinstatements retain their exact target. A divergent revision refuses the
+incoming Root chain and its associated baselines as one unit. Application
+order is part of the fingerprint and survives a relay with new local row IDs.
+
+Refused receipts retain their original operation, attempt and payload
+identities. When the archive carries both operations in a source-key conflict,
+the two task closures settle in the same import savepoint. A foreign receipt
+can remain readable without granting a local task or execution authority.
+
+Schema 14 retains the schema-13 object inventory rules. Schemas 2–7 and 10–13
+retain their original layouts and membership. Readers reject the original
+schema 9 at manifest admission because its required fact families differ.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The

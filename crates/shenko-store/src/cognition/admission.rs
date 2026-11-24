@@ -86,6 +86,11 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     // a revision the receiver can never read.
     ("cognition_attitudes", "cognition_contents", "digest", "digest"),
     ("cognition_legacy_content", "cognition_contents", "content_digest", "digest"),
+    ("cognitive_root_nodes", "cognition_contents", "content_digest", "digest"),
+    ("cognitive_root_nodes", "cognition_attitudes", "attitude_id", "attitude_id"),
+    ("cognitive_root_requests", "cognitive_root_nodes", "root_revision", "root_revision"),
+    ("cognitive_root_effects", "cognitive_root_nodes", "root_revision", "root_revision"),
+    ("cognitive_root_applications", "cognitive_root_nodes", "root_revision", "root_revision"),
 ];
 
 /// The fact a quota event describes: the payload field that names it, the
@@ -219,6 +224,7 @@ pub(super) fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()
             "duplicate cognition fact identity in {}", row.table);
     }
     crate::subject_branches::validate_branch_rows(&manifest.rows)?;
+    super::root_facts::validate_root_facts(&manifest.rows)?;
     Ok(())
 }
 

@@ -205,9 +205,8 @@ pub(super) fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
-    // Output chunks are append-only facts. A peer's delivered baseline
-    // cannot authorize rewriting an already committed chunk.
-    if spec.name == "subject_output_parts"
+    // A peer baseline cannot authorize rewriting an original append-only fact.
+    if matches!(spec.name, "subject_output_parts" | "evidence_receipt_conflicts")
         && local.as_ref().is_some_and(|local| !rows_equivalent(spec, local, &row.values))
     {
         return Ok(RecoveryFactOutcome::Conflict);

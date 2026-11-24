@@ -29,6 +29,7 @@ use super::peers::{record_conflict, record_origin};
 use super::reconcile::{
     apply_context_notebook, apply_media_streams, apply_semantic_units, is_unit_table,
 };
+use super::root_facts::apply_root_chain;
 use super::rows::{
     RowKind, TABLES, describe_difference, effective_row, insert_row,
     is_immutable_terminal_settlement, read_baseline, read_existing, read_table,
@@ -330,6 +331,10 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let (roots, root_owned_rows) = apply_root_chain(&tx, &ordered, peer_id, seq, manifest)?;
+                inserted += roots.inserted;
+                unchanged += roots.unchanged;
+                conflicts.extend(roots.conflicts);
                 let (media, media_events) = apply_media_streams(&tx, &ordered, peer_id, seq, manifest)?;
                 inserted += media.inserted;
                 updated += media.updated;
@@ -346,6 +351,9 @@ impl Store {
                 let mut notebook_applied = false;
                 let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
                 for row in &ordered {
+                    if root_owned_rows.contains(&(row.table.as_str(), row.key.as_str())) {
+                        continue;
+                    }
                     // Another branch is a parallel historical fact. It cannot
                     // replace this installation's active controller projection.
                     // Retain every exact head by content identity instead of
@@ -396,7 +404,7 @@ impl Store {
                     // stitch unrelated execution history onto the local task.
                     if !task_closure_applied
                         && matches!(row.table.as_str(), "session_events" | "subject_raw_inputs" | "inbox_events"
-                            | "tasks" | "operations" | "attempts" | "evidence_receipts" | "task_results")
+                            | "tasks" | "operations" | "attempts" | "evidence_receipts" | "evidence_receipt_conflicts" | "task_results")
                     {
                         // raw_sessions and subject_steps have already applied,
                         // but NO pending/raw/staged delivery has been published.
