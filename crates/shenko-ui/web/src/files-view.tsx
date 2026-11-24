@@ -181,10 +181,14 @@ export function FilesView({ source, recentHints = [] }: {
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
-        if (!searchRef.current) return;
+        const search = searchRef.current;
+        // The mobile layout hides the sidebar. Leave browser Find available
+        // unless this shortcut can actually focus a visible search field.
+        if (event.defaultPrevented || !search || search.getClientRects().length === 0) return;
+        search.focus();
+        if (document.activeElement !== search) return;
         event.preventDefault();
-        searchRef.current.focus();
-        searchRef.current.select();
+        search.select();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -216,6 +220,10 @@ export function FilesView({ source, recentHints = [] }: {
   const root = roots?.find((item) => item.id === rootId) ?? null;
   const pathId = path.map((segment) => segment.id).join('/');
   React.useEffect(() => {
+    if (typeAheadRef.current.timer !== null) window.clearTimeout(typeAheadRef.current.timer);
+    typeAheadRef.current = { buffer: '', timer: null };
+  }, [rootId, pathId]);
+  React.useEffect(() => {
     if (!root || !root.browsable || !rootsAvailable) { setEntries(null); setTruncated(false); setError(null); return; }
     let live = true;
     setEntries(null);
@@ -239,6 +247,9 @@ export function FilesView({ source, recentHints = [] }: {
   const enterFolder = (entry: FileEntry) => {
     if (entry.kind !== 'dir' || !root) return;
     const nextPath = [...path, { id: entry.id, name: entry.name }];
+    // Keep keyboard ownership on the stable grid while its rows are replaced,
+    // including an empty directory or a failed listing.
+    tableRef.current?.focus();
     setPath(nextPath);
     setSelected(null);
     const key = `${root.id}:${nextPath.map((s) => s.id).join('/')}`;
@@ -273,6 +284,50 @@ export function FilesView({ source, recentHints = [] }: {
   const visibleHints = recentHints.filter((hint) => !query || hint.name.toLowerCase().includes(query));
   const hasRecent = visibleVisited.length > 0 || visibleHints.length > 0;
   const homeRoot = roots?.find((item) => item.kind === 'home' && item.browsable) ?? null;
+  const onTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const list = visibleEntries ?? [];
+    const row = (event.target as HTMLElement).closest<HTMLElement>('[data-row-id]');
+    const index = list.findIndex((entry) => entry.id === row?.dataset.rowId);
+    const focusRow = (target: FileEntry | undefined) => {
+      if (!target) return;
+      setSelected(target.id);
+      const rows = tableRef.current?.querySelectorAll<HTMLElement>('[data-row-id]');
+      const match = rows ? [...rows].find((element) => element.dataset.rowId === target.id) : undefined;
+      match?.focus();
+    };
+    if (event.key === 'Enter' && index >= 0) {
+      event.preventDefault();
+      enterFolder(list[index]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setSelected(null);
+    } else if (event.key === 'Backspace' || (event.key === 'ArrowUp' && (event.metaKey || event.altKey))) {
+      event.preventDefault();
+      if (path.length > 0) {
+        tableRef.current?.focus();
+        setPath(path.slice(0, -1));
+        setSelected(null);
+      }
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      focusRow(list[Math.min(list.length - 1, index + 1)]);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusRow(list[index < 0 ? list.length - 1 : Math.max(0, index - 1)]);
+    } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Native Finder-style type-ahead in lists.
+      const ta = typeAheadRef.current;
+      if (ta.timer !== null) window.clearTimeout(ta.timer);
+      ta.buffer = (ta.buffer + event.key.toLowerCase()).slice(0, 24);
+      ta.timer = window.setTimeout(() => { ta.buffer = ''; ta.timer = null; }, 700);
+      const found = list.find((entry) => entry.name.toLowerCase().startsWith(ta.buffer));
+      if (found) {
+        event.preventDefault();
+        focusRow(found);
+      }
+    }
+  };
 
   return (
     <div className="files">
@@ -494,7 +549,14 @@ export function FilesView({ source, recentHints = [] }: {
         {root?.browsable && rootsAvailable && (
           <>
             <ScrollBox className="files-table-scroll" viewportClassName="files-table-viewport">
-              <div ref={tableRef} className="files-table" role="grid" aria-label={t('files.contents')}>
+              <div
+                ref={tableRef}
+                className="files-table"
+                role="grid"
+                tabIndex={visibleEntries?.length ? -1 : 0}
+                aria-label={t('files.contents')}
+                onKeyDown={onTableKeyDown}
+              >
                 <div className="files-row files-head" role="row">
                   <span role="columnheader">{t('files.col.name')}</span>
                   <span role="columnheader">{t('files.col.modified')}</span>
@@ -510,51 +572,14 @@ export function FilesView({ source, recentHints = [] }: {
                   <div
                     key={entry.id}
                     role="row"
-                    tabIndex={0}
+                    tabIndex={selectedEntry ? (selectedEntry.id === entry.id ? 0 : -1) : (index === 0 ? 0 : -1)}
+                    aria-selected={selected === entry.id}
                     data-row-id={entry.id}
                     className="files-row"
                     data-kind={entry.kind}
                     data-selected={selected === entry.id ? '' : undefined}
                     onClick={() => setSelected(entry.id)}
                     onDoubleClick={() => enterFolder(entry)}
-                    onKeyDown={(event) => {
-                      const list = visibleEntries ?? [];
-                      const focusRow = (target: FileEntry | undefined) => {
-                        if (!target) return;
-                        setSelected(target.id);
-                        const rows = tableRef.current?.querySelectorAll<HTMLElement>('.files-row:not(.files-head)');
-                        const match = rows ? [...rows].find((el) => el.dataset.rowId === target.id) : undefined;
-                        match?.focus();
-                      };
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        enterFolder(entry);
-                      } else if (event.key === 'Escape') {
-                        event.preventDefault();
-                        setSelected(null);
-                      } else if ((event.key === 'Backspace' || (event.key === 'ArrowUp' && (event.metaKey || event.altKey))) && path.length > 0) {
-                        event.preventDefault();
-                        setPath(path.slice(0, -1));
-                        setSelected(null);
-                      } else if (event.key === 'ArrowDown') {
-                        event.preventDefault();
-                        focusRow(list[Math.min(list.length - 1, index + 1)]);
-                      } else if (event.key === 'ArrowUp') {
-                        event.preventDefault();
-                        focusRow(list[Math.max(0, index - 1)]);
-                      } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
-                        // Native Finder-style type-ahead in lists.
-                        const ta = typeAheadRef.current;
-                        if (ta.timer !== null) window.clearTimeout(ta.timer);
-                        ta.buffer = (ta.buffer + event.key.toLowerCase()).slice(0, 24);
-                        ta.timer = window.setTimeout(() => { ta.buffer = ''; ta.timer = null; }, 700);
-                        const found = list.find((item) => item.name.toLowerCase().startsWith(ta.buffer));
-                        if (found) {
-                          event.preventDefault();
-                          focusRow(found);
-                        }
-                      }
-                    }}
                   >
                     <span role="gridcell" className="files-name" aria-label={entry.name}>
                       <span className="files-icon" aria-hidden="true">
