@@ -785,6 +785,7 @@ mod tests {
             }
             Ok(InferenceResponse {
                 content: "counting fixture".into(),
+                reasoning: None,
                 stop_reason: "stop".into(),
                 raw_response: r#"{"fixture":true,"stop_reason":"stop"}"#.into(),
                 usage: Some(TokenUsage {
@@ -818,6 +819,7 @@ mod tests {
             Ok(crate::stream::StreamOutcome {
                 response: InferenceResponse {
                     content: "counting fixture".into(),
+                    reasoning: None,
                     stop_reason: "stop".into(),
                     raw_response: r#"{"fixture":true,"stop_reason":"stop"}"#.into(),
                     usage: None,

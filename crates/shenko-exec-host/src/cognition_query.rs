@@ -295,6 +295,12 @@ impl CognitionQueryHandler {
             ("cognition.unit.evidence", CatalogQuery::Evidence { unit_id }) => {
                 let unit_id = unit_id.trim();
                 let observations = self.catalog.observations(unit_id)?;
+                // The current read answers for the current version only. Raw
+                // readings taken under earlier retained versions remain facts
+                // bound to those versions; carry them with their revision so a
+                // judgement can cite the original artifact instead of the
+                // replacement's.
+                let retained = self.catalog.retained_observations(unit_id)?;
                 let trials = self.catalog.trial_evidence(unit_id, "0", 16)?;
                 Ok(serde_json::json!({
                     "schema_version": 1,
@@ -302,6 +308,7 @@ impl CognitionQueryHandler {
                     "op": "evidence",
                     "unit_id": unit_id,
                     "observations": observations,
+                    "retained": retained,
                     "trials": trials,
                 }))
             }
@@ -397,7 +404,7 @@ impl NativeTaskHandler for CognitionQueryHandler {
             "cognition.unit.list/v1 分页读取已安装认知单元的能力卡目录：[delegate:cognition.unit.list:1] {\"start\":0,\"count\":16}。查询种类由任务名确定，参数不接受 op。目录里的卡片是入口，不是命令；正文仍要按需用 cognition.unit.read 读确切版本。若返回了 next_start，就从它继续读，不要跳过任何单元；若目录修订与你手上的一致性不符，就重新读目录。"
                 .to_string()
         } else {
-            "cognition.unit.evidence/v1 读取某个已安装单元在本机登记的证据：[delegate:cognition.unit.evidence:1] {\"unit_id\":\"...\"}。查询种类由任务名确定，参数不接受 op。返回注册过的观测与试验记录；这些是本机真正发生过的记录，判断时引用它们，不要凭空写证据。"
+            "cognition.unit.evidence/v1 读取某个已安装单元在本机登记的证据：[delegate:cognition.unit.evidence:1] {\"unit_id\":\"...\"}。查询种类由任务名确定，参数不接受 op。返回当前版本的 observations、每个保留版本的 retained（各带 revision、artifact_digest、current 与该版本自己的观测）以及 trials；这些是本机真正发生过的记录，判断时引用它们，不要凭空写证据。"
                 .to_string()
         };
         Ok(NativeTaskDescriptor {

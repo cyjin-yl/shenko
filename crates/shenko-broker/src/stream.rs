@@ -732,10 +732,21 @@ pub fn parse_openai_frame(frame: &SseFrame) -> Result<Vec<StreamEvent>, StreamPa
     else {
         return Ok(events);
     };
-    if let Some(text) = choice.pointer("/delta/content").and_then(|v| v.as_str()) {
-        if !text.is_empty() {
-            events.push(StreamEvent::TextDelta { text: text.to_string() });
-        }
+    if let Some(text) = choice.pointer("/delta/content").and_then(|v| v.as_str())
+        && !text.is_empty()
+    {
+        events.push(StreamEvent::TextDelta { text: text.to_string() });
+    }
+    // A reasoning backend streams its deliberation beside the visible answer.
+    // The deltas stay a separate event so the visible stream keeps exactly
+    // the content the backend published there.
+    if let Some(text) = choice
+        .pointer("/delta/reasoning_content")
+        .or_else(|| choice.pointer("/delta/reasoning"))
+        .and_then(|v| v.as_str())
+        && !text.is_empty()
+    {
+        events.push(StreamEvent::ReasoningDelta { text: text.to_string() });
     }
     if let Some(calls) = choice.pointer("/delta/tool_calls").and_then(|v| v.as_array()) {
         for call in calls {

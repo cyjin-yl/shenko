@@ -305,6 +305,10 @@ impl MemoryHandler {
             "git_commit": hit.entry.git_commit,
             "git_path": hit.entry.git_path,
             "supersession_status": status,
+            // The default revision projection: older revisions collapse to
+            // their count and the latest modification time. Their text is
+            // read through an explicit lineage/read, never injected here.
+            "revision_disclosure": hit.revision,
             "excerpt": hit.excerpt,
             "match_visible": hit.excerpt.as_ref().map(|e| e.match_visible),
         })

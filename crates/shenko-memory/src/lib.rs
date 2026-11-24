@@ -18,7 +18,8 @@ pub mod worker;
 
 pub use backend::{
     FlushOutcome, ForgetOutcome, GitHealth, MemoryBackend, MemoryHealth, MemoryHit,
-    MemoryRequest, MemorySupersessionStatus, RecallQuery, RetainOutcome, StoreMemoryBackend,
+    MemoryRequest, MemoryRevisionDisclosure, MemorySupersessionStatus, RecallQuery,
+    RetainOutcome, StoreMemoryBackend,
 };
 pub use excerpt::{excerpt_for, MatchExcerpt};
 pub use knowledge::GitKnowledgeStore;

@@ -223,12 +223,28 @@ impl LocalModelProvider {
 
         let raw_response = resp.text().await?;
         let raw: serde_json::Value = serde_json::from_str(&raw_response)?;
-        let content = raw["choices"]
+        let message = raw["choices"]
             .as_array()
             .and_then(|choices| choices.first())
-            .and_then(|choice| choice["message"]["content"].as_str())
+            .and_then(|choice| choice.get("message"));
+        let content = message
+            .and_then(|message| message.get("content"))
+            .and_then(|value| value.as_str())
             .unwrap_or_default()
             .to_string();
+        // A reasoning backend can end its turn with the visible content empty
+        // and the whole reply in its native reasoning field. The text is kept
+        // exactly as the backend reported it, so the response can say which
+        // channel carried the answer instead of dropping it.
+        let reasoning = message
+            .and_then(|message| {
+                message
+                    .get("reasoning_content")
+                    .or_else(|| message.get("reasoning"))
+            })
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+            .filter(|text| !text.is_empty());
         let finish_reason = raw["choices"]
             .as_array()
             .and_then(|choices| choices.first())
@@ -269,6 +285,7 @@ impl LocalModelProvider {
 
         Ok(InferenceResponse {
             content,
+            reasoning,
             stop_reason: finish_reason,
             raw_response,
             usage,
@@ -325,6 +342,7 @@ impl LocalModelProvider {
         let mut decoder = SseDecoder::new();
         let mut raw_frames: Vec<String> = Vec::new();
         let mut content = String::new();
+        let mut reasoning = String::new();
         let mut stop_reason = String::new();
         let mut usage: Option<TokenUsage> = None;
         let mut events = 0u64;
@@ -341,6 +359,7 @@ impl LocalModelProvider {
                     events += 1;
                     match &event {
                         StreamEvent::TextDelta { text } => content.push_str(text),
+                        StreamEvent::ReasoningDelta { text } => reasoning.push_str(text),
                         StreamEvent::MessageStop { stop_reason: reason } => {
                             if !reason.is_empty() {
                                 stop_reason = reason.clone();
@@ -372,6 +391,7 @@ impl LocalModelProvider {
         Ok(StreamOutcome {
             response: InferenceResponse {
                 content,
+                reasoning: (!reasoning.is_empty()).then_some(reasoning),
                 stop_reason,
                 raw_response: raw_frames.join("\n"),
                 usage,

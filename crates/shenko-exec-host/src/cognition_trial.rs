@@ -503,7 +503,7 @@ async fn recorded_judgement<C: Serialize + ?Sized>(
             .map(|failure| format!("; receipt recording failed: {failure}")).unwrap_or_default()))?;
     ensure!(result.status == InferenceStatus::Success, "judge call failed: {:?}", result.status);
     let response = result.response.context("judge succeeded without a response")?;
-    judge_verdict(&response.content)
+    judge_verdict(response.visible_answer())
 }
 
 /// A fresh throwaway installation: store, genesis, head and first step.
@@ -1772,9 +1772,12 @@ impl NativeTaskHandler for CognitionTrialHandler {
             return Ok(operation);
         }
         // The comparison already ran. Reconciling re-reads what it recorded;
-        // it never runs the comparison a second time.
+        // it never runs the comparison a second time. The observations are
+        // read for the frozen revision: reading the current version here
+        // would cite a replacement's readings for a comparison that measured
+        // the earlier artifact.
         let frozen = self.frozen(&operation)?;
-        let observations = self.catalog.observations(&frozen.unit_id)?;
+        let observations = self.catalog.observations_at(&frozen.unit_id, &frozen.revision)?;
         let trials = self.catalog.trial_evidence(&frozen.unit_id, "0", 16)?;
         let result = serde_json::json!({
             "schema_version": 1,

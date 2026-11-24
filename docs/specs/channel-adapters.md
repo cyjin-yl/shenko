@@ -170,3 +170,16 @@ MessageProvider/ChannelAdapter 支持 capability discovery、认证/续期、rec
 任务完成与通知送达是两个状态。超过平台被动回复窗口、联系人关闭主动消息、账号掉线时，Agent 可以选择其他已授权渠道联系相关人；网页 Inbox 是可取结果的位置，不能被当成唯一固定的联络策略。
 
 <!-- /migrated-contract: SPEC:16 -->
+
+## Implementation appendix: installed-generation binding (2026-11-22)
+
+`register_adapters` still registers each configured platform's plugin directly;
+that registration happens before the composition root seals the installed
+generation, so every adapter role carries the same exact binding as the NapCat
+channel. The adapter's own ingress ledger and monitors are unchanged: they hold
+a `ChannelRegistry` clone, which is a view of the same live installation, so an
+event admitted after the seal is classified and resolved by the generation that
+is actually running. An adapter plugin the sealed catalog does not publish is
+never advertised, and a handle from a displaced generation refuses before any
+send or attachment read. No adapter wire path, credential, health state or
+platform capability changed, and this appendix adds no platform evidence.

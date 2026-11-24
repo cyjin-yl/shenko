@@ -97,6 +97,8 @@
 
 **已知未闭合项（封口前路由）**：[§42.6](quota-resources.md#spec-42-6) 要求路由与语义预算在 RequestSeal **之前**决定。当前顺序是"先封口、再准入"，因此当策略决策选出的 profile 与封口模型不同时，结果是明确的 `MODEL_PROVIDER_BINDING_MISMATCH` 失败，而不是改路由。把决策前移到 S0 之前、并让封口使用被选中的模型，需要 subject 的封口路径与 broker 的 provider 装配共同改动（ArchSubject/ArchBroker 与主控），额度层不单方面改封口协议，也不放宽比较或引入模型名许可名单。
 
+**当前实现状态（2026-11-24）**：封口前路由已在源码落地——S0 先由额度策略选出 profile、模型与 effort（`crates/shenko-subject/src/quota_gate.rs#select_subject_quota_route`），被选中的绑定再进入封口，额度选择随封口一起记录（`provider_selection.quota`），事后仍按封口绑定核对，所以 `MODEL_PROVIDER_BINDING_MISMATCH` 只在 provider 真的换了实现时出现。仍未闭合的是额度推导的输出预算、有限模型 child 的封口前 effort 迁移与物理 KV transport；本轮没有为这些项取得真实运行证据，上一段的缺口说明因此保留。
+
 ## 8. 主体可读视图与事件（[§42.6](quota-resources.md#spec-42-6)）
 
 `QuotaScopeView` 是投影，不是新的来源：剩余量是**区间**（没有就是 unknown）、预计恢复时间（周期 `resets_at` 与桶 `replenishes_by` 分开）、来源合同与新鲜度、共享消费归因（`exclusive | shared_known | shared_unobserved | unknown`）、当前决策选中的 profile/model 与理由。渲染有界（最多 8 个窗，其余留在耐久快照）。

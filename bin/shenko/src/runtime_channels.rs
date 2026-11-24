@@ -56,14 +56,16 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
     // from the plugin contract, so the QQ plugin is described the
     // same way as the adapters: a capability nobody can reach is not
     // advertised, and an advertised one is reachable.
-    for (channel, account, capabilities) in channel_registry.capability_tables() {
+    let capability_tables = channel_registry.capability_tables()
+        .map_err(|error| anyhow::anyhow!("channel capability tables are unavailable: {error}"))?;
+    for (channel, account, capabilities) in &capability_tables {
         store.record_channel_fact(&shenko_store::channel::NewChannelFact {
-            channel,
-            account,
+            channel: channel.clone(),
+            account: account.clone(),
             kind: "capabilities".to_string(),
             state: "declared".to_string(),
             subject_ref: None,
-            detail: serde_json::to_value(&capabilities)?,
+            detail: serde_json::to_value(capabilities)?,
         })?;
     }
     // The same declaration reaches the subject's own self-knowledge
@@ -71,7 +73,7 @@ pub(crate) async fn install(input: ChannelInstall<'_>) -> Result<ChannelServices
     // offers before it promises a reply or an action
     //
     if let Some(self_knowledge) = self_knowledge {
-        self_knowledge.install_channel_capabilities(&channel_registry.capability_tables());
+        self_knowledge.install_channel_capabilities(&capability_tables);
     }
 
     Ok(ChannelServices { registry: channel_registry, _contacts_plugin: contacts_plugin })

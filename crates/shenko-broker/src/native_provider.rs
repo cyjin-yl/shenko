@@ -207,6 +207,7 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
         let usage = self.profile.read_usage(&raw);
         Ok(InferenceResponse {
             content,
+            reasoning: None,
             stop_reason,
             raw_response,
             usage: Some(usage),
@@ -292,6 +293,7 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
         Ok(StreamOutcome {
             response: InferenceResponse {
                 content,
+                reasoning: None,
                 stop_reason,
                 raw_response,
                 usage,

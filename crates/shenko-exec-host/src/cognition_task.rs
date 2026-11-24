@@ -718,11 +718,18 @@ impl CognitionWriteHandler {
             "observation" => (
                 digest.as_ref().is_some_and(|digest| {
                     self.catalog
-                        .observations(unit_id)
-                        .map(|observations| {
-                            observations
-                                .iter()
-                                .any(|observation| observation.digest == digest.0)
+                        .retained_observations(unit_id)
+                        .map(|versions| {
+                            // "Registered for the unit" includes a version
+                            // that is no longer current: the citation names
+                            // the version's own reading, not one the
+                            // replacement happened to register.
+                            versions.iter().any(|version| {
+                                version
+                                    .observations
+                                    .iter()
+                                    .any(|observation| observation.digest == digest.0)
+                            })
                         })
                         .unwrap_or(false)
                 }),

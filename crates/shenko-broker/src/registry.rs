@@ -15,7 +15,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
 use parking_lot::{RwLock, RwLockWriteGuard};
-use shenko_types::generation::GenerationRef;
+use shenko_types::generation::{GenerationRef, PreparedAttachmentError};
 
 use crate::capability::BackendCapabilitySnapshot;
 use crate::profile::ProviderProfile;
@@ -220,22 +220,26 @@ impl ProviderRegistry {
         source: Arc<dyn PreparedProviderSource>,
     ) -> Result<PreparedProviderAttachment<'_>, PreparedSourceAttachError> {
         let prepared = self.prepared.write();
-        let incoming = source.generation_ref();
-        if incoming.is_none() {
-            return Err(PreparedSourceAttachError::NoGenerationPublished);
-        }
-        if let Some(attached) = prepared.as_ref()
-            && !Arc::ptr_eq(attached, &source)
-        {
-            let attached_ref = attached.generation_ref();
-            if attached_ref == incoming {
-                return Err(PreparedSourceAttachError::AlreadyAttached);
+        PreparedAttachmentError::check(
+            prepared
+                .as_ref()
+                .is_some_and(|attached| Arc::ptr_eq(attached, &source)),
+            prepared
+                .as_ref()
+                .and_then(|attached| attached.generation_ref()),
+            source.generation_ref(),
+        )
+        .map_err(|error| match error {
+            PreparedAttachmentError::AlreadyAttached => {
+                PreparedSourceAttachError::AlreadyAttached
             }
-            return Err(PreparedSourceAttachError::DifferentGeneration {
-                attached: attached_ref,
-                incoming,
-            });
-        }
+            PreparedAttachmentError::NoGenerationPublished => {
+                PreparedSourceAttachError::NoGenerationPublished
+            }
+            PreparedAttachmentError::DifferentGeneration { attached, incoming } => {
+                PreparedSourceAttachError::DifferentGeneration { attached, incoming }
+            }
+        })?;
         Ok(PreparedProviderAttachment {
             prepared,
             target: &self.prepared_target,

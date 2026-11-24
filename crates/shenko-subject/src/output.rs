@@ -52,20 +52,16 @@ child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 
 /// With the shipped channel this is byte-identical to the historical text;
 /// with no channel the contract says plainly that replies cannot be delivered.
 pub fn reply_grammar(channels: &ChannelRegistry) -> String {
-    let targets: Vec<String> = channels
-        .plugins()
-        .flat_map(|plugin| {
-            plugin
-                .kinds()
-                .iter()
-                .map(|kind| format!("[reply:{}:{}]", kind.tag, kind.id_hint))
-        })
-        .collect();
-    let names: Vec<&str> = channels
-        .plugins()
-        .filter(|plugin| !plugin.kinds().is_empty())
-        .map(|plugin| plugin.prompt_names())
-        .collect();
+    let mut targets: Vec<String> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    for channel in channels.plugins() {
+        for kind in channel.kinds() {
+            targets.push(format!("[reply:{}:{}]", kind.tag, kind.id_hint));
+        }
+        if !channel.kinds().is_empty() {
+            names.push(channel.prompt_names().to_owned());
+        }
+    }
     if targets.is_empty() {
         return "当前没有注册的回复通道：无法对外发送回复，普通正文不会送达对方；".to_owned();
     }
@@ -92,6 +88,26 @@ fn invalid(line: u64, reason: &str) -> ShenkoError {
         RetryStrategy::NewRevision,
     )
     .with_details(serde_json::json!({"line":line,"reason":reason,"protocol":3}))
+    .into()
+}
+
+/// A reply target resolved against a channel handle that is no longer the
+/// installed generation's implementation. The control is refused before a
+/// publication intent is sealed; nothing can be sent.
+fn generation_refused(
+    line: u64,
+    error: &shenko_types::channel::ChannelBindingError,
+) -> ShenkoError {
+    ProtocolError::new(
+        "CHANNEL_GENERATION_REFUSED",
+        ErrorScope::Request,
+        RetryStrategy::NewRevision,
+    )
+    .with_details(serde_json::json!({
+        "line": line,
+        "reason": error.to_string(),
+        "protocol": 3,
+    }))
     .into()
 }
 
@@ -277,12 +293,16 @@ pub fn parse_output(
                 if kind.is_empty() || id.is_empty() {
                     return Err(invalid(line_no, "reply target must include kind and id"));
                 }
-                let plugin = channels
+                let channel = channels
                     .plugin_for_kind(kind)
                     .ok_or_else(|| invalid(line_no, "unknown reply target"))?;
-                let target = plugin
-                    .resolve_reply(kind, id)
-                    .ok_or_else(|| invalid(line_no, "reply id is not resolvable on this channel"))?;
+                let target = match channel.resolve_reply(kind, id) {
+                    Ok(Some(target)) => target,
+                    Ok(None) => {
+                        return Err(invalid(line_no, "reply id is not resolvable on this channel"));
+                    }
+                    Err(error) => return Err(generation_refused(line_no, &error)),
+                };
                 let text = if value.is_empty() {
                     String::new()
                 } else {

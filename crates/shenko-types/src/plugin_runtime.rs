@@ -396,3 +396,465 @@ pub struct ContributionBinding {
     /// The sealed object the bytes were read back from.
     pub object: ObjectRef,
 }
+
+// ---------------------------------------------------------- root lifecycle ---
+//
+// One plugin-root installation is one exact runtime implementation
+// (`plugin_id` + `implementation`) installed for one exact Node unit version.
+// Its lifecycle has four durable phases:
+//
+//   prepared  — the artifact identity is known and retained; nothing is
+//               published and no new call may be admitted.
+//   published — the installation is durably admitted for this runtime; the
+//               publication receipt names the registry state observed at that
+//               moment. Still no live attachment.
+//   attached  — a real process generation attached the publication to the
+//               live runtime root, so new calls may use it. A restart appends
+//               a new attachment admission for the same publication; the old
+//               attachment receipt remains the fact of the dead generation.
+//   retired   — new calls stop. The installation's artifact, operation
+//               contracts and evidence receipts stay readable so an old call
+//               can still be reconciled against the implementation it froze.
+//
+// A *new process generation* re-attaches; it does not republish or revive a
+// retired generation. Re-enabling the same exact installation opens the next
+// generation explicitly and keeps the previous retirement admission immutable.
+
+use crate::commit::CommitRef;
+use crate::ids::RuntimeGeneration;
+
+/// Durable phase of one plugin-root installation generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginRootPhase {
+    Prepared,
+    Published,
+    Attached,
+    Retired,
+}
+
+impl PluginRootPhase {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Prepared => "prepared",
+            Self::Published => "published",
+            Self::Attached => "attached",
+            Self::Retired => "retired",
+        }
+    }
+
+    /// Terminal for this generation. A later generation is a new record
+    /// generation, never a transition out of `retired`.
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Retired)
+    }
+
+    /// New calls may only use an *attached* phase, and only in the process
+    /// generation that recorded the attachment. Publication alone is not
+    /// enough: it authorizes attachment, not execution.
+    pub fn admits_new_calls(self) -> bool {
+        matches!(self, Self::Attached)
+    }
+
+    /// The durable phase order of one generation.
+    ///
+    /// `Retired` is reachable from every non-terminal phase: an installation
+    /// that was only prepared or published can be withdrawn without ever
+    /// having executed, and that retirement states `effect_status=none`
+    /// rather than implying an external stop it never performed.
+    /// `Attached → Attached` is not a phase transition: it is the same phase
+    /// with a new attachment admission for a new process generation.
+    pub fn can_advance_to(self, next: PluginRootPhase) -> bool {
+        use PluginRootPhase::*;
+        matches!(
+            (self, next),
+            (Prepared, Published)
+                | (Prepared, Retired)
+                | (Published, Attached)
+                | (Published, Retired)
+                | (Attached, Retired)
+        )
+    }
+}
+
+/// Exact identity of one plugin-root installation.
+///
+/// Two artifacts of the same plugin are two installations; two process
+/// generations of one installation are generations of the same record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRootIdentity {
+    /// Node installation unit this runtime implementation was installed from.
+    pub unit_id: String,
+    pub unit_revision: String,
+    pub unit_artifact_digest: Digest,
+    /// The runtime registration identity (the kernel's `plugin_id`).
+    pub plugin_id: EntityId,
+    /// The exact implementation artifact and symbol this generation executes.
+    pub implementation: VersionedRef,
+    /// Provider ids this installation publishes, when already known.
+    #[serde(default)]
+    pub provider_ids: Vec<String>,
+    /// Capability ids this installation publishes, when already known.
+    #[serde(default)]
+    pub capability_ids: Vec<String>,
+}
+
+impl PluginRootIdentity {
+    /// Deterministic installation identity over the exact identity tuple.
+    ///
+    /// Provider/capability lists are sorted before hashing so the same
+    /// registration set always names the same installation, independent of
+    /// observation order.
+    pub fn installation_id(&self) -> EntityId {
+        let mut providers = self.provider_ids.clone();
+        providers.sort();
+        providers.dedup();
+        let mut capabilities = self.capability_ids.clone();
+        capabilities.sort();
+        capabilities.dedup();
+        let canonical = serde_json::json!([
+            "shenko.plugin-root.identity/v1",
+            self.unit_id,
+            self.unit_revision,
+            self.unit_artifact_digest.0,
+            self.plugin_id.to_string(),
+            self.implementation.artifact.digest.0,
+            self.implementation.artifact.locator,
+            self.implementation.symbol,
+            self.implementation.schema.name,
+            self.implementation.schema.major,
+            self.implementation.schema.digest.0,
+            providers,
+            capabilities,
+        ]);
+        EntityId::derived(
+            "shenko.plugin-root.installation/v1",
+            canonical.to_string().as_bytes(),
+        )
+    }
+}
+
+/// How the artifact identity was retained before the phase was admitted.
+///
+/// This is evidence classification, not a promise that the bytes were read
+/// again: `StoreCas` is verified by the Store itself at admission; the
+/// `InstallationUnit` variant is the caller's observation of the Node's own
+/// installation fact, and the receipt says so instead of pretending the Store
+/// inspected those bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum PluginArtifactBinding {
+    /// The implementation bytes are a local CAS object the Store verifies.
+    StoreCas { object: ObjectRef },
+    /// The bytes belong to the Node installation unit named by the identity.
+    InstallationUnit { retained: bool },
+}
+
+impl PluginArtifactBinding {
+    /// Whether the binding asserts the artifact is still addressable.
+    pub fn retained(&self) -> bool {
+        match self {
+            Self::StoreCas { .. } => true,
+            Self::InstallationUnit { retained } => *retained,
+        }
+    }
+}
+
+/// One durable admission of a phase transition.
+///
+/// The admission id is derived from `(installation, generation, phase,
+/// runtime generation)`, so a retry of the same phase in the same process
+/// generation returns the original receipt instead of appending a second one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginPhaseAdmission {
+    pub schema_version: u32,
+    pub admission_id: EntityId,
+    pub installation_id: EntityId,
+    /// Generation of the installation record this admission belongs to.
+    pub generation: u64,
+    pub phase: PluginRootPhase,
+    /// Record revision this admission produced.
+    pub record_revision: u64,
+    /// Process generation that observed or performed this phase.
+    pub runtime_generation: RuntimeGeneration,
+    /// Live registry revision observed with the publication/attachment.
+    pub observed_registry_revision: u64,
+    /// Live capability registry revision observed with the publication.
+    pub observed_capability_revision: u64,
+    /// Hook graph digest observed at publication, when the root published one.
+    pub observed_hook_graph_digest: Option<Digest>,
+    /// The artifact binding this phase was admitted under.
+    pub artifact: PluginArtifactBinding,
+    /// Why this phase was admitted.
+    pub reason: String,
+    /// Caller-observed evidence for this phase. These are references, not a
+    /// claim that the Store re-read their bytes.
+    #[serde(default)]
+    pub evidence: Vec<ObjectRef>,
+    /// Unresolved operations counted from the Store's own operation rows at a
+    /// retirement commit. `None` for every other phase. The count is kept on
+    /// the retirement admission because a later generation replaces the
+    /// installation record's current view.
+    #[serde(default)]
+    pub unresolved_operations: Option<u64>,
+    pub committed_at: CommitRef,
+}
+
+/// One plugin-root installation record (per installation, not per generation).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRootRecord {
+    pub schema_version: u32,
+    pub installation_id: EntityId,
+    pub identity: PluginRootIdentity,
+    /// Current generation. The first installation is generation 0.
+    pub generation: u64,
+    pub phase: PluginRootPhase,
+    pub record_revision: u64,
+    pub prepared: PluginPhaseAdmission,
+    pub published: Option<PluginPhaseAdmission>,
+    pub attached: Option<PluginPhaseAdmission>,
+    pub retired: Option<PluginPhaseAdmission>,
+    /// Process generation of the latest attachment, when attached.
+    pub attached_runtime_generation: Option<RuntimeGeneration>,
+    /// Whether the artifact was addressable when the current generation was
+    /// prepared and at retirement.
+    pub artifact_retained: bool,
+    /// Whether operation contracts, evidence receipts and the installation
+    /// record itself remain readable after retirement. Retirement never
+    /// deletes them, so this is true even when the artifact bytes are gone.
+    pub evidence_retained: bool,
+    /// Operations still unresolved at the retirement commit, counted from the
+    /// Store's own operation rows for this exact plugin/artifact. `None`
+    /// before retirement.
+    pub in_flight_operations_at_retirement: Option<u64>,
+    pub prepared_commit: CommitRef,
+    pub updated_commit: CommitRef,
+}
+
+impl PluginRootRecord {
+    pub fn installation_id(&self) -> EntityId {
+        self.installation_id
+    }
+
+    pub fn admits_new_calls(&self, current: &RuntimeGeneration) -> bool {
+        self.phase.admits_new_calls()
+            && self
+                .attached_runtime_generation
+                .as_ref()
+                .is_some_and(|attached| attached == current)
+    }
+}
+
+/// Caller request for the prepare phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginPrepareRequest {
+    /// Phase is admitted for this process generation (recorded in the receipt).
+    pub runtime_generation: RuntimeGeneration,
+    pub artifact: PluginArtifactBinding,
+    pub reason: String,
+    #[serde(default)]
+    pub evidence: Vec<ObjectRef>,
+}
+
+/// Caller request for the publish phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginPublishRequest {
+    pub runtime_generation: RuntimeGeneration,
+    /// Registry revision this publication was prepared against.
+    pub observed_registry_revision: u64,
+    /// Capability catalog revision this publication was prepared against.
+    pub observed_capability_revision: u64,
+    pub observed_hook_graph_digest: Option<Digest>,
+    pub reason: String,
+    #[serde(default)]
+    pub evidence: Vec<ObjectRef>,
+}
+
+/// Caller request for the attach phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginAttachRequest {
+    /// The process generation that actually attached the publication.
+    pub runtime_generation: RuntimeGeneration,
+    pub observed_registry_revision: u64,
+    pub observed_capability_revision: u64,
+    pub reason: String,
+    #[serde(default)]
+    pub evidence: Vec<ObjectRef>,
+}
+
+/// Caller request for the retire phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRetireRequest {
+    pub runtime_generation: RuntimeGeneration,
+    pub reason: String,
+    /// The caller's observation that the Node installation still retains the
+    /// artifact. The Store's own CAS check wins for `StoreCas` bindings.
+    pub artifact_retained: bool,
+    #[serde(default)]
+    pub evidence: Vec<ObjectRef>,
+}
+
+/// Stable refusal codes of the durable lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginLifecycleRefusalCode {
+    /// The same installation identity arrived with a different definition.
+    IdentityConflict,
+    /// A concurrent writer committed a different record revision first.
+    RevisionConflict,
+    /// The phase cannot follow the committed phase.
+    IllegalPhaseTransition,
+    /// `attach` was asked for while the installation was never published.
+    AttachBeforePublish,
+    /// The installation generation is retired; new calls are refused.
+    Retired,
+    /// The artifact is no longer addressable, so it cannot be published or
+    /// reopened for a new generation.
+    ArtifactUnavailable,
+    /// No durable record exists for this installation identity.
+    UnknownInstallation,
+    /// The same phase was admitted in this process generation with a
+    /// different observation (a second, inconsistent receipt).
+    AdmissionConflict,
+}
+
+impl PluginLifecycleRefusalCode {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::IdentityConflict => "PLUGIN_ROOT_IDENTITY_CONFLICT",
+            Self::RevisionConflict => "PLUGIN_ROOT_REVISION_CONFLICT",
+            Self::IllegalPhaseTransition => "PLUGIN_ROOT_ILLEGAL_PHASE",
+            Self::AttachBeforePublish => "PLUGIN_ATTACH_BEFORE_PUBLISH",
+            Self::Retired => "PLUGIN_ROOT_RETIRED",
+            Self::ArtifactUnavailable => "PLUGIN_ARTIFACT_UNAVAILABLE",
+            Self::UnknownInstallation => "PLUGIN_ROOT_UNKNOWN_INSTALLATION",
+            Self::AdmissionConflict => "PLUGIN_ROOT_ADMISSION_CONFLICT",
+        }
+    }
+}
+
+/// Typed lifecycle refusal. Callers downcast this instead of matching prose.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginLifecycleRefusal {
+    pub code: PluginLifecycleRefusalCode,
+    pub installation_id: Option<EntityId>,
+    pub phase: Option<PluginRootPhase>,
+    pub detail: String,
+}
+
+impl PluginLifecycleRefusal {
+    pub fn new(code: PluginLifecycleRefusalCode, detail: impl Into<String>) -> Self {
+        Self {
+            code,
+            installation_id: None,
+            phase: None,
+            detail: detail.into(),
+        }
+    }
+
+    pub fn for_installation(
+        mut self,
+        installation_id: EntityId,
+        phase: Option<PluginRootPhase>,
+    ) -> Self {
+        self.installation_id = Some(installation_id);
+        self.phase = phase;
+        self
+    }
+}
+
+impl std::fmt::Display for PluginLifecycleRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.code.code(), self.detail)
+    }
+}
+
+impl std::error::Error for PluginLifecycleRefusal {}
+
+/// What restart recovery may do for one committed phase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum PluginRecoveryAction {
+    /// Prepared but never published: verify the retained artifact and publish.
+    /// No new call can exist, because publication never committed.
+    Publish,
+    /// Published but never attached in this process: attach. Publication is
+    /// durable, so this does not republish.
+    Attach,
+    /// Attached, but the attachment belongs to a dead process generation:
+    /// reattach under the current generation and reconcile unresolved
+    /// operations by their frozen implementation identity before admitting
+    /// new calls.
+    Reattach {
+        previous_runtime_generation: RuntimeGeneration,
+    },
+    /// Attached in the current process generation: nothing to resume.
+    Ready,
+    /// Retired: no new calls. Old operations and receipts stay resolvable
+    /// against the retained artifact identity.
+    Retained,
+}
+
+/// The recovery decision for one installation, derived only from committed
+/// phases and the current process generation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginRecoveryPlan {
+    pub schema_version: u32,
+    pub installation_id: EntityId,
+    pub generation: u64,
+    pub phase: PluginRootPhase,
+    pub current_runtime_generation: RuntimeGeneration,
+    pub action: PluginRecoveryAction,
+    /// New calls may use this installation only when this is true.
+    pub admits_new_calls: bool,
+    /// Unresolved operations currently recorded for this exact
+    /// plugin/artifact (prepared, in flight or reconciling).
+    pub unresolved_operations: u64,
+    pub artifact_retained: bool,
+    pub evidence_retained: bool,
+}
+
+/// Whether an old call's exact implementation is available right now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum PluginImplementationAvailability {
+    /// Attached in the current process generation.
+    Live { runtime_generation: RuntimeGeneration },
+    /// Attached in an earlier process generation; the current process has not
+    /// reattached yet. Not executable now.
+    AwaitingReattach {
+        previous_runtime_generation: RuntimeGeneration,
+    },
+    /// Published but not attached; never live in this process.
+    AwaitingAttach,
+    /// Prepared only. Publication never committed, so no attach is legal.
+    NotPublished,
+    /// Retired. The artifact and evidence are retained; the implementation is
+    /// not loaded, and a re-execution needs an explicit new generation.
+    RetainedOnly { retired_commit: CommitRef },
+    /// No durable installation record matches the call's frozen contract.
+    Missing,
+}
+
+/// Resolution of one frozen operation against the durable lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginCallResolution {
+    pub operation_id: EntityId,
+    pub plugin_id: EntityId,
+    pub artifact_digest: Digest,
+    pub availability: PluginImplementationAvailability,
+    /// Evidence receipts are never deleted by retirement, so a retained
+    /// operation keeps an auditable record.
+    pub receipts_readable: bool,
+    pub receipt_count: u64,
+}
