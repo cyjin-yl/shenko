@@ -6,6 +6,7 @@ import { isPage, pinnedWorks, setWorkPinned, subscribeLenses } from './slots';
 import type { DemoWidgetPreview } from './threads';
 import { ArtifactHierarchy } from './inspector-trees';
 import { storageGet, storageSet } from './ui-preferences';
+import { clampWidgetSpan as clampSpan, startWidgetResize, type WidgetSpan } from './widget-resize';
 import {
   CardContent,
   CardFooter,
@@ -30,10 +31,7 @@ import {
 type ArtifactRecord = NonNullable<PlaygroundView['artifacts']>[number];
 type WidgetScope = 'recent' | 'pinned' | 'archive' | 'index';
 
-export interface WidgetSpan {
-  cols: number;
-  rows: number;
-}
+export type { WidgetSpan } from './widget-resize';
 
 interface WidgetBoardPrefs {
   spans: Record<string, WidgetSpan>;
@@ -91,13 +89,6 @@ function groupArchived(items: readonly ArtifactRecord[], newestMs: number): Arra
     else buckets.set(info.key, { ...info, items: [item] });
   }
   return [...buckets.values()];
-}
-
-function clampSpan(span: WidgetSpan, maxCols = 6): WidgetSpan {
-  return {
-    cols: Math.max(1, Math.min(maxCols, Math.round(span.cols))),
-    rows: Math.max(1, Math.min(5, Math.round(span.rows))),
-  };
 }
 
 function readBoardPrefs(): WidgetBoardPrefs {
@@ -222,6 +213,8 @@ function WidgetSlot({
   onResizeState: (active: boolean) => void;
 }) {
   const slotRef = React.useRef<HTMLDivElement>(null);
+  const cancelResize = React.useRef<(() => void) | null>(null);
+  React.useLayoutEffect(() => () => { cancelResize.current?.(); }, []);
   const [liveSpan, setLiveSpan] = React.useState<WidgetSpan | null>(null);
   const activeSpan = liveSpan ?? span;
   const title = String(artifact.title || artifact.artifact_id);
@@ -240,6 +233,7 @@ function WidgetSlot({
   ].filter(Boolean);
 
   const beginCornerResize = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || !event.isPrimary) return;
     event.preventDefault();
     event.stopPropagation();
     const slot = slotRef.current;
@@ -250,36 +244,23 @@ function WidgetSlot({
     const gridWidth = grid.getBoundingClientRect().width;
     const colStride = (gridWidth + GRID_GAP_PX) / maxCols;
     const rowStride = ROW_UNIT_PX + GRID_GAP_PX;
-    const startX = event.clientX;
-    const startY = event.clientY;
     const origin = { cols: Math.min(span.cols, maxCols), rows: span.rows };
-    let latest = origin;
+    cancelResize.current?.();
     onResizeState(true);
     setLiveSpan(origin);
-
-    const onMove = (moveEvent: PointerEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-      const next = clampSpan({
-        cols: origin.cols + Math.round(dx / Math.max(40, colStride)),
-        rows: origin.rows + Math.round(dy / rowStride),
-      }, maxCols);
-      if (next.cols !== latest.cols || next.rows !== latest.rows) {
-        latest = next;
-        setLiveSpan(next);
-      }
-    };
-    const finish = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', finish);
-      onResizeState(false);
-      setLiveSpan(null);
-      if (latest.cols !== span.cols || latest.rows !== span.rows) onSetSpan(latest);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', finish);
+    cancelResize.current = startWidgetResize({
+      pointer: event,
+      grip: event.currentTarget,
+      scope: window,
+      origin, maxCols, colStride, rowStride,
+      onChange: setLiveSpan,
+      onEnd: (committed) => {
+        cancelResize.current = null;
+        onResizeState(false);
+        setLiveSpan(null);
+        if (committed && (committed.cols !== origin.cols || committed.rows !== origin.rows)) onSetSpan(committed);
+      },
+    });
   };
 
   const renderMenuItems = (Item: typeof ContextMenuItem | typeof DropdownItem, withSections: boolean) => (
