@@ -1188,15 +1188,20 @@ class Harness:
             case.note(**{"%s_pause_error" % label:
                          stderr.decode(errors="replace")[-2000:]})
             return None
-        record = self.wait_for(
-            lambda: (lambda raw: raw if raw and raw.get("state") == "paused"
-                     else None)(self._quiesce_status(request_id)),
-            "%s_paused" % label, timeout, interval=0.2)
+        sample = 0
+
+        def paused():
+            nonlocal sample
+            sample += 1
+            record = self._quiesce_status(request_id, sample)
+            return record if record and record.get("state") == "paused" else None
+
+        record = self.wait_for(paused, "%s_paused" % label, timeout, interval=0.2)
         return request_id if record else None
 
-    def _quiesce_status(self, request_id: str):
+    def _quiesce_status(self, request_id: str, sample: int):
         code, stdout, _stderr = self.cli(
-            "quiesce-status-%s" % request_id, "runtime", "status", request_id,
+            f"quiesce-status-{request_id}-{sample:04d}", "runtime", "status", request_id,
             timeout=60)
         if code != 0:
             return None
