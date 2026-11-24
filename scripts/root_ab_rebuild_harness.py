@@ -482,7 +482,13 @@ def scan_processes(data_dir: Path, artifact: Path | None = None):
 # ---------------------------------------------------------------------------
 def git(source: Path, arguments, env) -> tuple[int, bytes, bytes]:
     completed = subprocess.run(
-        ["git", "-C", str(source), *arguments], stdin=subprocess.DEVNULL,
+        # The measured tree is the caller's own checkout, often a mounted
+        # worktree whose ownership differs from the account that runs the
+        # harness. The ownership guard would abort the fingerprint; the
+        # harness reads every byte itself and never trusts git's output for
+        # anything but the file list.
+        ["git", "-c", "safe.directory=*", "-C", str(source), *arguments],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=300)
     return completed.returncode, completed.stdout, completed.stderr
 
@@ -1333,8 +1339,9 @@ class Harness:
         row = self.spawn_runtime("bootstrap", pause_at_start=pause)
         state = self.wait_for(
             lambda: (lambda db: db if db and selector_of(db) and head_of(db)
+                     and head_of(db).get("mode") == "paused"
                      else None)(read_db(self.live_db())),
-            "bootstrap_genesis", 300)
+            "bootstrap_genesis_paused", 300)
         case.require("bootstrap_genesis_visible", bool(state))
         endpoint = self.wait_for(lambda: read_control_runtime_id(self.data),
                                  "bootstrap_control", 180)
