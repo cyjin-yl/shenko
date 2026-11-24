@@ -504,6 +504,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .widget-resize-grip {
   position: absolute; right: 2px; bottom: 2px; z-index: 2;
   width: 14px; height: 14px; padding: 0; border: 0; background: transparent;
+  touch-action: none;
   cursor: nwse-resize; opacity: 0; transition: opacity 120ms ease;
 }
 .widget-resize-grip::after {
@@ -1433,13 +1434,9 @@ code.row-sub, code.row-title { font-size: 12px; }
 .safe-note { padding: 20px; }
 
 @media (max-width: 1099px) {
-  .im { grid-template-columns: 76px minmax(0, 1fr); }
-  .im-controls, .im-section-head, .im-archive-toggle { display: none; }
-  .im-row-text {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
-  }
-  .im-row { justify-content: center; min-height: 56px; padding: 6px; }
+  /* Keep search, scope and archive controls reachable at tablet widths. An
+     avatar-only rail otherwise traps hidden filters and collapsed threads. */
+  .im { grid-template-columns: 240px minmax(0, 1fr); }
 }
 @media (max-width: 719px) {
   .topbar { grid-template-columns: minmax(0, 1fr) auto; }

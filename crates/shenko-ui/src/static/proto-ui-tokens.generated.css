@@ -613,6 +613,30 @@
     background-color: color-mix(in oklab, var(--pui-input) 80%, transparent);
   }
 
+  :where(.dark) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where(.dark):where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible] {
+    --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 40%, transparent);
+    --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+    --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where(.dark):where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where(.dark):where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+  }
+
   :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered],
   :where(.dark):where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered],
   :where([data-theme='dark']) :where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered],
@@ -721,6 +745,27 @@
     --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
     --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
     box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected] {
+    background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected] {
+    border-color: transparent;
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected] {
+    color: var(--pui-foreground);
   }
 
   :where(.dark) :where([data-pui-style~="dark:not-[data-checked]:bg-foreground"]):not([data-checked]),
@@ -963,23 +1008,43 @@
     border-color: var(--pui-primary);
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_+_2px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_+_2px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% + 2px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_2px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_2px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 2px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_4px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_4px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 4px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_8px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_8px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 8px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(-100%_-_2px)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(-100% - 2px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(2px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(2px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(4px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(4px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(8px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(8px - 100%);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -999,10 +1064,6 @@
     color: var(--pui-primary-foreground);
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:direction-ltr"])[data-direction='ltr'][data-draggable] {
-    direction: ltr;
-  }
-
   :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc((100%_-_2px)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
     --pui-translate-x: calc((100% - 2px)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
@@ -1018,8 +1079,8 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc(1px_+_(100%_+_1px)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
-    --pui-translate-x: calc(1px + (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc(0.0625rem_+_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
+    --pui-translate-x: calc(0.0625rem + (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -1027,12 +1088,18 @@
     direction: ltr;
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:pl-4"])[data-direction='ltr'] {
-    padding-left: 1rem;
+  :where([data-pui-style~="data-[direction=ltr]:not-[data-checked]:not-[data-draggable]:translate-x-0"])[data-direction='ltr']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0px;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:direction-rtl"])[data-direction='rtl'][data-draggable] {
-    direction: rtl;
+  :where([data-pui-style~="data-[direction=ltr]:not-[data-checked]:not-[data-draggable]:translate-x-0.25"])[data-direction='ltr']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[direction=ltr]:pl-4"])[data-direction='ltr'] {
+    padding-left: 1rem;
   }
 
   :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc((2px_-_100%)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
@@ -1050,8 +1117,8 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc(-1px_-_(100%_+_1px)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
-    --pui-translate-x: calc(-1px - (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc(-0.0625rem_-_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
+    --pui-translate-x: calc(-0.0625rem - (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -1082,6 +1149,16 @@
 
   :where([data-pui-style~="data-[direction=rtl]:direction-rtl"])[data-direction='rtl'] {
     direction: rtl;
+  }
+
+  :where([data-pui-style~="data-[direction=rtl]:not-[data-checked]:not-[data-draggable]:translate-x-0"])[data-direction='rtl']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0px;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[direction=rtl]:not-[data-checked]:not-[data-draggable]:translate-x-[-0.0625rem]"])[data-direction='rtl']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: -0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
   :where([data-pui-style~="data-[direction=rtl]:pr-4"])[data-direction='rtl'] {
@@ -1244,6 +1321,13 @@
     box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
   }
 
+  :where([data-pui-style~="data-[focus-visible]:ring-destructive/20"])[data-focus-visible] {
+    --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 20%, transparent);
+    --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+    --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
   :where([data-pui-style~="data-[focus-visible]:ring-inset"])[data-focus-visible] {
     --pui-ring-inset: inset;
   }
@@ -1348,8 +1432,40 @@
     background-color: var(--pui-accent);
   }
 
+  :where([data-pui-style~="data-[hovered]:bg-destructive/90"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-destructive) 90%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-input/50"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-input) 50%, transparent);
+  }
+
   :where([data-pui-style~="data-[hovered]:bg-muted"])[data-hovered] {
     background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-primary/90"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-primary) 90%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-secondary/80"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-secondary) 80%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:bg-accent"])[data-hovered]:not([data-active]) {
+    background-color: var(--pui-accent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:bg-muted"])[data-hovered]:not([data-active]) {
+    background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:text-accent-foreground"])[data-hovered]:not([data-active]) {
+    color: var(--pui-accent-foreground);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:text-muted-foreground"])[data-hovered]:not([data-active]) {
+    color: var(--pui-muted-foreground);
   }
 
   :where([data-pui-style~="data-[hovered]:not-[data-disabled]:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]"])[data-hovered]:not([data-disabled]) {
@@ -1869,8 +1985,16 @@
     color: var(--pui-accent-foreground);
   }
 
+  :where([data-pui-style~="data-[selected]:bg-background"])[data-selected] {
+    background-color: var(--pui-background);
+  }
+
   :where([data-pui-style~="data-[selected]:bg-muted"])[data-selected] {
     background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[selected]:border-foreground"])[data-selected] {
+    border-color: var(--pui-foreground);
   }
 
   :where([data-pui-style~="data-[selected]:not-[data-range-middle]:bg-primary"])[data-selected]:not([data-range-middle]) {
@@ -1879,6 +2003,20 @@
 
   :where([data-pui-style~="data-[selected]:not-[data-range-middle]:text-primary-foreground"])[data-selected]:not([data-range-middle]) {
     color: var(--pui-primary-foreground);
+  }
+
+  :where([data-pui-style~="data-[selected]:shadow-none"])[data-selected] {
+    --pui-shadow: 0 0 #0000;
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where([data-pui-style~="data-[selected]:shadow-sm"])[data-selected] {
+    --pui-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where([data-pui-style~="data-[selected]:text-foreground"])[data-selected] {
+    color: var(--pui-foreground);
   }
 
   :where([data-pui-style~="data-[side=bottom]:-translate-x-1/2"])[data-side='bottom'] {
@@ -3786,6 +3924,11 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
+  :where([data-pui-style~="translate-x-[-0.0625rem]"]) {
+    --pui-translate-x: -0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
   :where([data-pui-style~="translate-x-[calc((100%_-_2px)*var(--pui-percentage)/100)]"]) {
     --pui-translate-x: calc((100% - 2px)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
@@ -3816,8 +3959,18 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="translate-x-[calc(-1px_-_(100%_+_1px)*var(--pui-percentage)/100)]"]) {
-    --pui-translate-x: calc(-1px - (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="translate-x-[calc(-0.0625rem_-_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"]) {
+    --pui-translate-x: calc(-0.0625rem - (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(-100%_-_2px)]"]) {
+    --pui-translate-x: calc(-100% - 2px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(0.0625rem_+_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"]) {
+    --pui-translate-x: calc(0.0625rem + (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -3841,8 +3994,18 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="translate-x-[calc(1px_+_(100%_+_1px)*var(--pui-percentage)/100)]"]) {
-    --pui-translate-x: calc(1px + (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="translate-x-[calc(2px_-_100%)]"]) {
+    --pui-translate-x: calc(2px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(4px_-_100%)]"]) {
+    --pui-translate-x: calc(4px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(8px_-_100%)]"]) {
+    --pui-translate-x: calc(8px - 100%);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -4093,6 +4256,15 @@
     outline-width: 1px;
   }
 
+  :where([data-pui-style~="data-[focus-visible]:outline-2"])[data-focus-visible] {
+    outline-style: solid;
+    outline-width: 2px;
+  }
+
+  :where([data-pui-style~="data-[focus-visible]:outline-offset-2"])[data-focus-visible] {
+    outline-offset: 2px;
+  }
+
   :where([data-pui-style~="data-[focus-visible]:outline-ring"])[data-focus-visible] {
     outline-color: var(--pui-ring);
   }
@@ -4331,6 +4503,21 @@
       background-color: color-mix(in oklab, var(--pui-input) 80%, transparent);
     }
 
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible] {
+      --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 40%, transparent);
+      --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+      --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+      box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered] {
+      background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered] {
+      background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+    }
+
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered] {
       background-color: color-mix(in oklab, var(--pui-input) 50%, transparent);
     }
@@ -4397,6 +4584,18 @@
       --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
       --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
       box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected] {
+      background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected] {
+      border-color: transparent;
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected] {
+      color: var(--pui-foreground);
     }
 
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:not-[data-checked]:bg-foreground"]):not([data-checked]) {

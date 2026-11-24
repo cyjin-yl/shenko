@@ -2,16 +2,21 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "178349813eecbf0edfda79d8f7ef185b0831d500",
+    "commit": "bdc564c0da040a9b8438b1a94b3eaea74cb94b67",
     "previous_reviewed_commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
-    "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
-    "source_checkout": "/tank/shared/projects/proto-ui",
-    "build_receipt": null
+    "lock_sha256": "eae18430bd967c94def36809b6d3305fa156a96548b08215a18dfe8a43923c07",
+    "source_checkout": "/var/idw-target/pr411-review-20261125-55114/proto-ui",
+    "build_receipt": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": 42,
+      "receipt_path": "/var/idw-target/pr411-review-20261125-55114/upstream-build.json",
+      "receipt_sha256": "26bac62aa01a257986b77a28fcb94bcdd4a39140a3b7221c39a1a7453d6e3997"
+    }
   },
   "packages": [
-    "@proto.ui/adapter-react@0.3.0-alpha.2",
-    "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
-    "@proto.ui/cli@0.3.0-alpha.2"
+    "@proto.ui/adapter-react@0.3.0",
+    "@proto.ui/prototypes-shadcn@0.3.0",
+    "@proto.ui/cli@0.3.0"
   ],
   "adopted_families": [
     "button",
@@ -137,6 +142,10 @@
       "packages/prototypes/shadcn/dist/toggle/index.js",
       "packages/prototypes/shadcn/dist/resizable/index.js",
       "packages/prototypes/shadcn/dist/tree/index.js",
+      "packages/prototypes/shadcn/dist/card/index.js",
+      "packages/prototypes/shadcn/dist/tabs/index.js",
+      "packages/prototypes/shadcn/dist/context-menu/index.js",
+      "packages/prototypes/shadcn/dist/dropdown/index.js",
       "packages/cli/bin/proto-ui.js",
       "packages/compiler/package.json",
       "packages/compiler/src/index.ts"
@@ -155,12 +164,12 @@
     "package_sha256": "1664972b337d48996e9a40d32095ba0b65677d3a5ea7f1c2374ef00b546ed37b",
     "entry": "packages/compiler/src/index.ts",
     "entry_sha256": "f0597edb3c73641e3ab51a30c40a0611d30c5dd8b2f02fe88edc65abe47da6d0",
-    "source_tree_sha256": "89ad0836a365a4bc4c504ec83d689895845426f5613058d1a7737776d2ad1017",
+    "source_tree_sha256": "b441f547eded28d7155908a786eeede3b9dd9aa1129c952e275355a6aaae910d",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "3afc47975433c26f49ad7115e6e8fcd5ad826c1063b69d1d77660bf00e5b4253",
-      "bytes": 4185006,
+      "sha256": "bfddefd66a8ef7d8d29d2ffdec76793d9cdec6951d753ee1c24f998ec95f9a9e",
+      "bytes": 4220837,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -177,7 +186,7 @@
     ],
     "public_package_selection": {
       "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": null,
+      "selected_package_count": 42,
       "includes_compiler": false,
       "note": "The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead."
     },
@@ -229,16 +238,16 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/worktrees/hig-sidebar-scroll-area-20261124/crates/shenko-ui/web",
-  "built_at": "2026-11-24T15:34:13.068Z",
+  "web_root": "/var/idw-target/pr411-review-20261125-55114/source/crates/shenko-ui/web",
+  "built_at": "2026-11-24T19:17:46.782Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1357405,
-      "sha256": "6f44a68c00b20f4c17dc2f9ea7ac104eaf011ae87386dcd2caef60786921a129"
+      "bytes": 1382875,
+      "sha256": "c7a3696d01998abef6a086735bdc545037308346c32c6b316057a7709f441947"
     },
     "chunks/chunk-SD6RZHGX.js": {
       "bytes": 75257,
@@ -249,16 +258,16 @@
       "sha256": "b30b7204bfa4ecca3a0e54a2c08a595180bef940aea43d3600bfd96bad9501ba"
     },
     "app.css": {
-      "bytes": 95382,
-      "sha256": "2aea726b79a825c22589a227eae295f253aba35cbf2b0bcb91da8ca8bea4af8b"
+      "bytes": 95243,
+      "sha256": "b23ce69089c262a742e60bae66c7e593114b4b3d1ce6c297807ab07c46c3439b"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 163718,
-      "sha256": "b97be764155b2e51efb21af1cbc2bbf952867984d9966c4bae68720dbda5572a"
+      "bytes": 175967,
+      "sha256": "43e03b222d7e2f8b0e2a5a3f8a9e98a7b4da9a8d52e25ea89d3c504f55218fd9"
     },
     "shadcn-theme.css": {
       "bytes": 6473,
