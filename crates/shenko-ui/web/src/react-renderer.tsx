@@ -1,18 +1,30 @@
 import { text as t, resolveMessage } from './messages';
 import * as React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { intentFor, type Dispatch, type TaskSummary, type UiNode, type UiProjection, type ViewName, type WorkView } from './projection';
+import {
+  intentFor,
+  type ActionReceiptView,
+  type DegradedDocument,
+  type Dispatch,
+  type Submission,
+  type TaskSummary,
+  type UiNode,
+  type UiProjection,
+  type ViewName,
+  type WorkView,
+} from './projection';
 import { Icon } from './icons';
 import {
-  Button, DrawerContent, DrawerHeader, DrawerMask, DrawerRoot, DrawerTitle,
+  Button, DrawerContent, DrawerHeader, DrawerMask, DrawerRoot, DrawerTitle, ScrollBox,
   ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
-import { ImView } from './im';
-import { FilesView, liveFiles } from './files-view';
+import { ImView, type ImRevealRequest } from './im';
+import { FilesView, liveFiles, type RecentFileHint } from './files-view';
 import { collectThreads, isAttentionTask, subjectParticipant, type DemoThreadData, type ThreadMessage } from './threads';
 import { lensSnapshot, subscribeLenses, syncWorkLenses, type LensContribution } from './slots';
 import { WorkFrame } from './work-frame';
+import { isLiveArtifact } from './playground-widgets';
 import { InspectContext } from './delegation-branches';
 import { TimelineSurface } from './timeline-surface';
 import { SemanticDocumentView } from './timeline-entries';
@@ -142,6 +154,11 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
     try { localStorage.setItem('shenko.tab.v1', next); } catch { /* page-only preference */ }
   };
   const [threadId, setThreadId] = React.useState<string>(() => new URLSearchParams(location.search).get('thread') ?? 'direct');
+  const [imReveal, setImReveal] = React.useState<ImRevealRequest>();
+  const revealSequence = React.useRef(0);
+  const finishImReveal = React.useCallback((requestId: number) => {
+    setImReveal((request) => request?.requestId === requestId ? undefined : request);
+  }, []);
   const conversations = useConversations(projection.source === 'live', timeline.props.step as number | null);
   const threads = React.useMemo(
     () => collectThreads({ projection, tasks, conversations: demoData?.conversations ?? conversations.rows, demo: demoData }),
@@ -163,6 +180,65 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
   const openWork = open?.kind === 'work'
     ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
     : undefined;
+  const activeTaskCount = tasks.filter(isAttentionTask).length;
+  const memoryItems = (nodes.memory_surface?.props.data?.items ?? []) as unknown[];
+  const timelineEntries = (timeline.props.entries ?? []) as UiNode[];
+  const pendingDecision = React.useMemo(() => {
+    for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+      const entry = timelineEntries[index];
+      if (entry.kind !== 'semantic_document') continue;
+      const doc = entry.props.document as DegradedDocument | undefined;
+      if (!doc || !Array.isArray(doc.options) || doc.options.length === 0) continue;
+      const receipts = (entry.props.receipts ?? []) as ActionReceiptView[];
+      const settled = receipts.some((row) => row.revision === doc.revision
+        && ['committed', 'accepted', 'selected'].includes(row.stage));
+      if (!settled) {
+        return {
+          summary: doc.summary,
+          onReview: () => {
+            openLens(undefined);
+            setThreadId('direct');
+            setTab('im');
+            setImReveal({ requestId: ++revealSequence.current, threadId: 'direct', messageKey: entry.node_id });
+          },
+        };
+      }
+    }
+    return undefined;
+  }, [timelineEntries]);
+  const recentFileHints = React.useMemo<RecentFileHint[]>(() => {
+    const seen = new Set<string>();
+    const hints: RecentFileHint[] = [];
+    for (let index = timelineEntries.length - 1; index >= 0 && hints.length < 5; index -= 1) {
+      const entry = timelineEntries[index];
+      if (entry.kind !== 'user_submission') continue;
+      const submission = entry.props.submission as Submission | undefined;
+      for (const file of submission?.payload.attachment_refs ?? []) {
+        if (seen.has(file.digest)) continue;
+        seen.add(file.digest);
+        hints.push({ name: file.name, bytes: file.bytes, mime: file.media_type });
+        if (hints.length >= 5) break;
+      }
+    }
+    return hints;
+  }, [timelineEntries]);
+  const liveWorkCount = (works ?? []).filter(isLiveArtifact).length;
+  const lensSubtitle = open?.kind === 'work'
+    ? t('shell.workLens')
+    : openId === 'tasks'
+      ? [
+        timeline.props.step ? `R·${timeline.props.step}` : null,
+        activeTaskCount > 0 ? t('inspector.attentionTasks', { count: activeTaskCount }) : t('files.itemsCount', { count: tasks.length }),
+      ].filter(Boolean).join(' · ')
+      : openId === 'memory'
+        ? t('files.itemsCount', { count: memoryItems.length })
+        : openId === 'playground'
+          ? (liveWorkCount > 0
+            ? t('widgets.liveSubtitle', { live: liveWorkCount, total: works?.length ?? 0 })
+            : t('files.itemsCount', { count: works?.length ?? 0 }))
+          : openId === 'config'
+            ? (timeline.props.step ? `R·${timeline.props.step}` : undefined)
+            : undefined;
 
   return (
     <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
@@ -172,18 +248,25 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       }}>{t('shell.skipComposer')}</a>
 
       <header className="topbar">
-        <button
-          type="button"
-          className="presence"
-          onClick={() => emit('context', 'panel.toggle')}
-          aria-label={t('shell.subjectDetails', { name: name ?? t('subject.unnamed') })}
-        >
-          <span className="presence-name">
-            {name ?? <span className="is-unnamed">{t('subject.unnamed')}</span>}
-            {demo && <span className="tag">{t('shell.demo')}</span>}
-          </span>
-          <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
-        </button>
+        <div className="topbar-left">
+          <button
+            type="button"
+            className="presence"
+            onClick={() => emit('context', 'panel.toggle')}
+            aria-label={t('shell.subjectDetails', { name: name ?? t('subject.unnamed') })}
+          >
+            <span className="presence-name">
+              {name ?? <span className="is-unnamed">{t('subject.unnamed')}</span>}
+              {demo && <span className="tag">{t('shell.demo')}</span>}
+            </span>
+            <Attention
+              step={timeline.props.step}
+              status={timeline.props.subject_status}
+              tasks={tasks}
+              hasPendingDecision={Boolean(pendingDecision)}
+            />
+          </button>
+        </div>
         <nav className="tabs" aria-label={t('shell.views')}>
           <ToggleGroupRoot
             className="tab-switch"
@@ -199,71 +282,97 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             <ToggleGroupItem value="files" className="tab-item"><Icon name="files" size={16} />{t('files.title')}</ToggleGroupItem>
           </ToggleGroupRoot>
         </nav>
-        <nav className="lensbar" aria-label={t('shell.lenses')}>
-          <ToggleGroupRoot
-            className="lens-switch"
-            a11yLabel={t('shell.openLens')}
-            value={openId ? [openId] : []}
-            onValueChange={(detail: { value: readonly string[] }) => {
-              const next = detail.value.find((id) => id !== openId) ?? null;
-              openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
-            }}
-          >
-            {lenses.map((lens, index) => (
-              <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
-                <Icon name={lens.icon} size={17} />
-                <span className="lens-label">{lens.title}</span>
-                <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroupRoot>
-        </nav>
-        <div className="topbar-actions">
-          <TransportBadge connection={projection.connection} demo={demo} />
-          <Toggle
-            active={timeline.props.wrap === true}
-            label={t('shell.wrap')}
-            onChange={() => emit('timeline', 'timeline.code_wrap')}
-          ><Icon name="wrap" /></Toggle>
-          <Button
-            variant="ghost"
-            size="icon"
-            label={theme === 'light' ? t('shell.dark') : t('shell.light')}
-            onClick={() => emit('navigation', 'theme.toggle')}
-          ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
-          <Button variant="ghost" size="icon" label={t('subject.details')} onClick={() => emit('context', 'panel.toggle')}>
-            <Icon name="panel" />
-          </Button>
+        <div className="topbar-right">
+          <nav className="lensbar" aria-label={t('shell.lenses')}>
+            <ToggleGroupRoot
+              className="lens-switch"
+              a11yLabel={t('shell.openLens')}
+              value={openId ? [openId] : []}
+              onValueChange={(detail: { value: readonly string[] }) => {
+                const next = detail.value.find((id) => id !== openId) ?? null;
+                openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
+              }}
+            >
+              {lenses.map((lens, index) => (
+                <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
+                  <Icon name={lens.icon} size={17} />
+                  <span className="lens-label">{lens.title}</span>
+                  <span className="sr-only">{index < 9 ? t('shell.shortcut', { key: index + 1 }) : ''}</span>
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroupRoot>
+          </nav>
+          <div className="topbar-actions">
+            <TransportBadge connection={projection.connection} demo={demo} />
+            <Toggle
+              active={timeline.props.wrap === true}
+              label={t('shell.wrap')}
+              onChange={() => emit('timeline', 'timeline.code_wrap')}
+            ><Icon name="wrap" /></Toggle>
+            <Button
+              variant="ghost"
+              size="icon"
+              label={theme === 'light' ? t('shell.dark') : t('shell.light')}
+              onClick={() => emit('navigation', 'theme.toggle')}
+            ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
+            <Button variant="ghost" size="icon" label={t('subject.details')} onClick={() => emit('context', 'panel.toggle')}>
+              <Icon name="panel" />
+            </Button>
+          </div>
         </div>
       </header>
 
       <InspectorLayout
         openId={openId}
         title={String(lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? '')}
-        subtitle={open?.kind === 'work' ? t('shell.workLens') : undefined}
+        subtitle={lensSubtitle}
         onClose={() => openLens(undefined)}
         inspector={open?.kind === 'work'
-          ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
+          ? (() => {
+            const demoPreview = demo ? demoData?.widgetPreview?.(open.artifact_id, theme) : undefined;
+            return <WorkFrame
+              key={open.artifact_id}
+              artifactId={open.artifact_id}
+              title={String(openWork?.title ?? open.artifact_id)}
+              revision={openWork?.revision}
+              activeManifestDigest={openWork?.active_manifest_digest}
+              demoHtml={demoPreview?.kind === 'html' ? demoPreview.html : undefined}
+            />;
+          })()
           : <>
-            <TasksSurface node={nodes.tasks_surface} ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])} />
+            <TasksSurface
+              node={nodes.tasks_surface}
+              ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
+              onOpenThread={inspect.openThread}
+              pendingDecision={pendingDecision}
+            />
             <MemorySurface node={nodes.memory_surface} />
             <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
             <PlaygroundSurface
               node={nodes.playground_surface}
               ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
+              demo={demo}
+              theme={theme}
+              getDemoPreview={demoData?.widgetPreview}
               onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
+              onInspectWork={(artifactId) => {
+                const actionId = `work.open.${artifactId}`;
+                if (projection.actions[actionId]?.enabled) emit(`work.${artifactId}`, actionId);
+              }}
             />
           </>}
       >
         <main className="stream" id="main" data-tab={tab}>
           {tab === 'files'
-            ? <FilesView source={demoData?.files ?? liveFiles} />
+            ? <FilesView source={demoData?.files ?? liveFiles} recentHints={recentFileHints} />
             : tab === 'im'
             ? <ImView
               key={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
               threads={threads}
               selected={threadId}
-              onSelect={setThreadId}
+              onSelect={(id) => { setImReveal(undefined); setThreadId(id); }}
+              revealRequest={imReveal}
+              onRevealComplete={finishImReveal}
               composer={<Composer node={composer} emit={emit} variant="im" />}
               renderAttachment={(message: ThreadMessage) => message.node?.kind === 'semantic_document'
                 ? <SemanticDocumentView node={message.node} emit={emit} />
@@ -334,27 +443,29 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               <Icon name="close" />
             </Button>
           </DrawerHeader>
-          <ul className="more-list">
-            {lenses.map((lens) => (
-              <li key={lens.id}>
-                <button
-                  type="button"
-                  className="more-item"
-                  aria-current={openId === lens.id ? 'true' : undefined}
-                  onClick={() => { setMoreOpen(false); openLens(lens); }}
-                >
-                  <Icon name={lens.icon} size={20} />
-                  <span className="more-label">{lens.title}</span>
-                  <Icon name="chevron" size={16} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <ScrollBox className="more-scroll" viewportClassName="more-viewport">
+            <ul className="more-list">
+              {lenses.map((lens) => (
+                <li key={lens.id}>
+                  <button
+                    type="button"
+                    className="more-item"
+                    aria-current={openId === lens.id ? 'true' : undefined}
+                    onClick={() => { setMoreOpen(false); openLens(lens); }}
+                  >
+                    <Icon name={lens.icon} size={20} />
+                    <span className="more-label">{lens.title}</span>
+                    <Icon name="chevron" size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </ScrollBox>
         </DrawerContent>
       </DrawerRoot>
 
       <ContextPanel node={panel} projection={projection} emit={emit} />
-      <span className="sr-only" aria-live="polite">{connectionAnnouncement(projection.connection)}</span>
+      <span className="sr-only" aria-live="polite">{demo ? '' : connectionAnnouncement(projection.connection)}</span>
     </div>
   );
 }
@@ -364,13 +475,19 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
  * the last committed round, the reported status. Nothing is inferred; with no
  * facts the line says so.
  */
-function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: TaskSummary[] }) {
+function Attention({ step, status, tasks, hasPendingDecision }: {
+  step: number | null;
+  status: string;
+  tasks: TaskSummary[];
+  hasPendingDecision?: boolean;
+}) {
   // The subject's own status is shown separately from the work it owns.
   const active = tasks.filter(isAttentionTask);
   const facts: string[] = [];
   if (active.length === 1) facts.push(t('shell.activeOne', { kind: String(active[0].kind ?? active[0].task_id) }));
   else if (active.length > 1) facts.push(t('shell.activeMany', { count: active.length }));
   facts.push(step ? t('timeline.round', { step: step ?? 0 }) : t('shell.noSteps'));
+  if (hasPendingDecision) facts.push(t('shell.pendingDecision'));
   if (status && status !== 'unknown') facts.push(status);
   return <span className="attention">{facts.join(' · ')}</span>;
 }

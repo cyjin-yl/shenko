@@ -150,6 +150,10 @@ function demoState(): UiState {
           created_at: new Date(Date.now() - 5.5 * 60_000).toISOString(), name: member.name, team: DEMO_TEAM.team,
         })),
         { task_id: 'demo-task-6c12', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', goal: '验证配置读取发生在目录解析之后。', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+        // Dormant historical subagents from weeks & months ago (demonstrates time-horizon archival).
+        { task_id: 'demo-arch-18d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: '飞书回调排查', goal: '梳理飞书 Webhook 签名校验与重复投递去重策略。', created_at: new Date(Date.now() - 18 * 86400_000).toISOString() },
+        { task_id: 'demo-arch-64d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: 'LayerFS 快照对照', goal: '对比 Linux VM 原生 LayerFS 与 WASM 家园快照恢复耗时。', created_at: new Date(Date.now() - 64 * 86400_000).toISOString() },
+        { task_id: 'demo-arch-96d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: 'Qwen3.8 量化基线', goal: '测量 4 路 128K KV 并发下 Q4_K_M 与 FP8 的吞吐差异。', created_at: new Date(Date.now() - 96 * 86400_000).toISOString() },
       ],
     },
     tasks_error: false,
@@ -163,8 +167,15 @@ function demoState(): UiState {
     playground: {
       available: true,
       artifacts: [
-        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, active_manifest_digest: 'demo-digest-1', backend: true, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-4', title: '27B KV 并发水位', mime: 'text/html', revision: 5, active_manifest_digest: 'demo-digest-4', backend: true, lifecycle: 'running', updated_at: new Date(Date.now() - 125 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-3', title: '雨夜与显影便签', mime: 'text/html', revision: 2, active_manifest_digest: 'demo-digest-3', lifecycle: 'running', updated_at: new Date(Date.now() - 22 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-5', title: '桌角待读 · 3 篇', mime: 'text/html', revision: 1, active_manifest_digest: 'demo-digest-5', lifecycle: 'running', updated_at: new Date(Date.now() - 41 * 60_000).toISOString() },
         { artifact_id: 'demo-work-2', title: '记忆合并草稿', mime: 'text/markdown', revision: 1, lifecycle: 'draft', updated_at: new Date(Date.now() - 2 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-6', title: '周五给林以压一页分享', mime: 'text/html', revision: 1, active_manifest_digest: 'demo-digest-6', lifecycle: 'running', updated_at: new Date(Date.now() - 14 * 60_000).toISOString() },
+        // Historical archived works (folded under Earlier archive by default).
+        { artifact_id: 'demo-work-arch-1', title: '东京旧书店路线摘记', mime: 'text/html', revision: 4, active_manifest_digest: 'demo-digest-arch-1', lifecycle: 'archived', updated_at: new Date(Date.now() - 52 * 86400_000).toISOString() },
+        { artifact_id: 'demo-work-arch-2', title: 'LayerFS 压测小表', mime: 'text/markdown', revision: 2, lifecycle: 'archived', updated_at: new Date(Date.now() - 88 * 86400_000).toISOString() },
       ],
     },
     playground_error: false,

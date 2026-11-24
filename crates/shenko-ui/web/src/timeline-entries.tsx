@@ -200,7 +200,7 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
         <footer className={`receipt tone-${receipt.tone}`} data-receipt={submission.receipt} title={detail}>
           <span className="receipt-dot" aria-hidden="true" />
           <span className="receipt-label">{receipt.short}</span>
-          <span className="sr-only">：{detail}</span>
+          <span className="sr-only">{t('common.colon')}{detail}</span>
           {submission.detail && <span className="receipt-detail">{resolveMessage(submission.detail)}</span>}
           {placement && <span className="receipt-detail">{placement}</span>}
           {withdrawal && (
@@ -211,12 +211,12 @@ function UserSubmission({ node, emit, continued }: { node: UiNode; emit: Emit; c
           <time dateTime={submission.created_at}>{formatTime(submission.created_at)}</time>
           {(submission.receipt === 'rejected' || submission.receipt === 'unknown') && typeof retryAction === 'string' && (
             <button type="button" className="text-action" onClick={() => emit(node.node_id, retryAction)}>
-              <Icon name="retry" size={14} />以同一 ID 重试
+              <Icon name="retry" size={14} />{t('receipt.retrySame')}
             </button>
           )}
           {!withdrawal && typeof withdrawAction === 'string' && (
             <button type="button" className="text-action" onClick={() => emit(node.node_id, withdrawAction)}>
-              <Icon name="undo" size={14} />撤回
+              <Icon name="undo" size={14} />{t('common.withdraw')}
             </button>
           )}
           {typeof editAction === 'string' && (
@@ -255,10 +255,10 @@ function WorkEntry({ node, emit, onOpenWork }: { node: UiNode; emit: Emit; onOpe
             size="sm"
             onClick={() => page ? onOpenWork(work.artifact_id) : emit(node.node_id, node.action_refs[0])}
           >
-            <Icon name="open" size={15} />打开
+            <Icon name="open" size={15} />{t('common.open')}
           </Button>
           {page && <Button variant="ghost" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>
-            详情与操作
+            {t('work.details')}
           </Button>}
         </div>
       </div>
@@ -309,7 +309,8 @@ export function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit 
   const document = node.props.document as DegradedDocument;
   const receipts = (node.props.receipts ?? []) as ActionReceiptView[];
   const latest = (actionId: string): ActionReceiptView | undefined => receipts
-    .filter((row) => row.action_id === actionId)
+    .filter((row) => row.document_id === document.document_id
+      && row.revision === document.revision && row.action_id === actionId)
     .at(-1);
   // An admitted decision awaiting disposition must not be admitted twice by a
   // second click; the option stays visible with its durable stage shown.

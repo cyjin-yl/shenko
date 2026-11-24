@@ -281,12 +281,42 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 ## 6. Proto-UI pin
 
 `web/upstream-pin.json` 当前固定到已合入 Proto-UI 主线的
-`b939afe35d30a1a436766d80beea7093a46e4fb2`，上一消费版本是
-`f24720f870cd76f86c81ee8343359486afd3f0de`。三个公开入口与构建期 compiler
-来自同一提交；这是精确源码消费版本，不是 compiler 的 registry 发行。
-本次重新生成的资源、类型检查、既有测试与浏览器结果分别绑定，见
-[主线升级记录](../evidence/proto-ui-mainline-b939afe-20261124.md)；
-修改 pin 本身不提供这些检查的成功证据。
+`6ca8f262a074ed19cb24b35d5cc199b5b0e23e08`（PR #411 审查更新，2026-11-25），
+上一主线消费版本是 `b939afe35d30a1a436766d80beea7093a46e4fb2`。
+`@proto.ui/adapter-react`、`@proto.ui/prototypes-shadcn`、`@proto.ui/cli`
+三个公开入口均为 `0.3.0`，与构建期 compiler 来自同一提交；
+这是精确源码消费版本，不是 compiler 的 registry 发行。
+
+PR #411 原候选 `178349813eecbf0edfda79d8f7ef185b0831d500` 已由本次 pin
+替代；原候选的构建与浏览器声明仍只属于当时的源码和环境，不转记为当前版本通过。
+首次应用验证绑定 Shenko 源码 `cf0d0b63` 与上游 `bdc564c0`，原始回执保留。
+最终 R3 在 Shenko 生产源码 `cb425ba8` 与上游 `6ca8f262` 上重新执行，
+使用 Node `24.22.1`、pnpm `10.32.1` 完成 42 个包的公开依赖闭包构建、
+`pnpm check`、69/69 项 Web 测试和正常静态构建，产出 12 个带摘要的资源。
+Files、IM、Inspector、Tree 与阅读共 16 个实际 App 浏览器场景通过。
+这些结果证明本次消费路径；完整 compiler 的结果与其保持独立绑定。
+
+完整 compiler 测试已在 `bdc564c0` 实际运行并失败：314 个文件中
+307 通过、5 失败、2 跳过；测试为 4,939 通过、4 失败、98 跳过。
+失败包括 target-alignment 的 root-space-observer 依赖闭包、
+nativeTransition 的严格 channel 类型，以及 Drawer 有界拒绝的诊断/span
+预期不一致。`bdc564c0` 与 `6ca8f262` 的 compiler 源码树相同；
+这项源码比较不等于在新 pin 上重新执行完整测试，也不把原失败改为通过。
+两次 pin 之间的公开 CLI 样式生成器及已采用 family 变化，
+由当前 R3 应用重建、浏览器结果与独立增量检查记录说明。
+
+`6ca8f262` 的增量检查中，四个 Shadcn Button 编译 profile 通过；
+四个未采用的 Brutalist profile 因新增 `new Set` 触发 `PUI1008`，
+另四个全族样式闭包扫描触发原 120 秒超时。这些失败保持原始结果，
+不能将本次消费路径通过表述为整个上游通过。
+
+原始失败、各轮产物摘要与增量检查结果见
+[PR #411 审查记录](../evidence/pr411-review-20261125.md)。
+本次 App 通过不代表完整 compiler、全部 family 编译迁移或真实主体验收通过。
+
+此前 `b939afe35d30a1a436766d80beea7093a46e4fb2` 从
+`f24720f870cd76f86c81ee8343359486afd3f0de` 升级的源码、资源与验证绑定，
+保留在[当时的主线升级记录](../evidence/proto-ui-mainline-b939afe-20261124.md)。
 
 此前 Sprint 2 整合候选 `5cb80eb937f20982dd7dc8cbc93a90e91d665c31`
 及其前代 `6a9b575fbe744ccb2f54d1e45336ccc195f401f1` 的消费证据，
@@ -299,7 +329,7 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 的迁移与真实运行边界仍见[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)，
 不能把旧候选的回执重新标成当前版本的验收。
 
-上一 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
+此前 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
 固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
 [上游 #1682](https://github.com/Proto-UI/Proto-UI/pull/1682) 的 compiler 测试挂载时序补正。
 原 [#1671](https://github.com/Proto-UI/Proto-UI/pull/1671) 已合入；其帧队列排空仍可能早于
@@ -311,12 +341,23 @@ Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公�
 [运行证据](../evidence/nightly-environment-20261122.md#c931526c-compiler-failure-and-mutation-delivery-fix)。
 pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
 producer、独立重建和新候选完整回执，原失败记录保持不变。
-三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
-使用摘要为 `6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8`
-的上游 `pnpm-lock.yaml`，与上一消费候选的锁字节相同。界面采用的 shadcn
-family：button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
-toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
-separator（日期分隔）、resizable（Inspector）、tree（Tasks 与 Playground）。
+上述 `8fcde0e1` 候选的三个公开入口使用 `0.3.0-alpha.2`，
+上游 `pnpm-lock.yaml` 摘要为
+`6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8`，
+与它的上一消费候选锁字节相同；这些旧版本事实保持原有绑定。
+
+当前 `6ca8f262` 的上游 `pnpm-lock.yaml` 摘要为
+`eae18430bd967c94def36809b6d3305fa156a96548b08215a18dfe8a43923c07`。
+界面实际采用的 **16 个上游 shadcn family 均经运行时 adapter**：
+button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
+toggle-group（视图与会话切换）、toggle（代码软换行）、input（命名、认领、配置）、
+separator（日期分隔）、resizable（Inspector）、tree（Tasks 与 Playground）、
+card、tabs、context-menu、dropdown（DropdownMenu；后四项用于 Playground）。
+Shenko 自有的 **2 个 Prototype**（transport-badge、message-bubble）仍由
+同一 pin 的 compiler 在构建期编译；新增 adapter family 不计入编译迁移完成数。
+本次实际生成的两个 React DOM Prototype 未引入 `nativeSupport`；
+16 个上游 family 仍由运行时 adapter 执行，不能据此推断未消费的 native
+生成路径或完整 compiler 测试已经通过。
 tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 双重 Tab 停靠。
 
@@ -324,7 +365,9 @@ tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 `adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
 另一份源码或使用旧提交的 `dist`。本 pin 的闭包为 42 个包；这不代表全部
 上游适配器均已构建或运行。`PROTO_UI_SOURCE` 必须通过真实 Git HEAD 和 lock
-摘要校验，`PROTO_UI_BUILD_RECEIPT` 绑定这次上游构建。使用 Node 24 与锁定的
+摘要校验，完整静态构建必须提供 `PROTO_UI_BUILD_RECEIPT` 绑定这次上游构建。
+缺失凭据时在写入静态产物之前失败；`--prototypes-only` 保持独立的类型检查准备路径。
+使用规范版本 Node `24.22.1`、pnpm `10.32.1` 与锁定的
 依赖运行类型检查和 `web/build.mjs`，由真实 adapter、esbuild 和官方 CLI
 生成资源、样式、许可及带资源摘要的 manifest。Rust 将这些资源嵌入二进制，
 因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
@@ -384,7 +427,7 @@ headless Chromium）：**
   Proto-UI 的 JS 时间是 693 ms，React 是 130 ms，Shenko 是 71 ms。
 
 **2026-11-13 的历史迁移阻塞。** 以下 0/216 与诊断表来自上述 Proto-UI
-`35195a6` / Shenko 候选 `c0497fb`，不代表当前 `b939afe3` 的编译准入范围。
+`35195a6` / Shenko 候选 `c0497fb`，不代表当前 `6ca8f262` 的编译准入范围。
 当时 compiler 能编译的 shadcn 文件是 0/216；每个已采用 family 的首处诊断如下
 （`react-dom-source-v1`）。当时 shadcn 层全部卡在
 `PUI1003 Unsupported source package @proto.ui/prototypes-base/*`；

@@ -215,13 +215,17 @@ export function InspectorLayout({ openId, title, subtitle, inspector, onClose, c
         <ResizablePanel index={1} hostClassName="inspector-lens-pane">
           <aside className="lens" hidden={openId === null || collapsed} aria-label={openId === null ? undefined : title}>
             <div className="lens-head">
-              <span className="lens-title">{title}</span>
-              {subtitle && <span className="lens-sub">{subtitle}</span>}
-              <Button className="inspector-collapse" variant="ghost" size="icon"
-                label={t('shell.collapseLens')} disabled={!enabled}
-                onClick={() => request(CLOSED_SIZES)}><Icon name="panel" /></Button>
-              <Button className="inspector-close" variant="ghost" size="icon"
-                label={t('shell.closeLens')} onClick={close}><Icon name="close" /></Button>
+              <div className="lens-head-id">
+                <span className="lens-title">{title}</span>
+                {subtitle && <span className="lens-sub">{subtitle}</span>}
+              </div>
+              <div className="lens-head-actions">
+                <Button className="inspector-collapse" variant="ghost" size="icon"
+                  label={t('shell.collapseLens')} disabled={!enabled}
+                  onClick={() => request(CLOSED_SIZES)}><Icon name="panel" /></Button>
+                <Button className="inspector-close" variant="ghost" size="icon"
+                  label={t('shell.closeLens')} onClick={close}><Icon name="close" /></Button>
+              </div>
             </div>
             <div className="lens-body">{inspector}</div>
           </aside>
