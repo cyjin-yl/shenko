@@ -599,7 +599,8 @@ impl Store {
                         return Ok(record);
                     }
                     ensure!(
-                        artifact_still_available(self, &record),
+                        artifact_available(self, &record.prepared.artifact)
+                            && record.artifact_retained,
                         refusal(
                             PluginLifecycleRefusalCode::ArtifactUnavailable,
                             Some(installation_id),
