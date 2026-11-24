@@ -241,6 +241,7 @@ class Case:
         self.checks: dict[str, bool] = {}
         self.detail: dict[str, dict] = {}
         self.notes: dict = {}
+        self.finished = False
 
     def check(self, name: str, condition, **detail) -> bool:
         passed = bool(condition)
@@ -260,7 +261,7 @@ class Case:
         self.notes.update(fields)
 
     def completed(self) -> bool:
-        return bool(self.checks) and all(self.checks.values())
+        return self.finished and bool(self.checks) and all(self.checks.values())
 
 
 # ---------------------------------------------------------------------------
@@ -1323,12 +1324,18 @@ class Harness:
     def run(self) -> None:
         self.start_transport()
         bootstrap = self._bootstrap()
+        self.cases["AB-01"].finished = True
         facts_a = self._install_a(bootstrap)
+        self.cases["AB-03"].finished = True
         facts_b = self._install_b(facts_a)
+        self.cases["AB-02"].finished = True
+        self.cases["AB-04"].finished = True
         self._switch(facts_a, facts_b)
         self._refusals_live(facts_a, facts_b)
         self._cold_relaunch(facts_a, facts_b)
+        self.cases["AB-09"].finished = True
         self._refusals_retained(facts_a, facts_b)
+        self.cases["AB-08"].finished = True
         self._assembly(facts_a, facts_b)
 
     def _bootstrap(self) -> dict:
@@ -1600,7 +1607,8 @@ class Harness:
                                       or "/nonexistent")
                      == os.path.realpath(facts_a["slot_dir"]),
                      pointer=read_pointer(self.data))
-        rooted = build_observation_for(live_before, facts["build_id"])
+        live_after = read_db(Path(facts_a["slot_dir"]) / SLOT_DB)
+        rooted = build_observation_for(live_after, facts["build_id"])
         b_case.check("b_build_observation_rooted_in_a_history", bool(rooted),
                      build_id=facts["build_id"])
         if rooted:
@@ -2010,6 +2018,7 @@ class Harness:
             binding_case.check(name, passed, surface_a=surface_a,
                                surface_b=surface_b)
         binding_case.note(crossover=crossover)
+        binding_case.finished = True
 
         retention = self.cases["AB-05"]
         retention.check("retired_a_launch_receipt_retained",
@@ -2018,6 +2027,7 @@ class Harness:
                         self._current_launch(facts_b) is not None)
         retention.check("activation_records_for_both_generations",
                         self._records_bind_generations(facts_a, facts_b))
+        retention.finished = True
 
         leak = self.case("AB-07", "native")
         tree = slot_tree_checks(
@@ -2075,6 +2085,7 @@ class Harness:
                   tree["carried_installation_entries"],
                   executable_files=tree["executable_files"],
                   a_slot_manifest_now=manifest_now)
+        leak.finished = True
 
         binding = {
             "kind": BINDING_KIND,
@@ -2261,6 +2272,7 @@ class Harness:
                 self.root, "cases/%s.%s.json" % (case.case_id, case.scope),
                 {"schema_version": 1, "case_id": case.case_id,
                  "scope": case.scope, "checks": case.checks,
+                 "finished": case.finished,
                  "checks_detail": case.detail, **case.notes})
             cases.append({
                 "case_id": case.case_id,
