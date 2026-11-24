@@ -2,16 +2,11 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
-    "previous_reviewed_commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
+    "commit": "178349813eecbf0edfda79d8f7ef185b0831d500",
+    "previous_reviewed_commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
     "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
-    "source_checkout": "/tank/shared/projects/shenko/build/compiler-mainline-b939afe-20261124/proto-ui",
-    "build_receipt": {
-      "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": 42,
-      "receipt_path": "/tank/shared/projects/shenko/build/compiler-mainline-b939afe-20261124/upstream-build.json",
-      "receipt_sha256": "885c4e87fd06e306bfc2c695fe8b1df0c54dc437f8aa7081c72660874ecf2bd2"
-    }
+    "source_checkout": "/tank/shared/projects/proto-ui",
+    "build_receipt": null
   },
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",
@@ -158,7 +153,7 @@
     ],
     "public_package_selection": {
       "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": 42,
+      "selected_package_count": null,
       "includes_compiler": false,
       "note": "The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead."
     },
@@ -210,28 +205,28 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/worktrees/compiler-mainline-b939afe-20261124/crates/shenko-ui/web",
-  "built_at": "2026-11-24T08:21:53.398Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/hig-sidebar-scroll-area-20261124/crates/shenko-ui/web",
+  "built_at": "2026-11-24T10:33:51.672Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1244208,
-      "sha256": "af470f2fab7c395ac3127e25f47bd292a72ca4eb9fce44080e3958d79d418768"
+      "bytes": 1260501,
+      "sha256": "5be760217f4bb3d99a4d22ed6c97010f1452d7e1cb5a6c392c7b8114a6272a3a"
     },
-    "chunks/chunk-CCOEKU5G.js": {
-      "bytes": 66321,
-      "sha256": "20969647bb0238d85d2339b733ad85179d3d63c60bc36170aa3fb06f35b1f28c"
+    "chunks/chunk-KAQULBVM.js": {
+      "bytes": 68523,
+      "sha256": "8c347e14d728354ee64449e94cf098a667429d062085c2269f570cdec763c993"
     },
-    "chunks/demo-controller-UO6WU6NU.js": {
+    "chunks/demo-controller-R7GFO3IA.js": {
       "bytes": 16356,
-      "sha256": "c5d4cbbf0dac2b356c276476897a534a5023124b1b1dfa5b5b21ea0a35d40e72"
+      "sha256": "495661e3bbc9a00c3e81a706d79e3cb0cf89a23c1489d1c93bde4f3db198e518"
     },
     "app.css": {
-      "bytes": 65399,
-      "sha256": "0f156db7ec130ed6671ddb9e15f9daa969fe7d11d9cf208ea1466ae74758759f"
+      "bytes": 81437,
+      "sha256": "f765b01c4bbb4ee3c7574176254cf7914c20a61efb4b13ef0e9748412051b562"
     },
     "proto-ui-style.css": {
       "bytes": 294,

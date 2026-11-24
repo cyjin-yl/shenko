@@ -57,7 +57,7 @@ export function ConfigEntries({ node, emit }: { node: UiNode; emit: Emit }) {
         <div className="fact"><dt>{t('config.running')}</dt><dd className="is-mono">{shown(row.current_value)}</dd></div>
         <div className="fact"><dt>{t('config.adoption')}</dt><dd>{adoptions.length === 0
           ? t('config.noAdoption')
-          : adoptions.map((adoption) => `${adoption.consumer_id ?? t('config.consumerUnknown')} · r${adoption.adopted_revision ?? '?'}`).join('；')}</dd></div>
+          : adoptions.map((adoption) => `${adoption.consumer_id ?? t('config.consumerUnknown')} · r${adoption.adopted_revision ?? '?'}`).join(t('common.listSep'))}</dd></div>
       </dl>
       {row.current_value_error && <p className="muted is-error">{row.current_value_error}</p>}
       {row.error

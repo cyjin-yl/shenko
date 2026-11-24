@@ -6,7 +6,11 @@ import { Markdown } from './markdown';
 import type { Thread, ThreadMessage, Participant } from './threads';
 import type { WebAttachmentRef } from './projection';
 import { formatBytes } from './composer';
-import { ToggleGroupItem, ToggleGroupRoot, MessageRoot, ReadingViewport, Button, dayLabel, formatTime, type Emit, type ReadingViewportHandle } from './ui-kit';
+import {
+  ToggleGroupItem, ToggleGroupRoot, MessageRoot, ReadingViewport,
+  ScrollBox, ScrollScrollbar, ScrollThumb, Button, dayLabel, formatTime,
+  type Emit, type ReadingViewportHandle,
+} from './ui-kit';
 
 /**
  * The IM surface: the owner's primary way
@@ -44,30 +48,32 @@ export function ImView({
         aria-label={t('conversation.label')}
         onClick={(event) => { if ((event.target as Element).closest('.im-row')) setPane('thread'); }}
       >
-        <ToggleGroupRoot
-          className="im-list-group"
-          a11yLabel={t('conversation.label')}
-          orientation="vertical"
-          value={thread ? [thread.id] : []}
-          onValueChange={(detail: { value: readonly string[] }) => {
-            const next = detail.value.find((id) => id !== thread?.id);
-            if (next) onSelect(next);
-          }}
-        >
-          {threads.map((item) => (
-            <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
-              <Avatar participants={item.participants} audience={item.audience} active={item.active} />
-              <span className="im-row-text">
-                <span className="im-row-top">
-                  <span className="im-row-title">{item.title}</span>
-                  <time className="im-row-time">{shortWhen(item.updated_at)}</time>
+        <ScrollBox className="im-list-scroll" viewportClassName="im-list-viewport">
+          <ToggleGroupRoot
+            className="im-list-group"
+            a11yLabel={t('conversation.label')}
+            orientation="vertical"
+            value={thread ? [thread.id] : []}
+            onValueChange={(detail: { value: readonly string[] }) => {
+              const next = detail.value.find((id) => id !== thread?.id);
+              if (next) onSelect(next);
+            }}
+          >
+            {threads.map((item) => (
+              <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
+                <Avatar participants={item.participants} audience={item.audience} active={item.active} />
+                <span className="im-row-text">
+                  <span className="im-row-top">
+                    <span className="im-row-title">{item.title}</span>
+                    <time className="im-row-time">{shortWhen(item.updated_at)}</time>
+                  </span>
+                  <span className="im-row-preview">{item.preview}</span>
+                {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
                 </span>
-                <span className="im-row-preview">{item.preview}</span>
-              {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
-              </span>
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroupRoot>
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroupRoot>
+        </ScrollBox>
       </nav>
       {thread
         ? <ThreadView
@@ -327,12 +333,15 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }, { p
       onPointerDown={(event) => {
         if ((event.target as Element).closest('pre,button,details,input,textarea,select,[role="button"]')) this.beginBackfill();
       }}>
-      <MessageRoot a11yLabel={t('conversation.label')}>
+      <MessageRoot className="im-message-root" a11yLabel={t('conversation.label')}>
         <ReadingViewport className="im-scroll" ref={this.bindViewport}>
           {/* Focused message actions are reader interaction, including Tab's
               native scroll. Composer and resume controls own separate focus. */}
           <div ref={this.bindContent} onFocusCapture={this.beginBackfill}>{this.props.children}</div>
         </ReadingViewport>
+        <ScrollScrollbar orientation="vertical" className="sk-scrollbar sk-scrollbar-y">
+          <ScrollThumb className="sk-scroll-thumb" />
+        </ScrollScrollbar>
       </MessageRoot>
       {(this.state.paused || this.state.jumpFocused) && <div className="jump-latest"
         onFocusCapture={() => this.setState({ jumpFocused: true })}

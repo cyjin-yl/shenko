@@ -1,15 +1,26 @@
 import { text as t, resolveMessage } from './messages';
 import * as React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { intentFor, type Dispatch, type TaskSummary, type UiNode, type UiProjection, type ViewName, type WorkView } from './projection';
+import {
+  intentFor,
+  type ActionReceiptView,
+  type DegradedDocument,
+  type Dispatch,
+  type Submission,
+  type TaskSummary,
+  type UiNode,
+  type UiProjection,
+  type ViewName,
+  type WorkView,
+} from './projection';
 import { Icon } from './icons';
 import {
-  Button, DrawerContent, DrawerHeader, DrawerMask, DrawerRoot, DrawerTitle,
+  Button, DrawerContent, DrawerHeader, DrawerMask, DrawerRoot, DrawerTitle, ScrollBox,
   ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
 import { ImView } from './im';
-import { FilesView, liveFiles } from './files-view';
+import { FilesView, liveFiles, type RecentFileHint } from './files-view';
 import { collectThreads, isAttentionTask, subjectParticipant, type DemoThreadData, type ThreadMessage } from './threads';
 import { lensSnapshot, subscribeLenses, syncWorkLenses, type LensContribution } from './slots';
 import { WorkFrame } from './work-frame';
@@ -18,7 +29,7 @@ import { TimelineSurface } from './timeline-surface';
 import { SemanticDocumentView } from './timeline-entries';
 import { Composer } from './composer';
 import { SubmissionHistory } from './submission-history';
-import { InspectorLayout } from './inspector-layout';
+import { InspectorLayout, type InspectorTelemetry } from './inspector-layout';
 import { useConversations } from './conversation-data';
 
 export interface ProjectionRenderer {
@@ -163,6 +174,67 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
   const openWork = open?.kind === 'work'
     ? (works ?? knownWorks.current).find((work) => work.artifact_id === open.artifact_id)
     : undefined;
+  const activeTaskCount = tasks.filter(isAttentionTask).length;
+  const memoryItems = (nodes.memory_surface?.props.data?.items ?? []) as unknown[];
+  const timelineEntries = (timeline.props.entries ?? []) as UiNode[];
+  const pendingDecision = React.useMemo(() => {
+    for (let index = timelineEntries.length - 1; index >= 0; index -= 1) {
+      const entry = timelineEntries[index];
+      if (entry.kind !== 'semantic_document') continue;
+      const doc = entry.props.document as DegradedDocument | undefined;
+      if (!doc || !Array.isArray(doc.options) || doc.options.length === 0) continue;
+      const receipts = (entry.props.receipts ?? []) as ActionReceiptView[];
+      const settled = receipts.some((row) => ['committed', 'accepted', 'selected'].includes(row.stage));
+      if (!settled) {
+        return {
+          summary: doc.summary,
+          onReview: () => {
+            openLens(undefined);
+            setThreadId('direct');
+            setTab('im');
+          },
+        };
+      }
+    }
+    return undefined;
+  }, [timelineEntries]);
+  const recentFileHints = React.useMemo<RecentFileHint[]>(() => {
+    const seen = new Set<string>();
+    const hints: RecentFileHint[] = [];
+    for (let index = timelineEntries.length - 1; index >= 0 && hints.length < 5; index -= 1) {
+      const entry = timelineEntries[index];
+      if (entry.kind !== 'user_submission') continue;
+      const submission = entry.props.submission as Submission | undefined;
+      for (const file of submission?.payload.attachment_refs ?? []) {
+        if (seen.has(file.digest)) continue;
+        seen.add(file.digest);
+        hints.push({ name: file.name, bytes: file.bytes, mime: file.media_type });
+        if (hints.length >= 5) break;
+      }
+    }
+    return hints;
+  }, [timelineEntries]);
+  const inspectorTelemetry: InspectorTelemetry = {
+    step: (timeline.props.step as number | null) ?? null,
+    activeTasks: activeTaskCount,
+    pendingDecision,
+    lenses: lenses
+      .filter((lens) => lens.source === 'shell')
+      .map((lens) => ({
+        id: lens.id,
+        title: lens.title,
+        icon: lens.icon,
+        badge: lens.id === 'tasks' ? (activeTaskCount || tasks.length)
+          : lens.id === 'memory' ? memoryItems.length
+          : lens.id === 'playground' ? (works?.length ?? 0)
+          : undefined,
+        active: lens.id === 'tasks' && activeTaskCount > 0,
+      })),
+    onSelectLens: (id) => {
+      const target = lenses.find((lens) => lens.id === id);
+      if (target) openLens(target);
+    },
+  };
 
   return (
     <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
@@ -172,18 +244,20 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       }}>{t('shell.skipComposer')}</a>
 
       <header className="topbar">
-        <button
-          type="button"
-          className="presence"
-          onClick={() => emit('context', 'panel.toggle')}
-          aria-label={t('shell.subjectDetails', { name: name ?? t('subject.unnamed') })}
-        >
-          <span className="presence-name">
-            {name ?? <span className="is-unnamed">{t('subject.unnamed')}</span>}
-            {demo && <span className="tag">{t('shell.demo')}</span>}
-          </span>
-          <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
-        </button>
+        <div className="topbar-left">
+          <button
+            type="button"
+            className="presence"
+            onClick={() => emit('context', 'panel.toggle')}
+            aria-label={t('shell.subjectDetails', { name: name ?? t('subject.unnamed') })}
+          >
+            <span className="presence-name">
+              {name ?? <span className="is-unnamed">{t('subject.unnamed')}</span>}
+              {demo && <span className="tag">{t('shell.demo')}</span>}
+            </span>
+            <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
+          </button>
+        </div>
         <nav className="tabs" aria-label={t('shell.views')}>
           <ToggleGroupRoot
             className="tab-switch"
@@ -199,41 +273,43 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             <ToggleGroupItem value="files" className="tab-item"><Icon name="files" size={16} />{t('files.title')}</ToggleGroupItem>
           </ToggleGroupRoot>
         </nav>
-        <nav className="lensbar" aria-label={t('shell.lenses')}>
-          <ToggleGroupRoot
-            className="lens-switch"
-            a11yLabel={t('shell.openLens')}
-            value={openId ? [openId] : []}
-            onValueChange={(detail: { value: readonly string[] }) => {
-              const next = detail.value.find((id) => id !== openId) ?? null;
-              openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
-            }}
-          >
-            {lenses.map((lens, index) => (
-              <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
-                <Icon name={lens.icon} size={17} />
-                <span className="lens-label">{lens.title}</span>
-                <span className="sr-only">{index < 9 ? `（Ctrl/⌘ ${index + 1}）` : ''}</span>
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroupRoot>
-        </nav>
-        <div className="topbar-actions">
-          <TransportBadge connection={projection.connection} demo={demo} />
-          <Toggle
-            active={timeline.props.wrap === true}
-            label={t('shell.wrap')}
-            onChange={() => emit('timeline', 'timeline.code_wrap')}
-          ><Icon name="wrap" /></Toggle>
-          <Button
-            variant="ghost"
-            size="icon"
-            label={theme === 'light' ? t('shell.dark') : t('shell.light')}
-            onClick={() => emit('navigation', 'theme.toggle')}
-          ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
-          <Button variant="ghost" size="icon" label={t('subject.details')} onClick={() => emit('context', 'panel.toggle')}>
-            <Icon name="panel" />
-          </Button>
+        <div className="topbar-right">
+          <nav className="lensbar" aria-label={t('shell.lenses')}>
+            <ToggleGroupRoot
+              className="lens-switch"
+              a11yLabel={t('shell.openLens')}
+              value={openId ? [openId] : []}
+              onValueChange={(detail: { value: readonly string[] }) => {
+                const next = detail.value.find((id) => id !== openId) ?? null;
+                openLens(next ? lenses.find((lens) => lens.id === next) : undefined);
+              }}
+            >
+              {lenses.map((lens, index) => (
+                <ToggleGroupItem key={lens.id} value={lens.id} className={`lens-item source-${lens.source}`}>
+                  <Icon name={lens.icon} size={17} />
+                  <span className="lens-label">{lens.title}</span>
+                  <span className="sr-only">{index < 9 ? t('shell.shortcut', { key: index + 1 }) : ''}</span>
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroupRoot>
+          </nav>
+          <div className="topbar-actions">
+            <TransportBadge connection={projection.connection} demo={demo} />
+            <Toggle
+              active={timeline.props.wrap === true}
+              label={t('shell.wrap')}
+              onChange={() => emit('timeline', 'timeline.code_wrap')}
+            ><Icon name="wrap" /></Toggle>
+            <Button
+              variant="ghost"
+              size="icon"
+              label={theme === 'light' ? t('shell.dark') : t('shell.light')}
+              onClick={() => emit('navigation', 'theme.toggle')}
+            ><Icon name={theme === 'light' ? 'moon' : 'sun'} /></Button>
+            <Button variant="ghost" size="icon" label={t('subject.details')} onClick={() => emit('context', 'panel.toggle')}>
+              <Icon name="panel" />
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -241,11 +317,16 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
         openId={openId}
         title={String(lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? '')}
         subtitle={open?.kind === 'work' ? t('shell.workLens') : undefined}
+        telemetry={inspectorTelemetry}
         onClose={() => openLens(undefined)}
         inspector={open?.kind === 'work'
           ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
           : <>
-            <TasksSurface node={nodes.tasks_surface} ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])} />
+            <TasksSurface
+              node={nodes.tasks_surface}
+              ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
+              onOpenThread={inspect.openThread}
+            />
             <MemorySurface node={nodes.memory_surface} />
             <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
             <PlaygroundSurface
@@ -257,7 +338,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       >
         <main className="stream" id="main" data-tab={tab}>
           {tab === 'files'
-            ? <FilesView source={demoData?.files ?? liveFiles} />
+            ? <FilesView source={demoData?.files ?? liveFiles} recentHints={recentFileHints} />
             : tab === 'im'
             ? <ImView
               key={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
@@ -334,27 +415,29 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               <Icon name="close" />
             </Button>
           </DrawerHeader>
-          <ul className="more-list">
-            {lenses.map((lens) => (
-              <li key={lens.id}>
-                <button
-                  type="button"
-                  className="more-item"
-                  aria-current={openId === lens.id ? 'true' : undefined}
-                  onClick={() => { setMoreOpen(false); openLens(lens); }}
-                >
-                  <Icon name={lens.icon} size={20} />
-                  <span className="more-label">{lens.title}</span>
-                  <Icon name="chevron" size={16} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <ScrollBox className="more-scroll" viewportClassName="more-viewport">
+            <ul className="more-list">
+              {lenses.map((lens) => (
+                <li key={lens.id}>
+                  <button
+                    type="button"
+                    className="more-item"
+                    aria-current={openId === lens.id ? 'true' : undefined}
+                    onClick={() => { setMoreOpen(false); openLens(lens); }}
+                  >
+                    <Icon name={lens.icon} size={20} />
+                    <span className="more-label">{lens.title}</span>
+                    <Icon name="chevron" size={16} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </ScrollBox>
         </DrawerContent>
       </DrawerRoot>
 
       <ContextPanel node={panel} projection={projection} emit={emit} />
-      <span className="sr-only" aria-live="polite">{connectionAnnouncement(projection.connection)}</span>
+      <span className="sr-only" aria-live="polite">{demo ? '' : connectionAnnouncement(projection.connection)}</span>
     </div>
   );
 }

@@ -3,9 +3,9 @@ import { text as t } from './messages';
 import type { PlaygroundView, TaskSummary } from './projection';
 import { Icon } from './icons';
 import { isPage } from './slots';
-import { taskStateLabel } from './threads';
+import { isAttentionTask, isDelegation, taskStateLabel } from './threads';
 import {
-  TreeRoot, TreeItem, TreeGroup, type InspectorTreeHandle, formatStamp,
+  Button, TreeRoot, TreeItem, TreeGroup, type InspectorTreeHandle, formatCompactAge, formatStamp,
 } from './ui-kit';
 import {
   artifactEntries, taskEntries, presentHierarchy,
@@ -102,30 +102,72 @@ function InspectorHierarchy<T extends HierarchyEntry>({
   </section>;
 }
 
-export function TaskHierarchy({ tasks }: { tasks: readonly TaskSummary[] }) {
+export function TaskHierarchy({ tasks, onOpenThread }: {
+  tasks: readonly TaskSummary[];
+  onOpenThread?: (threadId: string) => void;
+}) {
   const entries = React.useMemo(() => taskEntries(tasks), [tasks]);
   const [inspectedId, setInspectedId] = React.useState<string | null>(null);
   const inspected = tasks.find((task) => task.task_id === inspectedId);
+  const activeCount = tasks.filter(isAttentionTask).length;
+  const openDelegation = inspected && onOpenThread && isDelegation(inspected)
+    ? () => onOpenThread(inspected.team
+      ? `team:${inspected.created_by_step_id ?? ''}|${inspected.team}`
+      : `delegation:${inspected.task_id}`)
+    : undefined;
   return <>
+    <div className="inspector-section-bar">
+      <span className="inspector-section-title">{t('config.tasks')}</span>
+      <span className="inspector-section-stat">{t('inspector.summaryTasks', { active: activeCount, total: tasks.length })}</span>
+    </div>
     <InspectorHierarchy
       entries={entries}
       label={t('config.tasks')}
       domain="tasks"
-      renderMetadata={(entry) => <><span data-state={entry.task.state}>{taskStateLabel(entry.task.state)}</span><time>{formatStamp(entry.task.created_at)}</time></>}
+      renderLabel={(entry) => <>
+        <span className="task-dot" data-state={entry.task.state} aria-hidden="true" />
+        <span className="task-name">{entry.label}</span>
+      </>}
+      renderMetadata={(entry) => <>
+        <span className="task-state-pill" data-state={entry.task.state}>{taskStateLabel(entry.task.state)}</span>
+        <time title={formatStamp(entry.task.created_at)}>{formatCompactAge(entry.task.created_at)}</time>
+      </>}
       onActivate={(entry) => setInspectedId(entry.task.task_id)}
     />
     {inspectedId !== null && <section className="inspector-tree-details" aria-label={t('tree.details')}>
-      <h3>{t('tree.details')}</h3>
-      {inspected ? <dl className="facts is-compact">
-        <div className="fact"><dt>{t('tree.taskIdentity')}</dt><dd className="is-mono">{inspected.task_id}</dd></div>
-        <div className="fact"><dt>{t('tree.taskParent')}</dt><dd className="is-mono">{inspected.parent_task_id || '—'}</dd></div>
-        <div className="fact"><dt>{t('tree.taskRole')}</dt><dd>{inspected.role}</dd></div>
-        <div className="fact"><dt>{t('tree.taskKind')}</dt><dd>{inspected.kind}</dd></div>
-        <div className="fact"><dt>{t('tree.taskCreated')}</dt><dd>{formatStamp(inspected.created_at)}</dd></div>
-        <div className="fact"><dt>{t('tree.taskGoal')}</dt><dd>{inspected.goal || '—'}</dd></div>
-      </dl> : <p className="muted">{t('tree.recordGone')}</p>}
+      <header className="inspector-details-head">
+        <h3>{inspected ? (inspected.name || inspected.kind || t('tree.details')) : t('tree.details')}</h3>
+        {inspected && <span className="task-state-pill" data-state={inspected.state}>{taskStateLabel(inspected.state)}</span>}
+      </header>
+      {inspected ? <>
+        {inspected.goal && <p className="inspector-details-goal">{inspected.goal}</p>}
+        {openDelegation && (
+          <div className="inspector-details-actions">
+            <Button variant="outline" size="sm" onClick={openDelegation}>
+              <Icon name="chat" size={14} />{t('inspector.openThread')}
+            </Button>
+          </div>
+        )}
+        <dl className="facts is-compact">
+          <div className="fact"><dt>{t('tree.taskIdentity')}</dt><dd className="is-mono">{inspected.task_id}</dd></div>
+          <div className="fact"><dt>{t('tree.taskParent')}</dt><dd className="is-mono">{inspected.parent_task_id || '—'}</dd></div>
+          <div className="fact"><dt>{t('tree.taskRole')}</dt><dd>{inspected.role}</dd></div>
+          <div className="fact"><dt>{t('tree.taskKind')}</dt><dd className="is-mono">{inspected.kind}</dd></div>
+          <div className="fact"><dt>{t('tree.taskCreated')}</dt><dd>{formatStamp(inspected.created_at)}</dd></div>
+          <div className="fact"><dt>{t('tree.taskGoal')}</dt><dd>{inspected.goal || '—'}</dd></div>
+        </dl>
+      </> : <p className="muted">{t('tree.recordGone')}</p>}
     </section>}
   </>;
+}
+
+function shortMime(mime: string | undefined): string {
+  if (!mime) return '—';
+  const slash = mime.indexOf('/');
+  const sub = slash >= 0 ? mime.slice(slash + 1) : mime;
+  if (sub === 'markdown') return 'MD';
+  if (sub === 'plain') return 'TXT';
+  return sub.toUpperCase().slice(0, 6);
 }
 
 export function ArtifactHierarchy({
@@ -140,12 +182,12 @@ export function ArtifactHierarchy({
     label={t('work.title')}
     domain="artifacts"
     renderLabel={(entry) => entry.kind === 'mime'
-      ? entry.mime || t('config.unknownType')
-      : <><Icon name="file" size={15} /><span>{entry.label}</span></>}
+      ? <><span className="artifact-mime-tag">{shortMime(entry.mime)}</span><span>{entry.mime || t('config.unknownType')}</span></>
+      : <><Icon name="file" size={14} /><span>{entry.label}</span></>}
     renderMetadata={(entry) => entry.kind === 'mime'
-      ? String(entry.count)
-      : <><span>r{String(entry.artifact.revision ?? '—')} · {String(entry.artifact.lifecycle ?? 'draft')} · {entry.artifact.backend ? t('work.backend') : t('work.content')}</span>
-          <time>{formatStamp(entry.artifact.updated_at)}</time></>}
+      ? <span className="inspector-count-pill">{entry.count}</span>
+      : <><span className="artifact-rev-tag" data-lifecycle={String(entry.artifact.lifecycle ?? 'draft')}>r{String(entry.artifact.revision ?? '—')} · {String(entry.artifact.lifecycle ?? 'draft')}{entry.artifact.backend ? ` · ${t('work.backend')}` : ''}</span>
+          <time title={formatStamp(entry.artifact.updated_at)}>{formatCompactAge(entry.artifact.updated_at)}</time></>}
     onActivate={(entry) => {
       if (entry.kind === 'artifact' && isPage(entry.artifact.mime))
         onOpenWork?.(entry.artifact.artifact_id);

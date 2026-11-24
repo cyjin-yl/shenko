@@ -7,7 +7,8 @@ export type IconName =
   | 'panel' | 'sun' | 'moon' | 'copy' | 'check' | 'send' | 'steer'
   | 'down' | 'close' | 'chevron' | 'more' | 'undo' | 'retry'
   | 'file' | 'open' | 'spark' | 'wrap' | 'info' | 'warning' | 'empty' | 'chat'
-  | 'plus' | 'image' | 'folder' | 'files' | 'sandbox' | 'drive' | 'network' | 'node' | 'share';
+  | 'plus' | 'image' | 'folder' | 'files' | 'sandbox' | 'drive' | 'network' | 'node' | 'share'
+  | 'search' | 'lock';
 
 export function Icon({ name, size = 18 }: { name: IconName | string; size?: number }) {
   const common = {
@@ -58,6 +59,8 @@ export function Icon({ name, size = 18 }: { name: IconName | string; size?: numb
     case 'network': return <svg {...common}><rect x="6.5" y="3" width="7" height="5" rx="1.2" /><rect x="2.5" y="12.5" width="6" height="4.5" rx="1.2" /><rect x="11.5" y="12.5" width="6" height="4.5" rx="1.2" /><path d="M10 8v2.5M5.5 12.5v-2h9v2" /></svg>;
     case 'node': return <svg {...common}><rect x="3.5" y="4" width="13" height="9" rx="2" /><path d="M7 16.5h6M10 13v3.5" /></svg>;
     case 'share': return <svg {...common}><circle cx="6" cy="10" r="2" /><circle cx="14" cy="5.5" r="2" /><circle cx="14" cy="14.5" r="2" /><path d="m7.8 9 4.4-2.5M7.8 11l4.4 2.5" /></svg>;
+    case 'search': return <svg {...common}><circle cx="9" cy="9" r="5" /><path d="m13 13 3.5 3.5" /></svg>;
+    case 'lock': return <svg {...common}><rect x="4.5" y="9" width="11" height="7.5" rx="2" /><path d="M7 9V6.8a3 3 0 0 1 6 0V9" /></svg>;
     default: return <svg {...common}><circle cx="10" cy="10" r="6" /></svg>;
   }
 }
