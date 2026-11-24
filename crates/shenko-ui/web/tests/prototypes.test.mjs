@@ -42,10 +42,7 @@ test('every declared Shenko prototype was compiled from the authored source byte
 test('generated code is native React DOM source, not a Proto-UI runtime or adapter import', () => {
   for (const prototype of generation().prototypes) {
     const generated = readFileSync(join(webRoot, prototype.generated_source), 'utf8');
-    // The generated file's OWN import statements are what the browser bundle
-    // sees. The manifest's list is advisory: its scanner reads import-like
-    // text, so a string literal can show up there as a "specifier" that the
-    // bundle never resolves.
+    // Check this generation's source and its parsed bare-import provenance.
     const specifiers = [...generated.matchAll(/from ['"]([^'"]+)['"]/g)].map((match) => match[1]);
     assert.ok(specifiers.length > 0, 'the generated file imports something');
     for (const specifier of specifiers) {
@@ -71,6 +68,7 @@ test('compiler provenance binds the generation to the parsed source graph and ar
       { file: prototype.entry.slice('prototypes/'.length), sha256: prototype.entry_sha256 },
     ]);
     assert.equal(provenance.generatedSha256, prototype.generated_sha256);
+    assert.deepEqual(prototype.generated_imports, ['react']);
     const directory = join(webRoot, prototype.output_directory);
     for (const artifact of provenance.artifacts) {
       assert.equal(sha256(join(directory, artifact.path)), artifact.sha256, artifact.path);
