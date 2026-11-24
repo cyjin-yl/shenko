@@ -1208,7 +1208,7 @@ class Harness:
         arguments = ["update", "prepare", "--generation", generation,
                      "--source-dir", str(self.source), "--profile", self.profile]
         if self.cargo_args:
-            arguments.extend(["--extra-args", self.cargo_args])
+            arguments.append(f"--extra-args={self.cargo_args}")
         return self.cli_json(label, *arguments,
                              timeout=timeout or self.build_timeout)
 
