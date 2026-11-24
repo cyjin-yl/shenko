@@ -770,6 +770,14 @@ mod tests {
         .contains("PLUGIN_LOAD_ENVIRONMENT"));
 
         activate(&mut node, "plugin.one");
+        // The import enables the export's root only; the other unit stays
+        // installed and disabled until it is enabled on purpose. Enabling it
+        // here makes the next refusal the pin, not the enable state.
+        node.handle_unit_request(UnitRequest::SetEnabled {
+            unit_id: "plugin.two".into(),
+            enabled: true,
+        })
+        .unwrap();
         let witness = selector_witness(&node);
         let stale = PluginGenerationWitness {
             selector_revision: witness.selector_revision + 1,
@@ -791,13 +799,16 @@ mod tests {
         ))
         .contains("PLUGIN_LOAD_NOT_SELECTED"));
         // A conditional current load must agree with the generation's pin.
-        assert!(error(node.load_installed_plugin_code(
+        let unpinned_current = error(node.load_installed_plugin_code(
             "plugin.two",
             PluginLoadSelection::Current {
                 expected: Some(witness.clone()),
             },
-        ))
-        .contains("PLUGIN_LOAD_NOT_SELECTED"));
+        ));
+        assert!(
+            unpinned_current.contains("PLUGIN_LOAD_NOT_SELECTED"),
+            "{unpinned_current}"
+        );
         // An exact frozen identity still loads outside the generation, but its
         // receipt says it is not the generation's pin.
         let outside = node
