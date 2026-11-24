@@ -46,6 +46,7 @@ fn policy() -> QuotaPolicy {
                 amount: Range::point(1.0).unwrap(),
             }],
             effort_levels: Vec::new(),
+            max_output_tokens: None,
         }],
         assumptions: Vec::new(),
         min_progress_per_hour: 0.0,

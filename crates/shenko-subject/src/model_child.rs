@@ -40,7 +40,7 @@ use shenko_store::{
     child::{DialogueDelivery, MAX_CHILD_DIALOGUE_BYTES, NATIVE_OPERATION_ID, PeerMessage, PeerSend, memo_uuid},
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
-        MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA, MODEL_CHILD_QUOTA_STEP_SCHEMA,
+        MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA, MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA, MODEL_CHILD_QUOTA_STEP_SCHEMA,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
     },
 };
@@ -743,11 +743,18 @@ fn read_step(store: &Store, object: &ObjectRef) -> Result<FrozenModelChildStep> 
     let step: FrozenModelChildStep = serde_json::from_slice(&bytes)?;
     match (step.schema_version, &step.contribution_plan, &step.quota_selection) {
         (1, None, None) | (MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA, Some(_), None) => {}
-        (MODEL_CHILD_QUOTA_STEP_SCHEMA, Some(_), Some(selection)) => {
+        (MODEL_CHILD_QUOTA_STEP_SCHEMA | MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA, Some(_), Some(selection)) => {
             ensure!(selection.effort.as_ref().is_none_or(|effort| {
                 !effort.requested.trim().is_empty()
                     && effort.native.matches_native_options(&step.payload.native_options)
             }), "model child effort differs from the sealed payload");
+            ensure!(match (step.schema_version, selection.max_output_tokens) {
+                (MODEL_CHILD_QUOTA_STEP_SCHEMA, None) => true,
+                (MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA, Some(limit)) => step.max_tokens > 0
+                    && step.max_tokens <= u64::from(limit.get())
+                    && step.payload.max_tokens == Some(step.max_tokens),
+                _ => false,
+            }, "model child output budget differs from the sealed payload or quota schema");
         }
         _ => anyhow::bail!("unsupported model child step input"),
     }
@@ -1851,11 +1858,7 @@ impl ModelChildHandler {
                 } else { ModelChildTermination::StepsExhausted };
                 break;
             }
-            if history
-                .reserved_tokens
-                .saturating_add(contract.max_tokens)
-                > contract.budget.max_total_tokens
-            {
+            if history.reserved_tokens >= contract.budget.max_total_tokens {
                 termination = if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
                     ModelChildTermination::ProtocolInvalid
                 } else { ModelChildTermination::BudgetExhausted };
@@ -1905,7 +1908,7 @@ impl ModelChildHandler {
                 native_options: Default::default(),
             };
             self.refresh_invocation(&mut invocation)?;
-            let step = self
+            let Some(step) = self
                 .run_step(
                     &mut invocation,
                     &contract,
@@ -1915,13 +1918,18 @@ impl ModelChildHandler {
                     payload,
                     dialogue.clone(),
                 )
-                .await?;
+                .await? else {
+                    termination = if history.records.last().is_some_and(|record| !record.protocol_errors.is_empty()) {
+                        ModelChildTermination::ProtocolInvalid
+                    } else { ModelChildTermination::BudgetExhausted };
+                    break;
+                };
             let record = step.record;
             answer = record.text.clone();
             let conclusive = record.complete;
             let calls = record.tool_calls.clone();
             let question = record.question.clone();
-            history.reserved_tokens = history.reserved_tokens.saturating_add(contract.max_tokens);
+            history.reserved_tokens = history.reserved_tokens.saturating_add(step.reserved_tokens);
             history.spent_tokens = history.spent_tokens.saturating_add(
                 record
                     .usage
@@ -2109,7 +2117,7 @@ impl ModelChildHandler {
         step_index: u32,
         mut payload: InferencePayload,
         dialogue: Vec<DialogueDelivery>,
-    ) -> Result<StepOutcome> {
+    ) -> Result<Option<StepOutcome>> {
         let logical_key = format!("model-child-step:{step_index}");
         // A recorded step is read, never sent again. The quota reservation of
         // a step belongs to that step alone.
@@ -2119,16 +2127,12 @@ impl ModelChildHandler {
                 "model child step outcome is unresolved; reconcile the original attempt"
             );
             let record = read_step_record(&self.store, operation)?;
-            return Ok(StepOutcome {
+            return Ok(Some(StepOutcome {
                 record,
                 operation: operation.clone(),
-            });
+                reserved_tokens: read_step(&self.store, &operation.final_input_ref)?.max_tokens,
+            }));
         }
-        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
-        let request_id = derived_id(
-            "shenko.model-child.request",
-            &[contract.task_id.to_string().as_str(), &step_index.to_string()],
-        );
         // The child uses the parent's installed strategies with its own
         // frozen provider binding. Quota selection can wait before T1.
         let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
@@ -2137,9 +2141,20 @@ impl ModelChildHandler {
             QuotaRouteOwner::FiniteChild,
         ).await?.context("model child cancelled before quota selection")?;
         self.refresh_invocation(invocation)?;
-        if let Some(effort) = route.selection.as_ref().and_then(|selection| selection.effort.as_ref()) {
+        let selection = route.selection.as_ref();
+        let max_tokens = selection.map_or(contract.max_tokens, |quota| quota.output_budget(contract.max_tokens));
+        if max_tokens > contract.budget.max_total_tokens.saturating_sub(history.reserved_tokens) {
+            return Ok(None);
+        }
+        payload.max_tokens = Some(max_tokens);
+        if let Some(effort) = selection.and_then(|quota| quota.effort.as_ref()) {
             effort.native.apply(&mut payload.native_options)?;
         }
+        let artifact_digest = shenko_kernel::native_artifact::native_artifact_digest()?;
+        let request_id = derived_id(
+            "shenko.model-child.request",
+            &[contract.task_id.to_string().as_str(), &step_index.to_string()],
+        );
         // Preparation belongs to plugins. This path only reads prepared
         // material and seals it in this request before reserving quota, never in
         // the rolling transcript reconstructed from model/tool results.
@@ -2157,16 +2172,16 @@ impl ModelChildHandler {
         };
         let sealed_contract_digest = contract_digest_of(contract)?;
         let step = FrozenModelChildStep {
-            schema_version: if route.selection.is_some() {
-                MODEL_CHILD_QUOTA_STEP_SCHEMA
-            } else {
-                MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA
+            schema_version: match selection {
+                Some(quota) if quota.max_output_tokens.is_some() => MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA,
+                Some(_) => MODEL_CHILD_QUOTA_STEP_SCHEMA,
+                None => MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA,
             },
             contract_digest: sealed_contract_digest,
             step_index,
             request_id,
             provider_binding: contract.provider_binding.clone(),
-            max_tokens: contract.max_tokens,
+            max_tokens,
             payload_fingerprint: Digest::blake3(&serde_json::to_vec(&payload)?),
             payload,
             contribution_plan: Some(contribution_plan),
@@ -2225,7 +2240,7 @@ impl ModelChildHandler {
                 "step_index": step_index,
                 "selected_send_id": quota_send,
                 "role_revision": ROLE,
-                "max_tokens": contract.max_tokens,
+                "max_tokens": step.max_tokens,
                 "prompt_fingerprint": contract.prompt_fingerprint,
                 "toolset_fingerprint": contract.toolset_fingerprint,
                 "payload_fingerprint": step.payload_fingerprint,
@@ -2315,10 +2330,11 @@ impl ModelChildHandler {
                 "model child step outcome is unresolved; reconcile the original attempt"
             );
             let record = read_step_record(&self.store, &existing)?;
-            return Ok(StepOutcome {
+            return Ok(Some(StepOutcome {
                 record,
+                reserved_tokens: read_step(&self.store, &existing.final_input_ref)?.max_tokens,
                 operation: existing,
-            });
+            }));
         }
         // CAS writes alone own no consumption. T1 has now accepted the
         // exact request. Re-resolve after admission as a service replacement
@@ -2380,7 +2396,7 @@ impl ModelChildHandler {
             "model child step outcome is unresolved; reconcile the original attempt"
         );
         let record = read_step_record(&self.store, &operation)?;
-        Ok(StepOutcome { record, operation })
+        Ok(Some(StepOutcome { record, operation, reserved_tokens: step.max_tokens }))
     }
 
     /// T1 admission of one step.
@@ -2975,6 +2991,7 @@ impl ModelChildHandler {
 struct StepOutcome {
     record: ModelChildStepRecord,
     operation: OperationRecord,
+    reserved_tokens: u64,
 }
 
 fn task_outcome_name(outcome: &TaskOutcome) -> &'static str {

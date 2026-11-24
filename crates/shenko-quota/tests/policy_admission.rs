@@ -61,6 +61,7 @@ fn profile(id: &str, five: (f64, f64), week: (f64, f64)) -> ModelProfile {
         ],
         // A policy recorded before effort planning: one implicit level.
         effort_levels: Vec::new(),
+        max_output_tokens: None,
     }
 }
 
@@ -72,7 +73,7 @@ fn policy() -> QuotaPolicy {
             profile("smart", (1.0, 2.0), (0.2, 0.4)),
             profile("cheap", (0.2, 0.4), (0.05, 0.1)),
             ModelProfile { profile_id: "local".into(), model_ref: "model/local".into(), local: true,
-                cost_per_request: Vec::new(), effort_levels: Vec::new() },
+                cost_per_request: Vec::new(), effort_levels: Vec::new(), max_output_tokens: None },
         ],
         assumptions: Vec::new(),
         min_progress_per_hour: 2.0,
@@ -115,6 +116,7 @@ fn single_window_policy(key: &str, unit: &str, costs: &[(&str, f64)]) -> QuotaPo
         profile_id: (*id).into(), model_ref: format!("model/{id}"), local: false,
         cost_per_request: vec![WindowCost { window: wref(key), unit: unit.into(), amount: Range::point(*cost).unwrap() }],
         effort_levels: Vec::new(),
+        max_output_tokens: None,
     }).collect();
     p
 }
@@ -258,7 +260,7 @@ fn previous_local_survives_marginal_cloud_recovery_but_not_unavailability() {
     p.min_progress_per_hour = 2.0;
     p.profiles.push(ModelProfile { profile_id: "local".into(),
         model_ref: "model/local".into(), local: true, cost_per_request: Vec::new(),
-        effort_levels: Vec::new() });
+        effort_levels: Vec::new(), max_output_tokens: None });
     let source = |rate| forecast_of(vec![
         ("period", period(20.0, rate, 4), Range::point(20.0)),
     ]);
@@ -459,7 +461,7 @@ fn bucket_reservations_survive_replay_cancel_and_coverage() {
     let mut p = policy();
     p.profiles = vec![ModelProfile { profile_id: "cloud".into(), model_ref: "model/cloud".into(), local: false,
         cost_per_request: vec![WindowCost { window: window.clone(), unit: "requests".into(), amount: Range::point(1.0).unwrap() }],
-        effort_levels: Vec::new() }];
+        effort_levels: Vec::new(), max_output_tokens: None }];
     let available = availability(&p, false);
     let ctx = ObservationContext { provider_id: "anthropic".into(), account_scope_ref: "sub".into(),
         source_version: None, attribution: Attribution::Exclusive, observed_at: now() };
@@ -658,9 +660,9 @@ fn unrelated_quota_windows_do_not_share_a_pacing_clock() {
     let cost = |window| WindowCost { window: wref(window), unit: "percent".into(), amount: Range::point(1.0).unwrap() };
     p.profiles = vec![
         ModelProfile { profile_id: "a".into(), model_ref: "model/a".into(), local: false,
-            cost_per_request: vec![cost("five_hour")], effort_levels: Vec::new() },
+            cost_per_request: vec![cost("five_hour")], effort_levels: Vec::new(), max_output_tokens: None },
         ModelProfile { profile_id: "b".into(), model_ref: "model/b".into(), local: false,
-            cost_per_request: vec![cost("seven_day")], effort_levels: Vec::new() },
+            cost_per_request: vec![cost("seven_day")], effort_levels: Vec::new(), max_output_tokens: None },
     ];
     p.min_progress_per_hour = 0.0;
     let f = forecast_of(vec![

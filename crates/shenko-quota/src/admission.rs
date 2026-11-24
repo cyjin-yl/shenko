@@ -34,6 +34,9 @@ pub struct QuotaAdmission {
     pub request_id: EntityId,
     pub decision_id: EntityId,
     pub profile_id: Option<String>,
+    /// The output limit covered by the original admission's prices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<std::num::NonZeroU32>,
     pub state: AdmissionState,
     pub next_eligible_at: Option<DateTime<Utc>>,
     /// Actual admission time; waiting records have no admitted time.
@@ -131,6 +134,7 @@ fn record_admission(pacer: &mut Pacer, admission: QuotaAdmission, outstanding: V
     if let Some(previous) = pacer.reservations.get(&admission.request_id) {
         let prior = &previous.admission;
         if prior.decision_id == admission.decision_id && prior.profile_id == admission.profile_id
+            && prior.max_output_tokens == admission.max_output_tokens
             && prior.state == admission.state && prior.next_eligible_at == admission.next_eligible_at
             && prior.reason == admission.reason && prior.estimated_cost == admission.estimated_cost
             && prior.paced_windows == admission.paced_windows
@@ -166,6 +170,7 @@ fn reconcile_admission(
     // state still owes and still paces exactly what its original dispatch
     // armed, and a later positive decision must find the same profile.
     refreshed.profile_id = reservation.admission.profile_id.clone();
+    refreshed.max_output_tokens = reservation.admission.max_output_tokens;
     refreshed.admitted_at = admitted_at;
     refreshed.paced_windows = paced_windows;
     reservation.admission = refreshed;
@@ -339,6 +344,9 @@ pub fn admit(
             request_id,
             decision_id: decision.decision_id,
             profile_id: profile_id.map(str::to_owned),
+            max_output_tokens: (state == AdmissionState::Admitted).then(||
+                profile_id.and_then(|id| profile(policy, id)).and_then(|profile| profile.max_output_tokens))
+                .flatten(),
             state,
             next_eligible_at: next,
             admitted_at: (state == AdmissionState::Admitted).then_some(now),
@@ -693,6 +701,7 @@ pub fn admit_with_cadence(
             request_id,
             decision_id: decision.decision_id,
             profile_id,
+            max_output_tokens: None,
             state: AdmissionState::QuotaPolicyWait,
             next_eligible_at: until,
             admitted_at: None,

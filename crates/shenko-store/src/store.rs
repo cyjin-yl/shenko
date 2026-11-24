@@ -685,12 +685,14 @@ impl Store {
         {
             let claimed = match claim_send {
                 Some(send_id) => {
+                    let output_limit = crate::quota::subject_sealed_output_limit(self, &tx, step)?;
                     let seq = self.ledger.allocate_seq(&tx)?;
                     crate::quota::quota_claim_send(
                         &tx,
                         step.active_request_id.unwrap_or_else(EntityId::nil),
                         send_id,
                         seq,
+                        output_limit,
                     )?
                 }
                 None => false,
@@ -1852,7 +1854,7 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 /// 15 adds a frozen child-provider routing table. Older plans have no table
 /// semantics and continue only through their original provider binding.
 pub(crate) fn admitted_input_plan_schema(version: Option<u64>) -> bool {
-    matches!(version, Some(12..=15))
+    matches!(version, Some(12..=16))
 }
 
 pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {

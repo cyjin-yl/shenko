@@ -12,6 +12,7 @@ use shenko_types::{commit::CommitRef, ids::*, operation::*, task::*};
 pub const MODEL_CHILD_STEP_OPERATION: &str = "model.child.generate.v1";
 pub const MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA: u32 = 2;
 pub const MODEL_CHILD_QUOTA_STEP_SCHEMA: u32 = 3;
+pub const MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA: u32 = 4;
 /// The model child's own run operation. It carries the child's result, not a
 /// provider send, and is bound to the same sealed delegation contract.
 pub const MODEL_CHILD_RESULT_OPERATION: &str = "model.child.result.v1";
@@ -634,7 +635,11 @@ impl Store {
                     let supported = match op.input_schema_version {
                         MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA => quota_selection.is_none(),
                         MODEL_CHILD_QUOTA_STEP_SCHEMA => binding.send_id.is_some()
-                            && quota_selection.is_some_and(serde_json::Value::is_object),
+                            && quota_selection.is_some_and(|selection|
+                                selection.is_object() && selection.get("max_output_tokens").is_none()),
+                        MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA => binding.send_id.is_some()
+                            && quota_selection.is_some_and(|selection|
+                                selection.get("max_output_tokens").is_some()),
                         _ => false,
                     };
                     ensure!(supported
@@ -664,7 +669,20 @@ impl Store {
                     ensure!(usage.steps < budget.max_steps, "model child step budget exhausted");
                     let tokens = step.get("max_tokens").and_then(|value| value.as_u64())
                         .ok_or_else(|| anyhow::anyhow!("model child step lacks token reservation"))?;
-                    ensure!(tokens > 0 && sealed.get("max_tokens").and_then(|value| value.as_u64()) == Some(tokens),
+                    let delegated_tokens = sealed["max_tokens"].as_u64()
+                        .context("model child delegation lacks its token bound")?;
+                    let output_limit = if op.input_schema_version == MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA {
+                        let limit = crate::quota::sealed_output_limit(&tx,
+                            quota_selection.context("missing quota output selection")?)?;
+                        ensure!(step["payload"]["max_tokens"].as_u64() == Some(tokens),
+                            "model child output reservation differs from its frozen payload");
+                        Some(limit)
+                    } else {
+                        None
+                    };
+                    let expected = output_limit.map_or(delegated_tokens,
+                        |limit| delegated_tokens.min(u64::from(limit.get())));
+                    ensure!(tokens > 0 && tokens == expected,
                         "model child step token reservation differs from its frozen contract");
                     usage.charge(&budget, tokens, 0)?;
                     usage.steps += 1;
@@ -677,7 +695,7 @@ impl Store {
                         "inference T1 request/payload/selected-send mismatch");
                     if crate::quota::quota_gate_open(&tx)? {
                         let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
-                        ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
+                        ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq, output_limit)?,
                             "inference selected send is not admitted, armed and unclaimed for this request");
                     } else {
                         ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");

@@ -102,6 +102,10 @@ pub struct ModelProfile {
     /// what the backend supports, never a guess at a quality or price order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effort_levels: Vec<EffortLevel>,
+    /// Every price in this profile covers requests up to this output limit.
+    /// Separate profiles can price the same model and effort at different limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<std::num::NonZeroU32>,
 }
 
 /// One supported effort level of a profile and what one request at that

@@ -28,6 +28,14 @@ pub(crate) struct FrozenQuotaSelection {
     /// Absence preserves the implicit effort of historical subject seals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<FrozenQuotaEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<std::num::NonZeroU32>,
+}
+
+impl FrozenQuotaSelection {
+    pub(crate) fn output_budget(&self, requested: u64) -> u64 {
+        self.max_output_tokens.map_or(requested, |limit| requested.min(u64::from(limit.get())))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -45,7 +53,7 @@ pub(crate) struct QuotaRoute {
 
 #[derive(Clone, Copy)]
 pub(crate) enum QuotaRouteOwner {
-    Subject(EntityId),
+    Subject { agent: EntityId, allow_rebind: bool },
     FiniteChild,
 }
 
@@ -117,7 +125,7 @@ fn decision_is_current(
             availability.get(&observed.profile_id) == Some(&observed.state))
 }
 
-fn effort_binding_error(code: &str, reason: &str) -> ShenkoError {
+fn quota_semantics_error(code: &str, reason: &str) -> ShenkoError {
     ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
         code, shenko_types::error::ErrorScope::Request,
         shenko_types::error::RetryStrategy::NewRevision,
@@ -136,27 +144,40 @@ fn resolve_effort(
     requested: &str,
 ) -> Result<shenko_broker::effort::ProviderEffort, ShenkoError> {
     broker.resolve_effort(requested).map_err(|error| match error {
-        shenko_broker::effort::EffortResolutionError::Unsupported => effort_binding_error(
+        shenko_broker::effort::EffortResolutionError::Unsupported => quota_semantics_error(
             "QUOTA_EFFORT_BINDING_UNSUPPORTED",
             "the exact bound runtime has no typed native mapping for the requested effort; no new seal/admission",
         ),
-        shenko_broker::effort::EffortResolutionError::ProviderUnavailable => effort_binding_error(
+        shenko_broker::effort::EffortResolutionError::ProviderUnavailable => quota_semantics_error(
             "MODEL_PROVIDER_BINDING_MISMATCH",
             "the exact runtime owner disappeared during effort selection; no new seal/admission",
         ),
     })
 }
 
-fn require_sealed_effort(
+fn priced_profile<'a>(policy: &'a shenko_quota::QuotaPolicy, profile_id: &str)
+    -> Result<&'a shenko_quota::ModelProfile, ShenkoError>
+{
+    policy.profiles.iter().find(|profile| profile.profile_id == profile_id)
+        .ok_or_else(|| ShenkoError::conflict("priced quota profile is not configured"))
+}
+
+fn require_sealed_semantics(
     broker: &shenko_broker::broker::BrokerHandle,
+    policy: &shenko_quota::QuotaPolicy,
     decision: &shenko_quota::PolicyDecision,
     selection: Option<&FrozenQuotaSelection>,
 ) -> Result<(), ShenkoError> {
-    if !matches!(&decision.choice,
-        shenko_quota::Choice::Cloud { .. } | shenko_quota::Choice::Local { .. })
-    {
+    let (shenko_quota::Choice::Cloud { profile_id, .. } | shenko_quota::Choice::Local { profile_id })
+        = &decision.choice else {
         // A quota/capacity wait has not selected priced request semantics.
         return Ok(());
+    };
+    if priced_profile(policy, profile_id)?.max_output_tokens
+        != selection.and_then(|selection| selection.max_output_tokens)
+    {
+        return Err(quota_semantics_error("QUOTA_OUTPUT_BUDGET_BINDING_MISMATCH",
+            "the priced output limit differs from the sealed output authorization"));
     }
     let sealed = selection.and_then(|selection| selection.effort.as_ref());
     let matches = match (requested_effort(decision), sealed) {
@@ -174,7 +195,7 @@ fn require_sealed_effort(
         (None, Some(_)) => false,
     };
     if matches { Ok(()) } else {
-        Err(effort_binding_error("QUOTA_EFFORT_BINDING_MISMATCH",
+        Err(quota_semantics_error("QUOTA_EFFORT_BINDING_MISMATCH",
             "current priced effort differs from the original sealed native semantics; a new request and seal are required"))
     }
 }
@@ -197,8 +218,8 @@ pub(crate) async fn select_quota_route(
             "capacity_blocked: quota selection has no installed broker",
         ))?;
         let bindings = match owner {
-            QuotaRouteOwner::Subject(_) => Some(broker.installed_bindings()),
-            QuotaRouteOwner::FiniteChild => None,
+            QuotaRouteOwner::Subject { allow_rebind: true, .. } => Some(broker.installed_bindings()),
+            _ => None,
         };
         let mut routes = std::collections::HashMap::new();
         let mut availability = std::collections::HashMap::new();
@@ -225,7 +246,7 @@ pub(crate) async fn select_quota_route(
             Some((_, decision)) if decision_is_current(&policy, decision, &availability, now) => decision.clone(),
             _ => {
                 let work = match owner {
-                    QuotaRouteOwner::Subject(agent) => store.quota_work_evidence(agent)?,
+                    QuotaRouteOwner::Subject { agent, .. } => store.quota_work_evidence(agent)?,
                     QuotaRouteOwner::FiniteChild => None,
                 };
                 compute_quota_decision(
@@ -257,6 +278,7 @@ pub(crate) async fn select_quota_route(
                         decision_id: decision.decision_id,
                         profile_id: profile_id.clone(),
                         effort,
+                        max_output_tokens: priced_profile(&policy, profile_id)?.max_output_tokens,
                     }),
                 }));
             }
@@ -299,7 +321,9 @@ fn compute_quota_decision(
         if profile.local {
             continue;
         }
-        for cost in &profile.cost_per_request {
+        for cost in profile.cost_per_request.iter().chain(
+            profile.effort_levels.iter().flat_map(|level| &level.cost_per_request))
+        {
             scopes.insert((
                 cost.window.provider_id.clone(),
                 cost.window.account_scope_ref.clone(),
@@ -558,11 +582,11 @@ loop {
             (policy.clone(), decision)
         }
     };
-    // A replacement decision can withhold admission, but it cannot charge a
-    // fresh request at effort absent from its sealed native payload.
+    // A replacement decision can withhold admission. A fresh send still
+    // needs pricing for its sealed effort and output authorization.
     // Original admitted/armed history keeps its existing reconciliation path.
     if !reconciling_original
-        && let Err(error) = require_sealed_effort(broker, &decision, selection)
+        && let Err(error) = require_sealed_semantics(broker, &policy_in_use, &decision, selection)
     {
         // A second entrant can promote this exact send while routing is
         // reading detached evidence. Its original admission must be
@@ -904,6 +928,7 @@ mod policy_change_tests {
                     amount: Range::point(1.0).context("fixture cost must be finite")?,
                 }],
                 effort_levels: Vec::new(),
+                max_output_tokens: None,
             }],
             assumptions: Vec::new(),
             min_progress_per_hour: 0.0,
@@ -1126,6 +1151,7 @@ mod policy_change_tests {
                     amount: Range::point(1.0).context("fixture cost must be finite")?,
                 }],
                 effort_levels: Vec::new(),
+                max_output_tokens: None,
             }],
             assumptions: Vec::new(),
             min_progress_per_hour: 0.0,

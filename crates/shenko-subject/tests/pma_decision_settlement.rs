@@ -400,7 +400,7 @@ async fn shipped_silent_policy_settles_with_quota_and_withdrawn_runtime() -> Res
         policy_id: EntityId::new(), revision: 1,
         profiles: vec![ModelProfile {
             profile_id: "silent-quota-local".into(), model_ref: "silent-quota-model".into(),
-            local: true, cost_per_request: vec![], effort_levels: vec![],
+            local: true, cost_per_request: vec![], effort_levels: vec![], max_output_tokens: None,
         }],
         assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,

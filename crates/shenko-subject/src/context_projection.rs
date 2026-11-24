@@ -1114,7 +1114,7 @@ pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, S
         return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
     }
     let mut profile_digest = Digest::blake3(&serde_json::to_vec(&(
-        binding, state.context_model_capabilities(), &stable_system_prompt(state), state.max_tokens,
+        binding, state.context_model_capabilities(), &stable_system_prompt(state), state.context_output_budget(),
         "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
     ))?);
     if let Some(effort) = state.context_effort() {
@@ -1841,8 +1841,9 @@ pub(super) fn prepare_context(
     // Leave three quarters of the remaining known input budget to raw input,
     // recovery controls and working history. The normal final budget check
     // still accounts for the whole payload, including this frontier.
+    let max_tokens = state.context_output_budget();
     let frontier_tokens = state.context_model_capabilities().as_deref()
-        .and_then(|capabilities| u32::try_from(state.max_tokens).ok()
+        .and_then(|capabilities| u32::try_from(max_tokens).ok()
             .and_then(|reserved| input_model_caps(capabilities, reserved)))
         .map(|caps| caps.max_context.saturating_sub(estimate_tokens(&system_prompt)) / 4);
     let mut obligation_text = obligation_frontier_text(&frontier)?;
@@ -1864,7 +1865,7 @@ pub(super) fn prepare_context(
     let source = StoreHistory::with_cache(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens),
         Arc::clone(&state.context_history_cache));
     let history = BoundedHistory { leaf: source.leaf_seq().map_err(storage)?, history: &source };
-    let reserved_output_tokens = u32::try_from(state.max_tokens)
+    let reserved_output_tokens = u32::try_from(max_tokens)
         .map_err(|_| ShenkoError::conflict("output reservation exceeds token budget type"))?;
     let caps = state.context_model_capabilities().as_deref()
         .and_then(|caps| input_model_caps(caps, reserved_output_tokens));
@@ -1882,7 +1883,7 @@ pub(super) fn prepare_context(
     let StableProjection { mut payload, mut estimated_input_tokens, mut unfinished_call_ids,
         mut source_commit_seq, mut payload_layout } = project_payload_stable(
         &state.store, scope_id, &window, &history, system_prompt.clone(), &input_raw_event_ids,
-        PayloadProjectionOptions { caps: caps.as_ref(), max_tokens: state.max_tokens, idle_text: Some(&idle_text) },
+        PayloadProjectionOptions { caps: caps.as_ref(), max_tokens, idle_text: Some(&idle_text) },
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
@@ -1894,7 +1895,7 @@ pub(super) fn prepare_context(
     if matches!(selection, ContextSelection::Compacted { .. }) {
         StableProjection { payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq, payload_layout } = project_payload_stable(
             &state.store, scope_id, &window, &history, system_prompt, &input_raw_event_ids,
-            PayloadProjectionOptions { caps: caps.as_ref(), max_tokens: state.max_tokens, idle_text: Some(&idle_text) },
+            PayloadProjectionOptions { caps: caps.as_ref(), max_tokens, idle_text: Some(&idle_text) },
         )?;
     }
     let selected_estimate = estimated_input_tokens

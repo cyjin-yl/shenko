@@ -1049,6 +1049,7 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -
         profiles: vec![ModelProfile { profile_id: "cloud-child-profile".into(), model_ref: "cloud-child".into(), local: false,
             effort_levels: vec![EffortLevel { effort: "high".into(), cost_per_request: costs.clone() }],
             cost_per_request: costs,
+            max_output_tokens: std::num::NonZeroU32::new(32),
         }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
         decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
@@ -1074,13 +1075,17 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() -
     native.run_once().await.unwrap();
     let wire = tokio::time::timeout(Duration::from_secs(5), wire_rx).await.unwrap().unwrap();
     assert_eq!(wire["model"], "cloud-child");
-    assert_eq!(wire["max_tokens"], 64);
+    assert_eq!(wire["max_tokens"], 32);
     assert_eq!(wire["output_config"]["effort"], "high");
     assert!(wire["system"].as_str().unwrap().contains("Independent finite reviewer."));
     let step = child_step(&store, task.task_id);
     let operation_id = step.operation_id;
     let operation = store.external_operation(operation_id).unwrap();
     let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.final_input_ref.digest)?)?;
+    assert_eq!(operation.input_schema_version, 4);
+    assert_eq!(frozen["max_tokens"], 32);
+    assert_eq!(frozen["quota_selection"]["max_output_tokens"], 32);
+    assert_eq!(store.model_child_budget_usage(task.task_id)?.reserved_tokens, 32);
     assert_eq!(frozen["quota_selection"]["profile_id"], "cloud-child-profile");
     assert_eq!(frozen["quota_selection"]["effort"]["requested"], "high");
     assert_eq!(frozen["payload"]["native_options"]["output_config"], wire["output_config"]);

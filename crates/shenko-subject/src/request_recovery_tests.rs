@@ -795,10 +795,10 @@ fn preseal_policy() -> shenko_quota::QuotaPolicy {
                     window: WindowRef { provider_id: "wire-fixture".into(),
                         account_scope_ref: "preseal-quota".into(), window_key: "requests".into() },
                     unit: "requests".into(), amount: Range::point(1.0).unwrap(),
-                }], effort_levels: Vec::new(),
+                }], effort_levels: Vec::new(), max_output_tokens: None,
             },
             ModelProfile { profile_id: "configured".into(), model_ref: "configured-fixed".into(),
-                local: true, cost_per_request: Vec::new(), effort_levels: Vec::new() },
+                local: true, cost_per_request: Vec::new(), effort_levels: Vec::new(), max_output_tokens: None },
         ],
         assumptions: Vec::new(), min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         // This fixture explicitly authorizes unknown quota. No synthetic
@@ -1120,16 +1120,19 @@ async fn quota_policy_change_and_reopen_preserve_active_wait_until_subject_ends_
     assert!(original_wait.is_active());
 
     // The current policy would normally choose the other installed provider.
-    let policy = preseal_policy();
+    let mut policy = preseal_policy();
+    policy.profiles[1].max_output_tokens = std::num::NonZeroU32::new(96);
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     let candidate = crate::quota_gate::select_quota_route(
         &store, Some(&handle), &cancel, &subject.quota_strategies,
-        crate::quota_gate::QuotaRouteOwner::Subject(agent),
+        crate::quota_gate::QuotaRouteOwner::Subject { agent, allow_rebind: true },
     ).await.unwrap().unwrap();
     assert_eq!(candidate.broker.unwrap().binding(), &alternate_binding);
     let continued_step = subject.step.step_id;
     execute_step(2, &[], &mut subject, &cancel).await.unwrap().unwrap();
-    assert_eq!(wires_rx.recv().await.unwrap()["model"], "configured-fixed");
+    let wire = wires_rx.recv().await.unwrap();
+    assert_eq!(wire["model"], "configured-fixed");
+    assert_eq!(wire["max_tokens"], 96);
     let continued_wait = store.semantic_wait(agent).unwrap().unwrap();
     assert_eq!(continued_wait.wait_id, original_wait.wait_id);
     assert_eq!(continued_wait.started_at, original_wait.started_at);
@@ -1140,6 +1143,7 @@ async fn quota_policy_change_and_reopen_preserve_active_wait_until_subject_ends_
     let input = super::super::frozen_input(&store,
         &store.get_step(&subject.head.branch_id, continued_step).unwrap().unwrap()).unwrap();
     assert_eq!(input.provider_binding.as_ref(), Some(&original_binding));
+    assert_eq!(input.context.reserved_output_tokens, 96);
     assert_eq!(input.semantic_wait.as_ref().unwrap().deadline_at, original_wait.deadline_at);
     handle.request_stop();
     broker_task.await.unwrap();
@@ -1171,6 +1175,7 @@ async fn quota_policy_change_and_reopen_preserve_active_wait_until_subject_ends_
     execute_step(3, std::slice::from_ref(&event), &mut resumed, &cancel).await.unwrap().unwrap();
     let wire = wires_rx.recv().await.unwrap();
     assert_eq!(wire["model"], "configured-fixed");
+    assert_eq!(wire["max_tokens"], 96);
     assert!(wire["messages"].to_string().contains("等待的结果到了"));
     assert!(reopened.event_disposition_commit(agent, event.event_id).unwrap().is_some());
     let ended = reopened.semantic_wait(agent).unwrap().unwrap();
@@ -1273,6 +1278,7 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
     policy.profiles[0].effort_levels = vec![shenko_quota::EffortLevel {
         effort: "high".into(), cost_per_request: costs,
     }];
+    policy.profiles[0].max_output_tokens = std::num::NonZeroU32::new(61);
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     // Reuse the real StopUnit fixture. The same handler/graph later clears;
     // no test-only production callback or replacement graph admits the seal.
@@ -1293,12 +1299,15 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
     let seal = subject.step.input_plan_ref.clone().unwrap();
     let sealed_bytes = store.cas.read_object(&seal.digest).unwrap();
     let input = super::super::frozen_input(&store, &subject.step).unwrap();
-    let effort = input.provider_selection.quota.as_ref().unwrap().effort.as_ref().unwrap();
+    let quota = input.provider_selection.quota.as_ref().unwrap();
+    let effort = quota.effort.as_ref().unwrap();
+    assert_eq!(input.schema_version, 16);
+    assert_eq!(quota.max_output_tokens.unwrap().get(), 61);
     assert_eq!(effort.requested, "high");
     assert_eq!(effort.native, ProviderEffort::AnthropicMessages { level: AnthropicEffort::High });
     assert_eq!(input.payload.native_options["output_config"]["effort"], "high");
-    assert_eq!(input.payload.max_tokens, Some(73));
-    assert_eq!(input.context.reserved_output_tokens, 73);
+    assert_eq!(input.payload.max_tokens, Some(61));
+    assert_eq!(input.context.reserved_output_tokens, 61);
     assert_ne!(input.context.profile_digest, implicit_profile,
         "explicit effort participates in context identity before preparation");
     assert_eq!(input.provider_binding.as_ref(), Some(&binding));
@@ -1322,6 +1331,19 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
 
     policy.revision += 1;
     policy.profiles[0].effort_levels[0].effort = "high".into();
+    policy.profiles[0].max_output_tokens = std::num::NonZeroU32::new(47);
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let changed = execute_step(1, &[], &mut subject, &CancellationToken::new()).await.unwrap_err();
+    let shenko_types::error::ShenkoError::Protocol(changed) = changed else {
+        panic!("a changed price cap must refuse the original seal");
+    };
+    assert_eq!(changed.code, "QUOTA_OUTPUT_BUDGET_BINDING_MISMATCH");
+    assert_eq!(subject.step.input_plan_ref.as_ref(), Some(&seal));
+    assert!(store.subject_request_attempts_for_step(agent, step_id).unwrap().is_empty());
+    assert_eq!(store.quota_pacer().unwrap().reservations().count(), 0);
+
+    policy.revision += 1;
+    policy.profiles[0].max_output_tokens = std::num::NonZeroU32::new(61);
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     subject.max_tokens = 901;
     let cancel = CancellationToken::new();
@@ -1333,7 +1355,7 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
         }
     }).await.expect("the exact original high-effort seal must reach Messages HTTP");
     assert_eq!(wire["model"], "quota-alternate");
-    assert_eq!(wire["max_tokens"], 73);
+    assert_eq!(wire["max_tokens"], 61);
     assert_eq!(wire["output_config"], input.payload.native_options["output_config"]);
     assert_eq!(wire["output_config"]["effort"], "high");
     cancel.cancel();
@@ -1348,6 +1370,7 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
 
     policy.revision += 1;
     policy.profiles[0].effort_levels[0].effort = "medium".into();
+    policy.profiles[0].max_output_tokens = std::num::NonZeroU32::new(47);
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     release_tx.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
@@ -1362,7 +1385,7 @@ async fn quota_anthropic_effort_matches_wire_and_preserves_original_resume() {
         &terminal.result_ref.as_ref().unwrap().digest,
     ).unwrap()).unwrap();
     assert_eq!(result.effective.native_options, input.payload.native_options);
-    assert_eq!(result.effective.max_tokens, 73);
+    assert_eq!(result.effective.max_tokens, 61);
     handle.request_stop();
     tokio::time::timeout(Duration::from_secs(5), broker_task).await.unwrap().unwrap();
     drop((subject, handle, store));

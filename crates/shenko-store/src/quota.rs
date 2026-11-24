@@ -24,6 +24,66 @@ use shenko_types::commit::{CommitRef, CommitReceipt, UpdatedEntity};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
 use std::collections::HashMap;
+use std::num::NonZeroU32;
+
+pub(crate) fn sealed_output_limit(conn: &Connection, value: &serde_json::Value) -> anyhow::Result<NonZeroU32> {
+    #[derive(serde::Deserialize)]
+    struct Selection {
+        policy_id: EntityId,
+        policy_revision: u64,
+        policy_digest: shenko_types::object::Digest,
+        decision_id: EntityId,
+        profile_id: String,
+        max_output_tokens: NonZeroU32,
+    }
+    let selection: Selection = serde::Deserialize::deserialize(value)?;
+    let (decision, policy): (String, String) = conn.query_row(
+        "SELECT d.data, p.data FROM quota_decisions d JOIN quota_policies p
+         ON p.policy_id=d.policy_id AND p.revision=d.policy_revision WHERE d.decision_id=?1",
+        [selection.decision_id.to_string()],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let decision: PolicyDecision = serde_json::from_str(&decision)?;
+    let policy: QuotaPolicy = serde_json::from_str(&policy)?;
+    anyhow::ensure!(selection.policy_id == policy.policy_id && selection.policy_revision == policy.revision
+        && selection.decision_id == decision.decision_id && decision.policy_digest == selection.policy_digest
+        && shenko_quota::policy_digest(&policy)? == selection.policy_digest,
+        "sealed quota output does not identify the recorded policy and decision");
+    let (Choice::Cloud { profile_id, .. } | Choice::Local { profile_id }) = &decision.choice else {
+        anyhow::bail!("sealed quota output decision did not select a profile");
+    };
+    anyhow::ensure!(profile_id == &selection.profile_id && policy.profiles.iter().any(|profile|
+        &profile.profile_id == profile_id && profile.max_output_tokens == Some(selection.max_output_tokens)),
+        "sealed quota output differs from the recorded profile limit");
+    Ok(selection.max_output_tokens)
+}
+
+pub(crate) fn subject_sealed_output_limit(store: &Store, conn: &Connection,
+    step: &shenko_types::subject::SubjectStep) -> Result<Option<NonZeroU32>, ShenkoError>
+{
+    use shenko_types::object::Digest;
+    let Some(object) = step.input_plan_ref.as_ref().filter(|object| object.codec.major == 16) else {
+        return Ok(None);
+    };
+    let bytes = store.cas.read_object(&object.digest)?;
+    if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
+        return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+    }
+    let input: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let check = || -> anyhow::Result<NonZeroU32> {
+        use anyhow::Context as _;
+        let limit = sealed_output_limit(conn, input.pointer("/provider_selection/quota")
+            .context("schema-16 subject input lacks quota output authorization")?)?;
+        let payload = input.pointer("/payload/max_tokens").and_then(serde_json::Value::as_u64);
+        anyhow::ensure!(input["schema_version"].as_u64() == Some(16)
+            && input["step_id"] == serde_json::to_value(step.step_id)?
+            && payload == input.pointer("/context/reserved_output_tokens").and_then(serde_json::Value::as_u64)
+            && payload.is_some_and(|tokens| tokens > 0 && tokens <= u64::from(limit.get())),
+            "subject output authorization differs from the sealed payload or reservation");
+        Ok(limit)
+    };
+    check().map(Some).map_err(|error| ShenkoError::conflict(error.to_string()))
+}
 
 /// Additive quota tables; history is never rewritten by a migration.
 pub(crate) const QUOTA_SCHEMA: &str = r#"
@@ -258,6 +318,7 @@ pub(crate) fn quota_claim_send(
     request_id: EntityId,
     send_id: EntityId,
     claim_seq: LedgerSeq,
+    max_output_tokens: Option<NonZeroU32>,
 ) -> Result<bool, ShenkoError> {
     let sends = quota_request_sends(tx, request_id)?;
     let Some((_, claimed_seq)) = sends.iter().find(|(known, _)| *known == send_id) else {
@@ -270,6 +331,7 @@ pub(crate) fn quota_claim_send(
     let armed = pacer.reservation(&send_id).is_some_and(|reservation| {
         reservation.admission.state == shenko_quota::AdmissionState::Admitted
             && reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
+            && reservation.admission.max_output_tokens == max_output_tokens
     });
     if !armed {
         return Ok(false);
