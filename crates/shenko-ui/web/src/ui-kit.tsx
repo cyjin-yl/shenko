@@ -41,6 +41,32 @@ import {
 } from '@proto.ui/prototypes-shadcn/resizable';
 import { shadcnToggle } from '@proto.ui/prototypes-shadcn/toggle';
 import { shadcnTreeRoot, shadcnTreeItem, shadcnTreeGroup } from '@proto.ui/prototypes-shadcn/tree';
+import {
+  shadcnCardRoot,
+  shadcnCardHeader,
+  shadcnCardContent,
+  shadcnCardFooter,
+} from '@proto.ui/prototypes-shadcn/card';
+import {
+  shadcnTabsRoot,
+  shadcnTabsList,
+  shadcnTabsTrigger,
+} from '@proto.ui/prototypes-shadcn/tabs';
+import {
+  contextMenuRoot,
+  contextMenuTrigger,
+  contextMenuContent,
+  contextMenuItem,
+} from '@proto.ui/prototypes-shadcn/context-menu';
+import {
+  shadcnDropdownRoot,
+  shadcnDropdownTrigger,
+  shadcnDropdownContent,
+  shadcnDropdownItem,
+  dropdownGroup,
+  dropdownLabel,
+  dropdownSeparator,
+} from '@proto.ui/prototypes-shadcn/dropdown';
 import type { ConnectionState } from './projection';
 import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
 
@@ -55,6 +81,82 @@ export const ScrollRoot = adapt(shadcnScrollAreaRoot);
 export const ScrollViewport = adapt(shadcnScrollAreaViewport);
 export const ScrollScrollbar = adapt(shadcnScrollAreaScrollbar);
 export const ScrollThumb = adapt(shadcnScrollAreaThumb);
+const asScrollViewport = defineAsHook(shadcnScrollAreaViewport);
+const verticalScrollViewport = definePrototype({
+  name: 'shenko-scroll-viewport-y',
+  modules: asScrollViewport.modules,
+  setup() {
+    const inherited = asScrollViewport();
+    asScrollSurface().configure({ axes: 'vertical', projection: 'composed' });
+    return inherited.render;
+  },
+});
+const horizontalScrollViewport = definePrototype({
+  name: 'shenko-scroll-viewport-x',
+  modules: asScrollViewport.modules,
+  setup() {
+    const inherited = asScrollViewport();
+    asScrollSurface().configure({ axes: 'horizontal', projection: 'composed' });
+    return inherited.render;
+  },
+});
+const bothScrollViewport = definePrototype({
+  name: 'shenko-scroll-viewport-both',
+  modules: asScrollViewport.modules,
+  setup() {
+    const inherited = asScrollViewport();
+    asScrollSurface().configure({ axes: 'both', projection: 'composed' });
+    return inherited.render;
+  },
+});
+export const ScrollViewportY = adapt(verticalScrollViewport);
+export const ScrollViewportX = adapt(horizontalScrollViewport);
+export const ScrollViewportBoth = adapt(bothScrollViewport);
+
+/** Proto-UI composed scroll container: hides native browser scrollbars everywhere. */
+export function ScrollBox({
+  orientation = 'vertical',
+  className,
+  viewportClassName,
+  children,
+}: {
+  orientation?: 'vertical' | 'horizontal' | 'both';
+  className?: string;
+  viewportClassName?: string;
+  children: React.ReactNode;
+}) {
+  if (typeof document === 'undefined') {
+    return (
+      <div className={['sk-scroll-root', `is-${orientation}`, className].filter(Boolean).join(' ')}>
+        <div className={['sk-scroll-viewport', viewportClassName].filter(Boolean).join(' ')}>
+          {children}
+        </div>
+      </div>
+    );
+  }
+  const Viewport = orientation === 'vertical'
+    ? ScrollViewportY
+    : orientation === 'horizontal'
+      ? ScrollViewportX
+      : ScrollViewportBoth;
+  return (
+    <ScrollRoot className={['sk-scroll-root', `is-${orientation}`, className].filter(Boolean).join(' ')}>
+      <Viewport className={['sk-scroll-viewport', viewportClassName].filter(Boolean).join(' ')}>
+        {children}
+      </Viewport>
+      {(orientation === 'vertical' || orientation === 'both') && (
+        <ScrollScrollbar orientation="vertical" className="sk-scrollbar sk-scrollbar-y">
+          <ScrollThumb className="sk-scroll-thumb" />
+        </ScrollScrollbar>
+      )}
+      {(orientation === 'horizontal' || orientation === 'both') && (
+        <ScrollScrollbar orientation="horizontal" className="sk-scrollbar sk-scrollbar-x">
+          <ScrollThumb className="sk-scroll-thumb" />
+        </ScrollScrollbar>
+      )}
+    </ScrollRoot>
+  );
+}
 export const MessageRoot = adapt(shadcnMessageScrollerRoot);
 // Integration boundary: Proto-UI owns follow/depart/resume and its
 // lease. Shenko owns persisted entry keys and selection offsets. Turn off the
@@ -66,7 +168,7 @@ const readingViewport = definePrototype<ShadcnMessageScrollerViewportProps, Mess
   modules: asMessageViewport.modules,
   setup() {
     const inherited = asMessageViewport();
-    asScrollSurface().configure({ anchor: { mode: 'off' } });
+    asScrollSurface().configure({ anchor: { mode: 'off' }, projection: 'composed' });
     return inherited.render;
   },
 });
@@ -104,6 +206,66 @@ export const TreeRoot = adapt(shadcnTreeRoot);
 export const TreeItem = adapt(shadcnTreeItem);
 export const TreeGroup = adapt(shadcnTreeGroup);
 export type InspectorTreeHandle = ReactAdapterHandle<typeof shadcnTreeRoot>;
+export const CardRoot = adapt(shadcnCardRoot);
+export const CardHeader = adapt(shadcnCardHeader);
+export const CardContent = adapt(shadcnCardContent);
+export const CardFooter = adapt(shadcnCardFooter);
+export const TabsRoot = adapt(shadcnTabsRoot);
+export const TabsList = adapt(shadcnTabsList);
+export const TabsTrigger = adapt(shadcnTabsTrigger);
+export const ContextMenuRoot = adapt(contextMenuRoot);
+export const ContextMenuTrigger = adapt(contextMenuTrigger);
+export const ContextMenuContent = adapt(contextMenuContent);
+export const ContextMenuItem = adapt(contextMenuItem);
+export const DropdownRoot = adapt(shadcnDropdownRoot);
+export const DropdownTrigger = adapt(shadcnDropdownTrigger);
+export const DropdownContent = adapt(shadcnDropdownContent);
+export const DropdownItem = adapt(shadcnDropdownItem);
+export const DropdownGroup = adapt(dropdownGroup);
+export const DropdownLabel = adapt(dropdownLabel);
+export const DropdownSeparator = adapt(dropdownSeparator);
+
+/** Scope bar backed by Proto-UI shadcn Tabs (roving arrow keys + ARIA tabs). */
+export function ScopeTabs<T extends string>({
+  value,
+  onChange,
+  label,
+  className,
+  items,
+}: {
+  value: T;
+  onChange: (next: T) => void;
+  label: string;
+  className?: string;
+  items: ReadonlyArray<{ id: T; label: string; count?: number }>;
+}) {
+  return (
+    <TabsRoot
+      styleProfile="rhea"
+      className={['scope-tabs-root', className].filter(Boolean).join(' ')}
+      value={value}
+      onValueChange={(detail: { value?: string }) => {
+        if (detail?.value && detail.value !== value) onChange(detail.value as T);
+      }}
+    >
+      <TabsList styleProfile="rhea" a11yLabel={label} className="scope-bar">
+        {items.map((item) => (
+          <TabsTrigger
+            key={item.id}
+            styleProfile="rhea"
+            value={item.id}
+            className={`scope-item scope-id-${item.id}`}
+          >
+            <span>{item.label}</span>
+            {item.count !== undefined && item.count > 0 && (
+              <span className="scope-count">{item.count}</span>
+            )}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </TabsRoot>
+  );
+}
 
 export type Emit = (nodeId: string, actionId: string, payload?: Record<string, unknown>) => void;
 
@@ -230,4 +392,18 @@ export function formatStampMs(value: number): string {
 
 export function firstLine(text: string): string {
   return text.split('\n').find((line) => line.trim())?.trim() ?? t('common.empty');
+}
+
+export function formatCompactAge(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '—';
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return '—';
+  const diff = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  const days = Math.floor(diff / 86400);
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.max(1, Math.floor(days / 30))}mo`;
+  return `${Math.max(1, Math.floor(days / 365))}y`;
 }

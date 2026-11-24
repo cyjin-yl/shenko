@@ -11,7 +11,9 @@ import type {
   UiProjection,
 } from './projection';
 import { ConfigEntries } from './config-panel';
-import { TaskHierarchy, ArtifactHierarchy } from './inspector-trees';
+import { TaskHierarchy, PendingDecisionBanner, type PendingDecisionNotice } from './inspector-trees';
+import { PlaygroundWidgets } from './playground-widgets';
+import type { DemoWidgetPreview } from './threads';
 import {
   readContentRevisionDisclosure,
   readRevisionDisclosure,
@@ -32,8 +34,10 @@ import {
   DrawerTitle,
   Note,
   ProtoInput,
+  ScrollBox,
   connectionAnnouncement,
   firstLine,
+  formatCompactAge,
   formatStamp,
   formatStampMs,
   formatTime,
@@ -42,22 +46,25 @@ import {
 
 /**
  * The on-demand surfaces: one page
- * shape for all of them — a title that says what the page is, then plain
- * rows. Every value is the interface's own; empty, unavailable and error are
- * three different sentences, never a placeholder row.
+ * shape for all of them — wrapped in Proto-UI ScrollBox so no native browser
+ * scrollbar ever appears inside the Inspector. Every value is the interface's
+ * own; empty, unavailable and error are three different sentences, never a
+ * placeholder row.
  */
 function Page({ title, lead, hidden, className, children }: {
   title: string; lead: string; hidden: boolean; className?: string; children: React.ReactNode;
 }) {
   return (
     <section className={['page', className].filter(Boolean).join(' ')} hidden={hidden} aria-label={title}>
-      <div className="page-column">
-        <header className="page-head">
-          <h2>{title}</h2>
-          <p>{lead}</p>
-        </header>
-        {children}
-      </div>
+      <ScrollBox className="page-scroll" viewportClassName="page-viewport">
+        <div className="page-column">
+          <header className="page-head">
+            <h2>{title}</h2>
+            <p>{lead}</p>
+          </header>
+          {children}
+        </div>
+      </ScrollBox>
     </section>
   );
 }
@@ -71,7 +78,12 @@ function Group({ title, children, aside }: { title: string; children: React.Reac
   );
 }
 
-export function TasksSurface({ node, ownerKey }: { node?: UiNode; ownerKey: string }) {
+export function TasksSurface({ node, ownerKey, onOpenThread, pendingDecision }: {
+  node?: UiNode;
+  ownerKey: string;
+  onOpenThread?: (threadId: string) => void;
+  pendingDecision?: PendingDecisionNotice;
+}) {
   if (!node) return null;
   const data = node.props.data;
   const items: TaskSummary[] = Array.isArray(data?.items) ? data.items : [];
@@ -82,35 +94,86 @@ export function TasksSurface({ node, ownerKey }: { node?: UiNode; ownerKey: stri
         : data?.available === false
           ? <Note text={data?.note || t('config.tasksMissing')} />
           : items.length === 0
-            ? <Note text={data?.note || t('config.tasksEmpty')} />
-            : <TaskHierarchy key={ownerKey} tasks={items} />}
+            ? <>
+              {pendingDecision && <PendingDecisionBanner decision={pendingDecision} />}
+              <Note text={data?.note || t('config.tasksEmpty')} />
+            </>
+            : <TaskHierarchy key={ownerKey} tasks={items} onOpenThread={onOpenThread} pendingDecision={pendingDecision} />}
     </Page>
   );
 }
 
 export function MemorySurface({ node }: { node?: UiNode }) {
+  const [query, setQuery] = React.useState('');
   if (!node) return null;
   const items = Array.isArray(node.props.data?.items) ? node.props.data.items : [];
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? items.filter((memory: Record<string, unknown>) => {
+      const hay = [memory.kind, memory.content, memory.text, memory.summary, memory.title]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(needle);
+    })
+    : items;
   return (
     <Page title={t('config.memory')} lead={t('config.memoryLead')} hidden={node.props.hidden}>
       {node.props.error
         ? <Note tone="error" text={t('config.memoryUnavailable')} />
         : items.length === 0
           ? <Note text={node.props.data?.note || t('config.memoryEmpty')} />
-          : <ul className="rows">{items.map((memory: Record<string, unknown>, index: number) => (
-            <li className="row is-stacked" key={String(memory.id ?? index)}>
-              <span className="row-main">
-                <span className="row-text">{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}</span>
-                <span className="row-sub">
-                  {/* `kind` is a learnable hint, never the entry's content. */}
-                  {memory.kind ? <span>{String(memory.kind)}</span> : null}
-                  <time>{formatStamp(memory.created_at)}</time>
-                </span>
-                <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
-                <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
+          : <>
+            <div className="memory-controls">
+              <div className="inspector-search-wrap">
+                <Icon name="search" size={13} />
+                <input
+                  type="search"
+                  className="inspector-search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      if (query) setQuery('');
+                      else (event.currentTarget as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder={t('memory.searchPlaceholder')}
+                  aria-label={t('memory.searchPlaceholder')}
+                  spellCheck={false}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="inspector-search-clear"
+                    aria-label={t('files.searchClear')}
+                    onClick={() => setQuery('')}
+                  >
+                    <Icon name="close" size={12} />
+                  </button>
+                )}
+              </div>
+              <span className="inspector-section-stat">
+                {needle
+                  ? t('files.filteredCount', { shown: visible.length, total: items.length })
+                  : t('files.itemsCount', { count: items.length })}
               </span>
-            </li>
-          ))}</ul>}
+            </div>
+            {visible.length === 0
+              ? <Note text={t('memory.noMatches')} />
+              : <ul className="rows is-inset">{visible.map((memory: Record<string, unknown>, index: number) => (
+                <li className="row is-stacked" key={String(memory.id ?? index)}>
+                  <span className="row-main">
+                    <span className="row-sub is-top">
+                      {/* `kind` is a learnable hint, never the entry's content. */}
+                      {memory.kind ? <span className="memory-kind-tag">{String(memory.kind)}</span> : null}
+                      <time title={formatStamp(memory.created_at)}>{formatCompactAge(memory.created_at)}</time>
+                    </span>
+                    <span className="row-text">{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}</span>
+                    <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
+                    <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
+                  </span>
+                </li>
+              ))}</ul>}
+          </>}
     </Page>
   );
 }
@@ -158,7 +221,7 @@ function compilerLabel(compiler: BuildManifest['compiler'] | undefined): string 
   const names = (compiler.prototypes ?? []).map((prototype) => prototype.name);
   const profile = compiler.profile ?? t('compiler.profileUnknown');
   if (names.length === 0) return t('compiler.noPrototypes', { profile, runtime });
-  return t('compiler.prototypes', { count: names.length, names: names.join('、'), profile, runtime });
+  return t('compiler.prototypes', { count: names.length, names: names.join(', '), profile, runtime });
 }
 
 function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
@@ -177,57 +240,111 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   const manifest = node.props.manifest as BuildManifest | undefined;
   const unknown = (value: unknown) => value === undefined || value === null || value === '' || value === 'unknown' ? t('common.unknown') : String(value);
   const caps = projection.capabilities;
+  const modelValue = node.props.config_error ? t('config.apiUnavailable') : unknown(config?.model);
+  const apiKeyValue = typeof config?.api_key_configured === 'boolean'
+    ? (config.api_key_configured ? t('config.keyConfigured') : t('config.keyMissing'))
+    : t('common.unknown');
+  const unknownText = t('common.unknown');
+  const subjectStateValue = unknown(self?.status);
+  const commitValue = node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit');
   return (
     <Page title={t('config.title')} lead={t('config.lead')} hidden={node.props.hidden} className="config">
-      <Group title={t('config.runtime')}>
-        <dl className="facts">
-          <Fact label={t('config.model')} value={node.props.config_error ? t('config.apiUnavailable') : unknown(config?.model)} />
-          <Fact label={t('config.subjectState')} value={unknown(self?.status)} />
-          <Fact label={t('config.transport')} value={connectionAnnouncement(node.props.connection)} />
-          <Fact label={t('config.latestCommit')} value={node.props.step ? t('config.commit', { step: node.props.step }) : t('config.noCommit')} />
-          <Fact label="Runtime generation" value={unknown(config?.generation)} mono />
-          <Fact label="API key" value={typeof config?.api_key_configured === 'boolean' ? config.api_key_configured ? t('config.keyConfigured') : t('config.keyMissing') : t('common.unknown')} />
-          <Fact label={t('config.serverVersion')} value={unknown(node.props.server_version)} mono />
-          <Fact label={t('config.dataDirectory')} value={unknown(config?.data_dir)} mono />
-          <Fact label="WebSocket" value={wsUrl()} mono />
-          <Fact label="Subject ID" value={projection.subject_id ?? t('common.unknown')} mono />
-        </dl>
-      </Group>
+      <dl className="inspector-kv-list" aria-label={t('config.title')}>
+        <div className="inspector-kv-row">
+          <dt>{t('config.model')}</dt>
+          <dd className={modelValue === unknownText ? 'is-muted' : undefined} title={modelValue}>{modelValue}</dd>
+        </div>
+        <div className="inspector-kv-row">
+          <dt>{t('config.subjectState')}</dt>
+          <dd className={subjectStateValue === unknownText ? 'is-muted' : undefined}>{subjectStateValue}</dd>
+        </div>
+        <div className="inspector-kv-row">
+          <dt>{t('config.latestCommit')}</dt>
+          <dd className={!node.props.step ? 'is-muted' : undefined}>{commitValue}</dd>
+        </div>
+        <div className="inspector-kv-row">
+          <dt>API key</dt>
+          <dd className={apiKeyValue === unknownText ? 'is-muted' : undefined}>{apiKeyValue}</dd>
+        </div>
+      </dl>
+
       <Group title={t('config.entries')}>
         <ConfigEntries node={node} emit={emit} />
       </Group>
-      <Group title={t('config.inputCapabilities')}>
-        <dl className="facts">
-          <Fact label={t('composer.append')} value={caps.append ? caps.durable_input_receipts ? t('config.durableAvailable') : t('config.transportAvailable') : t('common.unavailable')} />
-          <Fact label={t('config.steer')} value={caps.steer ? t('config.boundaryAvailable') : t('config.notOffered')} />
-          <Fact label={t('config.selectionReceipt')} value={caps.durable_input_receipts ? t('config.storeReceipt') : t('common.unavailable')} />
-          <Fact label={t('config.streaming')} value={caps.streaming ? t('config.streamingAvailable') : t('config.committedOnly')} />
-          <Fact label={t('config.replay')} value={caps.committed_replay ? t('config.connected') : t('common.unknown')} />
-        </dl>
-      </Group>
-      <Group title={t('config.frontendBuild')}>
-        {manifest ? <dl className="facts">
-          <Fact label="Proto-UI" value={manifest.upstream.commit} mono />
-          <Fact label={t('config.packages')} value={manifest.packages.join(' · ')} mono />
-          <Fact label={t('config.families')} value={manifest.adopted_families.join('、')} />
-          <Fact label="Compiler" value={compilerLabel(manifest.compiler)} />
-        </dl> : <Note text={t('config.manifestMissing')} />}
-        <p className="links">
-          <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">{t('config.protoLicense')}</a>
-          <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">{t('config.shadcnLicense')}</a>
-          <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">{t('config.reactLicense')}</a>
-        </p>
-      </Group>
+
+      <div className="inspector-disclosures">
+        <CollapsibleRoot className="inspector-disclosure">
+          <CollapsibleTrigger className="inspector-disclosure-trigger">
+            <Icon name="chevron" size={13} />
+            <span>{t('inspector.capabilities')}</span>
+            <span className="inspector-disclosure-meta">
+              {caps.append ? t('composer.append') : t('common.unavailable')}
+              {caps.steer ? ` · ${t('composer.steer')}` : ''}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="inspector-disclosure-body">
+            <dl className="facts is-compact">
+              <Fact label={t('composer.append')} value={caps.append ? caps.durable_input_receipts ? t('config.durableAvailable') : t('config.transportAvailable') : t('common.unavailable')} />
+              <Fact label={t('config.steer')} value={caps.steer ? t('config.boundaryAvailable') : t('config.notOffered')} />
+              <Fact label={t('config.selectionReceipt')} value={caps.durable_input_receipts ? t('config.storeReceipt') : t('common.unavailable')} />
+              <Fact label={t('config.streaming')} value={caps.streaming ? t('config.streamingAvailable') : t('config.committedOnly')} />
+              <Fact label={t('config.replay')} value={caps.committed_replay ? t('config.connected') : t('common.unknown')} />
+            </dl>
+          </CollapsibleContent>
+        </CollapsibleRoot>
+
+        <CollapsibleRoot className="inspector-disclosure">
+          <CollapsibleTrigger className="inspector-disclosure-trigger">
+            <Icon name="chevron" size={13} />
+            <span>{t('inspector.runtimeBuild')}</span>
+            <span className="inspector-disclosure-meta">
+              {manifest ? manifest.upstream.commit.slice(0, 8) : unknown(node.props.server_version)}
+            </span>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="inspector-disclosure-body">
+            <dl className="facts is-compact">
+              <Fact label={t('config.transport')} value={projection.source === 'demo' ? t('transport.demo') : connectionAnnouncement(node.props.connection)} />
+              <Fact label="Runtime generation" value={unknown(config?.generation)} mono />
+              <Fact label={t('config.serverVersion')} value={unknown(node.props.server_version)} mono />
+              <Fact label={t('config.dataDirectory')} value={unknown(config?.data_dir)} mono />
+              <Fact label="WebSocket" value={wsUrl()} mono />
+              <Fact label="Subject ID" value={projection.subject_id ?? t('common.unknown')} mono />
+            </dl>
+            {manifest ? <dl className="facts is-compact">
+              <Fact label="Proto-UI" value={manifest.upstream.commit} mono />
+              <Fact label={t('config.packages')} value={manifest.packages.join(' · ')} mono />
+              <Fact label={t('config.families')} value={manifest.adopted_families.join(', ')} />
+              <Fact label="Compiler" value={compilerLabel(manifest.compiler)} />
+            </dl> : <Note text={t('config.manifestMissing')} />}
+            <p className="links">
+              <a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">{t('config.protoLicense')}</a>
+              <a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">{t('config.shadcnLicense')}</a>
+              <a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">{t('config.reactLicense')}</a>
+            </p>
+          </CollapsibleContent>
+        </CollapsibleRoot>
+      </div>
     </Page>
   );
 }
 
-export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNode; ownerKey: string; onOpenWork?: (artifactId: string) => void }) {
+export function PlaygroundSurface({
+  node, ownerKey, demo = false, theme = 'dark', getDemoPreview, onOpenWork, onInspectWork,
+}: {
+  node?: UiNode;
+  ownerKey: string;
+  demo?: boolean;
+  theme?: 'light' | 'dark';
+  getDemoPreview?: (artifactId: string, theme: 'light' | 'dark') => DemoWidgetPreview | undefined;
+  onOpenWork?: (artifactId: string) => void;
+  onInspectWork?: (artifactId: string) => void;
+}) {
   if (!node) return null;
   const playground: PlaygroundView | undefined = node.props.playground;
   const roots = Array.isArray(playground?.roots) ? playground.roots : [];
   const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
   const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];
+  const hasAuxiliary = roots.length > 0 || namespaces.length > 0;
   return (
     <Page title="Playground" lead={t('work.playgroundLead')} hidden={node.props.hidden}>
       {node.props.error
@@ -235,35 +352,58 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
         : playground?.available === false
           ? <Note text={t('work.storeRequired')} />
           : <>
-            <Group title={t('work.title')}>
-              {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
-                <ArtifactHierarchy key={ownerKey} artifacts={artifacts} onOpenWork={onOpenWork} />
+            {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
+              <PlaygroundWidgets
+                key={ownerKey}
+                artifacts={artifacts}
+                ownerKey={ownerKey}
+                demo={demo}
+                theme={theme}
+                getDemoPreview={getDemoPreview}
+                onOpenWork={onOpenWork}
+                onInspectWork={onInspectWork}
+              />
+            )}
+            {hasAuxiliary ? <>
+              {roots.length > 0 && (
+                <Group title={t('work.rootTitle')} aside={<span className="inspector-count-text">{roots.length}</span>}>
+                  <ul className="rows is-inset">{roots.map((root) => (
+                    <li className="row" key={String(root.artifact_id)}>
+                      <span className="row-main">
+                        <span className="row-title">{String(root.root)}</span>
+                        <code className="row-sub">{String(root.artifact_id)} · {String(root.identity).slice(0, 16)}…</code>
+                      </span>
+                    </li>
+                  ))}</ul>
+                </Group>
               )}
-            </Group>
-            <Group title={t('work.rootTitle')}>
-              {roots.length === 0 ? <Note text={t('work.rootsEmpty')} /> : (
-                <ul className="rows">{roots.map((root) => (
-                  <li className="row" key={String(root.artifact_id)}>
-                    <span className="row-main">
-                      <span className="row-title">{String(root.root)}</span>
-                      <code className="row-sub">{String(root.artifact_id)} · {String(root.identity).slice(0, 16)}…</code>
-                    </span>
-                  </li>
-                ))}</ul>
+              {namespaces.length > 0 && (
+                <Group title={t('work.namespaces')} aside={<span className="inspector-count-text">{namespaces.length}</span>}>
+                  <ul className="rows is-inset">{namespaces.map((entry) => (
+                    <li className="row" key={String(entry.namespace)}>
+                      <span className="row-main">
+                        <code className="row-title">{String(entry.namespace)}</code>
+                        <span className="row-sub">{String(entry.description ?? '—')}</span>
+                      </span>
+                    </li>
+                  ))}</ul>
+                </Group>
               )}
-            </Group>
-            <Group title={t('work.namespaces')}>
-              {namespaces.length === 0 ? <Note text={t('work.namespacesEmpty')} /> : (
-                <ul className="rows">{namespaces.map((entry) => (
-                  <li className="row" key={String(entry.namespace)}>
-                    <span className="row-main">
-                      <code className="row-title">{String(entry.namespace)}</code>
-                      <span className="row-sub">{String(entry.description ?? '—')}</span>
-                    </span>
-                  </li>
-                ))}</ul>
-              )}
-            </Group>
+            </> : (
+              <div className="inspector-disclosures">
+                <CollapsibleRoot className="inspector-disclosure">
+                  <CollapsibleTrigger className="inspector-disclosure-trigger">
+                    <Icon name="chevron" size={13} />
+                    <span>{t('work.rootTitle')} &amp; {t('work.namespaces')}</span>
+                    <span className="inspector-disclosure-meta">{t('inspector.emptyAuxiliary', { roots: 0, namespaces: 0 })}</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="inspector-disclosure-body">
+                    <p className="muted">{t('work.rootsEmpty')}</p>
+                    <p className="muted">{t('work.namespacesEmpty')}</p>
+                  </CollapsibleContent>
+                </CollapsibleRoot>
+              </div>
+            )}
           </>}
     </Page>
   );
@@ -300,13 +440,13 @@ export function ContextPanel({ node, projection, emit }: { node: UiNode; project
             <Icon name="close" />
           </Button>
         </DrawerHeader>
-        <div className="sheet-body">
+        <ScrollBox className="sheet-scroll" viewportClassName="sheet-body">
           <OpenedWorkPanel node={node} emit={emit} />
           {(node.props.sections as UiNode[]).map((section) => (
             <PanelSection key={section.node_id} section={section} node={node} emit={emit} />
           ))}
           <IdentityPanel node={node} emit={emit} />
-        </div>
+        </ScrollBox>
       </DrawerContent>
     </DrawerRoot>
   );
@@ -379,7 +519,11 @@ function OpenedWorkPanel({ node, emit }: { node: UiNode; emit: Emit }) {
     <section className="sheet-section work" data-artifact-id={work.artifact_id}>
       <h3>{String(work.title ?? work.artifact_id)}</h3>
       <p className="sheet-sub">r{String(work.revision ?? '—')} · {String(work.lifecycle ?? 'draft')} · {String(work.mime ?? '—')}</p>
-      {work.content !== undefined && <pre className="work-content" tabIndex={0}><code>{work.content}</code></pre>}
+      {work.content !== undefined && (
+        <ScrollBox orientation="both" className="work-content-scroll" viewportClassName="work-content-viewport">
+          <pre className="work-content" tabIndex={0}><code>{work.content}</code></pre>
+        </ScrollBox>
+      )}
       <div className="button-row">
         <Button variant="outline" size="sm" onClick={() => refs[0] && emit(node.node_id, refs[0])}>{t('work.stage')}</Button>
         <Button variant="outline" size="sm" onClick={() => refs[1] && emit(node.node_id, refs[1])}>{t('work.adopt')}</Button>

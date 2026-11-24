@@ -1,5 +1,5 @@
 import type { FileEntry, FileRoot, FileSource } from './files-view';
-import type { ConversationRow, DemoThreadData, TrajectoryResponse } from './threads';
+import type { ConversationRow, DemoThreadData, DemoWidgetPreview, TrajectoryResponse } from './threads';
 
 const demoConversations: ConversationRow[] = (() => {
   const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -44,9 +44,63 @@ function demoTeamTrajectory(member: (typeof DEMO_TEAM.members)[number]): Traject
   };
 }
 
+const DEMO_ARCHIVED: Record<string, { name: string; goal: string; daysAgo: number; steps: Array<{ text: string; tokens: number }> }> = {
+  'demo-arch-18d': {
+    name: '飞书回调排查',
+    goal: '梳理飞书 Webhook 签名校验与重复投递去重策略。',
+    daysAgo: 18,
+    steps: [
+      { text: '核对了飞书 v2 回调的 `X-Lark-Signature` 拼接顺序：timestamp + nonce + encrypt_key + raw_body。', tokens: 64 },
+      { text: '已确认重复投递应以 `header.event_id` 做幂等键，保留 24 小时去重窗口，避免重放触发二次入队。', tokens: 78 },
+    ],
+  },
+  'demo-arch-64d': {
+    name: 'LayerFS 快照对照',
+    goal: '对比 Linux VM 原生 LayerFS 与 WASM 家园快照恢复耗时。',
+    daysAgo: 64,
+    steps: [
+      { text: '实测 128 MB 工作目录：WASM 家园冷恢复 42 ms，Overlay/LayerFS 挂载切换 19 ms。', tokens: 71 },
+      { text: '结论：日常小文件工作区保持 WASM 家园，大体积模型权重通过只读挂载接入更省 I/O。', tokens: 66 },
+    ],
+  },
+  'demo-arch-96d': {
+    name: 'Qwen3.8 量化基线',
+    goal: '测量 4 路 128K KV 并发下 Q4_K_M 与 FP8 的吞吐差异。',
+    daysAgo: 96,
+    steps: [
+      { text: '在 4 路 128K 满载下，Q4_K_M 显存占用降低 38%，首字延迟几乎持平；FP8 在长代码生成上更稳。', tokens: 82 },
+      { text: '建议单卡日常默认 Q4_K_M，高并发批处理节点保留 FP8 配置。', tokens: 59 },
+    ],
+  },
+};
+
 export function demoTrajectory(taskId: string): TrajectoryResponse {
   const member = DEMO_TEAM.members.find((item) => item.task_id === taskId);
   if (member) return demoTeamTrajectory(member);
+  const archived = DEMO_ARCHIVED[taskId];
+  if (archived) {
+    const baseMs = Date.now() - archived.daysAgo * 86400_000;
+    return {
+      task: {
+        task_id: taskId, kind: 'model.child', role: 'delegation', state: 'terminal',
+        created_at: new Date(baseMs).toISOString(), name: archived.name,
+      },
+      input: { goal: archived.goal },
+      brief: archived.goal,
+      children: [],
+      operations: archived.steps.map((entry, index) => ({
+        operation_id: `${taskId}-step-${index}`,
+        operation_name: 'model.child.generate.v1',
+        logical_key: `step/${index}`,
+        state: 'resolved',
+        outcome: 'succeeded',
+        attempts: 1,
+        record_status: 'sealed',
+        observed_at: new Date(baseMs + (index + 1) * 45_000).toISOString(),
+        record: { schema_version: 1, step_index: index, text: entry.text, usage: { output_tokens: entry.tokens } },
+      })),
+    };
+  }
   const at = new Date(Date.now() - 60_000).toISOString();
   const goal = '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。';
   const step = (index: number, record: Record<string, unknown>) => ({
@@ -100,4 +154,172 @@ const demoFiles: FileSource = {
   },
 };
 
-export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory, files: demoFiles };
+function widgetHtmlDoc(theme: 'light' | 'dark', body: string, extraCss = ''): string {
+  const dark = theme === 'dark';
+  const bg = dark ? 'oklch(0.215 0 0)' : '#ffffff';
+  const ink = dark ? 'oklch(0.945 0 0)' : 'oklch(0.22 0 0)';
+  const muted = dark ? 'oklch(0.68 0 0)' : 'oklch(0.52 0 0)';
+  const faint = dark ? 'oklch(0.55 0 0)' : 'oklch(0.64 0 0)';
+  const line = dark ? 'oklch(0.29 0 0)' : 'oklch(0.905 0 0)';
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: ${bg}; color: ${ink};
+      font: 12px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; user-select: none; }
+    body { padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; }
+    .muted { color: ${muted}; }
+    .faint { color: ${faint}; }
+    .num { font-variant-numeric: tabular-nums; }
+    ${extraCss}
+  </style></head><body>${body}</body></html>`;
+}
+
+function demoWidgetPreview(artifactId: string, theme: 'light' | 'dark'): DemoWidgetPreview | undefined {
+  const dark = theme === 'dark';
+  const ok = dark ? '#32d74b' : '#248a3d';
+  const accent = dark ? '#0a84ff' : '#007aff';
+  const barTrack = dark ? '#2d2d31' : '#ececef';
+  const line = dark ? '#343438' : '#e5e5ea';
+  const muted = dark ? '#9a9aa2' : '#6e6e73';
+
+  if (artifactId === 'demo-work-1') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="rows">
+          <div class="item">
+            <div class="label"><span>调整前 · 首请求后解析目录</span><span class="num muted">3 次重试</span></div>
+            <div class="track"><div class="fill old" style="width:82%"></div></div>
+          </div>
+          <div class="item">
+            <div class="label"><span>调整后 · 启动前解析数据目录</span><span class="num ok">0 次重试</span></div>
+            <div class="track"><div class="fill now" style="width:28%"></div></div>
+          </div>
+        </div>
+        <div class="foot muted">第二次冷启动仍多 300 ms · 暂记为缓存观察</div>
+      `, `
+        .rows { display: grid; gap: 9px; }
+        .item { display: grid; gap: 4px; }
+        .label { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; }
+        .ok { color: ${ok}; font-weight: 600; }
+        .track { height: 6px; border-radius: 3px; background: ${barTrack}; overflow: hidden; }
+        .fill { height: 100%; border-radius: 3px; }
+        .fill.old { background: ${muted}; opacity: 0.45; }
+        .fill.now { background: ${ok}; }
+        .foot { font-size: 11px; padding-top: 8px; border-top: 1px solid ${line}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-3') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="diary">
+          <p class="poem">「雨声盖过了风扇声。」</p>
+          <p class="body muted">记忆如果像底片，暂定条目就是还在暗房里没定影的片子——亮得太早会灰，放得太久会忘。</p>
+          <p class="body muted">等下一次冷启动再看一眼那 300ms。</p>
+        </div>
+        <div class="sign faint">22:14 · 随手记 · 雨夜</div>
+      `, `
+        body { justify-content: space-between; padding: 10px 12px; }
+        .diary { display: grid; gap: 8px; }
+        .poem { font-size: 12.5px; font-weight: 560; line-height: 1.5; }
+        .body { font-size: 11.5px; line-height: 1.55; }
+        .sign { font-size: 10.5px; padding-top: 8px; border-top: 1px solid ${line}; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-5') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="reads">
+          <div class="r"><span class="n faint">1.</span><span>LayerFS copy-on-write 笔记</span></div>
+          <div class="r"><span class="n faint">2.</span><span>Proto-UI 编译期 seam</span></div>
+          <div class="r"><span class="n faint">3.</span><span>神保町旧书店折页</span></div>
+        </div>
+      `, `
+        body { justify-content: center; padding: 8px 11px; }
+        .reads { display: grid; gap: 7px; }
+        .r { display: flex; align-items: baseline; gap: 7px; font-size: 11.5px; line-height: 1.35; }
+        .n { font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-6') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="strip">
+          <span class="pill">飞书 · 林以</span>
+          <span class="txt">三条结论先压成一页，今晚发给她看</span>
+        </div>
+      `, `
+        body { justify-content: center; padding: 0 12px; }
+        .strip { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .pill { font-size: 10.5px; color: ${accent}; font-weight: 580; flex: none; }
+        .txt { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-4') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="head">
+          <span class="big num">50 / 50</span>
+          <span class="muted">4 路 · 128K</span>
+        </div>
+        <div class="split">
+          <div class="half a"></div>
+          <div class="half b"></div>
+        </div>
+        <div class="note muted">群聊观察：自动分 KV，满载无抖动</div>
+      `, `
+        .head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+        .big { font-size: 19px; font-weight: 640; letter-spacing: -0.02em; }
+        .split { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; height: 8px; margin: 6px 0; }
+        .half { border-radius: 4px; }
+        .half.a { background: ${accent}; }
+        .half.b { background: ${accent}; opacity: 0.45; }
+        .note { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-2') {
+    return {
+      kind: 'markdown',
+      text: '保留两次观察来源：\n· 11/12 部署日志：目录解析晚于首请求\n· 暂定条目（+300ms 冷缓存）待确认后再并入',
+    };
+  }
+  if (artifactId === 'demo-work-arch-1') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="stops">
+          <div class="stop"><i class="dot"></i><span>神保町 · 矢口书店（电影脚本）</span></div>
+          <div class="stop"><i class="dot"></i><span>小宫山书店 · 摄影画册二楼</span></div>
+          <div class="stop"><i class="dot"></i><span>さぼうる 歇脚写见闻</span></div>
+        </div>
+      `, `
+        .stops { display: grid; gap: 7px; }
+        .stop { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+        .dot { width: 5px; height: 5px; border-radius: 50%; background: ${muted}; flex: none; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-arch-2') {
+    return {
+      kind: 'markdown',
+      text: '128 MB 工作区冷恢复对比：\n· WASM 家园：42 ms\n· Linux LayerFS：19 ms（大权重走只读挂载）',
+    };
+  }
+  return undefined;
+}
+
+export const demoThreadData: DemoThreadData = {
+  conversations: demoConversations,
+  trajectory: demoTrajectory,
+  files: demoFiles,
+  widgetPreview: demoWidgetPreview,
+};

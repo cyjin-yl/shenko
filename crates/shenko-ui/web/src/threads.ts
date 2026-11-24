@@ -83,11 +83,17 @@ export interface Thread {
   active?: boolean;
 }
 
+export type DemoWidgetPreview =
+  | { kind: 'html'; html: string }
+  | { kind: 'markdown'; text: string };
+
 export interface DemoThreadData {
   conversations: ConversationRow[];
   trajectory(taskId: string): TrajectoryResponse;
   /** The demo's file systems, so the Files view needs no server. */
   files?: import('./files-view').FileSource;
+  /** Freeform demo widget content for `?demo=1`; never used for a live subject. */
+  widgetPreview?: (artifactId: string, theme: 'light' | 'dark') => DemoWidgetPreview | undefined;
 }
 
 export interface ThreadInputs {
@@ -357,7 +363,7 @@ registerRecordView('model.child.generate.v1', ({ operation, subject, child, tool
     out.push({ key: `${operation.operation_id}-question`, from: child, kind: 'message', text: record.question, tag: t('delegation.question'), at });
   }
   if (typeof record.wait === 'string') {
-    out.push({ key: `${operation.operation_id}-wait`, from: child, kind: 'system', text: t('delegation.waiting', { child: child.name, reason: record.wait ? `：${record.wait}` : '' }), at });
+    out.push({ key: `${operation.operation_id}-wait`, from: child, kind: 'system', text: t('delegation.waiting', { child: child.name, reason: record.wait ? `${t('common.colon')}${record.wait}` : '' }), at });
   }
   const calls = (record.tool_calls as Array<Record<string, unknown>> | undefined) ?? [];
   for (const [index, call] of calls.entries()) {
@@ -549,7 +555,7 @@ registerThreadSource({
           ? t('channel.private', { channel })
           : t('channel.groupSubtitle', { channel, shape: t(shape === 'group' ? 'channel.group' : 'channel.shapeUnknown') }),
         participants: [subject, ...people.values()], viewer: subject.id,
-        preview: last ? `${last.from.role === 'subject' || audience === 'one_to_one' ? '' : `${last.from.name}：`}${last.text}` : '',
+        preview: last ? `${last.from.role === 'subject' || audience === 'one_to_one' ? '' : `${last.from.name}${t('common.colon')}`}${last.text}` : '',
         updated_at: [...messages].reverse().find((message) => message.at)?.at,
         messages, composer: false,
         note: t('channel.observe', { subject: subject.name, channel }),

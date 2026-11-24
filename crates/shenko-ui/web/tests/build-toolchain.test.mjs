@@ -38,3 +38,49 @@ test('the real producer rejects a different Node pin before dependencies or gene
   assert.deepEqual(readdirSync(source, { recursive: true }).sort(), before);
   for (const [path, bytes] of oldOutputs) assert.equal(readFileSync(path, 'utf8'), bytes);
 });
+
+function refusedReceiptBuild(context, receipt) {
+  const root = mkdtempSync(join(tmpdir(), 'shenko-build-receipt-'));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  const web = join(source, 'web');
+  const generated = join(web, 'generated');
+  const staticDir = join(source, 'src', 'static');
+  mkdirSync(generated, { recursive: true });
+  mkdirSync(staticDir, { recursive: true });
+  copyFileSync(new URL('../build.mjs', import.meta.url), join(web, 'build.mjs'));
+  writeFileSync(join(source, '.node-version'), process.versions.node + '\n');
+  const oldOutputs = [
+    [join(generated, 'previous.tsx'), 'export const retained = true;\n'],
+    [join(staticDir, 'app.js'), 'console.log("previous generation");\n'],
+    [join(staticDir, 'build-manifest.json'), '{"retained":true}\n'],
+  ];
+  for (const [path, bytes] of oldOutputs) writeFileSync(path, bytes);
+  const environment = { ...process.env };
+  delete environment.PROTO_UI_BUILD_RECEIPT;
+  if (receipt) {
+    environment.PROTO_UI_BUILD_RECEIPT = join(root, 'upstream-build.json');
+    writeFileSync(environment.PROTO_UI_BUILD_RECEIPT, JSON.stringify(receipt));
+  }
+  const before = readdirSync(source, { recursive: true }).sort();
+  const result = spawnSync(process.execPath, [join(web, 'build.mjs')], {
+    cwd: web, env: environment, encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /ERR_MODULE_NOT_FOUND|ENOENT/);
+  assert.equal(result.stdout, '');
+  assert.deepEqual(readdirSync(source, { recursive: true }).sort(), before);
+  for (const [path, bytes] of oldOutputs) assert.equal(readFileSync(path, 'utf8'), bytes);
+  return result;
+}
+
+test('a full build without a public-closure receipt preserves the previous generation', (context) => {
+  const result = refusedReceiptBuild(context);
+  assert.match(result.stderr, /PROTO_UI_BUILD_RECEIPT must name the real public-closure build receipt/);
+});
+
+test('an incomplete public-closure receipt is rejected before dependencies or generated writes', (context) => {
+  const result = refusedReceiptBuild(context, { selectedCount: 42, results: [] });
+  assert.match(result.stderr, /Unexpected upstream build receipt shape/);
+});

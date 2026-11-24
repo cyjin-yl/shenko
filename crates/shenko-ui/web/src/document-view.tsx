@@ -1,4 +1,5 @@
 import { text as t } from './messages';
+import { ScrollBox } from './ui-kit';
 /**
  * The rich layer of a semantic document: real components, not a debug view.
  *
@@ -275,26 +276,30 @@ function DocumentNode({
       return withChildren(
         <figure className="document-code code-block" data-node-kind="code">
           <figcaption>{props.language || 'text'}</figcaption>
-          <pre tabIndex={0}><code>{props.code}</code></pre>
+          <ScrollBox orientation="horizontal" className="code-scroll" viewportClassName="code-viewport">
+            <pre tabIndex={0}><code>{props.code}</code></pre>
+          </ScrollBox>
         </figure>,
       );
     case 'table':
       return withChildren(
         <div className="document-table-wrap" data-node-kind="table">
-          <table className="document-table">
-            {props.columns.length > 0 && (
-              <thead>
-                <tr>{props.columns.map((column, index) => <th key={`${column}-${index}`} scope="col">{column}</th>)}</tr>
-              </thead>
-            )}
-            <tbody>
-              {props.rows.map((row, index) => (
-                <tr key={`row-${index}`}>
-                  {row.map((cell, cellIndex) => <td key={`cell-${cellIndex}`}>{cell}</td>)}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ScrollBox orientation="horizontal" className="document-table-scroll">
+            <table className="document-table">
+              {props.columns.length > 0 && (
+                <thead>
+                  <tr>{props.columns.map((column, index) => <th key={`${column}-${index}`} scope="col">{column}</th>)}</tr>
+                </thead>
+              )}
+              <tbody>
+                {props.rows.map((row, index) => (
+                  <tr key={`row-${index}`}>
+                    {row.map((cell, cellIndex) => <td key={`cell-${cellIndex}`}>{cell}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ScrollBox>
         </div>,
       );
     case 'compare':
