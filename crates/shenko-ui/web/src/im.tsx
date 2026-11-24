@@ -15,6 +15,12 @@ import {
 type ImScope = 'all' | 'chats' | 'agents';
 const IM_DORMANT_MS = 7 * 86_400_000;
 
+export interface ImRevealRequest {
+  requestId: number;
+  threadId: string;
+  messageKey: string;
+}
+
 function threadTimestamp(thread: Thread): number {
   return thread.updated_at ? Date.parse(thread.updated_at) : NaN;
 }
@@ -42,11 +48,13 @@ function matchesThread(thread: Thread, needle: string): boolean {
  * `message-bubble` Prototype with the message content in its slot.
  */
 export function ImView({
-  threads, selected, onSelect, composer, renderAttachment, emit, onOpenInspect, historyControl, demo,
+  threads, selected, onSelect, revealRequest, onRevealComplete, composer, renderAttachment, emit, onOpenInspect, historyControl, demo,
 }: {
   threads: Thread[];
   selected: string;
   onSelect: (id: string) => void;
+  revealRequest?: ImRevealRequest;
+  onRevealComplete?: (requestId: number) => void;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
@@ -58,8 +66,11 @@ export function ImView({
   // On a phone the list and the open thread are two screens, as in Messages;
   // wider layouts show both and ignore this.
   const [pane, setPane] = React.useState<'list' | 'thread'>(
-    () => new URLSearchParams(location.search).has('thread') ? 'thread' : 'list',
+    () => revealRequest?.threadId === selected || new URLSearchParams(location.search).has('thread') ? 'thread' : 'list',
   );
+  React.useEffect(() => {
+    if (revealRequest?.threadId === selected) setPane('thread');
+  }, [revealRequest, selected]);
   const [scope, setScope] = React.useState<ImScope>('all');
   const [query, setQuery] = React.useState('');
   const [archiveOpen, setArchiveOpen] = React.useState(false);
@@ -109,7 +120,7 @@ export function ImView({
   const chatCount = sections.direct.length + sections.channels.length;
   const agentCount = sections.activeAgents.length + sections.recentAgents.length + sections.archivedAgents.length;
   const showControls = threads.length > 1;
-  const archiveExpanded = archiveOpen || (scope === 'agents' && sections.activeAgents.length === 0 && sections.recentAgents.length === 0);
+  const archiveExpanded = archiveOpen;
 
   const renderRow = (item: Thread) => (
     <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
@@ -280,6 +291,8 @@ export function ImView({
         ? <ThreadView
           key={thread.id}
           thread={thread}
+          revealRequest={pane === 'thread' && revealRequest?.threadId === thread.id ? revealRequest : undefined}
+          onRevealComplete={onRevealComplete}
           composer={composer}
           renderAttachment={renderAttachment}
           emit={emit}
@@ -328,9 +341,11 @@ function shortWhen(value: string | undefined): string {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
-function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, historyControl, demo, onBack }: {
+function ThreadView({ thread, revealRequest, onRevealComplete, composer, renderAttachment, emit, onOpenInspect, historyControl, demo, onBack }: {
   onBack: () => void;
   thread: Thread;
+  revealRequest?: ImRevealRequest;
+  onRevealComplete?: (requestId: number) => void;
   composer: React.ReactNode;
   renderAttachment: (message: ThreadMessage) => React.ReactNode;
   emit: Emit;
@@ -349,6 +364,11 @@ function ThreadView({ thread, composer, renderAttachment, emit, onOpenInspect, h
   }, [thread.id, thread.state, thread.loadRevision, demo]);
   const messages = loaded ?? thread.messages;
   const viewport = React.useRef<MessageViewport>(null);
+  React.useEffect(() => {
+    if (!revealRequest) return;
+    return viewport.current?.revealMessage(revealRequest.messageKey,
+      () => onRevealComplete?.(revealRequest.requestId));
+  }, [revealRequest, onRevealComplete]);
   const group = thread.audience === 'group';
   return (
     <section className="im-thread" aria-label={thread.title}>
@@ -435,6 +455,49 @@ class MessageViewport extends React.Component<{ children: React.ReactNode }, { p
   beginBackfill = () => {
     this.viewport?.getExposes().pauseFollowing();
     this.readingAnchor = this.captureAnchor();
+  };
+
+  /** Proto-UI slots can mount after the React parent. Observe their real
+   * materialization instead of racing a one-shot query against the adapter. */
+  revealMessage = (key: string, complete: () => void): (() => void) => {
+    const host = this.element.current;
+    if (!host) return () => undefined;
+    let frame = 0;
+    let cancelled = false;
+    const cleanup = () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      mutation.disconnect();
+      resize.disconnect();
+    };
+    const schedule = () => {
+      if (cancelled || frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (cancelled || !this.active) return;
+        const surface = this.surface();
+        const row = [...host.querySelectorAll<HTMLElement>('[data-message-key]')]
+          .find((element) => element.dataset.messageKey === key);
+        if (!this.viewport || !surface?.clientHeight || !row?.getClientRects().length) return;
+        this.viewport.getExposes().pauseFollowing();
+        const target = row.querySelector<HTMLElement>('.doc-option:not(:disabled)') ?? row;
+        if (target === row) row.tabIndex = -1;
+        const bounds = target.getBoundingClientRect();
+        const viewportBounds = surface.getBoundingClientRect();
+        surface.scrollTop += bounds.top - viewportBounds.top - Math.max(0, (surface.clientHeight - bounds.height) / 2);
+        target.focus({ preventScroll: true });
+        this.readingAnchor = this.captureAnchor();
+        this.lastScrollTop = surface.scrollTop;
+        cleanup();
+        complete();
+      });
+    };
+    const mutation = new MutationObserver(schedule);
+    mutation.observe(host, { childList: true, subtree: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(host);
+    schedule();
+    return cleanup;
   };
 
   private onSelectionChange = () => {

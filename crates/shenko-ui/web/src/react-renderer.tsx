@@ -19,7 +19,7 @@ import {
   ToggleGroupItem, ToggleGroupRoot, Toggle, TransportBadge, connectionAnnouncement, type Emit,
 } from './ui-kit';
 import { ConfigSurface, ContextPanel, MemorySurface, PlaygroundSurface, TasksSurface } from './surfaces';
-import { ImView } from './im';
+import { ImView, type ImRevealRequest } from './im';
 import { FilesView, liveFiles, type RecentFileHint } from './files-view';
 import { collectThreads, isAttentionTask, subjectParticipant, type DemoThreadData, type ThreadMessage } from './threads';
 import { lensSnapshot, subscribeLenses, syncWorkLenses, type LensContribution } from './slots';
@@ -154,6 +154,11 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
     try { localStorage.setItem('shenko.tab.v1', next); } catch { /* page-only preference */ }
   };
   const [threadId, setThreadId] = React.useState<string>(() => new URLSearchParams(location.search).get('thread') ?? 'direct');
+  const [imReveal, setImReveal] = React.useState<ImRevealRequest>();
+  const revealSequence = React.useRef(0);
+  const finishImReveal = React.useCallback((requestId: number) => {
+    setImReveal((request) => request?.requestId === requestId ? undefined : request);
+  }, []);
   const conversations = useConversations(projection.source === 'live', timeline.props.step as number | null);
   const threads = React.useMemo(
     () => collectThreads({ projection, tasks, conversations: demoData?.conversations ?? conversations.rows, demo: demoData }),
@@ -185,7 +190,8 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       const doc = entry.props.document as DegradedDocument | undefined;
       if (!doc || !Array.isArray(doc.options) || doc.options.length === 0) continue;
       const receipts = (entry.props.receipts ?? []) as ActionReceiptView[];
-      const settled = receipts.some((row) => ['committed', 'accepted', 'selected'].includes(row.stage));
+      const settled = receipts.some((row) => row.revision === doc.revision
+        && ['committed', 'accepted', 'selected'].includes(row.stage));
       if (!settled) {
         return {
           summary: doc.summary,
@@ -193,6 +199,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             openLens(undefined);
             setThreadId('direct');
             setTab('im');
+            setImReveal({ requestId: ++revealSequence.current, threadId: 'direct', messageKey: entry.node_id });
           },
         };
       }
@@ -363,7 +370,9 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               key={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
               threads={threads}
               selected={threadId}
-              onSelect={setThreadId}
+              onSelect={(id) => { setImReveal(undefined); setThreadId(id); }}
+              revealRequest={imReveal}
+              onRevealComplete={finishImReveal}
               composer={<Composer node={composer} emit={emit} variant="im" />}
               renderAttachment={(message: ThreadMessage) => message.node?.kind === 'semantic_document'
                 ? <SemanticDocumentView node={message.node} emit={emit} />
