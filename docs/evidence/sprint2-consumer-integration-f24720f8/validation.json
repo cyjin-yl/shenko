@@ -1,0 +1,57 @@
+{
+  "kind": "source-bound-consumer-integration",
+  "appBase": "c240169239bfb55a8ee47d3129c3fd820e1de747",
+  "appMergedMain": "ab0d3dfb3474a9bd9e0f459b46c48d53857cdb4b",
+  "upstream": "f24720f870cd76f86c81ee8343359486afd3f0de",
+  "publicPackages": 42,
+  "publicUniverse": 47,
+  "nodeTests": {
+    "passed": 59,
+    "failed": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "todo": 0
+  },
+  "inspectorJourneys": {
+    "passed": 4,
+    "failed": 0
+  },
+  "treeJourneys": {
+    "passed": 4,
+    "failed": 0,
+    "checks": 67
+  },
+  "sourceStable": true,
+  "assetStable": true,
+  "receipts": {
+    "normalBuild": {
+      "path": "raw/results/shenko-normal-consumer-f247-01/receipt.json",
+      "sha256": "7d9984dd0ae0f6281e75c531971fc736ae47ea37fea32f360aa9e988998fb340"
+    },
+    "inspector": {
+      "path": "raw/results/shenko-inspector-c240-ab0-f247-01/receipt.json",
+      "sha256": "4f54483fdf08e6445a6e72a0129eb6868b34a58344fc7c0fa2264722c1d2f50a"
+    },
+    "tree": {
+      "path": "raw/results/shenko-tree-c240-ab0-f247-01/report.json",
+      "sha256": "088a2137e364ec543c7384abd72f217a8a01985790c60980d3e8bf2862c01fb1"
+    }
+  },
+  "archive": {
+    "name": "consumer-evidence.tar.xz",
+    "bytes": 1985768,
+    "sha256": "92e480fad7e72ee15fb4508cf544cf6930f042eba5c4bf6349f04b1a285d5545",
+    "payloads": 187
+  },
+  "notClaimed": [
+    "full Resizable adjustment contract",
+    "full Tree controlled/dynamic/AT contract",
+    "physical touch or pen",
+    "real assistive technology",
+    "live backend/model",
+    "whole Rust application rebuild",
+    "independent GitHub approval",
+    "PR merge",
+    "release"
+  ]
+}

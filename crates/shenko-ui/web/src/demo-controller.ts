@@ -141,13 +141,15 @@ function demoState(): UiState {
     tasks: {
       available: true,
       items: [
-        { task_id: 'demo-task-7f3a', kind: 'model.child', role: 'delegation', state: 'running', goal: '合并两条启动时序观察，保留来源。', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
-        { task_id: '3f2a91c0-demo-child', kind: 'model.child', role: 'delegation', state: 'running', name: '整理员', goal: '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
+        { task_id: 'demo-subject-root', kind: 'subject.main', role: 'subject_root', state: 'running', name: 'Shenko', goal: '持续处理当前主体的任务。', created_at: new Date(Date.now() - 30 * 60_000).toISOString() },
+        { task_id: 'demo-task-7f3a', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'running', goal: '合并两条启动时序观察，保留来源。', created_at: new Date(Date.now() - 3 * 60_000).toISOString() },
+        { task_id: '3f2a91c0-demo-child', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'running', name: '整理员', goal: '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。', created_by_step_id: 'demo-step-44', created_at: new Date(Date.now() - 1 * 60_000).toISOString() },
+        { task_id: 'demo-tool-read', parent_task_id: '3f2a91c0-demo-child', kind: 'fs.read', role: 'tool', state: 'terminal', name: '读取观察记录', goal: '读取带有来源的两条观察。', created_at: new Date(Date.now() - 45_000).toISOString() },
         ...DEMO_TEAM.members.map((member) => ({
-          task_id: member.task_id, kind: 'model.child', role: 'delegation' as const, state: 'terminal', created_by_step_id: DEMO_TEAM.step, goal: member.goal,
+          task_id: member.task_id, parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation' as const, state: 'terminal', created_by_step_id: DEMO_TEAM.step, goal: member.goal,
           created_at: new Date(Date.now() - 5.5 * 60_000).toISOString(), name: member.name, team: DEMO_TEAM.team,
         })),
-        { task_id: 'demo-task-6c12', kind: 'model.child', role: 'delegation', state: 'terminal', goal: '验证配置读取发生在目录解析之后。', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+        { task_id: 'demo-task-6c12', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', goal: '验证配置读取发生在目录解析之后。', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
       ],
     },
     tasks_error: false,

@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
-  "migrated_from": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-  "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+  "commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
+  "migrated_from": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+  "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.2",
     "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
@@ -18,7 +18,9 @@
     "toggle-group",
     "input",
     "separator",
-    "toggle"
+    "toggle",
+    "resizable",
+    "tree"
   ],
   "compiler": {
     "status": "build_time_compiled",
@@ -28,7 +30,7 @@
     "entry": "packages/compiler/src/index.ts",
     "exports_source_only": true,
     "public_package_selection": false,
-    "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+    "upstream_visibility": "private source package; default export ./src/index.ts; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
     "prototypes": [
       "transport-badge",
       "message-bubble"

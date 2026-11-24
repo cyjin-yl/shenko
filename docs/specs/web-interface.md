@@ -140,6 +140,26 @@ loop：每个已提交轮次是线上的一个实心点，未提交的流式内�
 镜头由 `web/src/slots.ts` 的贡献注册表提供：外壳自己的页面与外部贡献走同一个
 `registerLens()`，卸载即移除，不存在“内置导航 + 二等扩展”。
 
+**可选桌面分栏。** 从 1100 CSS px 起，主视图与当前镜头由固定上游源码的公开
+`@proto.ui/prototypes-shadcn/resizable` Root、两个 Panel 和一个 Handle 组成。
+鼠标、键盘、接触所有权和取消仍由公开组件处理；应用只把布局与偏好转换成完整的
+`sizes` 和 `constraints`。镜头保留原 400–680 px 与初始 42vw 策略。
+主视图下限显式取 638 px：这是原 1100 px 桌面边界扣除 42vw 镜头后的阅读宽度。
+比例分母是实际两个 Panel 的总宽度，排除固定分隔条；因此 1100 px 和 1 px
+分隔条时，最大镜头为 461 px，主视图仍为 638 px。
+
+读者可通过分隔条的方向键、Shift 加速及 Home/End 调整，通过镜头标题栏折叠、
+重新展开或关闭。应用只在公开 `sizesCommit` 后保存非零展开宽度，
+浏览器拒绝存储时仍可在当前页调整。已经由应用接受的连续尺寸是当前权威值；
+取消停止旧接触并禁止终态提交，不增加回滚到拖动前尺寸的政策。当前公开合同
+未定义 Escape 取消分栏拖动，其实测行为单独记录。
+
+小于 1100 px 时沿用覆盖式镜头，主视图与输入节点保持原身份。关闭时返回实际
+打开入口；若桌面入口已随断点隐藏，返回当前可见的主视图标签。折叠、恢复时把
+焦点交还分隔条，分隔条跨入窄屏时交给镜头关闭按钮。构建 pin 与真实浏览器证据
+分别记录于 `web/upstream-pin.json` 和
+`docs/evidence/2026-11-23-inspector-resizable/`；上游候选来源不冒充 main。
+
 **默认信任（所有者决定，2026-11-12）。** 作品与插件的界面是受信任的扩展：作品页与
 外壳同源、不加 sandbox；`/playground/{id}` 只固定声明的类型（`nosniff`）并给出
 `x-artifact-revision`。
@@ -260,12 +280,19 @@ anatomy 以 family/role 声明结构与顺序，context 承载数据；插件界
 
 ## 6. Proto-UI pin
 
-`web/upstream-pin.json` 当前固定到 Proto-UI `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68`，
-它整合 main `39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
-并保留上一 pin `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
-这是 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 的候选依赖，
-尚未冒充已合入主线或完成最终浏览器验收；迁移与真实运行边界见
-[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)。
+`web/upstream-pin.json` 当前固定到 Sprint 2 整合候选
+`5cb80eb937f20982dd7dc8cbc93a90e91d665c31`，上一消费版本是
+`6a9b575fbe744ccb2f54d1e45336ccc195f401f1`。它仍是明确固定的开发候选，
+不称为已发布版本。新的源码、普通 producer、严格类型、既有测试、正常资源
+构建与浏览器结果分别绑定，见[本次消费记录](../evidence/sprint2-consumer-integration-5cb80eb9/README.md)；
+修改 pin 本身不提供这些检查的成功证据。
+
+此前 `ad39435aeb3589d3bc52de3cbd1f4cdd375cec68` 整合 main
+`39ca4f7729cde9a3ebb3abfd4fd987d9db57e4de` 与共享 follow-tail pause，
+并保留 `8fcde0e1e522762969e89c0343a78179edb8c89e` 的全部祖先改动。
+那次 [Proto-UI PR #1723](https://github.com/Proto-UI/Proto-UI/pull/1723) 候选
+的迁移与真实运行边界仍见[共享 follow-tail 验证记录](../evidence/proto-follow-tail-20261122.md)，
+不能把旧候选的回执重新标成当前版本的验收。
 
 上一 main 的 `web/upstream-pin.json` 从 `795b1b4958333cf904547e484acb4de9d4b3ee80`
 固定到其直接子提交 `8fcde0e1e522762969e89c0343a78179edb8c89e`，采用
@@ -280,10 +307,12 @@ Happy DOM 的挂载 mutation 投递。新夹具在原 RAF 接管期内等待公�
 pin 更新本身不代表生成资源已更新或完整新 Nightly 已通过；这两项分别需要真实
 producer、独立重建和新候选完整回执，原失败记录保持不变。
 三个公开入口使用 `0.3.0-alpha.2`。私有 compiler 和公开入口取自同一提交，
-使用摘要为 `e374ba03…` 的上游 `pnpm-lock.yaml`。界面采用的 shadcn
+使用摘要为 `6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8`
+的上游 `pnpm-lock.yaml`，与上一消费候选的锁字节相同。界面采用的 shadcn
 family：button、textarea、scroll-area、message-scroller、collapsible、drawer（主体详情）、
 toggle-group（追加/引导）、toggle（代码软换行）、input（命名、认领、配置）、
-separator（日期分隔）。tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
+separator（日期分隔）、resizable（Inspector）、tree（Tasks 与 Playground）。
+tooltip 未采用：其 trigger 自身可聚焦，包住按钮会产生
 双重 Tab 停靠。
 
 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
@@ -303,8 +332,8 @@ compiler 源码仍由独立的 `web/compiler.mjs` 消费，不进入浏览器图
 
 ### compiler：构建期编译 Shenko 自己的 Prototype
 
-该 pin 的 `@proto.ui/compiler` 是私有源码包：`exports` 只有
-`./src/index.ts`，没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
+该 pin 的 `@proto.ui/compiler` 是私有源码包：默认导出指向
+`./src/index.ts`，另有源码 `./browser` 入口；没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
 当包产物导入，也不能假装存在运行期编译器。现行路径是**构建期编译**
 （`web/compiler.mjs`）：
 
@@ -1174,3 +1203,44 @@ What the subject sees:
 - the name, type, size and digest of every attachment;
 - a text attachment's leading 24 KiB;
 - for an image, the fact that this inference path carries no image input.
+
+
+## Inspector 中的两个 Tree 域（2026-11-23）
+
+Tasks 和 Playground 的层级阅读使用同一个已钉版本的公开
+`@proto.ui/prototypes-shadcn/tree` Root、Item、Group，通过现有 React
+Adapter 工厂接入。每个页面有自己的 Root；父项、展开、逻辑焦点与
+Item/Group 可访问关系由公共 Tree 处理，应用不另写方向键、pointer
+或焦点状态机。
+
+任务层级只读取实际 `parent_task_id`。角色、类型、团队、创建步骤
+与名称继续作为记录事实，不能被用来推断父任务。点击或 Enter 激活任务
+时显示它的 ID、父 ID、角色、类型、创建时间与目标，不发送执行请求。
+Playground 根据实际 MIME 值组织产物分类；这只是应用的阅读分类，
+不声称后端文件系统具有相同目录。每条产物仍保留原始 ID、revision、
+生命周期及时间，`parent_revision` 绝不解释成父产物 ID。
+HTML 产物通过已有 WorkFrame 的 adopted-page 读取路径打开；没有采用页
+仍显示既有缺失状态，不为 Tree 造一个替代作品页。
+
+此应用使用受控空 `value`，不会提交选中值。`valueChange` 的公共提议
+被消费为应用激活：分支通过公开 `requestExpanded` 请求展开或折叠，
+任务查看详情，HTML 产物打开作品。受控 `expandedKeys` 仅接受
+`expandedChange` 提议；没有 lazy loading、虚拟化或执行图语义。
+初次收到完整列表时展开已有分支，后来新增的分支维持公共受控输入，
+不会悄悄推导新的展开政策。
+
+应用以每条记录的稳定身份组织 DOM，且每条接收到的记录只物化一次。
+重复或空身份、缺失父项、循环关系保留其原始关系输入，交由公共 Tree
+显示无效状态并阻止交互；遍历的 visited 集只防止 React 构造无限递归，
+不能把坏图改成有效图。两域的拥有者分别绑定
+`surface_id/source/subject_id`，主体变化会退休旧 Root、回调和物理项，
+而主流宿主及编辑器仍由现有布局拥有。
+
+此接线提供 Proto-UI #523 所缺的两个真实应用域。该次接线证据冻结在
+`6a9b575fbe744ccb2f54d1e45336ccc195f401f1`；它不是后续 main
+或其他候选的验收。后续 pin 与新证据单独列在上面的 Proto-UI pin 一节。
+上游 `C-TREE-HIERARCHY-0001` 的 draft 状态、
+#678 的非 lazy／非选择 proposal 与现行 API 对齐、全宿主及实际 AT
+等独立条件不由本增量宣布通过。具体源码、输入、失败与真实浏览器
+回执由本次 Tree 证据记录绑定；既有 #522 Inspector 记录保持自己的
+冻结源边界。

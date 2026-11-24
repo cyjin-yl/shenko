@@ -2,15 +2,15 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "ad39435aeb3589d3bc52de3cbd1f4cdd375cec68",
-    "previous_reviewed_commit": "8fcde0e1e522762969e89c0343a78179edb8c89e",
-    "lock_sha256": "e374ba03f76079fd191d63c2da1f62861b7e90bbeba64a0b310027fc2c15b7f8",
+    "commit": "f24720f870cd76f86c81ee8343359486afd3f0de",
+    "previous_reviewed_commit": "5cb80eb937f20982dd7dc8cbc93a90e91d665c31",
+    "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
     "source_checkout": "/__w/shenko/shenko/.ci/web/proto-ui",
     "build_receipt": {
       "script": "scripts/build/public-packages.mjs",
       "selected_package_count": 42,
       "receipt_path": "/__w/shenko/shenko/.ci/web/upstream-build.json",
-      "receipt_sha256": "5f51c119c80001710a5b2d9c9de05164746bae74cb976830d1ebeacc2bf091d6"
+      "receipt_sha256": "314e432001a15ef15315f03f8c6d8d8d69336bab5f2b8b827fd6d27beaf4c6c5"
     }
   },
   "packages": [
@@ -28,7 +28,9 @@
     "toggle-group",
     "input",
     "separator",
-    "toggle"
+    "toggle",
+    "resizable",
+    "tree"
   ],
   "realisation": {
     "compiled": [
@@ -85,12 +87,22 @@
         "family": "toggle",
         "mode": "adapter",
         "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "resizable",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "tree",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
       }
     ]
   },
   "adoption": {
     "runtime": "createReactAdapter({ ...React, createPortal })",
-    "why": "Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.",
+    "why": "The explicitly pinned Proto-UI source provides the React runtime adapter and public family exports consumed by this build; its commit is recorded above, independently of the main branch.",
     "style_profile": "rhea (explicit); no Shadow split profile",
     "source_assets": [
       "packages/adapters/react/dist/index.js",
@@ -104,6 +116,8 @@
       "packages/prototypes/shadcn/dist/input/index.js",
       "packages/prototypes/shadcn/dist/separator/index.js",
       "packages/prototypes/shadcn/dist/toggle/index.js",
+      "packages/prototypes/shadcn/dist/resizable/index.js",
+      "packages/prototypes/shadcn/dist/tree/index.js",
       "packages/cli/bin/proto-ui.js",
       "packages/compiler/package.json",
       "packages/compiler/src/index.ts"
@@ -119,15 +133,15 @@
     "runtime_imported": false,
     "profile": "react-dom-source-v1",
     "package": "packages/compiler",
-    "package_sha256": "393793c94cc5f71cef2d835edc1b4552412743bec00b76ea7f053e2d2cf20f2f",
+    "package_sha256": "1664972b337d48996e9a40d32095ba0b65677d3a5ea7f1c2374ef00b546ed37b",
     "entry": "packages/compiler/src/index.ts",
-    "entry_sha256": "0eef1147ef4daaeba697e8004d5f78b175092aa330a6c2e31f8679060f11d008",
-    "source_tree_sha256": "126fc4ae4f37a3d9f54043d0e8134edb61bc0adfea29b4a0ac1451355e86556a",
+    "entry_sha256": "70599eb52802956381ba1982632fd4a14303df1aeccd9b6260436b9668a6f071",
+    "source_tree_sha256": "ef91f423ef47952897a10fb0ce0b0413cc582ef14ed1ab27a0658a178e8e4237",
     "typescript": "5.9.3",
     "bundle": {
       "path": "generated/compiler/proto-ui-compiler.mjs",
-      "sha256": "c47e9faa6e7f9bd28ac60f89f01e25318b3bb9cd68e8d997044b5ba563c90e80",
-      "bytes": 3005770,
+      "sha256": "f5e3c1841da08b60d0ad796071a4de97b0cf732e783afb5639c781b6deb08ef3",
+      "bytes": 4062597,
       "format": "esm",
       "entry": "packages/compiler/src/index.ts",
       "external": [
@@ -157,14 +171,14 @@
         "component_name": "CompiledTransportBadge",
         "output_directory": "generated/prototypes/transport-badge",
         "generated_source": "generated/prototypes/transport-badge/Component.tsx",
-        "generated_sha256": "b284643c66be259be713f1263928337c7f25533ecdd2b02db16845030d866c9c",
+        "generated_sha256": "f356aaf05cd15943acaa553b1c68209541b2c066deac0f63dfc080235fe5f59f",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/transport-badge/provenance.json",
-        "provenance_sha256": "927ffadf7e8c5513d79658f79e14585daa883e005a8e6176c3d29e260bc339c3",
-        "compiler_ir_version": 7,
+        "provenance_sha256": "05eddbdd2902f706f7979bb41de48c488ad91f592bfea8cea390343ee4caaba4",
+        "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "d96e8c6034df472d348a6be97a150505405bd933c075230e31bf5b8d9b527009"
       },
@@ -176,14 +190,14 @@
         "component_name": "CompiledMessageBubble",
         "output_directory": "generated/prototypes/message-bubble",
         "generated_source": "generated/prototypes/message-bubble/Component.tsx",
-        "generated_sha256": "0fcd3e607105f60f57cee1673b6178bfc96bb013f1741ecdca79118f48e175e3",
+        "generated_sha256": "aabfca3a098431a061c15c2032aa9bd85c3744099e2449afa1db927995b85a24",
         "generated_imports": [
           " + phase);\n    const previous = phase;\n    phase = ",
           "react"
         ],
         "provenance": "generated/prototypes/message-bubble/provenance.json",
-        "provenance_sha256": "5bfcaf41133f1af311a4c2b49baad9c18383c401803a236a21a6a45ba677cc39",
-        "compiler_ir_version": 7,
+        "provenance_sha256": "4b4aec482fc2c6924e767d1149ae2d62163b7a900d80a6fdff7a060ef47ff85f",
+        "compiler_ir_version": 8,
         "compiler_backend": "react-dom-source-v1",
         "compiler_source_sha256": "276686d95d44f9191bef18c29327a20e2b6aa9ec65ac3c61ec7a2c9941f40180"
       }
@@ -197,35 +211,35 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/__w/shenko/shenko/.ci/web/source/web",
-  "built_at": "2026-11-23T20:33:22.110Z",
+  "built_at": "2026-11-24T00:38:08.608Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1164508,
-      "sha256": "a4b335492afb35f848dc15fac624bf21c1cbf07f1f56f0477a4b011a2c59d5eb"
+      "bytes": 1241843,
+      "sha256": "e27911534dd4ee63fdc058e747bbe38ed297a9e78d841cb666e187e5e599be93"
     },
-    "chunks/chunk-O3OVBR66.js": {
-      "bytes": 65273,
-      "sha256": "b79d2f7224934764cfc53bf54cda1b6d9252c5ba3d6c30acd341a84f0bad2873"
+    "chunks/chunk-CCOEKU5G.js": {
+      "bytes": 66321,
+      "sha256": "20969647bb0238d85d2339b733ad85179d3d63c60bc36170aa3fb06f35b1f28c"
     },
-    "chunks/demo-controller-IAYPJLAD.js": {
-      "bytes": 15700,
-      "sha256": "ba878393767fa080bdaf7a9cd520813e6299f65b71b541027280d8fe41fb6901"
+    "chunks/demo-controller-UO6WU6NU.js": {
+      "bytes": 16356,
+      "sha256": "c5d4cbbf0dac2b356c276476897a534a5023124b1b1dfa5b5b21ea0a35d40e72"
     },
     "app.css": {
-      "bytes": 63120,
-      "sha256": "a5d0f99282ffd00aa31f09be2700a2189bfc97b09b7bd2060e0d4096f1d5544e"
+      "bytes": 65399,
+      "sha256": "0f156db7ec130ed6671ddb9e15f9daa969fe7d11d9cf208ea1466ae74758759f"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 166521,
-      "sha256": "bf25d0730b5e71c92cf1f2cf8170308d7318134dba42ad26d27f6feb45538f1a"
+      "bytes": 171765,
+      "sha256": "0c9adae67ef0e497b371eb8f8233371c99921a3eebdf1b2ba55a68ab55a7ead9"
     },
     "shadcn-theme.css": {
       "bytes": 6473,
@@ -236,8 +250,8 @@
       "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
     },
     "licenses/SHADCN-NOTICES.md": {
-      "bytes": 8656,
-      "sha256": "4edb0cb2e55245016029372facc725ca3fda68f6b71c09158e9d82e75a7fddb5"
+      "bytes": 8853,
+      "sha256": "fd8f2d99a6cc9642d902d63e623cc25f27e90a53bbd494ee77b91b982f2ecfcd"
     },
     "licenses/REACT-LICENSE": {
       "bytes": 1088,

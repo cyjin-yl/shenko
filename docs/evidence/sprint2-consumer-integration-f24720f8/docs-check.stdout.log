@@ -1,0 +1,19 @@
+{
+  "kind": "documentation_integrity_only",
+  "product_tested": false,
+  "migrated_contract_chunks": 365,
+  "requirements": 165,
+  "behaviors": 63,
+  "source_records": 59,
+  "acceptance_definitions": 236,
+  "archived_sources": 46,
+  "archived_entrypoints": 32,
+  "development_skills": 9,
+  "domain_specs_registered": 33,
+  "domain_specs_present": 33,
+  "domain_specs_pending": [],
+  "source_trace_symbols": 1716,
+  "source_citation_comments": 4,
+  "historical_trace_sources": 1,
+  "errors": []
+}
