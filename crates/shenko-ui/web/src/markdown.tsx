@@ -1,6 +1,7 @@
 import { text as t } from './messages';
 import * as React from 'react';
 import { Icon } from './icons';
+import { ScrollBox } from './ui-kit';
 
 /**
  * The committed-text renderer.
@@ -174,7 +175,9 @@ export function CodeBlock({ code, language, open = false }: { code: string; lang
           <span>{copied ? t('common.copied') : t('common.copy')}</span>
         </button>
       </figcaption>
-      <pre tabIndex={0}><code>{code}</code></pre>
+      <ScrollBox orientation="horizontal" className="code-scroll" viewportClassName="code-viewport">
+        <pre tabIndex={0}><code>{code}</code></pre>
+      </ScrollBox>
     </figure>
   );
 }

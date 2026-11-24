@@ -2,7 +2,7 @@ import { text as t } from './messages';
 import * as React from 'react';
 import { Icon } from './icons';
 import { formatBytes } from './composer';
-import { formatTime } from './ui-kit';
+import { Button, ScrollBox, formatTime } from './ui-kit';
 
 /**
  * The Finder-like file view: a sidebar of every file system the subject can
@@ -52,6 +52,12 @@ export interface FileSource {
   list(root: string, path: string): Promise<FileListAnswer>;
 }
 
+export interface RecentFileHint {
+  name: string;
+  bytes: number;
+  mime: string;
+}
+
 export const liveFiles: FileSource = {
   async roots() {
     const response = await fetch('/api/files/roots', { cache: 'no-store' });
@@ -96,6 +102,31 @@ function protocolLabel(root: FileRoot): string {
   }
 }
 
+function shortProtocol(root: FileRoot): string {
+  switch (root.protocol) {
+    case 'wasm_home': return 'WASM';
+    case 'local': return '';
+    case 'sshfs': return 'SSHFS';
+    case 'nfs': return 'NFS';
+    case 'smb': return 'SMB';
+    case 'shared_folder': return '';
+    case 'ssh': return 'SSH';
+    default: return root.protocol.toUpperCase();
+  }
+}
+
+function shortMode(mode: string | null): string {
+  if (mode === 'read_only') return t('files.badge.ro');
+  if (mode === 'copy_on_write') return t('files.badge.cow');
+  if (mode === 'read_write') return t('files.badge.rw');
+  return '';
+}
+
+function rootBadge(root: FileRoot): string {
+  if (!root.browsable) return [shortProtocol(root), t('files.badge.offline')].filter(Boolean).join(' · ');
+  return [shortProtocol(root), shortMode(root.mode)].filter(Boolean).join(' · ');
+}
+
 function modeLabel(mode: string | null): string {
   if (mode === 'read_only') return t('files.mode.ro');
   if (mode === 'copy_on_write') return t('files.mode.cow');
@@ -118,7 +149,17 @@ function when(value: string | null): string {
   return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export function FilesView({ source }: { source: FileSource }) {
+interface VisitedPlace {
+  key: string;
+  rootId: string;
+  rootLabel: string;
+  path: Array<{ id: string; name: string }>;
+}
+
+export function FilesView({ source, recentHints = [] }: {
+  source: FileSource;
+  recentHints?: readonly RecentFileHint[];
+}) {
   const [roots, setRoots] = React.useState<FileRoot[] | null>(null);
   const [rootsAvailable, setRootsAvailable] = React.useState(false);
   const [rootsError, setRootsError] = React.useState<string | null>(null);
@@ -129,6 +170,34 @@ export function FilesView({ source }: { source: FileSource }) {
   const [error, setError] = React.useState<string | null>(null);
   const [truncated, setTruncated] = React.useState(false);
   const [selected, setSelected] = React.useState<string | null>(null);
+  const [filter, setFilter] = React.useState('');
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<string, boolean>>({});
+  const [visited, setVisited] = React.useState<VisitedPlace[]>([]);
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const tableRef = React.useRef<HTMLDivElement>(null);
+  const typeAheadRef = React.useRef<{ buffer: string; timer: number | null }>({ buffer: '', timer: null });
+  const isApplePlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent);
+
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'f') {
+        const search = searchRef.current;
+        // The mobile layout hides the sidebar. Leave browser Find available
+        // unless this shortcut can actually focus a visible search field.
+        if (event.defaultPrevented || !search || search.getClientRects().length === 0) return;
+        search.focus();
+        if (document.activeElement !== search) return;
+        event.preventDefault();
+        search.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  React.useEffect(() => () => {
+    if (typeAheadRef.current.timer !== null) window.clearTimeout(typeAheadRef.current.timer);
+  }, []);
 
   React.useEffect(() => {
     let live = true;
@@ -151,6 +220,10 @@ export function FilesView({ source }: { source: FileSource }) {
   const root = roots?.find((item) => item.id === rootId) ?? null;
   const pathId = path.map((segment) => segment.id).join('/');
   React.useEffect(() => {
+    if (typeAheadRef.current.timer !== null) window.clearTimeout(typeAheadRef.current.timer);
+    typeAheadRef.current = { buffer: '', timer: null };
+  }, [rootId, pathId]);
+  React.useEffect(() => {
     if (!root || !root.browsable || !rootsAvailable) { setEntries(null); setTruncated(false); setError(null); return; }
     let live = true;
     setEntries(null);
@@ -166,100 +239,388 @@ export function FilesView({ source }: { source: FileSource }) {
     return () => { live = false; };
   }, [source, root?.id, root?.browsable, rootsAvailable, pathId]);
 
-  const open = (id: string) => { setRootId(id); setPath([]); setSelected(null); };
-  const groups: Array<[string, FileRoot[]]> = [
-    [t('files.group.home'), roots?.filter((item) => item.kind === 'home') ?? []],
-    [t('files.group.mounts'), roots?.filter((item) => item.kind === 'mount') ?? []],
-    [t('files.group.nodes'), roots?.filter((item) => item.kind === 'node') ?? []],
+  const open = (id: string, nextPath: Array<{ id: string; name: string }> = []) => {
+    setRootId(id);
+    setPath(nextPath);
+    setSelected(null);
+  };
+  const enterFolder = (entry: FileEntry) => {
+    if (entry.kind !== 'dir' || !root) return;
+    const nextPath = [...path, { id: entry.id, name: entry.name }];
+    // Keep keyboard ownership on the stable grid while its rows are replaced,
+    // including an empty directory or a failed listing.
+    tableRef.current?.focus();
+    setPath(nextPath);
+    setSelected(null);
+    const key = `${root.id}:${nextPath.map((s) => s.id).join('/')}`;
+    setVisited((previous) => [
+      { key, rootId: root.id, rootLabel: root.label || root.guest_path, path: nextPath },
+      ...previous.filter((item) => item.key !== key),
+    ].slice(0, 4));
+  };
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((previous) => ({ ...previous, [key]: !previous[key] }));
+  };
+
+  const query = filter.trim().toLowerCase();
+  const matchesRoot = (item: FileRoot) => !query
+    || (item.label || '').toLowerCase().includes(query)
+    || item.guest_path.toLowerCase().includes(query)
+    || item.protocol.toLowerCase().includes(query)
+    || rootBadge(item).toLowerCase().includes(query);
+
+  const allGroups: Array<{ key: 'home' | 'mount' | 'node'; label: string; items: FileRoot[] }> = [
+    { key: 'home', label: t('files.group.home'), items: roots?.filter((item) => item.kind === 'home') ?? [] },
+    { key: 'mount', label: t('files.group.mounts'), items: roots?.filter((item) => item.kind === 'mount') ?? [] },
+    { key: 'node', label: t('files.group.nodes'), items: roots?.filter((item) => item.kind === 'node') ?? [] },
   ];
+  const visibleRoots = (roots ?? []).filter(matchesRoot);
+  const visibleEntries = entries === null ? null
+    : !query ? entries : entries.filter((entry) => entry.name.toLowerCase().includes(query) || kindLabel(entry).toLowerCase().includes(query));
+  const selectedEntry = visibleEntries?.find((entry) => entry.id === selected) ?? null;
+  const visibleVisited = visited.filter((place) => !query
+    || place.path.some((seg) => seg.name.toLowerCase().includes(query))
+    || place.rootLabel.toLowerCase().includes(query));
+  const visibleHints = recentHints.filter((hint) => !query || hint.name.toLowerCase().includes(query));
+  const hasRecent = visibleVisited.length > 0 || visibleHints.length > 0;
+  const homeRoot = roots?.find((item) => item.kind === 'home' && item.browsable) ?? null;
+  const onTableKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const list = visibleEntries ?? [];
+    const row = (event.target as HTMLElement).closest<HTMLElement>('[data-row-id]');
+    const index = list.findIndex((entry) => entry.id === row?.dataset.rowId);
+    const focusRow = (target: FileEntry | undefined) => {
+      if (!target) return;
+      setSelected(target.id);
+      const rows = tableRef.current?.querySelectorAll<HTMLElement>('[data-row-id]');
+      const match = rows ? [...rows].find((element) => element.dataset.rowId === target.id) : undefined;
+      match?.focus();
+    };
+    if (event.key === 'Enter' && index >= 0) {
+      event.preventDefault();
+      enterFolder(list[index]);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setSelected(null);
+    } else if (event.key === 'Backspace' || (event.key === 'ArrowUp' && (event.metaKey || event.altKey))) {
+      event.preventDefault();
+      if (path.length > 0) {
+        tableRef.current?.focus();
+        setPath(path.slice(0, -1));
+        setSelected(null);
+      }
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      focusRow(list[Math.min(list.length - 1, index + 1)]);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      focusRow(list[index < 0 ? list.length - 1 : Math.max(0, index - 1)]);
+    } else if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      // Native Finder-style type-ahead in lists.
+      const ta = typeAheadRef.current;
+      if (ta.timer !== null) window.clearTimeout(ta.timer);
+      ta.buffer = (ta.buffer + event.key.toLowerCase()).slice(0, 24);
+      ta.timer = window.setTimeout(() => { ta.buffer = ''; ta.timer = null; }, 700);
+      const found = list.find((entry) => entry.name.toLowerCase().startsWith(ta.buffer));
+      if (found) {
+        event.preventDefault();
+        focusRow(found);
+      }
+    }
+  };
 
   return (
     <div className="files">
-      <nav className="files-side" aria-label={t('files.locations')}>
-        {groups.map(([label, items]) => (
-          <section key={label} className="files-group">
-            <h3 className="files-group-title">{label}</h3>
-            {items.length === 0 && <p className="files-group-empty">
-              {roots === null ? t('common.loading') : !rootsAvailable ? t('files.unavailable')
-                : label === t('files.group.nodes') && !nodesKnown ? t('files.nodesUnknown') : t('files.none')}
-            </p>}
-            {items.map((item) => (
+      <aside className="files-side" aria-label={t('files.locations')}>
+        <div className="files-search-wrap">
+          <Icon name="search" size={13} />
+          <input
+            ref={searchRef}
+            type="search"
+            className="files-search"
+            value={filter}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            onChange={(event) => setFilter(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                if (filter) setFilter('');
+                else searchRef.current?.blur();
+              }
+            }}
+            placeholder={t('files.searchPlaceholder')}
+            aria-label={t('files.searchPlaceholder')}
+          />
+          {filter ? (
+            <button
+              type="button"
+              className="files-search-clear"
+              onClick={() => setFilter('')}
+              aria-label={t('files.searchClear')}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          ) : (
+            <kbd className="files-search-kbd" aria-hidden="true">{isApplePlatform ? '⌘F' : 'Ctrl+F'}</kbd>
+          )}
+        </div>
+        <ScrollBox className="files-side-scroll" viewportClassName="files-side-viewport">
+          <nav className="files-side-nav" aria-label={t('files.locations')}>
+            {hasRecent && (
+              <section className="files-group">
+                <button
+                  type="button"
+                  className="files-group-toggle"
+                  aria-expanded={!collapsedGroups.recent}
+                  onClick={() => toggleGroup('recent')}
+                >
+                  <Icon name="chevron" size={11} />
+                  <span className="files-group-title">{t('files.recent')}</span>
+                  <span className="files-group-count">{visibleVisited.length + visibleHints.length}</span>
+                </button>
+                {!collapsedGroups.recent && (
+                  <div className="files-group-list">
+                    {visibleVisited.map((place) => {
+                      const leaf = place.path[place.path.length - 1]?.name ?? place.rootLabel;
+                      const active = rootId === place.rootId && pathId === place.path.map((s) => s.id).join('/');
+                      return (
+                        <button
+                          key={place.key}
+                          type="button"
+                          className="files-root is-recent"
+                          data-active={active ? '' : undefined}
+                          onClick={() => open(place.rootId, place.path)}
+                          title={`${place.rootLabel}/${place.path.map((s) => s.name).join('/')}`}
+                        >
+                          <Icon name="folder" size={15} />
+                          <span className="files-root-label">{leaf}</span>
+                          <span className="files-root-badge">{place.rootLabel}</span>
+                        </button>
+                      );
+                    })}
+                    {visibleHints.map((hint, index) => (
+                      <button
+                        key={`${hint.name}-${index}`}
+                        type="button"
+                        className="files-root is-recent"
+                        onClick={() => {
+                          if (homeRoot) open(homeRoot.id);
+                          setFilter(hint.name);
+                        }}
+                        title={`${hint.name} · ${formatBytes(hint.bytes)}`}
+                      >
+                        <Icon name="file" size={15} />
+                        <span className="files-root-label">{hint.name}</span>
+                        <span className="files-root-badge">{formatBytes(hint.bytes)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+            {allGroups.map(({ key, label, items }) => {
+              const filteredItems = items.filter(matchesRoot);
+              const showEmptyNote = items.length === 0 && (
+                roots === null || !rootsAvailable || (key === 'node' && !nodesKnown)
+              );
+              if (query && filteredItems.length === 0) return null;
+              if (!showEmptyNote && items.length === 0) return null;
+              const isCollapsed = collapsedGroups[key] === true;
+              return (
+                <section key={key} className="files-group">
+                  <button
+                    type="button"
+                    className="files-group-toggle"
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleGroup(key)}
+                  >
+                    <Icon name="chevron" size={11} />
+                    <span className="files-group-title">{label}</span>
+                    {items.length > 0 && <span className="files-group-count">{filteredItems.length}</span>}
+                  </button>
+                  {!isCollapsed && (
+                    <div className="files-group-list">
+                      {showEmptyNote && (
+                        <p className="files-group-empty">
+                          {roots === null ? t('common.loading') : !rootsAvailable ? t('files.unavailable') : t('files.nodesUnknown')}
+                        </p>
+                      )}
+                      {filteredItems.map((item) => {
+                        const badge = rootBadge(item);
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            className="files-root"
+                            data-active={item.id === rootId ? '' : undefined}
+                            data-protocol={item.protocol}
+                            data-browsable={item.browsable ? 'true' : 'false'}
+                            onClick={() => open(item.id)}
+                            title={[item.label || item.guest_path, protocolLabel(item), modeLabel(item.mode), item.guest_path, item.note].filter(Boolean).join(' · ')}
+                          >
+                            <Icon name={rootIcon(item)} size={15} />
+                            <span className="files-root-label">{item.label || item.guest_path}</span>
+                            {!item.browsable && <span className="files-status-dot is-offline" aria-hidden="true" />}
+                            {badge && (
+                              <span
+                                className="files-root-badge"
+                                data-mode={item.mode ?? (item.browsable ? 'default' : 'offline')}
+                              >
+                                {badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </nav>
+        </ScrollBox>
+      </aside>
+
+      <div className="files-mobile-bar" aria-label={t('files.locations')}>
+        <ScrollBox orientation="horizontal" className="files-mobile-scroll" viewportClassName="files-mobile-viewport">
+          <div className="files-mobile-pills">
+            {visibleRoots.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className="files-root"
+                className="files-mobile-pill"
                 data-active={item.id === rootId ? '' : undefined}
-                data-protocol={item.protocol}
+                data-browsable={item.browsable ? 'true' : 'false'}
                 onClick={() => open(item.id)}
-                title={item.note ?? item.guest_path}
               >
-                <Icon name={rootIcon(item)} size={17} />
-                <span className="files-root-label">{item.label || item.guest_path}</span>
+                {!item.browsable && <span className="files-status-dot is-offline" aria-hidden="true" />}
+                <Icon name={rootIcon(item)} size={14} />
+                <span>{item.label || item.guest_path}</span>
+                {!item.browsable
+                  ? <span className="files-pill-mode is-offline">{t('files.badge.offline')}</span>
+                  : item.mode === 'read_only' || item.mode === 'copy_on_write'
+                    ? <span className="files-pill-mode">{shortMode(item.mode)}</span>
+                    : null}
               </button>
             ))}
-          </section>
-        ))}
-      </nav>
+          </div>
+        </ScrollBox>
+      </div>
+
       <section className="files-main" aria-label={root?.label ?? t('files.title')}>
         <header className="files-bar">
-          <nav className="files-path" aria-label={t('files.path')}>
-            <button type="button" className="files-crumb" onClick={() => setPath([])} disabled={!root}>
-              {root ? <Icon name={rootIcon(root)} size={15} /> : null}{root?.label ?? t('files.title')}
-            </button>
-            {path.map((segment, index) => (
-              <React.Fragment key={path.slice(0, index + 1).map((part) => part.id).join('/')}>
-                <Icon name="chevron" size={12} />
-                <button type="button" className="files-crumb" onClick={() => setPath(path.slice(0, index + 1))}>{segment.name}</button>
-              </React.Fragment>
-            ))}
-          </nav>
+          <ScrollBox orientation="horizontal" className="files-path-scroll" viewportClassName="files-path-viewport">
+            <nav className="files-path" aria-label={t('files.path')}>
+              <button type="button" className="files-crumb" onClick={() => { setPath([]); setSelected(null); }} disabled={!root}>
+                {root ? <Icon name={rootIcon(root)} size={14} /> : null}
+                <span>{root?.label ?? t('files.title')}</span>
+              </button>
+              {path.map((segment, index) => (
+                <React.Fragment key={path.slice(0, index + 1).map((part) => part.id).join('/')}>
+                  <Icon name="chevron" size={11} />
+                  <button
+                    type="button"
+                    className="files-crumb"
+                    onClick={() => { setPath(path.slice(0, index + 1)); setSelected(null); }}
+                  >
+                    {segment.name}
+                  </button>
+                </React.Fragment>
+              ))}
+            </nav>
+          </ScrollBox>
           {root && (
             <span className="files-facts">
-              {[protocolLabel(root), modeLabel(root.mode), root.guest_path].filter(Boolean).join(' · ')}
+              <span>{[protocolLabel(root), modeLabel(root.mode)].filter(Boolean).join(' · ')}</span>
+              <code className="files-fact-path">{root.guest_path}</code>
             </span>
           )}
         </header>
-        <div>{root?.note && <p className="files-note">{root.note}</p>}</div>
-        <div>
+        <div className="files-banners">
+          {root?.note && <p className="files-note">{root.note}</p>}
           {rootsError && <p className="files-note is-error">{rootsError}</p>}
           {error && <p className="files-note is-error">{error}</p>}
           {truncated && <p className="files-note" role="status">{t('files.truncated')}</p>}
           {rootsAvailable && !rootsError && roots?.length === 0 && <p className="files-empty">{t('files.noRoots')}</p>}
         </div>
         {root?.browsable && rootsAvailable && (
-          <div className="files-table" role="grid" aria-label={t('files.contents')}>
-            <div className="files-row files-head" role="row">
-              <span role="columnheader">{t('files.col.name')}</span>
-              <span role="columnheader">{t('files.col.modified')}</span>
-              <span role="columnheader" className="is-num">{t('files.col.size')}</span>
-              <span role="columnheader">{t('files.col.kind')}</span>
-            </div>
-            {entries === null && !error && <p className="files-empty">{t('common.loading')}</p>}
-            {entries?.length === 0 && !error && !truncated && <p className="files-empty">{t('files.emptyFolder')}</p>}
-            {entries?.map((entry) => (
+          <>
+            <ScrollBox className="files-table-scroll" viewportClassName="files-table-viewport">
               <div
-                key={entry.id}
-                role="row"
-                tabIndex={0}
-                className="files-row"
-                data-kind={entry.kind}
-                data-selected={selected === entry.id ? '' : undefined}
-                onClick={() => setSelected(entry.id)}
-                onDoubleClick={() => { if (entry.kind === 'dir') { setPath([...path, { id: entry.id, name: entry.name }]); setSelected(null); } }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && entry.kind === 'dir') { setPath([...path, { id: entry.id, name: entry.name }]); setSelected(null); }
-                }}
+                ref={tableRef}
+                className="files-table"
+                role="grid"
+                tabIndex={visibleEntries?.length ? -1 : 0}
+                aria-label={t('files.contents')}
+                onKeyDown={onTableKeyDown}
               >
-                <span role="gridcell" className="files-name">
-                  <span className="files-icon"><Icon name={entry.kind === 'dir' ? 'folder' : 'file'} size={16} /></span>
-                  {entry.name}
-                </span>
-                <span role="gridcell" className="files-dim">{when(entry.modified)}</span>
-                <span role="gridcell" className="files-dim is-num">{entry.kind === 'file' ? formatBytes(entry.bytes) : '—'}</span>
-                <span role="gridcell" className="files-dim">{kindLabel(entry)}</span>
+                <div className="files-row files-head" role="row">
+                  <span role="columnheader">{t('files.col.name')}</span>
+                  <span role="columnheader">{t('files.col.modified')}</span>
+                  <span role="columnheader" className="is-num">{t('files.col.size')}</span>
+                  <span role="columnheader">{t('files.col.kind')}</span>
+                </div>
+                {entries === null && !error && <p className="files-empty">{t('common.loading')}</p>}
+                {entries?.length === 0 && !error && !truncated && <p className="files-empty">{t('files.emptyFolder')}</p>}
+                {entries && entries.length > 0 && visibleEntries?.length === 0 && (
+                  <p className="files-empty">{t('files.noMatches')}</p>
+                )}
+                {visibleEntries?.map((entry, index) => (
+                  <div
+                    key={entry.id}
+                    role="row"
+                    tabIndex={selectedEntry ? (selectedEntry.id === entry.id ? 0 : -1) : (index === 0 ? 0 : -1)}
+                    aria-selected={selected === entry.id}
+                    data-row-id={entry.id}
+                    className="files-row"
+                    data-kind={entry.kind}
+                    data-selected={selected === entry.id ? '' : undefined}
+                    onClick={() => setSelected(entry.id)}
+                    onDoubleClick={() => enterFolder(entry)}
+                  >
+                    <span role="gridcell" className="files-name" aria-label={entry.name}>
+                      <span className="files-icon" aria-hidden="true">
+                        <Icon name={entry.kind === 'dir' ? 'folder' : 'file'} size={15} />
+                      </span>
+                      <span className="files-name-text">{entry.name}</span>
+                    </span>
+                    <span role="gridcell" className="files-dim">{when(entry.modified)}</span>
+                    <span role="gridcell" className="files-dim is-num">{entry.kind === 'file' ? formatBytes(entry.bytes) : '—'}</span>
+                    <span role="gridcell" className="files-dim">{kindLabel(entry)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </ScrollBox>
+            <footer className="files-statusbar">
+              <span className="files-status-left">
+                {entries !== null && (
+                  <span className="files-status-count">
+                    {query
+                      ? t('files.filteredCount', { shown: visibleEntries?.length ?? 0, total: entries.length })
+                      : t('files.itemsCount', { count: entries.length })}
+                  </span>
+                )}
+                {selectedEntry && (
+                  <span className="files-status-selected">
+                    <strong>{selectedEntry.name}</strong>
+                    <span>{selectedEntry.kind === 'file' ? formatBytes(selectedEntry.bytes) : kindLabel(selectedEntry)}</span>
+                    {selectedEntry.kind === 'dir' && (
+                      <Button variant="ghost" size="sm" className="files-open-dir" onClick={() => enterFolder(selectedEntry)}>
+                        {t('files.openFolder')}
+                      </Button>
+                    )}
+                  </span>
+                )}
+              </span>
+              <span className="files-status-right">
+                <Icon name="lock" size={12} />
+                <span>{t('files.statusReadonly')}</span>
+              </span>
+            </footer>
+          </>
         )}
       </section>
     </div>

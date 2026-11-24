@@ -1,12 +1,12 @@
 {
   "repository": "https://github.com/Proto-UI/Proto-UI.git",
-  "commit": "b939afe35d30a1a436766d80beea7093a46e4fb2",
-  "migrated_from": "f24720f870cd76f86c81ee8343359486afd3f0de",
-  "lock_sha256": "6e21c4b8444ca5e4a2e427287a76a346137b65d76403579942269bfea1fc7fe8",
+  "commit": "6ca8f262a074ed19cb24b35d5cc199b5b0e23e08",
+  "migrated_from": "b939afe35d30a1a436766d80beea7093a46e4fb2",
+  "lock_sha256": "eae18430bd967c94def36809b6d3305fa156a96548b08215a18dfe8a43923c07",
   "packages": [
-    "@proto.ui/adapter-react@0.3.0-alpha.2",
-    "@proto.ui/prototypes-shadcn@0.3.0-alpha.2",
-    "@proto.ui/cli@0.3.0-alpha.2"
+    "@proto.ui/adapter-react@0.3.0",
+    "@proto.ui/prototypes-shadcn@0.3.0",
+    "@proto.ui/cli@0.3.0"
   ],
   "adopted_families": [
     "button",
@@ -20,7 +20,11 @@
     "separator",
     "toggle",
     "resizable",
-    "tree"
+    "tree",
+    "card",
+    "tabs",
+    "context-menu",
+    "dropdown"
   ],
   "compiler": {
     "status": "build_time_compiled",

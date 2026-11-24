@@ -11,7 +11,13 @@ import { pinnedWorks, setWorkPinned } from './slots';
  * which opens no work page. Its revision keys the frame, so a new revision is
  * a fresh page.
  */
-export function WorkFrame({ artifactId, title, revision, activeManifestDigest }: { artifactId: string; title: string; revision?: number; activeManifestDigest?: string }) {
+export function WorkFrame({ artifactId, title, revision, activeManifestDigest, demoHtml }: {
+  artifactId: string;
+  title: string;
+  revision?: number;
+  activeManifestDigest?: string;
+  demoHtml?: string;
+}) {
   const pinned = pinnedWorks().includes(artifactId);
   const [, rerender] = React.useReducer((value: number) => value + 1, 0);
   // A lens shows the adopted page; the authored head is a draft until a
@@ -20,7 +26,7 @@ export function WorkFrame({ artifactId, title, revision, activeManifestDigest }:
   const [error, setError] = React.useState<string>();
   const [draft, setDraft] = React.useState(false);
   React.useEffect(() => {
-    if (SAFE_MODE) return;
+    if (SAFE_MODE || demoHtml) return;
     let live = true;
     fetch(`/playground/${encodeURIComponent(artifactId)}/adopted`, { method: 'HEAD', cache: 'no-store' })
       .then((response) => {
@@ -34,9 +40,22 @@ export function WorkFrame({ artifactId, title, revision, activeManifestDigest }:
       })
       .catch(() => { if (live) setError(t('work.adoptionUnavailable')); });
     return () => { live = false; };
-  }, [artifactId, revision, activeManifestDigest]);
+  }, [artifactId, revision, activeManifestDigest, demoHtml]);
   if (SAFE_MODE) {
     return <div className="work-frame"><p className="muted safe-note">{t('work.safeMode')}</p></div>;
+  }
+  if (demoHtml) {
+    return (
+      <div className="work-frame">
+        <div className="work-frame-bar">
+          <span className="muted">{t('work.adoptedRevision', { revision: revision ?? '—' })}</span>
+          <Button variant="ghost" size="sm" onClick={() => { setWorkPinned(artifactId, !pinned); rerender(); }}>
+            {pinned ? t('work.unpin') : t('work.pin')}
+          </Button>
+        </div>
+        <iframe key={`demo:${artifactId}@${revision ?? 0}`} className="work-iframe" sandbox="" srcDoc={demoHtml} title={title} />
+      </div>
+    );
   }
   const src = draft ? `/playground/${artifactId}` : `/playground/${artifactId}/adopted`;
   return (

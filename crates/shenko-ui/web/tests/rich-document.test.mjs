@@ -25,7 +25,7 @@ mkdirSync(cacheRoot, { recursive: true });
 const bundlePath = join(mkdtempSync(join(cacheRoot, 'shenko-document-')), 'consumer.mjs');
 await build({
   stdin: {
-    contents: "export { RichDocument } from '../src/document-view.tsx'; export { Messages } from '../src/im.tsx'; export { buildProjection } from '../src/projection.ts'; export { initialState } from '../src/live-state.ts'; export { collectThreads } from '../src/threads.ts';",
+    contents: "export { RichDocument } from '../src/document-view.tsx'; export { SemanticDocumentView } from '../src/timeline-entries.tsx'; export { Messages } from '../src/im.tsx'; export { buildProjection } from '../src/projection.ts'; export { initialState } from '../src/live-state.ts'; export { collectThreads } from '../src/threads.ts';",
     resolveDir: join(webRoot, 'tests'),
     sourcefile: 'document-view-consumer.mjs',
   },
@@ -36,7 +36,28 @@ await build({
   jsx: 'automatic',
   external: ['react', 'react-dom', 'react/jsx-runtime'],
 });
-const { RichDocument, Messages, buildProjection, initialState, collectThreads } = await import(pathToFileURL(bundlePath).href);
+const { RichDocument, SemanticDocumentView, Messages, buildProjection, initialState, collectThreads } = await import(pathToFileURL(bundlePath).href);
+
+test('a revised decision remains actionable while earlier admitted receipts retain their own revision', () => {
+  const receipt = { submission_id: 'choice-1', document_id: 'decision', action_id: 'review', revision: 'r1', stage: 'accepted' };
+  const node = {
+    node_id: 'document.decision', action_refs: ['document.decision.review'],
+    props: {
+      document: { document_id: 'decision', revision: 'r1', mode: 'card', summary: 'Choose a revision',
+        options: [{ action_id: 'review', nonce: 'choice-r1', revision: 'r1', label: 'Review' }] },
+      receipts: [receipt],
+    },
+  };
+  const markup = () => renderToStaticMarkup(createElement(SemanticDocumentView, { node, emit: () => {} }));
+  assert.match(markup(), /disabled=""/, 'the admitted original revision cannot be submitted twice');
+  node.props.document = { ...node.props.document, revision: 'r2',
+    options: [{ action_id: 'review', nonce: 'choice-r2', revision: 'r2', label: 'Review' }] };
+  node.props.receipts.push({ ...receipt, document_id: 'another-decision', revision: 'r2' });
+  const revised = markup();
+  assert.doesNotMatch(revised, /disabled=""/, 'neither old nor foreign receipts disable the new decision');
+  assert.doesNotMatch(revised, /data-stage="accepted"/, 'old admission is not displayed as this revision\'s result');
+  assert.equal(receipt.revision, 'r1', 'the historical receipt is preserved');
+});
 
 const markdown = (text) => createElement('div', { className: 'markdown-body' }, text);
 

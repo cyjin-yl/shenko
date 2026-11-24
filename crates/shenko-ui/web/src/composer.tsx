@@ -2,7 +2,7 @@ import { text as t } from './messages';
 import * as React from 'react';
 import type { PendingAttachment, UiNode } from './projection';
 import { Icon } from './icons';
-import { Button, ProtoTextarea, type Emit } from './ui-kit';
+import { Button, ProtoTextarea, ScrollBox, type Emit } from './ui-kit';
 
 /// Pasted text longer than this becomes a text attachment instead of filling
 /// the input: the owner's words stay byte-exact and the input stays usable.
@@ -75,29 +75,31 @@ export function Composer({ node, emit, variant = 'stream' }: { node: UiNode; emi
       ) : null}
       <div className="composer-card">
         {attachments.length > 0 && (
-          <ul className="composer-files" aria-label={t('composer.attachments')}>
-            {attachments.map((item) => (
-              <li key={item.local_id} className={`composer-file is-${item.status}`} title={item.error ?? item.name}>
-                {item.preview
-                  ? <img className="composer-file-thumb" src={item.preview} alt="" />
-                  : <span className="composer-file-icon"><Icon name="file" size={18} /></span>}
-                <span className="composer-file-text">
-                  <span className="composer-file-name">{item.name}</span>
-                  <span className="composer-file-meta">
-                    {item.status === 'uploading' ? t('composer.uploading')
-                      : item.status === 'failed' ? t('composer.uploadFailed')
-                      : formatBytes(item.bytes)}
+          <ScrollBox orientation="horizontal" className="composer-files-scroll">
+            <ul className="composer-files" aria-label={t('composer.attachments')}>
+              {attachments.map((item) => (
+                <li key={item.local_id} className={`composer-file is-${item.status}`} title={item.error ?? item.name}>
+                  {item.preview
+                    ? <img className="composer-file-thumb" src={item.preview} alt="" />
+                    : <span className="composer-file-icon"><Icon name="file" size={18} /></span>}
+                  <span className="composer-file-text">
+                    <span className="composer-file-name">{item.name}</span>
+                    <span className="composer-file-meta">
+                      {item.status === 'uploading' ? t('composer.uploading')
+                        : item.status === 'failed' ? t('composer.uploadFailed')
+                        : formatBytes(item.bytes)}
+                    </span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  className="composer-file-remove"
-                  aria-label={t('composer.removeAttachment', { name: item.name })}
-                  onClick={() => emit('composer', node.props.detach_action as string, { local_id: item.local_id })}
-                ><Icon name="close" size={12} /></button>
-              </li>
-            ))}
-          </ul>
+                  <button
+                    type="button"
+                    className="composer-file-remove"
+                    aria-label={t('composer.removeAttachment', { name: item.name })}
+                    onClick={() => emit('composer', node.props.detach_action as string, { local_id: item.local_id })}
+                  ><Icon name="close" size={12} /></button>
+                </li>
+              ))}
+            </ul>
+          </ScrollBox>
         )}
         <div
           className="composer-editor"

@@ -1,4 +1,4 @@
-import { message as m, preferredLocale, type LocalizedText, type UiLocale } from './messages';
+import { message as m, preferredLocale, text as t, type LocalizedText, type UiLocale } from './messages';
 
 /**
  * Shenko's stable application-semantic UI boundary.
@@ -708,7 +708,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
       'user_submission',
       { submission, retry_action: retryAction, withdraw_action: withdrawAction, edit_action: editAction },
       [],
-      { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
+      { action_refs: refs, a11y: { label: t('composer.appendLabel') }, fallback: 'raw_text' },
     );
   });
   const sequenceOf = (entry: UiNode): number | undefined => entry.kind === 'subject_part'
@@ -857,7 +857,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   // recent works are carried — the timeline is the subject's story, not a
   // work management screen.
   const works = (state.playground?.artifacts ?? []) as WorkView[];
-  for (const work of works.slice(-6)) {
+  for (const work of works.filter((item) => item.lifecycle !== 'archived').slice(-6)) {
     const openRef = addAction(
       actions,
       `work.open.${work.artifact_id}`,
@@ -1055,7 +1055,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     nodes: [
       node('navigation', 'navigation', { items: navNodes, theme: state.display.theme }, navNodes, {
         action_refs: [panelAction, themeAction],
-        a11y: { label: '主要导航' },
+        a11y: { label: t('shell.views') },
       }),
       timeline,
       node('tasks', 'tasks_surface', {

@@ -286,6 +286,10 @@
     background-color: color-mix(in oklab, var(--pui-muted) 50%, transparent);
   }
 
+  :where([data-pui-style~="bg-muted/70"]) {
+    background-color: color-mix(in oklab, var(--pui-muted) 70%, transparent);
+  }
+
   :where([data-pui-style~="bg-popover"]) {
     background-color: var(--pui-popover);
   }
@@ -515,11 +519,32 @@
     background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
   }
 
+  :where(.dark) :where([data-pui-style~="dark:bg-destructive/20"]),
+  :where(.dark):where([data-pui-style~="dark:bg-destructive/20"]),
+  :where([data-theme='dark']) :where([data-pui-style~="dark:bg-destructive/20"]),
+  :where([data-theme='dark']):where([data-pui-style~="dark:bg-destructive/20"]) {
+    background-color: color-mix(in oklab, var(--pui-destructive) 20%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:bg-destructive/30"]),
+  :where(.dark):where([data-pui-style~="dark:bg-destructive/30"]),
+  :where([data-theme='dark']) :where([data-pui-style~="dark:bg-destructive/30"]),
+  :where([data-theme='dark']):where([data-pui-style~="dark:bg-destructive/30"]) {
+    background-color: color-mix(in oklab, var(--pui-destructive) 30%, transparent);
+  }
+
   :where(.dark) :where([data-pui-style~="dark:bg-destructive/60"]),
   :where(.dark):where([data-pui-style~="dark:bg-destructive/60"]),
   :where([data-theme='dark']) :where([data-pui-style~="dark:bg-destructive/60"]),
   :where([data-theme='dark']):where([data-pui-style~="dark:bg-destructive/60"]) {
     background-color: color-mix(in oklab, var(--pui-destructive) 60%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:bg-destructive/90"]),
+  :where(.dark):where([data-pui-style~="dark:bg-destructive/90"]),
+  :where([data-theme='dark']) :where([data-pui-style~="dark:bg-destructive/90"]),
+  :where([data-theme='dark']):where([data-pui-style~="dark:bg-destructive/90"]) {
+    background-color: color-mix(in oklab, var(--pui-destructive) 90%, transparent);
   }
 
   :where(.dark) :where([data-pui-style~="dark:bg-input"]),
@@ -611,6 +636,30 @@
   :where([data-theme='dark']) :where([data-pui-style~="dark:data-[disabled]:bg-input/80"])[data-disabled],
   :where([data-theme='dark']):where([data-pui-style~="dark:data-[disabled]:bg-input/80"])[data-disabled] {
     background-color: color-mix(in oklab, var(--pui-input) 80%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where(.dark):where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible] {
+    --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 40%, transparent);
+    --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+    --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where(.dark):where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where(.dark):where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
   }
 
   :where(.dark) :where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered],
@@ -721,6 +770,27 @@
     --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
     --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
     box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected] {
+    background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected] {
+    border-color: transparent;
+  }
+
+  :where(.dark) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where(.dark):where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where([data-theme='dark']) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected],
+  :where([data-theme='dark']):where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected] {
+    color: var(--pui-foreground);
   }
 
   :where(.dark) :where([data-pui-style~="dark:not-[data-checked]:bg-foreground"]):not([data-checked]),
@@ -880,10 +950,6 @@
     background-color: color-mix(in oklab, var(--pui-input) 50%, transparent);
   }
 
-  :where([data-pui-style~="data-[active]:bg-muted"])[data-active] {
-    background-color: var(--pui-muted);
-  }
-
   :where([data-pui-style~="data-[active]:border-input"])[data-active] {
     border-color: var(--pui-input);
   }
@@ -963,23 +1029,43 @@
     border-color: var(--pui-primary);
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_+_2px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_+_2px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% + 2px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_2px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_2px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 2px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_4px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_4px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 4px);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[checked]:not-[data-draggable]:translate-x-[calc(100%_-_8px)]"])[data-checked]:not([data-draggable]) {
+  :where([data-pui-style~="data-[checked]:data-[direction=ltr]:not-[data-draggable]:translate-x-[calc(100%_-_8px)]"])[data-checked][data-direction='ltr']:not([data-draggable]) {
     --pui-translate-x: calc(100% - 8px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(-100%_-_2px)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(-100% - 2px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(2px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(2px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(4px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(4px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[checked]:data-[direction=rtl]:not-[data-draggable]:translate-x-[calc(8px_-_100%)]"])[data-checked][data-direction='rtl']:not([data-draggable]) {
+    --pui-translate-x: calc(8px - 100%);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -999,10 +1085,6 @@
     color: var(--pui-primary-foreground);
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:direction-ltr"])[data-direction='ltr'][data-draggable] {
-    direction: ltr;
-  }
-
   :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc((100%_-_2px)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
     --pui-translate-x: calc((100% - 2px)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
@@ -1018,8 +1100,8 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc(1px_+_(100%_+_1px)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
-    --pui-translate-x: calc(1px + (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="data-[direction=ltr]:data-[draggable]:translate-x-[calc(0.0625rem_+_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"])[data-direction='ltr'][data-draggable] {
+    --pui-translate-x: calc(0.0625rem + (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -1027,12 +1109,18 @@
     direction: ltr;
   }
 
-  :where([data-pui-style~="data-[direction=ltr]:pl-4"])[data-direction='ltr'] {
-    padding-left: 1rem;
+  :where([data-pui-style~="data-[direction=ltr]:not-[data-checked]:not-[data-draggable]:translate-x-0"])[data-direction='ltr']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0px;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:direction-rtl"])[data-direction='rtl'][data-draggable] {
-    direction: rtl;
+  :where([data-pui-style~="data-[direction=ltr]:not-[data-checked]:not-[data-draggable]:translate-x-0.25"])[data-direction='ltr']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[direction=ltr]:pl-4"])[data-direction='ltr'] {
+    padding-left: 1rem;
   }
 
   :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc((2px_-_100%)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
@@ -1050,8 +1138,8 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc(-1px_-_(100%_+_1px)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
-    --pui-translate-x: calc(-1px - (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="data-[direction=rtl]:data-[draggable]:translate-x-[calc(-0.0625rem_-_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"])[data-direction='rtl'][data-draggable] {
+    --pui-translate-x: calc(-0.0625rem - (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -1082,6 +1170,16 @@
 
   :where([data-pui-style~="data-[direction=rtl]:direction-rtl"])[data-direction='rtl'] {
     direction: rtl;
+  }
+
+  :where([data-pui-style~="data-[direction=rtl]:not-[data-checked]:not-[data-draggable]:translate-x-0"])[data-direction='rtl']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: 0px;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="data-[direction=rtl]:not-[data-checked]:not-[data-draggable]:translate-x-[-0.0625rem]"])[data-direction='rtl']:not([data-checked]):not([data-draggable]) {
+    --pui-translate-x: -0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
   :where([data-pui-style~="data-[direction=rtl]:pr-4"])[data-direction='rtl'] {
@@ -1244,6 +1342,13 @@
     box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
   }
 
+  :where([data-pui-style~="data-[focus-visible]:ring-destructive/20"])[data-focus-visible] {
+    --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 20%, transparent);
+    --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+    --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
   :where([data-pui-style~="data-[focus-visible]:ring-inset"])[data-focus-visible] {
     --pui-ring-inset: inset;
   }
@@ -1279,10 +1384,6 @@
     --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
     --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
     box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
-  }
-
-  :where([data-pui-style~="data-[focus-visible]:z-10"])[data-focus-visible] {
-    z-index: 10;
   }
 
   :where([data-pui-style~="data-[focused]:bg-accent"])[data-focused] {
@@ -1348,8 +1449,40 @@
     background-color: var(--pui-accent);
   }
 
+  :where([data-pui-style~="data-[hovered]:bg-destructive/90"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-destructive) 90%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-input/50"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-input) 50%, transparent);
+  }
+
   :where([data-pui-style~="data-[hovered]:bg-muted"])[data-hovered] {
     background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-primary/90"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-primary) 90%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:bg-secondary/80"])[data-hovered] {
+    background-color: color-mix(in oklab, var(--pui-secondary) 80%, transparent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:bg-accent"])[data-hovered]:not([data-active]) {
+    background-color: var(--pui-accent);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:bg-muted"])[data-hovered]:not([data-active]) {
+    background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:text-accent-foreground"])[data-hovered]:not([data-active]) {
+    color: var(--pui-accent-foreground);
+  }
+
+  :where([data-pui-style~="data-[hovered]:not-[data-active]:text-muted-foreground"])[data-hovered]:not([data-active]) {
+    color: var(--pui-muted-foreground);
   }
 
   :where([data-pui-style~="data-[hovered]:not-[data-disabled]:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)]"])[data-hovered]:not([data-disabled]) {
@@ -1548,10 +1681,6 @@
     flex-direction: column;
   }
 
-  :where([data-pui-style~="data-[orientation=horizontal]:flex-row"])[data-orientation='horizontal'] {
-    flex-direction: row;
-  }
-
   :where([data-pui-style~="data-[orientation=horizontal]:h-0.5"])[data-orientation='horizontal'] {
     height: 0.125rem;
   }
@@ -1584,20 +1713,16 @@
     height: 1px;
   }
 
-  :where([data-pui-style~="data-[orientation=horizontal]:items-center"])[data-orientation='horizontal'] {
-    align-items: center;
-  }
-
   :where([data-pui-style~="data-[orientation=horizontal]:left-0"])[data-orientation='horizontal'] {
     left: 0px;
   }
 
-  :where([data-pui-style~="data-[orientation=horizontal]:mx-0"])[data-orientation='horizontal'] {
-    margin-inline: 0px;
+  :where([data-pui-style~="data-[orientation=horizontal]:mx-1"])[data-orientation='horizontal'] {
+    margin-inline: 0.25rem;
   }
 
-  :where([data-pui-style~="data-[orientation=horizontal]:my-1"])[data-orientation='horizontal'] {
-    margin-block: 0.25rem;
+  :where([data-pui-style~="data-[orientation=horizontal]:my-0.5"])[data-orientation='horizontal'] {
+    margin-block: 0.125rem;
   }
 
   :where([data-pui-style~="data-[orientation=horizontal]:rounded-[var(--pui-radius-2xl)]"])[data-orientation='horizontal'] {
@@ -1709,10 +1834,6 @@
     height: 100%;
   }
 
-  :where([data-pui-style~="data-[orientation=vertical]:items-stretch"])[data-orientation='vertical'] {
-    align-items: stretch;
-  }
-
   :where([data-pui-style~="data-[orientation=vertical]:left-1/2"])[data-orientation='vertical'] {
     left: 50%;
   }
@@ -1725,12 +1846,12 @@
     min-height: 11rem;
   }
 
-  :where([data-pui-style~="data-[orientation=vertical]:mx-1"])[data-orientation='vertical'] {
-    margin-inline: 0.25rem;
+  :where([data-pui-style~="data-[orientation=vertical]:mx-0.5"])[data-orientation='vertical'] {
+    margin-inline: 0.125rem;
   }
 
-  :where([data-pui-style~="data-[orientation=vertical]:my-0"])[data-orientation='vertical'] {
-    margin-block: 0px;
+  :where([data-pui-style~="data-[orientation=vertical]:my-1"])[data-orientation='vertical'] {
+    margin-block: 0.25rem;
   }
 
   :where([data-pui-style~="data-[orientation=vertical]:right-0"])[data-orientation='vertical'] {
@@ -1869,8 +1990,16 @@
     color: var(--pui-accent-foreground);
   }
 
+  :where([data-pui-style~="data-[selected]:bg-background"])[data-selected] {
+    background-color: var(--pui-background);
+  }
+
   :where([data-pui-style~="data-[selected]:bg-muted"])[data-selected] {
     background-color: var(--pui-muted);
+  }
+
+  :where([data-pui-style~="data-[selected]:border-foreground"])[data-selected] {
+    border-color: var(--pui-foreground);
   }
 
   :where([data-pui-style~="data-[selected]:not-[data-range-middle]:bg-primary"])[data-selected]:not([data-range-middle]) {
@@ -1879,6 +2008,20 @@
 
   :where([data-pui-style~="data-[selected]:not-[data-range-middle]:text-primary-foreground"])[data-selected]:not([data-range-middle]) {
     color: var(--pui-primary-foreground);
+  }
+
+  :where([data-pui-style~="data-[selected]:shadow-none"])[data-selected] {
+    --pui-shadow: 0 0 #0000;
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where([data-pui-style~="data-[selected]:shadow-sm"])[data-selected] {
+    --pui-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+    box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+  }
+
+  :where([data-pui-style~="data-[selected]:text-foreground"])[data-selected] {
+    color: var(--pui-foreground);
   }
 
   :where([data-pui-style~="data-[side=bottom]:-translate-x-1/2"])[data-side='bottom'] {
@@ -2593,6 +2736,10 @@
     min-height: 10rem;
   }
 
+  :where([data-pui-style~="min-h-5"]) {
+    min-height: 1.25rem;
+  }
+
   :where([data-pui-style~="min-h-6"]) {
     min-height: 1.5rem;
   }
@@ -2689,6 +2836,10 @@
     margin-inline: 0px;
   }
 
+  :where([data-pui-style~="mx-0.5"]) {
+    margin-inline: 0.125rem;
+  }
+
   :where([data-pui-style~="mx-1"]) {
     margin-inline: 0.25rem;
   }
@@ -2697,8 +2848,8 @@
     margin-inline: auto;
   }
 
-  :where([data-pui-style~="my-0"]) {
-    margin-block: 0px;
+  :where([data-pui-style~="my-0.5"]) {
+    margin-block: 0.125rem;
   }
 
   :where([data-pui-style~="my-1"]) {
@@ -3251,16 +3402,20 @@
     border-radius: min(var(--pui-radius-md), 10px);
   }
 
+  :where([data-pui-style~="rounded-[min(var(--pui-radius-md),12px)]"]) {
+    border-radius: min(var(--pui-radius-md), 12px);
+  }
+
+  :where([data-pui-style~="rounded-[min(var(--pui-radius-md),8px)]"]) {
+    border-radius: min(var(--pui-radius-md), 8px);
+  }
+
   :where([data-pui-style~="rounded-[min(var(--radius-md),10px)]"]) {
     border-radius: min(var(--pui-radius-md), 10px);
   }
 
   :where([data-pui-style~="rounded-[min(var(--radius-md),12px)]"]) {
     border-radius: min(var(--pui-radius-md), 12px);
-  }
-
-  :where([data-pui-style~="rounded-[min(var(--radius-md),8px)]"]) {
-    border-radius: min(var(--pui-radius-md), 8px);
   }
 
   :where([data-pui-style~="rounded-[var(--pui-radius-2xl)]"]) {
@@ -3425,6 +3580,11 @@
     height: 2.5rem;
   }
 
+  :where([data-pui-style~="size-11"]) {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
   :where([data-pui-style~="size-2"]) {
     width: 0.5rem;
     height: 0.5rem;
@@ -3453,6 +3613,11 @@
   :where([data-pui-style~="size-4.5"]) {
     width: 1.125rem;
     height: 1.125rem;
+  }
+
+  :where([data-pui-style~="size-5"]) {
+    width: 1.25rem;
+    height: 1.25rem;
   }
 
   :where([data-pui-style~="size-6"]) {
@@ -3786,6 +3951,11 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
+  :where([data-pui-style~="translate-x-[-0.0625rem]"]) {
+    --pui-translate-x: -0.0625rem;
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
   :where([data-pui-style~="translate-x-[calc((100%_-_2px)*var(--pui-percentage)/100)]"]) {
     --pui-translate-x: calc((100% - 2px)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
@@ -3816,8 +3986,18 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="translate-x-[calc(-1px_-_(100%_+_1px)*var(--pui-percentage)/100)]"]) {
-    --pui-translate-x: calc(-1px - (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="translate-x-[calc(-0.0625rem_-_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"]) {
+    --pui-translate-x: calc(-0.0625rem - (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(-100%_-_2px)]"]) {
+    --pui-translate-x: calc(-100% - 2px);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(0.0625rem_+_(100%_+_2px_-_0.0625rem)*var(--pui-percentage)/100)]"]) {
+    --pui-translate-x: calc(0.0625rem + (100% + 2px - 0.0625rem)*var(--pui-percentage)/100);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -3841,8 +4021,18 @@
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
-  :where([data-pui-style~="translate-x-[calc(1px_+_(100%_+_1px)*var(--pui-percentage)/100)]"]) {
-    --pui-translate-x: calc(1px + (100% + 1px)*var(--pui-percentage)/100);
+  :where([data-pui-style~="translate-x-[calc(2px_-_100%)]"]) {
+    --pui-translate-x: calc(2px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(4px_-_100%)]"]) {
+    --pui-translate-x: calc(4px - 100%);
+    transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
+  }
+
+  :where([data-pui-style~="translate-x-[calc(8px_-_100%)]"]) {
+    --pui-translate-x: calc(8px - 100%);
     transform: translate(var(--pui-translate-x, 0), var(--pui-translate-y, 0)) scale(var(--pui-scale-x, 1), var(--pui-scale-y, 1));
   }
 
@@ -4093,6 +4283,15 @@
     outline-width: 1px;
   }
 
+  :where([data-pui-style~="data-[focus-visible]:outline-2"])[data-focus-visible] {
+    outline-style: solid;
+    outline-width: 2px;
+  }
+
+  :where([data-pui-style~="data-[focus-visible]:outline-offset-2"])[data-focus-visible] {
+    outline-offset: 2px;
+  }
+
   :where([data-pui-style~="data-[focus-visible]:outline-ring"])[data-focus-visible] {
     outline-color: var(--pui-ring);
   }
@@ -4141,6 +4340,21 @@
   :where([data-pui-style~="rounded-b-[min(var(--pui-radius-4xl),24px)]"]) {
     border-bottom-left-radius: min(var(--pui-radius-4xl), 24px);
     border-bottom-right-radius: min(var(--pui-radius-4xl), 24px);
+  }
+
+  :where([data-pui-style~="rounded-b-[var(--pui-radius-2xl)]"]) {
+    border-bottom-left-radius: var(--pui-radius-2xl);
+    border-bottom-right-radius: var(--pui-radius-2xl);
+  }
+
+  :where([data-pui-style~="rounded-b-[var(--pui-radius-3xl)]"]) {
+    border-bottom-left-radius: var(--pui-radius-3xl);
+    border-bottom-right-radius: var(--pui-radius-3xl);
+  }
+
+  :where([data-pui-style~="rounded-b-[var(--pui-radius-4xl)]"]) {
+    border-bottom-left-radius: var(--pui-radius-4xl);
+    border-bottom-right-radius: var(--pui-radius-4xl);
   }
 
   :where([data-pui-style~="rounded-b-lg"]) {
@@ -4223,6 +4437,21 @@
     border-top-right-radius: min(var(--pui-radius-4xl), 24px);
   }
 
+  :where([data-pui-style~="rounded-t-[var(--pui-radius-2xl)]"]) {
+    border-top-left-radius: var(--pui-radius-2xl);
+    border-top-right-radius: var(--pui-radius-2xl);
+  }
+
+  :where([data-pui-style~="rounded-t-[var(--pui-radius-3xl)]"]) {
+    border-top-left-radius: var(--pui-radius-3xl);
+    border-top-right-radius: var(--pui-radius-3xl);
+  }
+
+  :where([data-pui-style~="rounded-t-[var(--pui-radius-4xl)]"]) {
+    border-top-left-radius: var(--pui-radius-4xl);
+    border-top-right-radius: var(--pui-radius-4xl);
+  }
+
   :where([data-pui-style~="rounded-t-lg"]) {
     border-top-left-radius: var(--pui-radius-lg);
     border-top-right-radius: var(--pui-radius-lg);
@@ -4275,8 +4504,20 @@
       background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
     }
 
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:bg-destructive/20"]) {
+      background-color: color-mix(in oklab, var(--pui-destructive) 20%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:bg-destructive/30"]) {
+      background-color: color-mix(in oklab, var(--pui-destructive) 30%, transparent);
+    }
+
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:bg-destructive/60"]) {
       background-color: color-mix(in oklab, var(--pui-destructive) 60%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:bg-destructive/90"]) {
+      background-color: color-mix(in oklab, var(--pui-destructive) 90%, transparent);
     }
 
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:bg-input"]) {
@@ -4329,6 +4570,21 @@
 
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[disabled]:bg-input/80"])[data-disabled] {
       background-color: color-mix(in oklab, var(--pui-input) 80%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[focus-visible]:ring-destructive/40"])[data-focus-visible] {
+      --pui-ring-color: color-mix(in oklab, var(--pui-destructive) 40%, transparent);
+      --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
+      --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
+      box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-accent/50"])[data-hovered] {
+      background-color: color-mix(in oklab, var(--pui-accent) 50%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-input/30"])[data-hovered] {
+      background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
     }
 
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[hovered]:bg-input/50"])[data-hovered] {
@@ -4397,6 +4653,18 @@
       --pui-ring-offset-shadow: 0 0 0 var(--pui-ring-offset-width, 0px) var(--pui-ring-offset-color, var(--pui-background));
       --pui-ring-shadow: var(--pui-ring-inset,) 0 0 0 calc(var(--pui-ring-width, 0px) + var(--pui-ring-offset-width, 0px)) var(--pui-ring-color, var(--pui-ring));
       box-shadow: var(--pui-ring-offset-shadow, 0 0 #0000), var(--pui-ring-shadow, 0 0 #0000), var(--pui-shadow, 0 0 #0000);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:bg-input/30"])[data-selected] {
+      background-color: color-mix(in oklab, var(--pui-input) 30%, transparent);
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:border-transparent"])[data-selected] {
+      border-color: transparent;
+    }
+
+    :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:data-[selected]:text-foreground"])[data-selected] {
+      color: var(--pui-foreground);
     }
 
     :where(:root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light'])) :where([data-pui-style~="dark:not-[data-checked]:bg-foreground"]):not([data-checked]) {
@@ -4518,5 +4786,10 @@
   @media (forced-colors: active) {
     :where([data-pui-style~="forced-colors-focus-outline"]) { outline-color: Highlight; }
   }
+
+  /* Unsupported Proto UI style tokens:
+   * - -ml-px
+   * - -mt-px
+   */
 
 }

@@ -401,7 +401,8 @@ impl Store {
                         // raw_sessions and subject_steps have already applied,
                         // but NO pending/raw/staged delivery has been published.
                         let (outcome, owned, rejected, rejected_ids) =
-                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
+                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest,
+                                options.local_control_handover)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;

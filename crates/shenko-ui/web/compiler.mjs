@@ -36,6 +36,7 @@ import {
 import { dirname, join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build as esbuild } from 'esbuild';
+import ts from 'typescript';
 
 export const COMPILER_PACKAGE = 'packages/compiler';
 export const COMPILER_ENTRY = 'packages/compiler/src/index.ts';
@@ -199,13 +200,28 @@ export async function loadCompiler({ sourceRoot, webRoot }) {
 }
 
 function bareSpecifiersIn(source) {
+  const file = ts.createSourceFile('Component.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const specifiers = new Set();
-  for (const match of source.matchAll(/\bfrom\s+'([^']+)'/g)) {
-    if (!match[1].startsWith('.')) specifiers.add(match[1]);
-  }
-  for (const match of source.matchAll(/\bfrom\s+"([^"]+)"/g)) {
-    if (!match[1].startsWith('.')) specifiers.add(match[1]);
-  }
+  const record = (literal) => {
+    if (literal && ts.isStringLiteralLike(literal) && !literal.text.startsWith('.')) {
+      specifiers.add(literal.text);
+    }
+  };
+  const visit = (node) => {
+    // Read module-reference syntax only: diagnostics and other string values
+    // can contain import-like text without creating a dependency.
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      record(node.moduleSpecifier);
+    } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      record(node.arguments[0]);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      record(node.moduleReference.expression);
+    } else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) {
+      record(node.argument.literal);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
   return [...specifiers].sort();
 }
 
