@@ -29,7 +29,7 @@ import { TimelineSurface } from './timeline-surface';
 import { SemanticDocumentView } from './timeline-entries';
 import { Composer } from './composer';
 import { SubmissionHistory } from './submission-history';
-import { InspectorLayout, type InspectorTelemetry } from './inspector-layout';
+import { InspectorLayout } from './inspector-layout';
 import { useConversations } from './conversation-data';
 
 export interface ProjectionRenderer {
@@ -214,27 +214,20 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
     }
     return hints;
   }, [timelineEntries]);
-  const inspectorTelemetry: InspectorTelemetry = {
-    step: (timeline.props.step as number | null) ?? null,
-    activeTasks: activeTaskCount,
-    pendingDecision,
-    lenses: lenses
-      .filter((lens) => lens.source === 'shell')
-      .map((lens) => ({
-        id: lens.id,
-        title: lens.title,
-        icon: lens.icon,
-        badge: lens.id === 'tasks' ? (activeTaskCount || tasks.length)
-          : lens.id === 'memory' ? memoryItems.length
-          : lens.id === 'playground' ? (works?.length ?? 0)
-          : undefined,
-        active: lens.id === 'tasks' && activeTaskCount > 0,
-      })),
-    onSelectLens: (id) => {
-      const target = lenses.find((lens) => lens.id === id);
-      if (target) openLens(target);
-    },
-  };
+  const lensSubtitle = open?.kind === 'work'
+    ? t('shell.workLens')
+    : openId === 'tasks'
+      ? [
+        timeline.props.step ? `R·${timeline.props.step}` : null,
+        activeTaskCount > 0 ? t('inspector.attentionTasks', { count: activeTaskCount }) : t('files.itemsCount', { count: tasks.length }),
+      ].filter(Boolean).join(' · ')
+      : openId === 'memory'
+        ? t('files.itemsCount', { count: memoryItems.length })
+        : openId === 'playground'
+          ? t('files.itemsCount', { count: works?.length ?? 0 })
+          : openId === 'config'
+            ? (timeline.props.step ? `R·${timeline.props.step}` : undefined)
+            : undefined;
 
   return (
     <div className="shell" data-source={projection.source} data-lens={openId ?? 'none'}>
@@ -255,7 +248,12 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               {name ?? <span className="is-unnamed">{t('subject.unnamed')}</span>}
               {demo && <span className="tag">{t('shell.demo')}</span>}
             </span>
-            <Attention step={timeline.props.step} status={timeline.props.subject_status} tasks={tasks} />
+            <Attention
+              step={timeline.props.step}
+              status={timeline.props.subject_status}
+              tasks={tasks}
+              hasPendingDecision={Boolean(pendingDecision)}
+            />
           </button>
         </div>
         <nav className="tabs" aria-label={t('shell.views')}>
@@ -316,8 +314,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       <InspectorLayout
         openId={openId}
         title={String(lenses.find((lens) => lens.id === openId)?.title ?? openWork?.title ?? '')}
-        subtitle={open?.kind === 'work' ? t('shell.workLens') : undefined}
-        telemetry={inspectorTelemetry}
+        subtitle={lensSubtitle}
         onClose={() => openLens(undefined)}
         inspector={open?.kind === 'work'
           ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
@@ -326,6 +323,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
               node={nodes.tasks_surface}
               ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
               onOpenThread={inspect.openThread}
+              pendingDecision={pendingDecision}
             />
             <MemorySurface node={nodes.memory_surface} />
             <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
@@ -447,13 +445,19 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
  * the last committed round, the reported status. Nothing is inferred; with no
  * facts the line says so.
  */
-function Attention({ step, status, tasks }: { step: number | null; status: string; tasks: TaskSummary[] }) {
+function Attention({ step, status, tasks, hasPendingDecision }: {
+  step: number | null;
+  status: string;
+  tasks: TaskSummary[];
+  hasPendingDecision?: boolean;
+}) {
   // The subject's own status is shown separately from the work it owns.
   const active = tasks.filter(isAttentionTask);
   const facts: string[] = [];
   if (active.length === 1) facts.push(t('shell.activeOne', { kind: String(active[0].kind ?? active[0].task_id) }));
   else if (active.length > 1) facts.push(t('shell.activeMany', { count: active.length }));
   facts.push(step ? t('timeline.round', { step: step ?? 0 }) : t('shell.noSteps'));
+  if (hasPendingDecision) facts.push(t('shell.pendingDecision'));
   if (status && status !== 'unknown') facts.push(status);
   return <span className="attention">{facts.join(' · ')}</span>;
 }

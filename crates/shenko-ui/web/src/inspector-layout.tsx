@@ -19,33 +19,16 @@ const INITIAL_CONSTRAINTS = [
 const DESKTOP_QUERY = `(min-width: ${INSPECTOR_DESKTOP_MIN}px)`;
 type SizeChange = { sizes: readonly number[] };
 
-export interface InspectorStripLens {
-  id: string;
-  title: string;
-  icon: string;
-  badge?: number;
-  active?: boolean;
-}
-
-export interface InspectorTelemetry {
-  step: number | null;
-  activeTasks: number;
-  pendingDecision?: { summary: string; onReview: () => void };
-  lenses: readonly InspectorStripLens[];
-  onSelectLens: (id: string) => void;
-}
-
 /**
  * One real shell boundary: the stream and its optional lens.
  * Resizable owns input, proportions, keyboard policy and contact retirement.
  * This component owns only pixel constraints, browser preference and which
  * lens is open. Narrow layout retains the same stream and lens DOM.
  */
-export function InspectorLayout({ openId, title, subtitle, telemetry, inspector, onClose, children }: {
+export function InspectorLayout({ openId, title, subtitle, inspector, onClose, children }: {
   openId: string | null;
   title: string;
   subtitle?: string;
-  telemetry?: InspectorTelemetry;
   inspector: React.ReactNode;
   onClose: () => void;
   children: React.ReactNode;
@@ -234,16 +217,7 @@ export function InspectorLayout({ openId, title, subtitle, telemetry, inspector,
             <div className="lens-head">
               <div className="lens-head-id">
                 <span className="lens-title">{title}</span>
-                {subtitle
-                  ? <span className="lens-sub">{subtitle}</span>
-                  : telemetry && (
-                    <span className="lens-sub">
-                      {[
-                        telemetry.step ? `R·${telemetry.step}` : null,
-                        telemetry.activeTasks > 0 ? t('inspector.attentionTasks', { count: telemetry.activeTasks }) : null,
-                      ].filter(Boolean).join(' · ')}
-                    </span>
-                  )}
+                {subtitle && <span className="lens-sub">{subtitle}</span>}
               </div>
               <div className="lens-head-actions">
                 <Button className="inspector-collapse" variant="ghost" size="icon"
@@ -253,46 +227,6 @@ export function InspectorLayout({ openId, title, subtitle, telemetry, inspector,
                   label={t('shell.closeLens')} onClick={close}><Icon name="close" /></Button>
               </div>
             </div>
-            {telemetry && !subtitle && (
-              <div className="inspector-strip">
-                <div className="inspector-seg" role="tablist" aria-label={t('shell.lenses')}>
-                  {telemetry.lenses.map((lens) => (
-                    <button
-                      key={lens.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={lens.id === openId}
-                      className="inspector-seg-item"
-                      data-active={lens.id === openId ? '' : undefined}
-                      onClick={() => telemetry.onSelectLens(lens.id)}
-                      title={lens.title}
-                    >
-                      <Icon name={lens.icon} size={14} />
-                      <span className="inspector-seg-label">{lens.title}</span>
-                      {lens.badge !== undefined && lens.badge > 0 && (
-                        <span className="inspector-seg-count">{lens.badge}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-                {telemetry.pendingDecision && (
-                  <div className="inspector-attention">
-                    <span className="inspector-attention-dot" aria-hidden="true" />
-                    <div className="inspector-attention-text">
-                      <strong>{t('inspector.attentionTitle')}</strong>
-                      <span>{telemetry.pendingDecision.summary}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="inspector-attention-cta"
-                      onClick={telemetry.pendingDecision.onReview}
-                    >
-                      {t('inspector.attentionOpen')}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
             <div className="lens-body">{inspector}</div>
           </aside>
         </ResizablePanel>

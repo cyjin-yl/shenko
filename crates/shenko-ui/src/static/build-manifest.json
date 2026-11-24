@@ -206,27 +206,27 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/worktrees/hig-sidebar-scroll-area-20261124/crates/shenko-ui/web",
-  "built_at": "2026-11-24T12:19:41.365Z",
+  "built_at": "2026-11-24T13:58:05.603Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1261323,
-      "sha256": "b16446e33e52e26d618b435cabdeae7ef4c47089bb2b4628ba197bc9141913a7"
+      "bytes": 1276604,
+      "sha256": "684e91c90ad85940d99fce8d4ccc6301eecf854a0059bb3ab48d57bb4a9b9cd3"
     },
-    "chunks/chunk-KAQULBVM.js": {
-      "bytes": 68523,
-      "sha256": "8c347e14d728354ee64449e94cf098a667429d062085c2269f570cdec763c993"
+    "chunks/chunk-EOTX6CLI.js": {
+      "bytes": 71617,
+      "sha256": "58e0fb5d91780eb87b844897897ab33de67fc6eeb7143dafc3f1deb91b387c17"
     },
-    "chunks/demo-controller-R7GFO3IA.js": {
-      "bytes": 16356,
-      "sha256": "495661e3bbc9a00c3e81a706d79e3cb0cf89a23c1489d1c93bde4f3db198e518"
+    "chunks/demo-controller-GAQHJPKX.js": {
+      "bytes": 19714,
+      "sha256": "a898da0054e3b12a8538c5ce96cd27580448e7f6d911db763dce87d89c62f532"
     },
     "app.css": {
-      "bytes": 81660,
-      "sha256": "58e16e0644241d7b061872be675203decd88a5a933cf9853ffcabf2201f22014"
+      "bytes": 87448,
+      "sha256": "1ba560f2cb5572f3f71556a8b9acf218457d3e92da9794f3269d22ea04987615"
     },
     "proto-ui-style.css": {
       "bytes": 294,

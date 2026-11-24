@@ -68,12 +68,51 @@ test('English locale resolves all shell, inspector, timeline, and files labels w
     message('files.badge.offline'),
     message('files.statusReadonly'),
     message('files.noMatches'),
+    message('shell.pendingDecision'),
+    message('tasks.searchPlaceholder'),
+    message('tasks.scope.recent'),
+    message('tasks.scope.live'),
+    message('tasks.scope.topics'),
+    message('tasks.scope.archive'),
+    message('tasks.liveSection'),
+    message('tasks.lineageSection'),
+    message('tasks.archiveHeader'),
+    message('tasks.archiveMeta', { count: 3 }),
+    message('tasks.bucket.live'),
+    message('tasks.bucket.today'),
+    message('tasks.bucket.week'),
+    message('tasks.bucket.month'),
+    message('tasks.bucket.monthsAgo', { months: 2 }),
+    message('tasks.bucket.older'),
+    message('tasks.teamMembers', { count: 2 }),
+    message('tasks.noLive'),
+    message('tasks.noArchive'),
+    message('tasks.noMatches'),
+    message('tasks.searchHits', { count: 3 }),
+    message('im.searchPlaceholder'),
+    message('im.scope.all'),
+    message('im.scope.chats'),
+    message('im.scope.agents'),
+    message('im.section.activeAgents'),
+    message('im.section.channels'),
+    message('im.section.recentAgents'),
+    message('im.section.archivedAgents'),
+    message('im.noMatches'),
+    message('memory.searchPlaceholder'),
+    message('memory.noMatches'),
   ];
   for (const item of checks) {
     const rendered = resolveMessage(item, 'en');
     assert.ok(rendered.length > 0, `Empty en translation for ${item.message_id}`);
     assert.equal(CJK_OR_FULLWIDTH.test(rendered), false, `CJK leaked in en for ${item.message_id}: ${rendered}`);
   }
+});
+
+test('InspectorLayout stays domain-neutral without duplicate lens tabs or cross-lens pending decision banners', () => {
+  const layout = readFileSync(join(srcDir, 'inspector-layout.tsx'), 'utf8');
+  assert.doesNotMatch(layout, /inspector-seg/);
+  assert.doesNotMatch(layout, /inspector-attention/);
+  assert.doesNotMatch(layout, /pendingDecision/);
 });
 
 test('composed scroll projection hides WebKit scrollbars and ReadingViewport opts into composed projection', () => {

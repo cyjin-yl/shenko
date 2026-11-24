@@ -44,9 +44,63 @@ function demoTeamTrajectory(member: (typeof DEMO_TEAM.members)[number]): Traject
   };
 }
 
+const DEMO_ARCHIVED: Record<string, { name: string; goal: string; daysAgo: number; steps: Array<{ text: string; tokens: number }> }> = {
+  'demo-arch-18d': {
+    name: '飞书回调排查',
+    goal: '梳理飞书 Webhook 签名校验与重复投递去重策略。',
+    daysAgo: 18,
+    steps: [
+      { text: '核对了飞书 v2 回调的 `X-Lark-Signature` 拼接顺序：timestamp + nonce + encrypt_key + raw_body。', tokens: 64 },
+      { text: '已确认重复投递应以 `header.event_id` 做幂等键，保留 24 小时去重窗口，避免重放触发二次入队。', tokens: 78 },
+    ],
+  },
+  'demo-arch-64d': {
+    name: 'LayerFS 快照对照',
+    goal: '对比 Linux VM 原生 LayerFS 与 WASM 家园快照恢复耗时。',
+    daysAgo: 64,
+    steps: [
+      { text: '实测 128 MB 工作目录：WASM 家园冷恢复 42 ms，Overlay/LayerFS 挂载切换 19 ms。', tokens: 71 },
+      { text: '结论：日常小文件工作区保持 WASM 家园，大体积模型权重通过只读挂载接入更省 I/O。', tokens: 66 },
+    ],
+  },
+  'demo-arch-96d': {
+    name: 'Qwen3.8 量化基线',
+    goal: '测量 4 路 128K KV 并发下 Q4_K_M 与 FP8 的吞吐差异。',
+    daysAgo: 96,
+    steps: [
+      { text: '在 4 路 128K 满载下，Q4_K_M 显存占用降低 38%，首字延迟几乎持平；FP8 在长代码生成上更稳。', tokens: 82 },
+      { text: '建议单卡日常默认 Q4_K_M，高并发批处理节点保留 FP8 配置。', tokens: 59 },
+    ],
+  },
+};
+
 export function demoTrajectory(taskId: string): TrajectoryResponse {
   const member = DEMO_TEAM.members.find((item) => item.task_id === taskId);
   if (member) return demoTeamTrajectory(member);
+  const archived = DEMO_ARCHIVED[taskId];
+  if (archived) {
+    const baseMs = Date.now() - archived.daysAgo * 86400_000;
+    return {
+      task: {
+        task_id: taskId, kind: 'model.child', role: 'delegation', state: 'terminal',
+        created_at: new Date(baseMs).toISOString(), name: archived.name,
+      },
+      input: { goal: archived.goal },
+      brief: archived.goal,
+      children: [],
+      operations: archived.steps.map((entry, index) => ({
+        operation_id: `${taskId}-step-${index}`,
+        operation_name: 'model.child.generate.v1',
+        logical_key: `step/${index}`,
+        state: 'resolved',
+        outcome: 'succeeded',
+        attempts: 1,
+        record_status: 'sealed',
+        observed_at: new Date(baseMs + (index + 1) * 45_000).toISOString(),
+        record: { schema_version: 1, step_index: index, text: entry.text, usage: { output_tokens: entry.tokens } },
+      })),
+    };
+  }
   const at = new Date(Date.now() - 60_000).toISOString();
   const goal = '把两条关于启动时序的观察合成一条更小的记忆，保留各自来源。';
   const step = (index: number, record: Record<string, unknown>) => ({

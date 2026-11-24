@@ -12,11 +12,30 @@ import {
   type Emit, type ReadingViewportHandle,
 } from './ui-kit';
 
+type ImScope = 'all' | 'chats' | 'agents';
+const IM_DORMANT_MS = 7 * 86_400_000;
+
+function threadTimestamp(thread: Thread): number {
+  return thread.updated_at ? Date.parse(thread.updated_at) : NaN;
+}
+
+function matchesThread(thread: Thread, needle: string): boolean {
+  const hay = [
+    thread.title,
+    thread.subtitle,
+    thread.preview,
+    ...thread.participants.map((p) => p.name),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(needle);
+}
+
 /**
  * The IM surface: the owner's primary way
  * of talking with the subject, in an iMessage-like idiom. Conversations are
- * a list on the left — the direct chat first, then delegation groups and
- * channel groups by recency — and the open thread on the right.
+ * organized on the left with Spotlight search, scope filtering, and lifecycle
+ * bucketing — direct chat pinned first, live subagents surfaced, human channel
+ * conversations protected from ended-subagent clutter, and months-old dormant
+ * subagents folded away until expanded or searched.
  *
  * The list is the upstream toggle-group in vertical orientation (one
  * selection, roving focus, arrow keys); bubbles are Shenko's own compiled
@@ -41,6 +60,93 @@ export function ImView({
   const [pane, setPane] = React.useState<'list' | 'thread'>(
     () => new URLSearchParams(location.search).has('thread') ? 'thread' : 'list',
   );
+  const [scope, setScope] = React.useState<ImScope>('all');
+  const [query, setQuery] = React.useState('');
+  const [archiveOpen, setArchiveOpen] = React.useState(false);
+
+  const sections = React.useMemo(() => {
+    let newestMs = 0;
+    for (const item of threads) {
+      if (item.kind === 'direct') continue;
+      const ts = threadTimestamp(item);
+      if (Number.isFinite(ts) && ts > newestMs) newestMs = ts;
+    }
+    if (!newestMs) newestMs = Date.now();
+    const direct: Thread[] = [];
+    const activeAgents: Thread[] = [];
+    const channels: Thread[] = [];
+    const recentAgents: Thread[] = [];
+    const archivedAgents: Thread[] = [];
+    for (const item of threads) {
+      if (item.kind === 'direct') {
+        direct.push(item);
+      } else if (item.kind === 'channel') {
+        channels.push(item);
+      } else if (item.active) {
+        activeAgents.push(item);
+      } else {
+        const ts = threadTimestamp(item);
+        if (Number.isFinite(ts) && (newestMs - ts) > IM_DORMANT_MS) {
+          archivedAgents.push(item);
+        } else {
+          recentAgents.push(item);
+        }
+      }
+    }
+    return { direct, activeAgents, channels, recentAgents, archivedAgents };
+  }, [threads]);
+
+  const selectedInArchive = Boolean(thread && sections.archivedAgents.some((item) => item.id === thread.id));
+  React.useEffect(() => {
+    if (selectedInArchive) setArchiveOpen(true);
+  }, [selectedInArchive]);
+
+  const needle = query.trim().toLowerCase();
+  const searchResults = React.useMemo(
+    () => (needle ? threads.filter((item) => matchesThread(item, needle)) : []),
+    [threads, needle],
+  );
+  const chatCount = sections.direct.length + sections.channels.length;
+  const agentCount = sections.activeAgents.length + sections.recentAgents.length + sections.archivedAgents.length;
+  const showControls = threads.length > 1;
+  const archiveExpanded = archiveOpen || (scope === 'agents' && sections.activeAgents.length === 0 && sections.recentAgents.length === 0);
+
+  const renderRow = (item: Thread) => (
+    <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
+      <Avatar participants={item.participants} audience={item.audience} active={item.active} />
+      <span className="im-row-text">
+        <span className="im-row-top">
+          <span className="im-row-title">{item.title}</span>
+          <time className="im-row-time">{shortWhen(item.updated_at)}</time>
+        </span>
+        <span className="im-row-preview">{item.preview}</span>
+        {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
+      </span>
+    </ToggleGroupItem>
+  );
+
+  const renderArchiveSection = () => {
+    if (sections.archivedAgents.length === 0) return null;
+    return (
+      <>
+        <button
+          type="button"
+          className="im-archive-toggle"
+          aria-expanded={archiveExpanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            setArchiveOpen((open) => !open);
+          }}
+        >
+          <Icon name="chevron" size={12} />
+          <span className="im-archive-title">{t('im.section.archivedAgents')}</span>
+          <span className="im-section-count">{sections.archivedAgents.length}</span>
+        </button>
+        {archiveExpanded && sections.archivedAgents.map(renderRow)}
+      </>
+    );
+  };
+
   return (
     <div className="im" data-thread-kind={thread?.kind} data-pane={pane}>
       <nav
@@ -48,31 +154,136 @@ export function ImView({
         aria-label={t('conversation.label')}
         onClick={(event) => { if ((event.target as Element).closest('.im-row')) setPane('thread'); }}
       >
+        {showControls && (
+          <div className="im-controls">
+            <div className="inspector-search-wrap im-search-wrap">
+              <Icon name="search" size={13} />
+              <input
+                type="search"
+                className="inspector-search im-search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    if (query) setQuery('');
+                    else (event.currentTarget as HTMLInputElement).blur();
+                  }
+                }}
+                placeholder={t('im.searchPlaceholder')}
+                aria-label={t('im.searchPlaceholder')}
+                spellCheck={false}
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="inspector-search-clear"
+                  aria-label={t('files.searchClear')}
+                  onClick={() => setQuery('')}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              )}
+            </div>
+            {!needle && (
+              <div className="scope-bar im-scope-bar" role="tablist" aria-label={t('conversation.label')}>
+                {([
+                  ['all', t('im.scope.all'), threads.length],
+                  ['chats', t('im.scope.chats'), chatCount],
+                  ['agents', t('im.scope.agents'), agentCount],
+                ] as const).map(([id, label, count]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={scope === id}
+                    className="scope-item"
+                    data-scope={id}
+                    data-active={scope === id ? '' : undefined}
+                    onClick={() => setScope(id)}
+                  >
+                    <span>{label}</span>
+                    {count > 0 && <span className="scope-count">{count}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <ScrollBox className="im-list-scroll" viewportClassName="im-list-viewport">
-          <ToggleGroupRoot
-            className="im-list-group"
-            a11yLabel={t('conversation.label')}
-            orientation="vertical"
-            value={thread ? [thread.id] : []}
-            onValueChange={(detail: { value: readonly string[] }) => {
-              const next = detail.value.find((id) => id !== thread?.id);
-              if (next) onSelect(next);
-            }}
-          >
-            {threads.map((item) => (
-              <ToggleGroupItem key={item.id} value={item.id} className={`im-row kind-${item.kind}`}>
-                <Avatar participants={item.participants} audience={item.audience} active={item.active} />
-                <span className="im-row-text">
-                  <span className="im-row-top">
-                    <span className="im-row-title">{item.title}</span>
-                    <time className="im-row-time">{shortWhen(item.updated_at)}</time>
-                  </span>
-                  <span className="im-row-preview">{item.preview}</span>
-                {item.active && <span className="sr-only">{item.state ?? t('taskState.running')}</span>}
-                </span>
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroupRoot>
+          {needle && searchResults.length === 0 ? (
+            <p className="im-no-matches">{t('im.noMatches')}</p>
+          ) : (
+            <ToggleGroupRoot
+              className="im-list-group"
+              a11yLabel={t('conversation.label')}
+              orientation="vertical"
+              value={thread ? [thread.id] : []}
+              onValueChange={(detail: { value: readonly string[] }) => {
+                const next = detail.value.find((id) => id !== thread?.id);
+                if (next) onSelect(next);
+              }}
+            >
+              {needle ? (
+                searchResults.map(renderRow)
+              ) : scope === 'chats' ? (
+                <>
+                  {sections.direct.map(renderRow)}
+                  {sections.channels.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.channels')}</span>
+                      <span className="im-section-count">{sections.channels.length}</span>
+                    </div>
+                  )}
+                  {sections.channels.map(renderRow)}
+                </>
+              ) : scope === 'agents' ? (
+                <>
+                  {sections.activeAgents.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.activeAgents')}</span>
+                      <span className="im-section-count">{sections.activeAgents.length}</span>
+                    </div>
+                  )}
+                  {sections.activeAgents.map(renderRow)}
+                  {sections.recentAgents.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.recentAgents')}</span>
+                      <span className="im-section-count">{sections.recentAgents.length}</span>
+                    </div>
+                  )}
+                  {sections.recentAgents.map(renderRow)}
+                  {renderArchiveSection()}
+                  {agentCount === 0 && <p className="im-no-matches">{t('im.noMatches')}</p>}
+                </>
+              ) : (
+                <>
+                  {sections.direct.map(renderRow)}
+                  {sections.activeAgents.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.activeAgents')}</span>
+                      <span className="im-section-count">{sections.activeAgents.length}</span>
+                    </div>
+                  )}
+                  {sections.activeAgents.map(renderRow)}
+                  {sections.channels.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.channels')}</span>
+                      <span className="im-section-count">{sections.channels.length}</span>
+                    </div>
+                  )}
+                  {sections.channels.map(renderRow)}
+                  {sections.recentAgents.length > 0 && (
+                    <div className="im-section-head" aria-hidden="true">
+                      <span>{t('im.section.recentAgents')}</span>
+                      <span className="im-section-count">{sections.recentAgents.length}</span>
+                    </div>
+                  )}
+                  {sections.recentAgents.map(renderRow)}
+                  {renderArchiveSection()}
+                </>
+              )}
+            </ToggleGroupRoot>
+          )}
         </ScrollBox>
       </nav>
       {thread
@@ -121,6 +332,9 @@ function shortWhen(value: string | undefined): string {
   if (Number.isNaN(date.getTime())) return '';
   const now = new Date();
   if (date.toDateString() === now.toDateString()) return formatTime(value);
+  if (date.getFullYear() !== now.getFullYear()) {
+    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+  }
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 

@@ -11,7 +11,7 @@ import type {
   UiProjection,
 } from './projection';
 import { ConfigEntries } from './config-panel';
-import { TaskHierarchy, ArtifactHierarchy } from './inspector-trees';
+import { TaskHierarchy, ArtifactHierarchy, PendingDecisionBanner, type PendingDecisionNotice } from './inspector-trees';
 import {
   readContentRevisionDisclosure,
   readRevisionDisclosure,
@@ -76,8 +76,11 @@ function Group({ title, children, aside }: { title: string; children: React.Reac
   );
 }
 
-export function TasksSurface({ node, ownerKey, onOpenThread }: {
-  node?: UiNode; ownerKey: string; onOpenThread?: (threadId: string) => void;
+export function TasksSurface({ node, ownerKey, onOpenThread, pendingDecision }: {
+  node?: UiNode;
+  ownerKey: string;
+  onOpenThread?: (threadId: string) => void;
+  pendingDecision?: PendingDecisionNotice;
 }) {
   if (!node) return null;
   const data = node.props.data;
@@ -89,15 +92,27 @@ export function TasksSurface({ node, ownerKey, onOpenThread }: {
         : data?.available === false
           ? <Note text={data?.note || t('config.tasksMissing')} />
           : items.length === 0
-            ? <Note text={data?.note || t('config.tasksEmpty')} />
-            : <TaskHierarchy key={ownerKey} tasks={items} onOpenThread={onOpenThread} />}
+            ? <>
+              {pendingDecision && <PendingDecisionBanner decision={pendingDecision} />}
+              <Note text={data?.note || t('config.tasksEmpty')} />
+            </>
+            : <TaskHierarchy key={ownerKey} tasks={items} onOpenThread={onOpenThread} pendingDecision={pendingDecision} />}
     </Page>
   );
 }
 
 export function MemorySurface({ node }: { node?: UiNode }) {
+  const [query, setQuery] = React.useState('');
   if (!node) return null;
   const items = Array.isArray(node.props.data?.items) ? node.props.data.items : [];
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? items.filter((memory: Record<string, unknown>) => {
+      const hay = [memory.kind, memory.content, memory.text, memory.summary, memory.title]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(needle);
+    })
+    : items;
   return (
     <Page title={t('config.memory')} lead={t('config.memoryLead')} hidden={node.props.hidden}>
       {node.props.error
@@ -105,23 +120,57 @@ export function MemorySurface({ node }: { node?: UiNode }) {
         : items.length === 0
           ? <Note text={node.props.data?.note || t('config.memoryEmpty')} />
           : <>
-            <div className="inspector-section-bar is-quiet">
-              <span className="inspector-section-stat">{t('files.itemsCount', { count: items.length })}</span>
+            <div className="memory-controls">
+              <div className="inspector-search-wrap">
+                <Icon name="search" size={13} />
+                <input
+                  type="search"
+                  className="inspector-search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') {
+                      if (query) setQuery('');
+                      else (event.currentTarget as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder={t('memory.searchPlaceholder')}
+                  aria-label={t('memory.searchPlaceholder')}
+                  spellCheck={false}
+                />
+                {query && (
+                  <button
+                    type="button"
+                    className="inspector-search-clear"
+                    aria-label={t('files.searchClear')}
+                    onClick={() => setQuery('')}
+                  >
+                    <Icon name="close" size={12} />
+                  </button>
+                )}
+              </div>
+              <span className="inspector-section-stat">
+                {needle
+                  ? t('files.filteredCount', { shown: visible.length, total: items.length })
+                  : t('files.itemsCount', { count: items.length })}
+              </span>
             </div>
-            <ul className="rows is-inset">{items.map((memory: Record<string, unknown>, index: number) => (
-              <li className="row is-stacked" key={String(memory.id ?? index)}>
-                <span className="row-main">
-                  <span className="row-sub is-top">
-                    {/* `kind` is a learnable hint, never the entry's content. */}
-                    {memory.kind ? <span className="memory-kind-tag">{String(memory.kind)}</span> : null}
-                    <time title={formatStamp(memory.created_at)}>{formatCompactAge(memory.created_at)}</time>
+            {visible.length === 0
+              ? <Note text={t('memory.noMatches')} />
+              : <ul className="rows is-inset">{visible.map((memory: Record<string, unknown>, index: number) => (
+                <li className="row is-stacked" key={String(memory.id ?? index)}>
+                  <span className="row-main">
+                    <span className="row-sub is-top">
+                      {/* `kind` is a learnable hint, never the entry's content. */}
+                      {memory.kind ? <span className="memory-kind-tag">{String(memory.kind)}</span> : null}
+                      <time title={formatStamp(memory.created_at)}>{formatCompactAge(memory.created_at)}</time>
+                    </span>
+                    <span className="row-text">{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}</span>
+                    <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
+                    <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
                   </span>
-                  <span className="row-text">{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}</span>
-                  <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
-                  <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
-                </span>
-              </li>
-            ))}</ul>
+                </li>
+              ))}</ul>}
           </>}
     </Page>
   );

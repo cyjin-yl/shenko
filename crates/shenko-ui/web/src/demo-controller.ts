@@ -150,6 +150,10 @@ function demoState(): UiState {
           created_at: new Date(Date.now() - 5.5 * 60_000).toISOString(), name: member.name, team: DEMO_TEAM.team,
         })),
         { task_id: 'demo-task-6c12', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', goal: '验证配置读取发生在目录解析之后。', created_at: new Date(Date.now() - 11 * 60_000).toISOString() },
+        // Dormant historical subagents from weeks & months ago (demonstrates time-horizon archival).
+        { task_id: 'demo-arch-18d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: '飞书回调排查', goal: '梳理飞书 Webhook 签名校验与重复投递去重策略。', created_at: new Date(Date.now() - 18 * 86400_000).toISOString() },
+        { task_id: 'demo-arch-64d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: 'LayerFS 快照对照', goal: '对比 Linux VM 原生 LayerFS 与 WASM 家园快照恢复耗时。', created_at: new Date(Date.now() - 64 * 86400_000).toISOString() },
+        { task_id: 'demo-arch-96d', parent_task_id: 'demo-subject-root', kind: 'model.child', role: 'delegation', state: 'terminal', name: 'Qwen3.8 量化基线', goal: '测量 4 路 128K KV 并发下 Q4_K_M 与 FP8 的吞吐差异。', created_at: new Date(Date.now() - 96 * 86400_000).toISOString() },
       ],
     },
     tasks_error: false,
