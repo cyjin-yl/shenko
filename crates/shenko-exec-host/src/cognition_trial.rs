@@ -503,7 +503,7 @@ async fn recorded_judgement<C: Serialize + ?Sized>(
             .map(|failure| format!("; receipt recording failed: {failure}")).unwrap_or_default()))?;
     ensure!(result.status == InferenceStatus::Success, "judge call failed: {:?}", result.status);
     let response = result.response.context("judge succeeded without a response")?;
-    judge_verdict(&response.content)
+    judge_verdict(response.visible_answer())
 }
 
 /// A fresh throwaway installation: store, genesis, head and first step.

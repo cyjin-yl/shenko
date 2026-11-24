@@ -2961,7 +2961,10 @@ fn record_model_evidence(
         .response
         .as_ref()
         .ok_or_else(|| ShenkoError::other("successful model result missing response"))?;
-    let output = response.content.clone();
+    // A reasoning backend can answer with the visible content empty and the
+    // whole reply in its native reasoning field. The sealed result is what
+    // the model actually said, so a reasoning-only turn is not an empty turn.
+    let output = response.visible_answer().to_string();
     step.model_result_ref = Some(seal_step_object(
         store,
         seq,
