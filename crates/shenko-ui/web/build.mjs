@@ -71,6 +71,10 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/toggle/index.js',
   'packages/prototypes/shadcn/dist/resizable/index.js',
   'packages/prototypes/shadcn/dist/tree/index.js',
+  'packages/prototypes/shadcn/dist/card/index.js',
+  'packages/prototypes/shadcn/dist/tabs/index.js',
+  'packages/prototypes/shadcn/dist/context-menu/index.js',
+  'packages/prototypes/shadcn/dist/dropdown/index.js',
   'packages/cli/bin/proto-ui.js',
   // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
   // re-audits these same inputs before bundling them for the build.

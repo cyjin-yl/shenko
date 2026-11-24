@@ -20,7 +20,11 @@
     "separator",
     "toggle",
     "resizable",
-    "tree"
+    "tree",
+    "card",
+    "tabs",
+    "context-menu",
+    "dropdown"
   ],
   "compiler": {
     "status": "build_time_compiled",

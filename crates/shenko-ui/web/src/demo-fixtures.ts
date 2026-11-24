@@ -214,12 +214,51 @@ function demoWidgetPreview(artifactId: string, theme: 'light' | 'dark'): DemoWid
     return {
       kind: 'html',
       html: widgetHtmlDoc(theme, `
-        <p class="poem">「雨声盖过了风扇声。<br>记忆如果像底片，暂定条目就是还在暗房里没定影的片子。」</p>
-        <div class="sign faint">22:14 · 随手记</div>
+        <div class="diary">
+          <p class="poem">「雨声盖过了风扇声。」</p>
+          <p class="body muted">记忆如果像底片，暂定条目就是还在暗房里没定影的片子——亮得太早会灰，放得太久会忘。</p>
+          <p class="body muted">等下一次冷启动再看一眼那 300ms。</p>
+        </div>
+        <div class="sign faint">22:14 · 随手记 · 雨夜</div>
       `, `
-        body { justify-content: space-between; padding: 12px; }
-        .poem { font-size: 12.5px; line-height: 1.65; letter-spacing: 0.01em; }
-        .sign { font-size: 10.5px; }
+        body { justify-content: space-between; padding: 10px 12px; }
+        .diary { display: grid; gap: 8px; }
+        .poem { font-size: 12.5px; font-weight: 560; line-height: 1.5; }
+        .body { font-size: 11.5px; line-height: 1.55; }
+        .sign { font-size: 10.5px; padding-top: 8px; border-top: 1px solid ${line}; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-5') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="reads">
+          <div class="r"><span class="n faint">1.</span><span>LayerFS copy-on-write 笔记</span></div>
+          <div class="r"><span class="n faint">2.</span><span>Proto-UI 编译期 seam</span></div>
+          <div class="r"><span class="n faint">3.</span><span>神保町旧书店折页</span></div>
+        </div>
+      `, `
+        body { justify-content: center; padding: 8px 11px; }
+        .reads { display: grid; gap: 7px; }
+        .r { display: flex; align-items: baseline; gap: 7px; font-size: 11.5px; line-height: 1.35; }
+        .n { font-size: 10px; font-variant-numeric: tabular-nums; flex: none; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-6') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="strip">
+          <span class="pill">飞书 · 林以</span>
+          <span class="txt">三条结论先压成一页，今晚发给她看</span>
+        </div>
+      `, `
+        body { justify-content: center; padding: 0 12px; }
+        .strip { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .pill { font-size: 10.5px; color: ${accent}; font-weight: 580; flex: none; }
+        .txt { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       `),
     };
   }

@@ -264,26 +264,31 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .inspector-search-clear:hover { background: var(--hover); color: var(--ink); }
 .inspector-search-clear:active { background: var(--press); }
 
+.scope-tabs-root { display: block; width: 100%; gap: 0; }
 .scope-bar {
   display: flex; align-items: center; gap: 2px; flex-wrap: nowrap;
+  width: 100%; height: auto; padding: 0; border-radius: 0; background: transparent;
 }
 .scope-item {
-  appearance: none; border: 0; background: transparent; height: 24px; padding: 0 8px;
+  appearance: none; border: 0; background: transparent; box-shadow: none;
+  height: 24px; padding: 0 8px;
   border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; flex: 1 1 auto; min-width: 0;
   transition: background-color 100ms ease, color 100ms ease;
 }
 .scope-item:hover { color: var(--ink); background: var(--hover); }
 .scope-item:active { background: var(--press); }
-.scope-item[data-active] {
+.scope-item[data-active],
+.scope-item[aria-selected="true"] {
   background: color-mix(in oklch, var(--ink) 9%, transparent);
-  color: var(--ink); font-weight: 580;
+  color: var(--ink); font-weight: 580; box-shadow: none;
 }
 .scope-count {
   font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums;
   color: var(--faint); flex: none;
 }
-.scope-item[data-active] .scope-count { color: var(--muted); }
+.scope-item[data-active] .scope-count,
+.scope-item[aria-selected="true"] .scope-count { color: var(--muted); }
 
 /* Contextual pending-decision inline bar (Tasks surface only — never Configuration). */
 .inspector-attention {
@@ -375,29 +380,60 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .tasks-archive-meta { font-size: 11px; font-weight: 480; color: var(--faint); font-variant-numeric: tabular-nums; flex: none; }
 .tasks-archive-body { display: grid; gap: 10px; padding-top: 6px; }
 
-/* Playground Persistent Widgets Board (Apple HIG WidgetKit — zero templates). */
+/* Playground Freeform Persistent Widgets Board (Proto-UI Card + Tabs + ContextMenu + Dropdown). */
 .widgets-controls {
   display: grid; gap: 7px; padding-bottom: 10px; margin-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
-.widgets-board { display: grid; gap: 12px; }
+.widgets-board { container-type: inline-size; display: grid; gap: 12px; }
 .widgets-section { display: grid; gap: 6px; }
 .widgets-grid {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;
+  --grid-cols: 4;
+  display: grid;
+  grid-template-columns: repeat(var(--grid-cols), minmax(0, 1fr));
+  grid-auto-rows: 70px;
+  grid-auto-flow: dense;
+  gap: 10px;
 }
+@container (min-width: 480px) {
+  .widgets-grid { --grid-cols: 6; }
+}
+@container (max-width: 319px) {
+  .widgets-grid { --grid-cols: 2; }
+}
+.widgets-grid[data-resizing] iframe { pointer-events: none; }
+.widget-slot {
+  position: relative; min-width: 0; min-height: 0;
+  grid-column: span min(var(--cols, 2), var(--grid-cols));
+  grid-row: span var(--rows, 2);
+}
+.widget-slot > * {
+  display: block; width: 100%; height: 100%; min-width: 0; min-height: 0;
+}
+.widget-slot[data-drop-target] {
+  outline: 2px solid var(--accent-color); outline-offset: 2px; border-radius: 14px;
+}
+.widget-slot[data-resizing] {
+  z-index: 4; outline: 1.5px solid var(--accent-color); border-radius: 14px;
+}
+.widget-slot[data-lifecycle="archived"] .widget-tile { opacity: 0.86; }
+.widget-cm-trigger { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .widget-tile {
-  display: grid; grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex; flex-direction: column;
+  width: 100%; height: 100%; min-width: 0; min-height: 0;
+  padding: 0; gap: 0;
   border-radius: 14px; border: 1px solid var(--line);
-  background: var(--surface); overflow: hidden; min-width: 0;
+  background: var(--surface); color: var(--ink);
+  box-shadow: none; overflow: hidden;
   transition: border-color 120ms ease;
 }
-.widget-tile[data-size="wide"] { grid-column: 1 / -1; }
 .widget-tile:hover { border-color: var(--line-strong); }
-.widget-tile[data-lifecycle="archived"] { opacity: 0.86; }
-.widget-head {
+.widget-head { flex: none; display: block; padding: 0; margin: 0; gap: 0; border-radius: 0; }
+.widget-head-bar {
   position: relative;
-  display: flex; align-items: center; gap: 6px; min-height: 30px; padding: 6px 11px 4px;
+  display: flex; align-items: center; gap: 6px; min-height: 28px; padding: 5px 10px 3px;
 }
+.widget-slot[data-rows="1"] .widget-head-bar { min-height: 22px; padding: 4px 10px 1px; }
 .widget-dot { width: 5.5px; height: 5.5px; border-radius: 50%; background: var(--faint); flex: none; }
 .widget-dot[data-lifecycle="running"] { background: var(--ok); }
 .widget-dot[data-lifecycle="published"] { background: var(--accent-color); }
@@ -416,12 +452,12 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   background: var(--surface);
   opacity: 0; pointer-events: none; transition: opacity 120ms ease;
 }
-.widget-tile:hover .widget-actions,
-.widget-tile:focus-within .widget-actions { opacity: 1; pointer-events: auto; }
-.widget-tile:hover .widget-age,
-.widget-tile:focus-within .widget-age { opacity: 0; }
+.widget-slot:hover .widget-actions,
+.widget-slot:focus-within .widget-actions { opacity: 1; pointer-events: auto; }
+.widget-slot:hover .widget-age,
+.widget-slot:focus-within .widget-age { opacity: 0; }
 .widget-act {
-  appearance: none; border: 0; background: transparent;
+  appearance: none; border: 0; background: transparent; box-shadow: none;
   width: 22px; height: 22px; border-radius: 5px; padding: 0;
   display: inline-grid; place-items: center; color: var(--muted);
   transition: background-color 100ms ease, color 100ms ease;
@@ -434,24 +470,23 @@ input, textarea { user-select: text; -webkit-user-select: text; }
   .widget-age { display: none; }
 }
 .widget-body {
-  min-height: 82px; padding: 2px 11px 8px; display: flex; flex-direction: column; justify-content: center;
+  position: relative; flex: 1 1 0; min-height: 0; padding: 2px 10px 8px;
+  display: flex; flex-direction: column; justify-content: center; overflow: hidden;
 }
-.widget-tile[data-size="compact"] .widget-body { min-height: 104px; }
-.widget-tile[data-size="wide"] .widget-body { min-height: 92px; }
 .widget-body.is-frame { padding: 0; display: block; }
 .widget-live-frame {
-  display: block; width: 100%; height: 108px; border: 0; background: var(--surface);
+  position: absolute; inset: 0; display: block; width: 100%; height: 100%;
+  border: 0; background: var(--surface);
 }
 .widget-live-frame[sandbox=""] { pointer-events: none; }
-.widget-tile[data-size="wide"] .widget-live-frame { height: 104px; }
 .widget-markdown {
-  margin: 0; font-size: 12px; line-height: 1.55; color: var(--ink-2);
+  margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--ink-2);
   white-space: pre-wrap; user-select: text; -webkit-user-select: text;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .widget-fallback {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  min-height: 44px; padding: 6px 0;
+  min-height: 36px; padding: 4px 0;
 }
 .widget-fallback-hint { font-size: 11.5px; color: var(--muted); }
 .widget-open-link {
@@ -461,16 +496,51 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 }
 .widget-open-link:active { background: var(--press); }
 .widget-foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 6px;
-  padding: 5px 11px 7px; border-top: 1px solid color-mix(in oklch, var(--line) 75%, transparent);
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  padding: 4px 10px 6px; border-top: 1px solid color-mix(in oklch, var(--line) 75%, transparent);
   font-size: 10.5px; color: var(--faint); font-variant-numeric: tabular-nums;
+  border-radius: 0;
 }
-.widgets-index-section {
-  margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line);
+.widget-resize-grip {
+  position: absolute; right: 2px; bottom: 2px; z-index: 2;
+  width: 14px; height: 14px; padding: 0; border: 0; background: transparent;
+  cursor: nwse-resize; opacity: 0; transition: opacity 120ms ease;
 }
-@media (max-width: 440px) {
-  .widgets-grid { grid-template-columns: 1fr; }
+.widget-resize-grip::after {
+  content: ""; position: absolute; right: 3px; bottom: 3px;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--faint); border-bottom: 1.5px solid var(--faint);
+  border-bottom-right-radius: 2px;
 }
+.widget-slot:hover .widget-resize-grip,
+.widget-slot:focus-within .widget-resize-grip,
+.widget-slot[data-resizing] .widget-resize-grip { opacity: 1; }
+.widget-size-hud {
+  position: absolute; right: 8px; bottom: 8px; z-index: 5; pointer-events: none;
+  padding: 2px 6px; border-radius: 5px;
+  background: var(--ink); color: var(--canvas);
+  font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+/* Proto-UI ContextMenu & Dropdown surface for widget actions (no native scrollbars). */
+.widget-menu-content {
+  z-index: 60; min-width: 168px; padding: 4px;
+  border-radius: 10px; border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--ink); box-shadow: var(--shadow-float);
+  overflow: hidden; scrollbar-width: none;
+}
+.widget-menu-content::-webkit-scrollbar { display: none; }
+.widget-menu-label {
+  padding: 4px 8px 3px; font-size: 10.5px; font-weight: 600; color: var(--faint);
+}
+.widget-menu-sep { height: 1px; margin: 4px 0; background: var(--line); }
+.widget-menu-item {
+  display: flex; align-items: center; gap: 7px; min-height: 26px; padding: 3px 8px;
+  border-radius: 6px; font-size: 12px; font-weight: 480; color: var(--ink);
+  cursor: default; user-select: none;
+}
+.widget-menu-item:hover,
+.widget-menu-item[data-focused] { background: var(--hover); color: var(--ink); }
+.widget-menu-item svg { color: var(--muted); flex: none; }
 
 .inspector-section-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

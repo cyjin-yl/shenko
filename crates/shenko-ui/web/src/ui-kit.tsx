@@ -41,6 +41,32 @@ import {
 } from '@proto.ui/prototypes-shadcn/resizable';
 import { shadcnToggle } from '@proto.ui/prototypes-shadcn/toggle';
 import { shadcnTreeRoot, shadcnTreeItem, shadcnTreeGroup } from '@proto.ui/prototypes-shadcn/tree';
+import {
+  shadcnCardRoot,
+  shadcnCardHeader,
+  shadcnCardContent,
+  shadcnCardFooter,
+} from '@proto.ui/prototypes-shadcn/card';
+import {
+  shadcnTabsRoot,
+  shadcnTabsList,
+  shadcnTabsTrigger,
+} from '@proto.ui/prototypes-shadcn/tabs';
+import {
+  contextMenuRoot,
+  contextMenuTrigger,
+  contextMenuContent,
+  contextMenuItem,
+} from '@proto.ui/prototypes-shadcn/context-menu';
+import {
+  shadcnDropdownRoot,
+  shadcnDropdownTrigger,
+  shadcnDropdownContent,
+  shadcnDropdownItem,
+  dropdownGroup,
+  dropdownLabel,
+  dropdownSeparator,
+} from '@proto.ui/prototypes-shadcn/dropdown';
 import type { ConnectionState } from './projection';
 import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
 
@@ -180,6 +206,66 @@ export const TreeRoot = adapt(shadcnTreeRoot);
 export const TreeItem = adapt(shadcnTreeItem);
 export const TreeGroup = adapt(shadcnTreeGroup);
 export type InspectorTreeHandle = ReactAdapterHandle<typeof shadcnTreeRoot>;
+export const CardRoot = adapt(shadcnCardRoot);
+export const CardHeader = adapt(shadcnCardHeader);
+export const CardContent = adapt(shadcnCardContent);
+export const CardFooter = adapt(shadcnCardFooter);
+export const TabsRoot = adapt(shadcnTabsRoot);
+export const TabsList = adapt(shadcnTabsList);
+export const TabsTrigger = adapt(shadcnTabsTrigger);
+export const ContextMenuRoot = adapt(contextMenuRoot);
+export const ContextMenuTrigger = adapt(contextMenuTrigger);
+export const ContextMenuContent = adapt(contextMenuContent);
+export const ContextMenuItem = adapt(contextMenuItem);
+export const DropdownRoot = adapt(shadcnDropdownRoot);
+export const DropdownTrigger = adapt(shadcnDropdownTrigger);
+export const DropdownContent = adapt(shadcnDropdownContent);
+export const DropdownItem = adapt(shadcnDropdownItem);
+export const DropdownGroup = adapt(dropdownGroup);
+export const DropdownLabel = adapt(dropdownLabel);
+export const DropdownSeparator = adapt(dropdownSeparator);
+
+/** Scope bar backed by Proto-UI shadcn Tabs (roving arrow keys + ARIA tabs). */
+export function ScopeTabs<T extends string>({
+  value,
+  onChange,
+  label,
+  className,
+  items,
+}: {
+  value: T;
+  onChange: (next: T) => void;
+  label: string;
+  className?: string;
+  items: ReadonlyArray<{ id: T; label: string; count?: number }>;
+}) {
+  return (
+    <TabsRoot
+      styleProfile="rhea"
+      className={['scope-tabs-root', className].filter(Boolean).join(' ')}
+      value={value}
+      onValueChange={(detail: { value?: string }) => {
+        if (detail?.value && detail.value !== value) onChange(detail.value as T);
+      }}
+    >
+      <TabsList styleProfile="rhea" a11yLabel={label} className="scope-bar">
+        {items.map((item) => (
+          <TabsTrigger
+            key={item.id}
+            styleProfile="rhea"
+            value={item.id}
+            className={`scope-item scope-id-${item.id}`}
+          >
+            <span>{item.label}</span>
+            {item.count !== undefined && item.count > 0 && (
+              <span className="scope-count">{item.count}</span>
+            )}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </TabsRoot>
+  );
+}
 
 export type Emit = (nodeId: string, actionId: string, payload?: Record<string, unknown>) => void;
 

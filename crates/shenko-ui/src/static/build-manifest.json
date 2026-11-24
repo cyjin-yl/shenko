@@ -25,7 +25,11 @@
     "separator",
     "toggle",
     "resizable",
-    "tree"
+    "tree",
+    "card",
+    "tabs",
+    "context-menu",
+    "dropdown"
   ],
   "realisation": {
     "compiled": [
@@ -90,6 +94,26 @@
       },
       {
         "family": "tree",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "card",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "tabs",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "context-menu",
+        "mode": "adapter",
+        "compiler_blocker": "shenko#335"
+      },
+      {
+        "family": "dropdown",
         "mode": "adapter",
         "compiler_blocker": "shenko#335"
       }
@@ -206,27 +230,27 @@
     "react_dom": "19.3.1"
   },
   "web_root": "/tank/shared/projects/shenko/worktrees/hig-sidebar-scroll-area-20261124/crates/shenko-ui/web",
-  "built_at": "2026-11-24T14:59:20.514Z",
+  "built_at": "2026-11-24T15:34:13.068Z",
   "artifacts": {
     "theme-bootstrap.js": {
       "bytes": 770,
       "sha256": "6fe832f8731ccbcebfc746413f6d197ed6d3abadaa8c74e032e234b0283e1f4d"
     },
     "app.js": {
-      "bytes": 1287575,
-      "sha256": "fe8a863666c45362acbe28b5be857665230508956b9e41632b868219a1596e45"
+      "bytes": 1357405,
+      "sha256": "6f44a68c00b20f4c17dc2f9ea7ac104eaf011ae87386dcd2caef60786921a129"
     },
-    "chunks/chunk-DKWRCLRI.js": {
-      "bytes": 74327,
-      "sha256": "a668499cc65a99fba4433504a64fd3f3c5e483c6e18583f8fa233538c00f13e4"
+    "chunks/chunk-SD6RZHGX.js": {
+      "bytes": 75257,
+      "sha256": "5ffbbecc39ba58951683e4c627f71178e39e9d7d5d089a3a356421a0c60f2f13"
     },
-    "chunks/demo-controller-MHR4PFAX.js": {
-      "bytes": 26009,
-      "sha256": "560ac3b8128267154e2272cd5ce6f9198c9250fcf1c2aaeae67fd62ba1b200c5"
+    "chunks/demo-controller-PWIJ4H73.js": {
+      "bytes": 28285,
+      "sha256": "b30b7204bfa4ecca3a0e54a2c08a595180bef940aea43d3600bfd96bad9501ba"
     },
     "app.css": {
-      "bytes": 92383,
-      "sha256": "82fdc764dfe7d5320e07d427d4eff5640d4a124816624eed9b1ae6c0c8346557"
+      "bytes": 95382,
+      "sha256": "2aea726b79a825c22589a227eae295f253aba35cbf2b0bcb91da8ca8bea4af8b"
     },
     "proto-ui-style.css": {
       "bytes": 294,

@@ -5,7 +5,7 @@ import { Icon } from './icons';
 import { isPage } from './slots';
 import { isAttentionTask, isDelegation, shortId, taskStateLabel } from './threads';
 import {
-  Button, TreeRoot, TreeItem, TreeGroup, type InspectorTreeHandle, formatCompactAge, formatStamp,
+  Button, ScopeTabs, TreeRoot, TreeItem, TreeGroup, type InspectorTreeHandle, formatCompactAge, formatStamp,
 } from './ui-kit';
 import {
   artifactEntries, taskEntries, presentHierarchy,
@@ -493,23 +493,12 @@ export function TaskHierarchy({ tasks, onOpenThread, pendingDecision }: {
         )}
       </div>
       {!needle && (
-        <div className="scope-bar" role="tablist" aria-label={t('config.tasks')}>
-          {scopes.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={scope === item.id}
-              className="scope-item"
-              data-scope={item.id}
-              data-active={scope === item.id ? '' : undefined}
-              onClick={() => setScope(item.id)}
-            >
-              <span>{item.label}</span>
-              {item.count > 0 && <span className="scope-count">{item.count}</span>}
-            </button>
-          ))}
-        </div>
+        <ScopeTabs
+          value={scope}
+          onChange={setScope}
+          label={t('config.tasks')}
+          items={scopes}
+        />
       )}
     </div>
 

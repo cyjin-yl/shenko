@@ -7,7 +7,7 @@ import type { Thread, ThreadMessage, Participant } from './threads';
 import type { WebAttachmentRef } from './projection';
 import { formatBytes } from './composer';
 import {
-  ToggleGroupItem, ToggleGroupRoot, MessageRoot, ReadingViewport,
+  ToggleGroupItem, ToggleGroupRoot, MessageRoot, ReadingViewport, ScopeTabs,
   ScrollBox, ScrollScrollbar, ScrollThumb, Button, dayLabel, formatTime,
   type Emit, type ReadingViewportHandle,
 } from './ui-kit';
@@ -185,27 +185,17 @@ export function ImView({
               )}
             </div>
             {!needle && (
-              <div className="scope-bar im-scope-bar" role="tablist" aria-label={t('conversation.label')}>
-                {([
-                  ['all', t('im.scope.all'), threads.length],
-                  ['chats', t('im.scope.chats'), chatCount],
-                  ['agents', t('im.scope.agents'), agentCount],
-                ] as const).map(([id, label, count]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={scope === id}
-                    className="scope-item"
-                    data-scope={id}
-                    data-active={scope === id ? '' : undefined}
-                    onClick={() => setScope(id)}
-                  >
-                    <span>{label}</span>
-                    {count > 0 && <span className="scope-count">{count}</span>}
-                  </button>
-                ))}
-              </div>
+              <ScopeTabs
+                value={scope}
+                onChange={setScope}
+                label={t('conversation.label')}
+                className="im-scope-bar"
+                items={[
+                  { id: 'all', label: t('im.scope.all'), count: threads.length },
+                  { id: 'chats', label: t('im.scope.chats'), count: chatCount },
+                  { id: 'agents', label: t('im.scope.agents'), count: agentCount },
+                ]}
+              />
             )}
           </div>
         )}
