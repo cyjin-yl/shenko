@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "evidence_id": "local-model-reasoning-answer-20261124",
+  "requirements": [
+    "R077"
+  ],
+  "cases_reference_only": [
+    "V1-14"
+  ],
+  "full_cases_passed": [],
+  "status": "real_model_rounds_measured_before_and_after",
+  "pr": "https://github.com/cyjin-yl/shenko/pull/409",
+  "base_commit": "6f0b266d9788c18bcd514487bb2b2646a7064262",
+  "product_commit": "7a5a32ad9fc5bf60fc8a4e3838fbb54b69a41deb",
+  "branch": "fix/reasoning-only-answer-20260724",
+  "model": {
+    "served_id": "swift-qwen3.8-27b-nvfp4",
+    "endpoint": "http://10.10.10.11:8000",
+    "wire": "OpenAI-compatible /v1/chat/completions via shenko_broker::local_provider::LocalModelProvider",
+    "baseline_role": "local 27B baseline for the subject protocol (R077) and the idle-continuation clause V1-14"
+  },
+  "environment": {
+    "rust_build_and_run": "doesvm host, cargo 1.98.1, CARGO_NET_OFFLINE=true; the local endpoint is reachable from this host, not from the CT102 container",
+    "target_dir": "/home/ezra/.cache/shenko-target-real-model",
+    "sandbox_root": "/tank/shared/projects/life/ops/evidence/2026-11-24-shenko-real-model-rounds-r4/sandbox",
+    "shared_gpu": true,
+    "contention_note": "wall-clock per round varied between ~10s and ~90s while the endpoint is shared; the round table is fixed and never changed in response to model output"
+  },
+  "harness": {
+    "rounds": "crates/shenko-exec-host/tests/real_model_rounds.rs",
+    "product_parser": "crates/shenko-subject/src/output.rs#parse_output",
+    "idle_contract": "crates/shenko-subject/tests/local_model_behavior.rs#idle_keeps_thinking: an idle step must produce prose and must not invent a reply target"
+  },
+  "finding": {
+    "summary": "A reasoning backend can end its turn with the visible content field empty and the whole reply in its native reasoning field. The provider read only the visible content, so the model result was sealed as zero bytes, the subject committed an empty step, and the idle round produced neither prose nor an action.",
+    "evidence": "The retained provider result of the failing round still holds the reasoning: the raw response carries \"content\": null with the reply in \"reasoning\"."
+  },
+  "runs": {
+    "before": {
+      "evidence_dir": "/tank/shared/projects/life/ops/evidence/2026-11-24-shenko-real-model-rounds-r2",
+      "planned_rounds": 3,
+      "completed_rounds": 3,
+      "rounds": [
+        {
+          "index": 0,
+          "name": "greet_and_state_fact",
+          "raw_output_bytes": 529,
+          "output_text_chars": 111,
+          "failed_observations": []
+        },
+        {
+          "index": 1,
+          "name": "recall_birthday",
+          "raw_output_bytes": 331,
+          "output_text_chars": 53,
+          "failed_observations": []
+        },
+        {
+          "index": 2,
+          "name": "idle_after_recall",
+          "raw_output_bytes": 0,
+          "output_text_chars": 0,
+          "failed_observations": [
+            "idle_continuation",
+            "raw_output_retained"
+          ]
+        }
+      ],
+      "failure": "round 2 idle_after_recall: the idle round produced neither prose nor an action; the raw model output was not retained",
+      "run_result": "the completion assertion failed: round 2 idle_after_recall produced neither prose nor an action and its raw model output was not retained",
+      "round_with_failed_observations": 2
+    },
+    "after": {
+      "evidence_dir": "/tank/shared/projects/life/ops/evidence/2026-11-24-shenko-real-model-rounds-r4",
+      "planned_rounds": 3,
+      "completed_rounds": 3,
+      "failed_rounds": 0,
+      "rounds": [
+        {
+          "index": 0,
+          "name": "greet_and_state_fact",
+          "raw_output_bytes": 301,
+          "output_text_chars": 66,
+          "failed_observations": []
+        },
+        {
+          "index": 1,
+          "name": "recall_birthday",
+          "raw_output_bytes": 179,
+          "output_text_chars": 8,
+          "failed_observations": []
+        },
+        {
+          "index": 2,
+          "name": "idle_after_recall",
+          "raw_output_bytes": 402,
+          "output_text_chars": 138,
+          "failed_observations": []
+        }
+      ],
+      "result": "cargo test -p shenko-exec-host --test real_model_rounds passed: 3 planned rounds, 3 completed, 0 failed"
+    }
+  },
+  "reasoning_only_turns_after_the_fix": {
+    "count": 4,
+    "sealed_model_result_bytes": [
+      641,
+      2359,
+      163,
+      34
+    ],
+    "note": "four turns of the same run answered in the reasoning channel only (\"content\": null); each of them sealed a non-empty model result instead of nothing"
+  },
+  "not_covered": [
+    "the sixteen-round table of the harness was not run; only the first three rounds were measured",
+    "the perception/awareness efficacy comparison is a separate measurement (crates/shenko-exec-host/tests/awareness_efficacy.rs) and is not closed by this evidence",
+    "no live channel, device or installation journey was measured here",
+    "a reasoning-only reply is treated as the answer only when the backend published no visible content at all; a backend that publishes both keeps the visible content"
+  ]
+}
