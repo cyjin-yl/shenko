@@ -482,12 +482,9 @@ def scan_processes(data_dir: Path, artifact: Path | None = None):
 # ---------------------------------------------------------------------------
 def git(source: Path, arguments, env) -> tuple[int, bytes, bytes]:
     completed = subprocess.run(
-        # The measured tree is the caller's own checkout, often a mounted
-        # worktree whose ownership differs from the account that runs the
-        # harness. The ownership guard would abort the fingerprint; the
-        # harness reads every byte itself and never trusts git's output for
-        # anything but the file list.
-        ["git", "-c", "safe.directory=*", "-C", str(source), *arguments],
+        # A mounted checkout can have a different owner inside the builder.
+        ["git", "--no-optional-locks", "-c", f"safe.directory={source}",
+         "-C", str(source), *arguments],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=300)
     return completed.returncode, completed.stdout, completed.stderr
@@ -1339,13 +1336,32 @@ class Harness:
         row = self.spawn_runtime("bootstrap", pause_at_start=pause)
         state = self.wait_for(
             lambda: (lambda db: db if db and selector_of(db) and head_of(db)
-                     and head_of(db).get("mode") == "paused"
                      else None)(read_db(self.live_db())),
-            "bootstrap_genesis_paused", 300)
+            "bootstrap_genesis", 300)
         case.require("bootstrap_genesis_visible", bool(state))
         endpoint = self.wait_for(lambda: read_control_runtime_id(self.data),
                                  "bootstrap_control", 180)
         case.require("bootstrap_control_endpoint_published", bool(endpoint))
+
+        def read_paused_boundary():
+            current = read_db(self.live_db())
+            head = head_of(current)
+            if not selector_of(current) or not head or head.get("mode") != "paused":
+                return None
+            for request in current["quiesce"]:
+                if (request.get("request_id") == pause
+                        and request.get("state") == "paused"
+                        and request.get("agent_id") == head.get("agent_id")
+                        and request.get("epoch") == head.get("controller_epoch")
+                        and request.get("generation") == head.get("software_generation")
+                        and request.get("boundary_at") is not None
+                        and request.get("closed_at") is None):
+                    return current, request
+            return None
+
+        boundary = self.wait_for(read_paused_boundary, "bootstrap_requested_pause", 180)
+        case.require("bootstrap_head_is_paused_at_requested_boundary", bool(boundary))
+        state, pause_receipt = boundary
         selector = selector_of(state)
         head = head_of(state)
         bootstrap = {
@@ -1360,9 +1376,8 @@ class Harness:
             "binary": str(self.binary),
             "binary_sha256": file_sha256(self.binary),
             "pause_request": pause,
+            "pause_boundary": pause_receipt["boundary_at"],
         }
-        case.check("bootstrap_head_is_paused_at_requested_boundary",
-                   head.get("mode") == "paused", head_mode=head.get("mode"))
         case.check("bootstrap_selector_is_genesis_revision_zero",
                    selector.get("selector_revision") == 0
                    and (selector.get("origin") or {}).get("kind") == "genesis",
