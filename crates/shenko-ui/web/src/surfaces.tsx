@@ -11,7 +11,9 @@ import type {
   UiProjection,
 } from './projection';
 import { ConfigEntries } from './config-panel';
-import { TaskHierarchy, ArtifactHierarchy, PendingDecisionBanner, type PendingDecisionNotice } from './inspector-trees';
+import { TaskHierarchy, PendingDecisionBanner, type PendingDecisionNotice } from './inspector-trees';
+import { PlaygroundWidgets } from './playground-widgets';
+import type { DemoWidgetPreview } from './threads';
 import {
   readContentRevisionDisclosure,
   readRevisionDisclosure,
@@ -326,7 +328,17 @@ export function ConfigSurface({ node, projection, emit }: { node?: UiNode; proje
   );
 }
 
-export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNode; ownerKey: string; onOpenWork?: (artifactId: string) => void }) {
+export function PlaygroundSurface({
+  node, ownerKey, demo = false, theme = 'dark', getDemoPreview, onOpenWork, onInspectWork,
+}: {
+  node?: UiNode;
+  ownerKey: string;
+  demo?: boolean;
+  theme?: 'light' | 'dark';
+  getDemoPreview?: (artifactId: string, theme: 'light' | 'dark') => DemoWidgetPreview | undefined;
+  onOpenWork?: (artifactId: string) => void;
+  onInspectWork?: (artifactId: string) => void;
+}) {
   if (!node) return null;
   const playground: PlaygroundView | undefined = node.props.playground;
   const roots = Array.isArray(playground?.roots) ? playground.roots : [];
@@ -340,11 +352,17 @@ export function PlaygroundSurface({ node, ownerKey, onOpenWork }: { node?: UiNod
         : playground?.available === false
           ? <Note text={t('work.storeRequired')} />
           : <>
-            <div className="inspector-section-bar is-quiet">
-              <span className="inspector-section-stat">{t('files.itemsCount', { count: artifacts.length })}</span>
-            </div>
             {artifacts.length === 0 ? <Note text={t('work.empty')} /> : (
-              <ArtifactHierarchy key={ownerKey} artifacts={artifacts} onOpenWork={onOpenWork} />
+              <PlaygroundWidgets
+                key={ownerKey}
+                artifacts={artifacts}
+                ownerKey={ownerKey}
+                demo={demo}
+                theme={theme}
+                getDemoPreview={getDemoPreview}
+                onOpenWork={onOpenWork}
+                onInspectWork={onInspectWork}
+              />
             )}
             {hasAuxiliary ? <>
               {roots.length > 0 && (

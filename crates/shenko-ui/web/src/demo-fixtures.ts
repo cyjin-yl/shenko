@@ -1,5 +1,5 @@
 import type { FileEntry, FileRoot, FileSource } from './files-view';
-import type { ConversationRow, DemoThreadData, TrajectoryResponse } from './threads';
+import type { ConversationRow, DemoThreadData, DemoWidgetPreview, TrajectoryResponse } from './threads';
 
 const demoConversations: ConversationRow[] = (() => {
   const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -154,4 +154,133 @@ const demoFiles: FileSource = {
   },
 };
 
-export const demoThreadData: DemoThreadData = { conversations: demoConversations, trajectory: demoTrajectory, files: demoFiles };
+function widgetHtmlDoc(theme: 'light' | 'dark', body: string, extraCss = ''): string {
+  const dark = theme === 'dark';
+  const bg = dark ? 'oklch(0.215 0 0)' : '#ffffff';
+  const ink = dark ? 'oklch(0.945 0 0)' : 'oklch(0.22 0 0)';
+  const muted = dark ? 'oklch(0.68 0 0)' : 'oklch(0.52 0 0)';
+  const faint = dark ? 'oklch(0.55 0 0)' : 'oklch(0.64 0 0)';
+  const line = dark ? 'oklch(0.29 0 0)' : 'oklch(0.905 0 0)';
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: ${bg}; color: ${ink};
+      font: 12px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased; user-select: none; }
+    body { padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; }
+    .muted { color: ${muted}; }
+    .faint { color: ${faint}; }
+    .num { font-variant-numeric: tabular-nums; }
+    ${extraCss}
+  </style></head><body>${body}</body></html>`;
+}
+
+function demoWidgetPreview(artifactId: string, theme: 'light' | 'dark'): DemoWidgetPreview | undefined {
+  const dark = theme === 'dark';
+  const ok = dark ? '#32d74b' : '#248a3d';
+  const accent = dark ? '#0a84ff' : '#007aff';
+  const barTrack = dark ? '#2d2d31' : '#ececef';
+  const line = dark ? '#343438' : '#e5e5ea';
+  const muted = dark ? '#9a9aa2' : '#6e6e73';
+
+  if (artifactId === 'demo-work-1') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="rows">
+          <div class="item">
+            <div class="label"><span>调整前 · 首请求后解析目录</span><span class="num muted">3 次重试</span></div>
+            <div class="track"><div class="fill old" style="width:82%"></div></div>
+          </div>
+          <div class="item">
+            <div class="label"><span>调整后 · 启动前解析数据目录</span><span class="num ok">0 次重试</span></div>
+            <div class="track"><div class="fill now" style="width:28%"></div></div>
+          </div>
+        </div>
+        <div class="foot muted">第二次冷启动仍多 300 ms · 暂记为缓存观察</div>
+      `, `
+        .rows { display: grid; gap: 9px; }
+        .item { display: grid; gap: 4px; }
+        .label { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; }
+        .ok { color: ${ok}; font-weight: 600; }
+        .track { height: 6px; border-radius: 3px; background: ${barTrack}; overflow: hidden; }
+        .fill { height: 100%; border-radius: 3px; }
+        .fill.old { background: ${muted}; opacity: 0.45; }
+        .fill.now { background: ${ok}; }
+        .foot { font-size: 11px; padding-top: 8px; border-top: 1px solid ${line}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-3') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <p class="poem">「雨声盖过了风扇声。<br>记忆如果像底片，暂定条目就是还在暗房里没定影的片子。」</p>
+        <div class="sign faint">22:14 · 随手记</div>
+      `, `
+        body { justify-content: space-between; padding: 12px; }
+        .poem { font-size: 12.5px; line-height: 1.65; letter-spacing: 0.01em; }
+        .sign { font-size: 10.5px; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-4') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="head">
+          <span class="big num">50 / 50</span>
+          <span class="muted">4 路 · 128K</span>
+        </div>
+        <div class="split">
+          <div class="half a"></div>
+          <div class="half b"></div>
+        </div>
+        <div class="note muted">群聊观察：自动分 KV，满载无抖动</div>
+      `, `
+        .head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+        .big { font-size: 19px; font-weight: 640; letter-spacing: -0.02em; }
+        .split { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; height: 8px; margin: 6px 0; }
+        .half { border-radius: 4px; }
+        .half.a { background: ${accent}; }
+        .half.b { background: ${accent}; opacity: 0.45; }
+        .note { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-2') {
+    return {
+      kind: 'markdown',
+      text: '保留两次观察来源：\n· 11/12 部署日志：目录解析晚于首请求\n· 暂定条目（+300ms 冷缓存）待确认后再并入',
+    };
+  }
+  if (artifactId === 'demo-work-arch-1') {
+    return {
+      kind: 'html',
+      html: widgetHtmlDoc(theme, `
+        <div class="stops">
+          <div class="stop"><i class="dot"></i><span>神保町 · 矢口书店（电影脚本）</span></div>
+          <div class="stop"><i class="dot"></i><span>小宫山书店 · 摄影画册二楼</span></div>
+          <div class="stop"><i class="dot"></i><span>さぼうる 歇脚写见闻</span></div>
+        </div>
+      `, `
+        .stops { display: grid; gap: 7px; }
+        .stop { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
+        .dot { width: 5px; height: 5px; border-radius: 50%; background: ${muted}; flex: none; }
+      `),
+    };
+  }
+  if (artifactId === 'demo-work-arch-2') {
+    return {
+      kind: 'markdown',
+      text: '128 MB 工作区冷恢复对比：\n· WASM 家园：42 ms\n· Linux LayerFS：19 ms（大权重走只读挂载）',
+    };
+  }
+  return undefined;
+}
+
+export const demoThreadData: DemoThreadData = {
+  conversations: demoConversations,
+  trajectory: demoTrajectory,
+  files: demoFiles,
+  widgetPreview: demoWidgetPreview,
+};

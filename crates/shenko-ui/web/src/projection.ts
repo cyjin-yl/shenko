@@ -857,7 +857,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   // recent works are carried — the timeline is the subject's story, not a
   // work management screen.
   const works = (state.playground?.artifacts ?? []) as WorkView[];
-  for (const work of works.slice(-6)) {
+  for (const work of works.filter((item) => item.lifecycle !== 'archived').slice(-6)) {
     const openRef = addAction(
       actions,
       `work.open.${work.artifact_id}`,

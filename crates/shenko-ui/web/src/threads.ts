@@ -83,11 +83,17 @@ export interface Thread {
   active?: boolean;
 }
 
+export type DemoWidgetPreview =
+  | { kind: 'html'; html: string }
+  | { kind: 'markdown'; text: string };
+
 export interface DemoThreadData {
   conversations: ConversationRow[];
   trajectory(taskId: string): TrajectoryResponse;
   /** The demo's file systems, so the Files view needs no server. */
   files?: import('./files-view').FileSource;
+  /** Freeform demo widget content for `?demo=1`; never used for a live subject. */
+  widgetPreview?: (artifactId: string, theme: 'light' | 'dark') => DemoWidgetPreview | undefined;
 }
 
 export interface ThreadInputs {

@@ -24,6 +24,7 @@ import { FilesView, liveFiles, type RecentFileHint } from './files-view';
 import { collectThreads, isAttentionTask, subjectParticipant, type DemoThreadData, type ThreadMessage } from './threads';
 import { lensSnapshot, subscribeLenses, syncWorkLenses, type LensContribution } from './slots';
 import { WorkFrame } from './work-frame';
+import { isLiveArtifact } from './playground-widgets';
 import { InspectContext } from './delegation-branches';
 import { TimelineSurface } from './timeline-surface';
 import { SemanticDocumentView } from './timeline-entries';
@@ -214,6 +215,7 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
     }
     return hints;
   }, [timelineEntries]);
+  const liveWorkCount = (works ?? []).filter(isLiveArtifact).length;
   const lensSubtitle = open?.kind === 'work'
     ? t('shell.workLens')
     : openId === 'tasks'
@@ -224,7 +226,9 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
       : openId === 'memory'
         ? t('files.itemsCount', { count: memoryItems.length })
         : openId === 'playground'
-          ? t('files.itemsCount', { count: works?.length ?? 0 })
+          ? (liveWorkCount > 0
+            ? t('widgets.liveSubtitle', { live: liveWorkCount, total: works?.length ?? 0 })
+            : t('files.itemsCount', { count: works?.length ?? 0 }))
           : openId === 'config'
             ? (timeline.props.step ? `R·${timeline.props.step}` : undefined)
             : undefined;
@@ -317,7 +321,17 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
         subtitle={lensSubtitle}
         onClose={() => openLens(undefined)}
         inspector={open?.kind === 'work'
-          ? <WorkFrame key={open.artifact_id} artifactId={open.artifact_id} title={String(openWork?.title ?? open.artifact_id)} revision={openWork?.revision} activeManifestDigest={openWork?.active_manifest_digest} />
+          ? (() => {
+            const demoPreview = demo ? demoData?.widgetPreview?.(open.artifact_id, theme) : undefined;
+            return <WorkFrame
+              key={open.artifact_id}
+              artifactId={open.artifact_id}
+              title={String(openWork?.title ?? open.artifact_id)}
+              revision={openWork?.revision}
+              activeManifestDigest={openWork?.active_manifest_digest}
+              demoHtml={demoPreview?.kind === 'html' ? demoPreview.html : undefined}
+            />;
+          })()
           : <>
             <TasksSurface
               node={nodes.tasks_surface}
@@ -330,7 +344,14 @@ function ProjectionView({ projection, dispatch, demoData }: { projection: UiProj
             <PlaygroundSurface
               node={nodes.playground_surface}
               ownerKey={JSON.stringify([projection.surface_id, projection.source, projection.subject_id])}
+              demo={demo}
+              theme={theme}
+              getDemoPreview={demoData?.widgetPreview}
               onOpenWork={(artifactId) => { setWorkLens(artifactId); }}
+              onInspectWork={(artifactId) => {
+                const actionId = `work.open.${artifactId}`;
+                if (projection.actions[actionId]?.enabled) emit(`work.${artifactId}`, actionId);
+              }}
             />
           </>}
       >

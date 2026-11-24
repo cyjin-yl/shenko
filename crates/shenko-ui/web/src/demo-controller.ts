@@ -167,8 +167,13 @@ function demoState(): UiState {
     playground: {
       available: true,
       artifacts: [
-        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-1', title: '启动时序对照表', mime: 'text/html', revision: 3, active_manifest_digest: 'demo-digest-1', backend: true, lifecycle: 'running', updated_at: new Date(Date.now() - 7 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-3', title: '雨夜与显影便签', mime: 'text/html', revision: 2, active_manifest_digest: 'demo-digest-3', lifecycle: 'running', updated_at: new Date(Date.now() - 22 * 60_000).toISOString() },
+        { artifact_id: 'demo-work-4', title: '27B KV 并发水位', mime: 'text/html', revision: 5, active_manifest_digest: 'demo-digest-4', backend: true, lifecycle: 'running', updated_at: new Date(Date.now() - 125 * 60_000).toISOString() },
         { artifact_id: 'demo-work-2', title: '记忆合并草稿', mime: 'text/markdown', revision: 1, lifecycle: 'draft', updated_at: new Date(Date.now() - 2 * 60_000).toISOString() },
+        // Historical archived works (folded under Earlier archive by default).
+        { artifact_id: 'demo-work-arch-1', title: '东京旧书店路线摘记', mime: 'text/html', revision: 4, active_manifest_digest: 'demo-digest-arch-1', lifecycle: 'archived', updated_at: new Date(Date.now() - 52 * 86400_000).toISOString() },
+        { artifact_id: 'demo-work-arch-2', title: 'LayerFS 压测小表', mime: 'text/markdown', revision: 2, lifecycle: 'archived', updated_at: new Date(Date.now() - 88 * 86400_000).toISOString() },
       ],
     },
     playground_error: false,
