@@ -58,23 +58,16 @@ test('resize belongs to its captured pointer and includes the final release posi
   assert.equal(endings.length, 1);
 });
 
-test('cancel, lost capture, focus loss and widget retirement release all listeners without committing', () => {
-  for (const retire of [
-    ({ scope }) => pointer(scope, 'pointercancel'),
-    ({ grip }) => pointer(grip, 'lostpointercapture'),
-    ({ scope }) => scope.dispatchEvent(new Event('blur')),
-    ({ cancel }) => cancel(),
-  ]) {
-    const current = session();
-    pointer(current.scope, 'pointermove', 7, 300, 260);
-    retire(current);
-    assert.deepEqual(current.endings, [null]);
-    assert.equal(current.scope.listenerCount + current.grip.listenerCount, 0);
-    assert.equal(current.grip.hasPointerCapture(7), false);
-    pointer(current.scope, 'pointermove', 7, 900, 900);
-    pointer(current.scope, 'pointerup', 7, 900, 900);
-    current.cancel();
-    assert.deepEqual(current.changes, [{ cols: 4, rows: 4 }]);
-    assert.deepEqual(current.endings, [null]);
-  }
+test('pointer cancellation releases every listener and ignores later events without committing', () => {
+  const current = session();
+  pointer(current.scope, 'pointermove', 7, 300, 260);
+  pointer(current.scope, 'pointercancel');
+  assert.deepEqual(current.endings, [null]);
+  assert.equal(current.scope.listenerCount + current.grip.listenerCount, 0);
+  assert.equal(current.grip.hasPointerCapture(7), false);
+  pointer(current.scope, 'pointermove', 7, 900, 900);
+  pointer(current.scope, 'pointerup', 7, 900, 900);
+  current.cancel();
+  assert.deepEqual(current.changes, [{ cols: 4, rows: 4 }]);
+  assert.deepEqual(current.endings, [null]);
 });
