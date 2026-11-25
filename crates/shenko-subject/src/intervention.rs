@@ -39,7 +39,7 @@ use shenko_memory::{
     InterventionObservation, MemoryInterventionPolicy, MemoryInterventionRegistry,
     ReminderPublisher, TrajectoryItem, epoch_scope,
 };
-use shenko_store::external::InferenceSendBinding;
+use shenko_store::external::{InferenceSendBinding, PMA_EVALUATE_KIND, PMA_OPERATION, PMA_QUOTA_INPUT_SCHEMA};
 use shenko_store::{
     BankSelection, BankEntryKind, InterventionDecisionKind, InterventionReminder, Store,
 };
@@ -51,14 +51,13 @@ use shenko_types::operation::*;
 use shenko_types::task::{ImplementationRef, TaskRecord};
 use std::sync::Arc;
 
-use crate::quota_gate::{QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal};
+use crate::quota_gate::{
+    FrozenQuotaSelection, QuotaGate, QuotaRouteOwner, observe_quota_response,
+    quota_dispatch_gate, select_quota_route, settle_quota_terminal,
+};
 use shenko_kernel::task::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_memory::intervention_runtime::PmaContributionRuntime;
 
-/// The native definition kind of the memory-intervention worker.
-pub const PMA_EVALUATE_KIND: &str = "pma.evaluate";
-/// The durable operation name of one bounded intervention call.
-pub const PMA_OPERATION: &str = "pma.evaluate.v1";
 /// The role revision of the worker.
 pub const PMA_ROLE: &str = "memory-intervention/worker@1";
 /// The default lifetime of a reminder that names no expiry.
@@ -121,11 +120,28 @@ struct FrozenIntervention {
     /// same facts. Sealed inputs of an older revision simply lack it.
     #[serde(default)]
     observation: Option<InterventionObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    requested_max_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    quota_selection: Option<FrozenQuotaSelection>,
 }
 
 impl FrozenIntervention {
     fn validate(&self) -> Result<()> {
-        ensure!(self.schema_version == 1, "unsupported frozen intervention version");
+        match (self.schema_version, self.requested_max_tokens, &self.quota_selection) {
+            (1, None, None) => {}
+            (PMA_QUOTA_INPUT_SCHEMA, Some(requested), Some(quota)) => {
+                ensure!(!self.decided_without_call && requested > 0
+                    && self.payload.max_tokens == Some(quota.output_budget(requested)),
+                    "memory intervention quota output differs from the frozen payload");
+                ensure!(match &quota.effort {
+                    Some(effort) => !effort.requested.trim().is_empty()
+                        && effort.native.matches_native_options(&self.payload.native_options),
+                    None => self.payload.native_options.is_empty(),
+                }, "memory intervention quota effort differs from the frozen payload");
+            }
+            _ => anyhow::bail!("unsupported frozen intervention version"),
+        }
         ensure!(self.role_revision == PMA_ROLE, "frozen intervention role mismatch");
         ensure!(
             Digest::blake3(&serde_json::to_vec(&self.payload)?) == self.payload_fingerprint,
@@ -151,7 +167,11 @@ fn contract_digest() -> Digest {
 }
 
 fn seal<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
-    match store.cas.seal_object(&serde_json::to_vec(value)?, "application/json", "pma-effects", schema, 1) {
+    seal_version(store, value, schema, 1)
+}
+
+fn seal_version<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str, major: u32) -> Result<ObjectRef> {
+    match store.cas.seal_object(&serde_json::to_vec(value)?, "application/json", "pma-effects", schema, major) {
         Ok(sealed) => Ok(sealed.object),
         Err(error) => {
             store.close_external_writer();
@@ -167,6 +187,7 @@ fn read_frozen(store: &Store, object: &ObjectRef) -> Result<FrozenIntervention> 
         "memory intervention input closure mismatch"
     );
     let frozen: FrozenIntervention = serde_json::from_slice(&bytes)?;
+    ensure!(frozen.schema_version == object.codec.major, "memory intervention input codec mismatch");
     frozen.validate()?;
     Ok(frozen)
 }
@@ -1034,40 +1055,37 @@ impl PmaEvaluateHandler {
             None => self.broker.clone(),
         };
         let binding = broker.binding().clone();
-        let payload = plan.call.as_ref().map(|call| InferencePayload {
-            system_prompt: call.system_prompt.clone(),
-            messages: vec![InferenceMessage::text("user", &call.user_prompt)],
-            max_tokens: Some(call.max_tokens),
-            tools: vec![],
-            native_options: Default::default(),
-        });
-        // The quota-bound send is selected before the attempt is armed: the
-        // armed attempt must carry the exact send that may go out.
-        let quota_send = if plan.call.is_some() { match quota_dispatch_gate(
-            &self.store,
-            &broker,
-            request_id,
-            &tokio_util::sync::CancellationToken::new(),
-            &self.quota_strategies,
-            Some(&invocation.task_invocation),
-            // The intervention payload declares implicit effort.
-            None,
-        )
-        .await?
-        {
-            QuotaGate::Ready(send) => send,
-            QuotaGate::Cancelled => {
-                anyhow::bail!("memory intervention cancelled before the quota-bound T1")
+        let (payload, requested_max_tokens, quota_selection) = if let Some(call) = &plan.call {
+            let route = select_quota_route(
+                &self.store, Some(&broker), &invocation.cancellation,
+                &self.quota_strategies, QuotaRouteOwner::FiniteChild,
+            ).await?.context("memory intervention cancelled before quota selection")?;
+            let mut payload = InferencePayload {
+                system_prompt: call.system_prompt.clone(),
+                messages: vec![InferenceMessage::text("user", &call.user_prompt)],
+                max_tokens: Some(call.max_tokens),
+                tools: vec![],
+                native_options: Default::default(),
+            };
+            let requested = route.selection.as_ref().map(|quota| {
+                payload.max_tokens = Some(quota.output_budget(call.max_tokens));
+                call.max_tokens
+            });
+            if let Some(effort) = route.selection.as_ref().and_then(|quota| quota.effort.as_ref()) {
+                effort.native.apply(&mut payload.native_options)?;
             }
-        } } else {
-            // A local policy decision has no provider send or quota charge.
-            // Its native authority and durable decision still settle below.
-            None
+            (payload, requested, route.selection)
+        } else {
+            (InferencePayload {
+                system_prompt: String::new(),
+                messages: vec![],
+                max_tokens: None,
+                tools: vec![],
+                native_options: Default::default(),
+            }, None, None)
         };
-        let send_binding = InferenceSendBinding { schema_version: 1, request_id, send_id: quota_send };
-        let transport_ref = seal(&self.store, &send_binding, "pma-selected-send")?;
         let frozen = FrozenIntervention {
-            schema_version: 1,
+            schema_version: if quota_selection.is_some() { PMA_QUOTA_INPUT_SCHEMA } else { 1 },
             task_id: invocation.task.task_id,
             request_id,
             created_by_step_id: invocation.task.created_by_step_id.unwrap_or(invocation.task_invocation.invocation_id),
@@ -1076,31 +1094,19 @@ impl PmaEvaluateHandler {
             lineage_id: epoch.lineage_id,
             delegation: invocation.input.clone(),
             provider_binding: binding.clone(),
-            payload: payload.clone().unwrap_or_else(|| InferencePayload {
-                system_prompt: String::new(),
-                messages: vec![],
-                max_tokens: None,
-                tools: vec![],
-                native_options: Default::default(),
-            }),
-            payload_fingerprint: Digest::blake3(
-                &serde_json::to_vec(&payload.clone().unwrap_or_else(|| InferencePayload {
-                    system_prompt: String::new(),
-                    messages: vec![],
-                    max_tokens: None,
-                    tools: vec![],
-                    native_options: Default::default(),
-                }))?,
-            ),
+            payload_fingerprint: Digest::blake3(&serde_json::to_vec(&payload)?),
+            payload,
             software_generation: invocation.context.software_generation.clone(),
             role_revision: PMA_ROLE.into(),
             policy_name: policy.name().to_string(),
             policy_revision: policy.revision().to_string(),
             decided_without_call: plan.call.is_none(),
             observation: Some(observation.clone()),
+            requested_max_tokens,
+            quota_selection,
         };
         frozen.validate()?;
-        let input_ref = seal(&self.store, &frozen, "pma-frozen-input")?;
+        let input_ref = seal_version(&self.store, &frozen, "pma-frozen-input", frozen.schema_version)?;
         if let Some(existing) = self.store.get_operation(invocation.operation_id)? {
             ensure!(
                 existing.task_id == frozen.task_id
@@ -1110,6 +1116,21 @@ impl PmaEvaluateHandler {
             );
             return Ok(existing);
         }
+        let quota_send = if frozen.decided_without_call {
+            None
+        } else {
+            match quota_dispatch_gate(
+                &self.store, &broker, request_id, &invocation.cancellation,
+                &self.quota_strategies, Some(&invocation.task_invocation), frozen.quota_selection.as_ref(),
+            ).await? {
+                QuotaGate::Ready(send) => send,
+                QuotaGate::Cancelled => anyhow::bail!("memory intervention cancelled before the quota-bound T1"),
+            }
+        };
+        ensure!(quota_send.is_some() == frozen.quota_selection.is_some(),
+            "memory intervention quota policy changed after the request was sealed");
+        let send_binding = InferenceSendBinding { schema_version: 1, request_id, send_id: quota_send };
+        let transport_ref = seal(&self.store, &send_binding, "pma-selected-send")?;
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef { digest: digest.clone(), locator: "builtin:pma-evaluate-v1".into() },
@@ -1154,7 +1175,7 @@ impl PmaEvaluateHandler {
             task_id: frozen.task_id,
             logical_key: "native-handler".into(),
             operation_name: PMA_OPERATION.into(),
-            input_schema_version: 1,
+            input_schema_version: frozen.schema_version,
             output_schema_version: 1,
             final_input_ref: input_ref.clone(),
             input_digest: input_ref.digest.clone(),
@@ -1206,10 +1227,14 @@ impl PmaEvaluateHandler {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        if let Some(existing) =
-            self.store
-                .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
-        {
+        let existing = if quota_send.is_some() {
+            self.store.arm_external_inference_operation(
+                &invocation.task_invocation, &mut operation, &mut attempt, &send_binding,
+            )?
+        } else {
+            self.store.arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
+        };
+        if let Some(existing) = existing {
             return Ok(existing);
         }
 
@@ -1219,8 +1244,8 @@ impl PmaEvaluateHandler {
             std::future::pending::<()>().await;
         }
 
-        let reminder = match (plan.call, payload) {
-            (None, _) => {
+        let reminder = match plan.call {
+            None => {
                 // The policy decided without an inference. The decision itself
                 // is the durable effect of this attempt.
                 let decision = plan
@@ -1244,7 +1269,7 @@ impl PmaEvaluateHandler {
                 )?;
                 Some(reminder)
             }
-            (Some(_call), Some(payload)) => {
+            Some(_) => {
                 let sink = Arc::new(InterventionReceiptSink {
                     store: Arc::clone(&self.store),
                     invocation: invocation.task_invocation.clone(),
@@ -1262,7 +1287,7 @@ impl PmaEvaluateHandler {
                     provider_binding: binding.clone(),
                     priority: InferencePriority::Normal,
                     epoch: invocation.task_invocation.epoch,
-                    payload: payload.clone(),
+                    payload: frozen.payload.clone(),
                     result_tx,
                 };
                 if let Err(error) = broker.submit_recorded(inference_request, sink) {
@@ -1348,9 +1373,6 @@ impl PmaEvaluateHandler {
                         }
                     }
                 }
-            }
-            (Some(_call), None) => {
-                anyhow::bail!("INTERVENTION_PLAN_MISMATCH: a planned call has no sealed payload")
             }
         };
 
