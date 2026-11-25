@@ -8,7 +8,8 @@
 use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
-use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, SubjectQuotaRoute, select_subject_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, QuotaRoute, QuotaRouteOwner, select_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use futures::future::{Either, select};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -169,9 +170,9 @@ fn semantic_wait_route(
     store: &shenko_store::Store,
     broker: Option<&shenko_broker::broker::BrokerHandle>,
     wait: &SemanticWait,
-) -> Result<SubjectQuotaRoute, ShenkoError> {
+) -> Result<QuotaRoute, ShenkoError> {
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, &wait.context_ref)?)?;
-    if !matches!(input.get("schema_version").and_then(serde_json::Value::as_u64), Some(12..=15))
+    if !matches!(input.get("schema_version").and_then(serde_json::Value::as_u64), Some(12..=16))
         || input.get("step_id") != Some(&serde_json::to_value(wait.created_step_id)?)
     {
         return Err(ShenkoError::conflict("semantic wait origin does not identify its original S0"));
@@ -195,7 +196,7 @@ fn semantic_wait_route(
             "semantic wait original provider is unavailable; wait preserved: {error:#}",
         )))?)
     };
-    Ok(SubjectQuotaRoute { broker: selected, selection: None })
+    Ok(QuotaRoute { broker: selected, selection: None })
 }
 
 fn frozen_input(
@@ -212,7 +213,7 @@ fn frozen_input(
     // sealed request; it simply carried no case the subject could accept, so
     // an acknowledgement naming a case at 12 is refused (old
     // bytes keep their old meaning).
-    if !matches!(input.schema_version, 12..=15)
+    if !matches!(input.schema_version, 12..=16)
         || input.step_id != step.step_id
         || input.step_no != step.step_no
     {
@@ -233,7 +234,7 @@ fn frozen_input(
         return Err(ShenkoError::conflict("recovery_blocked: legacy input cannot interpret schema-14 projection metadata"));
     }
     match (input.schema_version, input.child_provider_bindings.as_deref()) {
-        (15, Some(bindings)) => crate::model_child::validate_child_provider_bindings(bindings)
+        (15..=16, Some(bindings)) => crate::model_child::validate_child_provider_bindings(bindings)
             .map_err(|error| ShenkoError::conflict(format!("recovery_blocked: invalid frozen child routes: {error}")))?,
         (12..=14, None) => {},
         _ => return Err(ShenkoError::conflict("recovery_blocked: child routes do not match S0 schema")),
@@ -243,11 +244,19 @@ fn frozen_input(
     {
         return Err(ShenkoError::conflict("recovery_blocked: frozen context capabilities/provider binding mismatch"));
     }
+    if (input.schema_version == 16) != input.provider_selection.quota.as_ref()
+        .is_some_and(|selection| selection.max_output_tokens.is_some())
+    {
+        return Err(ShenkoError::conflict("recovery_blocked: output authorization differs from the frozen schema"));
+    }
     if let Some(selection) = &input.provider_selection.quota
         && (selection.policy_id == EntityId::nil() || selection.decision_id == EntityId::nil()
             || selection.profile_id.trim().is_empty()
             || input.provider_selection.binding != input.provider_binding
             || input.payload.max_tokens != Some(u64::from(input.context.reserved_output_tokens))
+            || selection.max_output_tokens.is_some_and(|limit| {
+                input.context.reserved_output_tokens == 0 || input.context.reserved_output_tokens > limit.get()
+            })
             || selection.effort.as_ref().is_some_and(|effort|
                 effort.requested.trim().is_empty() || !effort.native.matches_native_options(&input.payload.native_options)))
     {
@@ -543,6 +552,7 @@ struct PreparedSubjectModel {
     broker: shenko_broker::broker::BrokerHandle,
     capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     effort: Option<shenko_broker::effort::ProviderEffort>,
+    max_tokens: u64,
 }
 
 pub struct SubjectLoopState {
@@ -747,6 +757,10 @@ impl SubjectLoopState {
 
     pub(super) fn context_effort(&self) -> Option<shenko_broker::effort::ProviderEffort> {
         self.prepared_model.as_ref().and_then(|model| model.effort)
+    }
+
+    pub(super) fn context_output_budget(&self) -> u64 {
+        self.prepared_model.as_ref().map_or(self.max_tokens, |model| model.max_tokens)
     }
 
     /// Initialize the real model/prompt binding before preparing a context
@@ -1522,7 +1536,7 @@ fn sealed_previous_projection(
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
     if !matches!(
         input.get("schema_version").and_then(serde_json::Value::as_u64),
-        Some(12..=15)
+        Some(12..=16)
     ) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
@@ -1608,10 +1622,28 @@ async fn execute_step(
         // expired wait lets the next S0 use the current routing policy.
         state.semantic_wait = store.observe_semantic_wait(&state.head)?;
         let route = if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
-            semantic_wait_route(&store, state.broker.as_ref(), wait)?
+            let mut route = semantic_wait_route(&store, state.broker.as_ref(), wait)?;
+            let remaining = (wait.deadline_at - chrono::Utc::now()).to_std().unwrap_or_default();
+            let planned = {
+                let expiry = tokio::time::sleep(remaining);
+                let quota = select_quota_route(
+                    &store, route.broker.as_ref().or(state.broker.as_ref()), cancel,
+                    &state.quota_strategies, QuotaRouteOwner::Subject { agent: state.agent_id, allow_rebind: false },
+                );
+                futures::pin_mut!(expiry, quota);
+                // Poll expiry first so a ready quota decision cannot extend the wait.
+                match select(expiry, quota).await {
+                    Either::Left(_) => None,
+                    Either::Right((planned, _)) => planned?,
+                }
+            };
+            let Some(planned) = planned else { return Ok(None) };
+            route.selection = planned.selection;
+            route
         } else {
-            let Some(route) = select_subject_quota_route(
-                &store, state.broker.as_ref(), cancel, &state.quota_strategies, state.agent_id,
+            let Some(route) = select_quota_route(
+                &store, state.broker.as_ref(), cancel, &state.quota_strategies,
+                QuotaRouteOwner::Subject { agent: state.agent_id, allow_rebind: true },
             ).await? else {
                 return Ok(None);
             };
@@ -1619,7 +1651,12 @@ async fn execute_step(
         };
         let effort = route.selection.as_ref()
             .and_then(|selection| selection.effort.as_ref().map(|effort| effort.native));
-        if let Some(selected) = route.broker {
+        let max_tokens = route.selection.as_ref().map_or(state.max_tokens,
+            |selection| selection.output_budget(state.max_tokens));
+        let selected = route.broker.or_else(|| {
+            state.broker.as_ref().filter(|_| effort.is_some() || max_tokens != state.max_tokens).cloned()
+        });
+        if let Some(selected) = selected {
             let capabilities = if let Some(model) = &state.prepared_model
                 && model.broker.binding() == selected.binding()
             {
@@ -1644,7 +1681,7 @@ async fn execute_step(
                 Some(Arc::new(probe.capabilities.ok_or_else(||
                     ShenkoError::conflict("selected model metadata omitted its exact capabilities"))?))
             };
-            state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities, effort });
+            state.prepared_model = Some(PreparedSubjectModel { broker: selected, capabilities, effort, max_tokens });
         } else {
             // A configured wait binding or absent policy keeps this path. A
             // previously selected model is not an implicit new default.
@@ -1682,8 +1719,10 @@ async fn execute_step(
             }
             Err(error) => return Err(error),
         };
+        let schema_version = if input_provider_selection.quota.as_ref()
+            .is_some_and(|selection| selection.max_output_tokens.is_some()) { 16 } else { 15 };
         let input = FrozenStepInput {
-            schema_version: 15,
+            schema_version,
             step_id,
             step_no: seq,
             events: prepared.events,
@@ -1711,7 +1750,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            15,
+            schema_version,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;

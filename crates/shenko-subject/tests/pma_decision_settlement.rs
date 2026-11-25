@@ -19,9 +19,11 @@ use serde_json::{Value, json};
 use shenko_broker::{
     broker::{Broker, BrokerHandle},
     local_provider::LocalModelProvider,
+    provider::AnthropicProvider,
 };
 use shenko_kernel::Supervisor;
 use shenko_memory::{MemoryInterventionRegistry, ModelMemoryInterventionPolicy};
+use shenko_store::external::{InferenceSendBinding, PMA_QUOTA_INPUT_SCHEMA};
 use shenko_store::{
     InterventionDecisionKind, ResearchBudget, ResearchClosure, ResearchEnvironment, Store,
 };
@@ -247,7 +249,52 @@ struct Attempt {
     requests: usize,
 }
 
-async fn attempt(answer: &'static str) -> Result<Attempt> {
+fn record_cloud_quota(store: &Store) -> Result<()> {
+    use shenko_quota::*;
+
+    let now = chrono::Utc::now();
+    let window = |key: &str| WindowRef {
+        provider_id: "anthropic".into(),
+        account_scope_ref: "intervention-quota-fixture".into(),
+        window_key: key.into(),
+    };
+    let costs = vec![
+        WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).context("request cost")? },
+        WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).context("token cost")? },
+    ];
+    store.record_quota_policy(&QuotaPolicy {
+        policy_id: EntityId::new(), revision: 1,
+        profiles: vec![ModelProfile {
+            profile_id: "pma-cloud".into(), model_ref: "synthetic-pma-model".into(), local: false,
+            effort_levels: vec![EffortLevel { effort: "high".into(), cost_per_request: costs.clone() }],
+            cost_per_request: costs, max_output_tokens: std::num::NonZeroU32::new(32),
+        }],
+        assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
+        on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
+        decision_ttl: chrono::Duration::minutes(5),
+        observation_sources: vec![SourceObservationPolicy {
+            source_kind: SourceKind::ApiHeaders, contract: None,
+            ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
+        }],
+        objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
+        emergency_reserve_by_window: vec![], uncertainty_margin: None,
+        admission_pacing: AdmissionPacing::default(),
+    }, now)?;
+    store.record_quota_snapshot(&from_api_headers(&ObservationContext {
+        provider_id: "anthropic".into(), account_scope_ref: "intervention-quota-fixture".into(),
+        source_version: None, attribution: Attribution::Exclusive, observed_at: now,
+    }, [
+        ("anthropic-ratelimit-requests-limit", "100"),
+        ("anthropic-ratelimit-requests-remaining", "100"),
+        ("anthropic-ratelimit-requests-reset", "2099-01-01T00:00:00Z"),
+        ("anthropic-ratelimit-tokens-limit", "1000"),
+        ("anthropic-ratelimit-tokens-remaining", "1000"),
+        ("anthropic-ratelimit-tokens-reset", "2099-01-01T00:00:00Z"),
+    ]))?;
+    Ok(())
+}
+
+async fn attempt(answer: &'static str, quota: bool) -> Result<Attempt> {
     let dir = std::env::temp_dir().join(format!("shenko-pma-decision-{}", EntityId::new()));
     std::fs::create_dir_all(&dir)?;
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
@@ -275,19 +322,21 @@ async fn attempt(answer: &'static str) -> Result<Attempt> {
     let endpoint = format!("http://{}", listener.local_addr()?);
     let count = Arc::new(AtomicUsize::new(0));
     let count_server = count.clone();
+    let (wire_tx, mut wire_rx) = tokio::sync::mpsc::unbounded_channel();
     let server = tokio::spawn(async move {
         loop {
             let (mut socket, _) = listener.accept().await?;
-            let _wire = read_wire(&mut socket).await?;
+            let wire = read_wire(&mut socket).await?;
+            if quota { wire_tx.send(wire)?; }
             count_server.fetch_add(1, Ordering::SeqCst);
-            let raw = json!({
-                "id": "scripted-pma-response",
-                "choices": [{"message": {"role": "assistant", "content": answer},
-                    "finish_reason": "stop",
-                }],
-                "usage": {"prompt_tokens": 12, "completion_tokens": 7}
-            })
-            .to_string();
+            let raw = if quota {
+                json!({"content": [{"type": "text", "text": answer}], "stop_reason": "end_turn",
+                    "usage": {"input_tokens": 12, "output_tokens": 7}})
+            } else {
+                json!({"id": "scripted-pma-response",
+                    "choices": [{"message": {"role": "assistant", "content": answer}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 7}})
+            }.to_string();
             socket
                 .write_all(
                     format!(
@@ -302,10 +351,14 @@ async fn attempt(answer: &'static str) -> Result<Attempt> {
         #[allow(unreachable_code)]
         Ok::<(), anyhow::Error>(())
     });
-    let (broker, handle) = Broker::with_local_provider(
-        LocalModelProvider::new(endpoint, "synthetic-pma-model".into()),
-        1,
-    )?;
+    let (broker, handle) = if quota {
+        record_cloud_quota(&store)?;
+        Broker::with_anthropic_provider(AnthropicProvider::with_endpoint(
+            "scripted-loopback-not-a-credential".into(), endpoint, "synthetic-pma-model",
+        ), 1)?
+    } else {
+        Broker::with_local_provider(LocalModelProvider::new(endpoint, "synthetic-pma-model".into()), 1)?
+    };
     let broker_run = tokio::spawn(broker.run());
     let (supervisor, native, implementation) = runtime(&store, handle.clone(), agent).await?;
     let task = admit(
@@ -339,6 +392,25 @@ async fn attempt(answer: &'static str) -> Result<Attempt> {
         .external_task_operations(task, "pma.evaluate.v1")?
         .pop()
         .context("the original PMA operation")?;
+    if quota {
+        let wire = wire_rx.try_recv().context("original PMA provider request")?;
+        let attempt = store.external_operation_attempt(operation.operation_id)?;
+        let marker = attempt.transport_ref.as_ref().context("original PMA send marker")?;
+        let binding: InferenceSendBinding = serde_json::from_slice(&store.cas.read_object(&marker.digest)?)?;
+        let send = binding.send_id.context("original PMA quota send")?;
+        let input: Value = serde_json::from_slice(&store.cas.read_object(&operation.final_input_ref.digest)?)?;
+        assert_eq!(operation.input_schema_version, PMA_QUOTA_INPUT_SCHEMA);
+        assert_eq!(input["requested_max_tokens"], 96);
+        assert_eq!(input["quota_selection"]["max_output_tokens"], 32);
+        assert_eq!(wire["model"], "synthetic-pma-model");
+        assert_eq!(wire["max_tokens"], 32);
+        assert_eq!(wire["max_tokens"], input["payload"]["max_tokens"]);
+        assert_eq!(wire["output_config"]["effort"], "high");
+        assert_eq!(wire["output_config"], input["payload"]["native_options"]["output_config"]);
+        assert_eq!(store.quota_send_ids(binding.request_id)?, vec![(send, attempt.armed_commit.seq.0)]);
+        let receipt = store.external_evidence(attempt.final_receipt_id.context("original PMA E1")?)?;
+        assert_eq!(receipt.attempt_id, Some(attempt.attempt_id));
+    }
     let outcome = operation.outcome;
     let decision = store.latest_intervention(epoch.epoch_id)?;
     let task_outcome = store.native_task_result(task)?.map(|result| result.outcome);
@@ -356,7 +428,9 @@ async fn attempt(answer: &'static str) -> Result<Attempt> {
         Err(error) => return Err(error.into()),
     }
     drop(store);
-    let _ = std::fs::remove_dir_all(&dir);
+    if !quota {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     Ok(Attempt {
         operation,
         decision,
@@ -400,7 +474,7 @@ async fn shipped_silent_policy_settles_with_quota_and_withdrawn_runtime() -> Res
         policy_id: EntityId::new(), revision: 1,
         profiles: vec![ModelProfile {
             profile_id: "silent-quota-local".into(), model_ref: "silent-quota-model".into(),
-            local: true, cost_per_request: vec![], effort_levels: vec![],
+            local: true, cost_per_request: vec![], effort_levels: vec![], max_output_tokens: None,
         }],
         assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
@@ -464,7 +538,7 @@ async fn shipped_silent_policy_settles_with_quota_and_withdrawn_runtime() -> Res
 /// not report success and no silence is fabricated for it.
 #[tokio::test(flavor = "current_thread")]
 async fn an_unreadable_answer_settles_as_a_failure_without_a_decision() -> Result<()> {
-    let attempt = attempt("this is not a decision JSON").await?;
+    let attempt = attempt("this is not a decision JSON", false).await?;
     assert_eq!(attempt.outcome, Some(OperationOutcome::Failed));
     assert_eq!(attempt.operation.state, OperationState::Resolved);
     assert!(
@@ -485,7 +559,7 @@ async fn an_unreadable_answer_settles_as_a_failure_without_a_decision() -> Resul
 /// succeeds exactly when its decision is durable.
 #[tokio::test(flavor = "current_thread")]
 async fn a_silent_answer_settles_with_exactly_one_durable_decision() -> Result<()> {
-    let attempt = attempt(r#"{"decision":"silent","reason":"nothing worth saying"}"#).await?;
+    let attempt = attempt(r#"{"decision":"silent","reason":"nothing worth saying"}"#, false).await?;
     assert_eq!(attempt.outcome, Some(OperationOutcome::Succeeded));
     assert_eq!(attempt.operation.state, OperationState::Resolved);
     assert!(
@@ -504,8 +578,17 @@ async fn a_silent_answer_settles_with_exactly_one_durable_decision() -> Result<(
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn cloud_intervention_sends_the_sealed_effort_and_output_under_exact_t1() -> Result<()> {
+    let attempt = attempt(r#"{"decision":"silent","reason":"nothing worth saying"}"#, true).await?;
+    assert_eq!(attempt.outcome, Some(OperationOutcome::Succeeded));
+    assert_eq!(attempt.decision.context("durable intervention decision")?.decision, InterventionDecisionKind::Silent);
+    assert_eq!(attempt.requests, 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn an_unroutable_reminder_fails_without_committing_a_poisoned_decision() -> Result<()> {
-    let attempt = attempt(r#"{"decision":"remind","content":"Keep external IDs lossless.","provenance":["fixture:source"],"relevance":"the current migration","scope":"迁移导出的数值处理与提交实现","expires_in_secs":600}"#).await?;
+    let attempt = attempt(r#"{"decision":"remind","content":"Keep external IDs lossless.","provenance":["fixture:source"],"relevance":"the current migration","scope":"迁移导出的数值处理与提交实现","expires_in_secs":600}"#, false).await?;
     assert_eq!(attempt.operation.state, OperationState::Resolved);
     assert_eq!(attempt.outcome, Some(OperationOutcome::Failed));
     assert!(matches!(attempt.task_outcome, Some(TaskOutcome::Failed { .. })));

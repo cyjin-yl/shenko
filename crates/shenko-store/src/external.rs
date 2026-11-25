@@ -10,11 +10,30 @@ use shenko_types::{commit::CommitRef, ids::*, operation::*, task::*};
 /// One model step of a finite model child: one broker send with its own
 /// T1/E1/T2 on the shared inference ledger.
 pub const MODEL_CHILD_STEP_OPERATION: &str = "model.child.generate.v1";
+pub const MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA: u32 = 2;
+pub const MODEL_CHILD_QUOTA_STEP_SCHEMA: u32 = 3;
+pub const MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA: u32 = 4;
 /// The model child's own run operation. It carries the child's result, not a
 /// provider send, and is bound to the same sealed delegation contract.
 pub const MODEL_CHILD_RESULT_OPERATION: &str = "model.child.result.v1";
 /// The native definition kind of a model child task.
 pub const MODEL_CHILD_KIND: &str = "model.child";
+/// The native definition and durable inference operation of memory intervention.
+pub const PMA_EVALUATE_KIND: &str = "pma.evaluate";
+pub const PMA_OPERATION: &str = "pma.evaluate.v1";
+pub const PMA_QUOTA_INPUT_SCHEMA: u32 = 2;
+
+fn read_inference_input(store: &Store, object: &shenko_types::object::ObjectRef) -> Result<serde_json::Value> {
+    let bytes = store.cas.read_object(&object.digest)?;
+    ensure!(bytes.len() as u64 == object.bytes
+        && shenko_types::object::Digest::blake3(&bytes) == object.digest,
+        "inference T1 input/binding closure mismatch");
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn requires_pma_quota_claim(operation: &OperationRecord) -> bool {
+    operation.operation_name == PMA_OPERATION && operation.input_schema_version == PMA_QUOTA_INPUT_SCHEMA
+}
 
 /// Result of a durable inbox admission: the caller learns whether its row
 /// was new or already admitted identically.
@@ -485,6 +504,7 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        ensure!(!requires_pma_quota_claim(op), "memory intervention inference must use quota-bound T1 admission");
         if self.canonical_native_arm_applicable(ctx.task_id)? {
             return self.arm_canonical_native_operation(ctx, op, att, false);
         }
@@ -504,6 +524,7 @@ impl Store {
         &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         if let Some(old) = self.matching_external_operation(&self.ledger.conn.lock(), ctx, op)? { return Ok(Some(old)); }
+        ensure!(!requires_pma_quota_claim(op), "memory intervention inference must use quota-bound T1 admission");
         if self.canonical_native_arm_applicable(ctx.task_id)? {
             return self.arm_canonical_native_operation(ctx, op, att, true);
         }
@@ -514,8 +535,8 @@ impl Store {
         )
     }
 
-    /// Child model T1 atomically claims the gate's exact R→S reservation with
-    /// the native operation/attempt. Native tools keep the non-inference path.
+    /// Inference T1 atomically claims the gate's exact R→S reservation with
+    /// the native operation/attempt.
     pub fn arm_external_inference_operation(
         &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
         binding: &InferenceSendBinding,
@@ -593,13 +614,7 @@ impl Store {
         );
         let seq = self.ledger.allocate_seq(&tx)?;
         if task.kind == MODEL_CHILD_KIND {
-            let read = |object: &shenko_types::object::ObjectRef| -> Result<serde_json::Value> {
-                let bytes = self.cas.read_object(&object.digest)?;
-                ensure!(bytes.len() as u64 == object.bytes
-                    && shenko_types::object::Digest::blake3(&bytes) == object.digest,
-                    "inference T1 input/binding closure mismatch");
-                Ok(serde_json::from_slice(&bytes)?)
-            };
+            let read = |object: &shenko_types::object::ObjectRef| read_inference_input(self, object);
             // The sealed model child contract this task is bound to. A child
             // the subject delegated carries the contract inside its frozen S1
             // decision; a nested or continued child carries the very same
@@ -628,8 +643,21 @@ impl Store {
                     let step = read(&op.final_input_ref)?;
                     ensure!(op.input_digest == op.final_input_ref.digest,
                         "model child step input is not its own closure");
-                    ensure!(op.input_schema_version == 2
-                        && step.get("schema_version").and_then(|value| value.as_u64()) == Some(2),
+                    let quota_selection = step.get("quota_selection");
+                    let supported = match op.input_schema_version {
+                        MODEL_CHILD_CONTRIBUTION_STEP_SCHEMA => quota_selection.is_none(),
+                        MODEL_CHILD_QUOTA_STEP_SCHEMA => binding.send_id.is_some()
+                            && quota_selection.is_some_and(|selection|
+                                selection.is_object() && selection.get("max_output_tokens").is_none()),
+                        MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA => binding.send_id.is_some()
+                            && quota_selection.is_some_and(|selection|
+                                selection.get("max_output_tokens").is_some()),
+                        _ => false,
+                    };
+                    ensure!(supported
+                        && op.final_input_ref.codec.major == op.input_schema_version
+                        && step.get("schema_version").and_then(|value| value.as_u64())
+                            == Some(u64::from(op.input_schema_version)),
                         "unsupported model child step input");
                     let plan = step.get("contribution_plan")
                         .ok_or_else(|| anyhow::anyhow!("model child step lacks its contribution plan"))?;
@@ -653,7 +681,20 @@ impl Store {
                     ensure!(usage.steps < budget.max_steps, "model child step budget exhausted");
                     let tokens = step.get("max_tokens").and_then(|value| value.as_u64())
                         .ok_or_else(|| anyhow::anyhow!("model child step lacks token reservation"))?;
-                    ensure!(tokens > 0 && sealed.get("max_tokens").and_then(|value| value.as_u64()) == Some(tokens),
+                    let delegated_tokens = sealed["max_tokens"].as_u64()
+                        .context("model child delegation lacks its token bound")?;
+                    let output_limit = if op.input_schema_version == MODEL_CHILD_QUOTA_OUTPUT_STEP_SCHEMA {
+                        let limit = crate::quota::sealed_output_limit(&tx,
+                            quota_selection.context("missing quota output selection")?)?;
+                        ensure!(step["payload"]["max_tokens"].as_u64() == Some(tokens),
+                            "model child output reservation differs from its frozen payload");
+                        Some(limit)
+                    } else {
+                        None
+                    };
+                    let expected = output_limit.map_or(delegated_tokens,
+                        |limit| delegated_tokens.min(u64::from(limit.get())));
+                    ensure!(tokens > 0 && tokens == expected,
                         "model child step token reservation differs from its frozen contract");
                     usage.charge(&budget, tokens, 0)?;
                     usage.steps += 1;
@@ -666,7 +707,7 @@ impl Store {
                         "inference T1 request/payload/selected-send mismatch");
                     if crate::quota::quota_gate_open(&tx)? {
                         let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
-                        ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
+                        ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq, output_limit)?,
                             "inference selected send is not admitted, armed and unclaimed for this request");
                     } else {
                         ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");
@@ -682,8 +723,37 @@ impl Store {
                     anyhow::bail!("unsupported model child operation: {other}");
                 }
             }
+        } else if requires_pma_quota_claim(op) {
+            ensure!(task.kind == PMA_EVALUATE_KIND && !native_dispatch,
+                "quota-bound intervention T1 requires the registered intervention task");
+            let binding = inference.context("memory intervention inference must use quota-bound T1 admission")?;
+            let send = binding.send_id.context("memory intervention T1 lacks its selected quota send")?;
+            let input = read_inference_input(self, &op.final_input_ref)?;
+            let selected = input.get("quota_selection").filter(|selection| selection.is_object())
+                .context("memory intervention T1 lacks its original quota selection")?;
+            let requested = input["requested_max_tokens"].as_u64().filter(|tokens| *tokens > 0)
+                .context("memory intervention T1 lacks its authored output budget")?;
+            let output_limit = selected.get("max_output_tokens").map(|_| {
+                crate::quota::sealed_output_limit(&tx, selected)
+            }).transpose()?;
+            let expected_tokens = output_limit.map_or(requested, |limit| requested.min(u64::from(limit.get())));
+            let marker = att.transport_ref.as_ref().context("intervention attempt lacks a selected send binding")?;
+            ensure!(binding.schema_version == 1
+                && op.input_digest == op.final_input_ref.digest
+                && op.final_input_ref.codec.major == PMA_QUOTA_INPUT_SCHEMA
+                && input["schema_version"].as_u64() == Some(u64::from(PMA_QUOTA_INPUT_SCHEMA))
+                && input["task_id"] == serde_json::to_value(task.task_id)?
+                && input["agent_id"] == serde_json::to_value(task.agent_id)?
+                && input["request_id"] == serde_json::to_value(binding.request_id)?
+                && input["decided_without_call"].as_bool() == Some(false)
+                && input["payload"]["max_tokens"].as_u64() == Some(expected_tokens)
+                && input["payload"]["tools"].as_array().is_some_and(Vec::is_empty)
+                && read_inference_input(self, marker)? == serde_json::to_value(binding)?,
+                "memory intervention T1 request/payload/selected-send mismatch");
+            ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send, seq, output_limit)?,
+                "intervention selected send is not admitted, armed and unclaimed for this request");
         } else {
-            ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
+            ensure!(inference.is_none(), "inference T1 requires a registered inference task contract");
         }
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         if native_dispatch {
