@@ -32,7 +32,7 @@ use shenko_types::{
     error::ShenkoError,
     ids::{EntityId, LedgerSeq},
     object::{Digest, ObjectRef},
-    subject::{SubjectBranchHead, SubjectStep},
+    subject::{SubjectBranchHead, SubjectStep, SubjectStepState},
     task::TaskRecord,
 };
 
@@ -52,6 +52,7 @@ pub(crate) const MAX_IMAGE_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const NATIVE_SUBJECT_READ_SCHEMA: u32 = 3;
 pub(crate) const NATIVE_OPERATION_READ_SCHEMA: u32 = 4;
 pub(crate) const NATIVE_ANCESTRY_READ_SCHEMA: u32 = 5;
+pub(crate) const NATIVE_DIRECT_COMPLETION_READ_SCHEMA: u32 = 6;
 // Account all retained before/after rows and duplicated change cells together,
 // before the eventual sealed JSON size is known. Untouched tables are not
 // scanned. S1 complete-read ranges stream borrowed values into fixed digests.
@@ -181,8 +182,13 @@ pub(crate) struct PreparedTransition {
 }
 
 impl RowTransition {
+    fn direct_completion_head(&self, table: &TableTransition) -> bool {
+        self.schema_version == NATIVE_DIRECT_COMPLETION_READ_SCHEMA
+            && table.before.table.name == "subject_branch_heads"
+    }
+
     fn validate_capture_shape(&self) -> Result<(), ShenkoError> {
-        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA)
             && self.tables.iter().any(|table| table.read_selector.is_some())
         {
             return Err(invalid("older row schema cannot carry native read selectors"));
@@ -191,13 +197,19 @@ impl RowTransition {
             1 if self.tables.iter().all(|table| table.read_range.is_none()) => Ok(()),
             2 if self.tables.iter().all(|table| table.complete_read == table.read_range.is_some()
                 && table.before.rows.keys().all(|key| table.changes.iter().any(|change| &change.key == key))) => Ok(()),
-            NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA
+            NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA
                 if self.tables.iter().all(|table| table.read_range.is_none()
                     && table.read_selector.as_ref().is_none_or(|selector|
                         !table.complete_read && selector.table_name() == table.before.table.name))
                 && matches!(self.tables.iter().filter(|table| table.before.table.name == "subject_steps")
                     .collect::<Vec<_>>().as_slice(), [table] if !table.complete_read
-                        && table.changes.is_empty() && table.before.rows.len() == 1) => Ok(()),
+                        && table.changes.is_empty() && table.before.rows.len() == 1)
+                && (self.schema_version != NATIVE_DIRECT_COMPLETION_READ_SCHEMA
+                    || matches!(self.tables.iter().filter(|table| self.direct_completion_head(table))
+                        .collect::<Vec<_>>().as_slice(), [table] if table.changes.is_empty() && table.before.rows.len() == 1
+                            && table.read_selector == Some(NativeReadSelector::DirectCompletionHead {
+                                agent_id: self.original_head.agent_id,
+                            }))) => Ok(()),
             NATIVE_ANCESTRY_READ_SCHEMA if self.tables.iter().all(|table|
                 table.read_range.is_none() && table.read_selector.as_ref().is_none_or(|selector|
                     !table.complete_read && selector.table_name() == table.before.table.name)) => Ok(()),
@@ -210,7 +222,7 @@ impl RowTransition {
     /// set of ad-hoc point selectors is a supported action format.
     pub(crate) fn validate_native_read_selectors(&self, expected: &[NativeReadSelector]) -> Result<(), ShenkoError> {
         let actual = self.tables.iter().filter_map(|table| table.read_selector.as_ref()).collect::<Vec<_>>();
-        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA) {
+        if !matches!(self.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA) {
             return if actual.is_empty() { Ok(()) } else { Err(invalid("legacy native read selector")) };
         }
         if actual.len() != expected.len() || expected.is_empty()
@@ -233,14 +245,20 @@ impl RowTransition {
         });
         let _preconditions = crate::timing::Phase::new("materialize.preconditions");
         self.validate_capture_shape()?;
-        if matches!(self.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA) {
+        if matches!(self.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA
+            | NATIVE_ANCESTRY_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA) {
             // The source evaluation calls read_subject even though it uses
             // only the returned head. Retain its successor existence, parent,
             // branch, epoch, generation and paused-boundary checks on every
             // receiver, in this same transaction. S0 state/input changes are
             // not dependencies of the separately proven native delegation.
             let (head, _) = crate::store::read_subject(tx, self.original_head.agent_id)?;
-            if serde_json::to_value(&head)? != serde_json::to_value(&self.original_head)? {
+            let same_head = if self.schema_version == NATIVE_DIRECT_COMPLETION_READ_SCHEMA {
+                follows_direct_completion_head(tx, &self.original_head, &head)?
+            } else {
+                serde_json::to_value(&head)? == serde_json::to_value(&self.original_head)?
+            };
+            if !same_head {
                 return Err(conflict(if self.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
                     "native subject predecessor differs"
                 } else { "direct native subject predecessor differs" }));
@@ -248,14 +266,19 @@ impl RowTransition {
         }
         let actual_layouts = layouts(tx)?;
         let mut seen = BTreeSet::new();
+        let mut direct_head = None;
         for table in &self.tables {
             let expected = &table.before;
             if !seen.insert(expected.table.name.clone()) {
                 return Err(invalid("duplicate transition table"));
             }
-            if actual_layouts.get(&expected.table.name) != Some(&expected.table)
-                || current_image(tx, table, self.schema_version)? != *expected
-            {
+            if actual_layouts.get(&expected.table.name) != Some(&expected.table) {
+                return Err(conflict(format!("predecessor/schema differs for {}", expected.table.name)));
+            }
+            let actual = current_image(tx, table, self.schema_version)?;
+            if self.direct_completion_head(table) {
+                direct_head = Some(actual);
+            } else if actual != *expected {
                 return Err(conflict(format!(
                     "predecessor/schema differs for {}",
                     expected.table.name
@@ -281,6 +304,12 @@ impl RowTransition {
         drop(_writes);
         let _postconditions = crate::timing::Phase::new("materialize.postconditions");
         for table in &self.tables {
+            if self.direct_completion_head(table) {
+                if direct_head.take() != Some(current_image(tx, table, self.schema_version)?) {
+                    return Err(invalid("direct native completion changed the live subject head"));
+                }
+                continue;
+            }
             let mut expected = table.before.clone();
             for change in &table.changes {
                 if let Some(after) = &change.after {
@@ -1265,6 +1294,7 @@ impl Store {
         }
         let transition = RowTransition {
             schema_version: if matches!(native_reads, Some(NativeReads::Ancestry(_))) { NATIVE_ANCESTRY_READ_SCHEMA }
+                else if selected.contains_key("subject_branch_heads") { NATIVE_DIRECT_COMPLETION_READ_SCHEMA }
                 else if !selectors.is_empty() { NATIVE_OPERATION_READ_SCHEMA }
                 else if direct_creator.is_some() { NATIVE_SUBJECT_READ_SCHEMA }
                 else if summarize_reads { 2 } else { 1 },
@@ -1392,20 +1422,28 @@ impl Store {
             let envelope: serde_json::Value =
                 serde_json::from_slice(&self.cas.read_object(&admission.payload_ref.digest)?)?;
             let head: SubjectBranchHead = serde_json::from_value(envelope["head"].clone())?;
-            if envelope["source_ledger_id"] != serde_json::to_value(self.ledger.ledger_id())?
-                || serde_json::to_value(self.load_subject(subject)?.0)?
-                    != serde_json::to_value(&head)?
-            {
+            if envelope["source_ledger_id"] != serde_json::to_value(self.ledger.ledger_id())? {
                 continue;
             }
             let reference: ObjectRef =
                 serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
+            let kind = envelope["action"]["kind"].as_str();
+            let current = {
+                let conn = self.ledger.conn.lock();
+                let (live, _) = crate::store::read_subject(&conn, subject)?;
+                if kind == Some("native.complete") && crate::native_transition::is_direct_completion(&reference) {
+                    follows_direct_completion_head(&conn, &head, &live)?
+                } else {
+                    serde_json::to_value(live)? == serde_json::to_value(&head)?
+                }
+            };
+            if !current { continue; }
             self.admission_objects(&admission.payload_ref)?;
             let reservation = self
                 .reserve_sealed_admission(admission.clone(), Vec::new(), Vec::new())?
                 .prepared_recovery();
             let grant = reservation.grant().cloned();
-            let result = match envelope["action"]["kind"].as_str() {
+            let result = match kind {
                 Some("native.claim") => self
                     .apply_claim_transition(
                         &reference,
@@ -1631,6 +1669,39 @@ pub(crate) fn prepared_transition_at(
     .transpose()
 }
 
+/// A childless T2 can follow ordinary S1 progress on the same owner. The
+/// recorded source head still authenticates the original preparation.
+fn follows_direct_completion_head(
+    conn: &Connection, original: &SubjectBranchHead, current: &SubjectBranchHead,
+) -> Result<bool, ShenkoError> {
+    if current.agent_id != original.agent_id || current.branch_id != original.branch_id
+        || current.branch_origin != original.branch_origin || current.genesis_ref != original.genesis_ref
+        || current.subject_root_task_id != original.subject_root_task_id
+        || current.controller_epoch != original.controller_epoch
+        || current.software_generation != original.software_generation
+        || current.mode != original.mode || current.mode_reason_ref != original.mode_reason_ref
+        || current.committed_step_no < original.committed_step_no
+        || current.record_revision.0 < original.record_revision.0
+    {
+        return Ok(false);
+    }
+    if current.committed_step_no == original.committed_step_no {
+        return Ok(current.committed_at == original.committed_at
+            && current.committed_step_id == original.committed_step_id
+            && current.next_step_id == original.next_step_id);
+    }
+    if current.record_revision.0 - original.record_revision.0 < current.committed_step_no - original.committed_step_no {
+        return Ok(false);
+    }
+    let Some(step_id) = original.committed_step_id else {
+        return Ok(original.committed_step_no == 0);
+    };
+    Ok(crate::store::read_step(conn, &original.branch_id, step_id)?.is_some_and(|step|
+        step.step_id == step_id && step.branch_id == original.branch_id
+            && step.step_no == original.committed_step_no && step.state == SubjectStepState::Committed
+            && step.commit_ref == Some(original.committed_at)))
+}
+
 fn current_image(conn: &Connection, transition: &TableTransition, schema: u32) -> Result<Image, ShenkoError> {
     if let Some(selector) = &transition.read_selector {
         return selector.current_image(conn, &transition.before.table);
@@ -1639,7 +1710,7 @@ fn current_image(conn: &Connection, transition: &TableTransition, schema: u32) -
         return image(conn, &transition.before.table);
     }
     let mut remaining = MAX_CAPTURE_BYTES;
-    if matches!(schema, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA)
+    if matches!(schema, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA)
         && transition.before.table.name == "subject_steps" {
         return image_for_keys_with_budget(conn, &transition.before.table,
             transition.before.rows.values().map(Vec::as_slice), &mut remaining);

@@ -90,6 +90,7 @@ pub(crate) enum NativeReadSelector {
     OriginalOperation { operation_id: EntityId },
     OriginalAttempt { attempt_id: EntityId },
     OriginalReceipt { receipt_id: EntityId },
+    DirectCompletionHead { agent_id: EntityId },
     TaskAncestry { ancestry: NativeAncestry, ordinary_children: bool },
     AuthoringSteps { ancestry: NativeAncestry },
 }
@@ -100,6 +101,7 @@ impl NativeReadSelector {
             Self::ArmOperation { .. } | Self::OriginalOperation { .. } => "operations",
             Self::ArmAttempt { .. } | Self::OriginalAttempt { .. } => "attempts",
             Self::OriginalReceipt { .. } => "evidence_receipts",
+            Self::DirectCompletionHead { .. } => "subject_branch_heads",
             Self::TaskAncestry { .. } => "tasks",
             Self::AuthoringSteps { .. } => "subject_steps",
         }
@@ -168,6 +170,7 @@ impl NativeReadSelector {
             Self::OriginalOperation { operation_id } => ("operation_id", "operation_id=?1".into(), vec![operation_id.to_string()]),
             Self::OriginalAttempt { attempt_id } => ("attempt_id", "attempt_id=?1".into(), vec![attempt_id.to_string()]),
             Self::OriginalReceipt { receipt_id } => ("receipt_id", "receipt_id=?1".into(), vec![receipt_id.to_string()]),
+            Self::DirectCompletionHead { agent_id } => ("agent_id", "agent_id=?1".into(), vec![agent_id.to_string()]),
             Self::TaskAncestry { ordinary_children: true, .. } => ("task_id", "1".into(), vec![]),
             Self::TaskAncestry { ordinary_children: false, .. } => {
                 let keys = ancestry_keys.as_ref().ok_or_else(|| invalid("missing native ancestry keys"))?;

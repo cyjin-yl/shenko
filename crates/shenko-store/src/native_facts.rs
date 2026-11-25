@@ -18,7 +18,8 @@ use shenko_types::{
 use crate::{
     Store,
     authority::{admission_applied, task_revision_position},
-    control_transition::{Cell, MAX_IMAGE_BYTES, NATIVE_OPERATION_READ_SCHEMA, NATIVE_SUBJECT_READ_SCHEMA, RowTransition, TableTransition},
+    control_transition::{Cell, MAX_IMAGE_BYTES, NATIVE_DIRECT_COMPLETION_READ_SCHEMA, NATIVE_OPERATION_READ_SCHEMA,
+        NATIVE_SUBJECT_READ_SCHEMA, RowTransition, TableTransition},
     store::storage_error,
 };
 
@@ -86,7 +87,7 @@ pub(crate) fn validate_subject_read(
     rows: &RowTransition,
     creator: &SubjectStep,
 ) -> Result<(), ShenkoError> {
-    if !matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) {
+    if !matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA) {
         return Ok(());
     }
     let tables = rows.tables.iter()

@@ -21,7 +21,7 @@ use shenko_types::subject::{GenesisRef, SubjectBranchHead, SubjectGenesis, Subje
 use crate::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
 use crate::cognition::rows::{TABLES, read_table, set_value, spec_for};
 use crate::cognition::snapshot::fingerprint_of_manifest;
-use crate::cognition_archive::{ARCHIVE_SCHEMA, CognitionRow, ROOT_FACT_CLASSES, validate_manifest_schema};
+use crate::cognition_archive::{ARCHIVE_SCHEMA, CognitionRow, ROOT_FACT_CLASSES, ROOT_FACT_SCHEMA, validate_manifest_schema};
 use crate::memory::MemoryEntry;
 use crate::store::Store;
 
@@ -433,7 +433,7 @@ fn required_root_membership_preserves_historical_format_boundaries() -> Result<(
         missing.fact_classes.retain(|class| class != family);
         assert!(validate_manifest_schema(&missing).is_err(), "empty required family {family}");
     }
-    for schema in (2..=7).chain(10..ARCHIVE_SCHEMA) {
+    for schema in (2..=7).chain(10..ROOT_FACT_SCHEMA) {
         for dialogue in if schema == 7 { vec![true, false] } else { vec![false] } {
             let mut historical = current.clone();
             historical.schema = schema;
@@ -459,6 +459,11 @@ fn required_root_membership_preserves_historical_format_boundaries() -> Result<(
     combined_seven.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
     combined_seven.fact_classes.extend(["dialogue_endpoints".into(), "dialogue_messages".into()]);
     assert!(validate_manifest_schema(&combined_seven).is_err());
+    let mut preceding = current;
+    preceding.schema = ROOT_FACT_SCHEMA;
+    validate_manifest_schema(&preceding)?;
+    preceding.fact_classes.retain(|class| class != ROOT_FACT_CLASSES[0]);
+    assert!(validate_manifest_schema(&preceding).is_err());
     Ok(())
 }
 

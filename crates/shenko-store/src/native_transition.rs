@@ -30,7 +30,7 @@ use crate::{
         NATIVE_RECOVERY, NATIVE_RESULT_ID, NATIVE_SETTLEMENT_ONLY, memo_flag, memo_uuid,
     },
     control_transition::{
-        Cell, MAX_IMAGE_BYTES, NATIVE_ANCESTRY_READ_SCHEMA, NATIVE_OPERATION_READ_SCHEMA,
+        Cell, MAX_IMAGE_BYTES, NATIVE_ANCESTRY_READ_SCHEMA, NATIVE_DIRECT_COMPLETION_READ_SCHEMA, NATIVE_OPERATION_READ_SCHEMA,
         NATIVE_SUBJECT_READ_SCHEMA, NativeAncestry, NativeReadSelector, PreparedTransition,
         RowTransition, RowTransitionInput, TableTransition,
     },
@@ -38,7 +38,12 @@ use crate::{
     store::{commit_error, storage_error},
 };
 
-const CODEC: &str = "store-native-t2-transition";
+pub(crate) const CODEC: &str = "store-native-t2-transition";
+pub(crate) const DIRECT_COMPLETION_CODEC_MAJOR: u32 = 6;
+
+pub(crate) fn is_direct_completion(reference: &ObjectRef) -> bool {
+    reference.codec.name == CODEC && reference.codec.major == DIRECT_COMPLETION_CODEC_MAJOR
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", deny_unknown_fields)]
@@ -123,6 +128,11 @@ impl NativeT2Plan {
             NativeReadSelector::OriginalAttempt { attempt_id: self.attempt.attempt_id },
             NativeReadSelector::OriginalReceipt { receipt_id: self.evidence.receipt_id },
         ]
+    }
+
+    fn direct_read_selectors(&self, head: &SubjectBranchHead) -> [NativeReadSelector; 4] {
+        let [operation, attempt, receipt] = self.read_selectors();
+        [operation, attempt, receipt, NativeReadSelector::DirectCompletionHead { agent_id: head.agent_id }]
     }
 
     fn generic_read_selectors(&self, head: &SubjectBranchHead) -> Vec<NativeReadSelector> {
@@ -289,10 +299,10 @@ fn json<T: serde::de::DeserializeOwned>(cell: &Cell) -> Result<T, ShenkoError> {
 
 impl NativeT2Transition {
     fn read_selectors(&self) -> Vec<NativeReadSelector> {
-        if self.rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA {
-            self.plan.generic_read_selectors(&self.rows.original_head)
-        } else {
-            self.plan.read_selectors().to_vec()
+        match self.rows.schema_version {
+            NATIVE_ANCESTRY_READ_SCHEMA => self.plan.generic_read_selectors(&self.rows.original_head),
+            NATIVE_DIRECT_COMPLETION_READ_SCHEMA => self.plan.direct_read_selectors(&self.rows.original_head).to_vec(),
+            _ => self.plan.read_selectors().to_vec(),
         }
     }
 
@@ -309,7 +319,7 @@ impl NativeT2Transition {
                 Ok(table)
             }
             [table] if table.complete_read => Ok(table),
-            [table] if matches!(self.rows.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
+            [table] if matches!(self.rows.schema_version, NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA)
                 && self.read_selectors().iter().any(|selector| table.read_selector.as_ref() == Some(selector)) => Ok(table),
             _ => Err(invalid(format!("missing complete {name} read condition"))),
         }
@@ -356,8 +366,10 @@ impl NativeT2Transition {
             ));
         }
         let key = plan.phase.position(&plan.task);
-        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA | NATIVE_ANCESTRY_READ_SCHEMA)
-            || (matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA) && self.evidence_fact.is_none())
+        if !matches!(rows.schema_version, 1 | NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA
+            | NATIVE_ANCESTRY_READ_SCHEMA | NATIVE_DIRECT_COMPLETION_READ_SCHEMA)
+            || (matches!(rows.schema_version, NATIVE_SUBJECT_READ_SCHEMA | NATIVE_OPERATION_READ_SCHEMA
+                | NATIVE_DIRECT_COMPLETION_READ_SCHEMA) && self.evidence_fact.is_none())
             || (rows.schema_version == NATIVE_ANCESTRY_READ_SCHEMA && self.evidence_fact.is_some())
             || rows.action_id != admission.action_id
             || rows.action_id != EntityId::derived("commit-admission-action-v1", key.as_bytes())
@@ -684,7 +696,7 @@ impl Store {
                 let [creator] = position.expected_steps.as_slice() else {
                     return Err(invalid("direct T2 requires its original creator"));
                 };
-                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.read_selectors(), evaluate)?
+                self.capture_direct_native_transition(&tx, input, &plan.task, creator, &plan.direct_read_selectors(head), evaluate)?
             } else {
                 self.capture_native_ancestry_transition(&tx, input, &plan.generic_read_selectors(head), evaluate)?
             };
@@ -694,7 +706,7 @@ impl Store {
             let bytes = serde_json::to_vec(&transition)?;
             if bytes.len() > MAX_IMAGE_BYTES { return Err(conflict("native T2 exceeds the 64 MiB admission budget")); }
             let transition_ref = self.cas.seal_object(&bytes, "application/json", "commit-authority", CODEC,
-                if evidence_fact.is_some() { 4 } else { 5 })?.object;
+                if evidence_fact.is_some() { DIRECT_COMPLETION_CODEC_MAJOR } else { 5 })?.object;
             let payload_ref = self.cas.seal_object(&serde_json::to_vec(&serde_json::json!({
                 "schema_version":1,"kind":"store.control_admission","head":head,
                 "source_ledger_id":self.ledger.ledger_id(),"predecessor_ref":predecessor_ref,
@@ -797,7 +809,7 @@ impl Store {
         &self,
         reference: &ObjectRef,
     ) -> Result<NativeT2Transition, ShenkoError> {
-        if !matches!(reference.codec.major, 1..=5) {
+        if !matches!(reference.codec.major, 1..=6) {
             return Err(invalid("unsupported transition type or size"));
         }
         crate::native_facts::typed_json(reference, CODEC, reference.codec.major)?;
@@ -806,8 +818,9 @@ impl Store {
             return Err(invalid("transition bytes differ"));
         }
         let transition: NativeT2Transition = serde_json::from_slice(&bytes).map_err(invalid)?;
-        if matches!(reference.codec.major, 2..=4) != transition.evidence_fact.is_some()
+        if matches!(reference.codec.major, 2..=4 | 6) != transition.evidence_fact.is_some()
             || transition.rows.schema_version != match reference.codec.major {
+                6 => NATIVE_DIRECT_COMPLETION_READ_SCHEMA,
                 5 => NATIVE_ANCESTRY_READ_SCHEMA,
                 4 => NATIVE_OPERATION_READ_SCHEMA,
                 3 => NATIVE_SUBJECT_READ_SCHEMA,
