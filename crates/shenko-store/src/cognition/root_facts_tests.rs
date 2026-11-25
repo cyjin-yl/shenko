@@ -484,15 +484,12 @@ fn foreign_refused_original_does_not_require_a_local_original_receipt() -> Resul
 }
 
 #[test]
-#[ignore = "requires SHENKO_ROOT_OLD9_ARCHIVE from the real schema-9 producer"]
 fn genuine_schema_nine_refuses_without_publishing() -> Result<()> {
-    let original = std::env::var_os("SHENKO_ROOT_OLD9_ARCHIVE")
-        .ok_or_else(|| anyhow::anyhow!("set SHENKO_ROOT_OLD9_ARCHIVE to the retained schema-9 producer output"))?;
-    let archive = std::fs::read(original)?;
-    let root = std::env::temp_dir().join(format!("shenko-root-old9-{}", EntityId::new()));
-    std::fs::create_dir(&root)?;
-    let db = root.join("receiver.db");
-    let cas = root.join("cas");
+    // Unmodified output of a schema-9 producer exporting a fresh Store.
+    let archive = include_bytes!("fixtures/schema-9.archive");
+    let root = tempfile::tempdir()?;
+    let db = root.path().join("receiver.db");
+    let cas = root.path().join("cas");
     let store = Store::open(db.clone(), cas.clone())?;
     let marks = |store: &Store| -> Result<Vec<i64>> {
         let conn = store.ledger.conn.lock();
@@ -507,6 +504,5 @@ fn genuine_schema_nine_refuses_without_publishing() -> Result<()> {
     drop(store);
     let reopened = Store::open(db, cas)?;
     assert_eq!((reopened.current_commit_seq()?, facts(&reopened)?, marks(&reopened)?), before);
-    eprintln!("retained genuine schema-9 refusal receiver={}", root.display());
     Ok(())
 }
