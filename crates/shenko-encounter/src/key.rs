@@ -145,10 +145,8 @@ impl SubjectKey {
         let pair = Ed25519KeyPair::from_pkcs8(bytes)
             .map_err(|_| KeyError::Unusable("not a PKCS#8 Ed25519 key".into()))?;
         let identity = PublicIdentity(
-            pair.public_key()
-                .as_ref()
-                .try_into()
-                .expect("Ed25519 public keys are 32 bytes"),
+            <[u8; 32]>::try_from(pair.public_key().as_ref())
+                .map_err(|_| KeyError::Unusable("public key is not 32 bytes".into()))?,
         );
         Ok(Self { pair, identity })
     }
@@ -157,12 +155,9 @@ impl SubjectKey {
         &self.identity
     }
 
-    pub fn sign(&self, message: &[u8]) -> [u8; 64] {
-        self.pair
-            .sign(message)
-            .as_ref()
-            .try_into()
-            .expect("Ed25519 signatures are 64 bytes")
+    /// Sign `message`; the result is a 64-byte Ed25519 signature.
+    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+        self.pair.sign(message).as_ref().to_vec()
     }
 }
 

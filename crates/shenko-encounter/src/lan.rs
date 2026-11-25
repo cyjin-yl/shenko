@@ -64,7 +64,9 @@ impl LanBeacon {
     }
 
     pub fn announce(&self, card: &SignedCard) -> io::Result<()> {
-        let bytes = card.to_bytes();
+        let bytes = card
+            .to_bytes()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         if bytes.len() > MAX_DATAGRAM_BYTES {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

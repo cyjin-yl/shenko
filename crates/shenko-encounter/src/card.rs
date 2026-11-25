@@ -107,7 +107,7 @@ impl Card {
             signature: hex::encode(key.sign(card.as_bytes())),
             card,
         };
-        if signed.to_bytes().len() > MAX_DATAGRAM_BYTES {
+        if signed.to_bytes()?.len() > MAX_DATAGRAM_BYTES {
             return Err(CardError::OutOfBounds("datagram"));
         }
         Ok(signed)
@@ -115,8 +115,8 @@ impl Card {
 }
 
 impl SignedCard {
-    pub fn to_bytes(&self) -> Vec<u8> {
-        serde_json::to_vec(self).expect("a signed card always serializes")
+    pub fn to_bytes(&self) -> Result<Vec<u8>, CardError> {
+        serde_json::to_vec(self).map_err(|_| CardError::Malformed)
     }
 
     /// Parse and verify a received card at time `now` (Unix seconds).
@@ -171,7 +171,7 @@ mod tests {
         let other = key("other");
         let now = 1_800_000_000;
         let signed = card(&me, now).sign(&me).unwrap();
-        let (verified, digest) = SignedCard::verify(&signed.to_bytes(), now + 5).unwrap();
+        let (verified, digest) = SignedCard::verify(&signed.to_bytes().unwrap(), now + 5).unwrap();
         assert_eq!(verified, card(&me, now));
         assert_eq!(digest.len(), 64);
 
@@ -181,16 +181,16 @@ mod tests {
         let mut forged = signed.clone();
         forged.card = forged.card.replace("Shenko", "Shenkx");
         assert_eq!(
-            SignedCard::verify(&forged.to_bytes(), now),
+            SignedCard::verify(&forged.to_bytes().unwrap(), now),
             Err(CardError::BadSignature)
         );
         // Freshness bounds against replay.
         assert_eq!(
-            SignedCard::verify(&signed.to_bytes(), now + MAX_AGE_SECS + 1),
+            SignedCard::verify(&signed.to_bytes().unwrap(), now + MAX_AGE_SECS + 1),
             Err(CardError::Stale)
         );
         assert_eq!(
-            SignedCard::verify(&signed.to_bytes(), now - MAX_SKEW_SECS - 1),
+            SignedCard::verify(&signed.to_bytes().unwrap(), now - MAX_SKEW_SECS - 1),
             Err(CardError::FromFuture)
         );
         // Bounds hold on both sides.
