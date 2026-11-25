@@ -4588,6 +4588,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-encounter"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "libc",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "socket2",
+]
+
+[[package]]
 name = "shenko-evidence"
 version = "0.1.0"
 dependencies = [
