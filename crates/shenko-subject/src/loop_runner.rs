@@ -9,6 +9,7 @@ use crate::inbox::Inbox;
 use crate::context_projection::{ContextPreparer, CorrectionInput, FrozenContextInput, estimate_payload_tokens, prepare_context, prepare_corrected_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{FrozenQuotaSelection, QuotaGate, QuotaRoute, QuotaRouteOwner, select_quota_route, subject_quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use futures::future::{Either, select};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry, HookSnapshot};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -1623,13 +1624,17 @@ async fn execute_step(
         let route = if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
             let mut route = semantic_wait_route(&store, state.broker.as_ref(), wait)?;
             let remaining = (wait.deadline_at - chrono::Utc::now()).to_std().unwrap_or_default();
-            let planned = tokio::select! {
-                biased;
-                _ = tokio::time::sleep(remaining) => None,
-                result = select_quota_route(
+            let planned = {
+                let expiry = std::pin::pin!(tokio::time::sleep(remaining));
+                let quota = std::pin::pin!(select_quota_route(
                     &store, route.broker.as_ref().or(state.broker.as_ref()), cancel,
                     &state.quota_strategies, QuotaRouteOwner::Subject { agent: state.agent_id, allow_rebind: false },
-                ) => result?,
+                ));
+                // Poll expiry first so a ready quota decision cannot extend the wait.
+                match select(expiry, quota).await {
+                    Either::Left(_) => None,
+                    Either::Right((planned, _)) => planned?,
+                }
             };
             let Some(planned) = planned else { return Ok(None) };
             route.selection = planned.selection;
