@@ -37,6 +37,7 @@ fn quota_policy() -> shenko_quota::QuotaPolicy {
             local: true,
             cost_per_request: Vec::new(),
             effort_levels: Vec::new(),
+            max_output_tokens: None,
         }],
         assumptions: Vec::new(),
         min_progress_per_hour: 0.0,

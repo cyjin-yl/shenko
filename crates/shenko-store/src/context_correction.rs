@@ -82,7 +82,7 @@ impl Store {
         }
         let parent_ref = previous.input_plan_ref.as_ref().ok_or_else(|| invalid("parent seal missing"))?;
         let parent = sealed_json(self, parent_ref)?;
-        let current_format = matches!(parent["schema_version"].as_u64(), Some(14 | 15));
+        let current_format = matches!(parent["schema_version"].as_u64(), Some(14..=16));
         let mut observed = parent.clone();
         let mut prior_pinned_corrections = 0;
         while prior_pinned_corrections < MAX_PINNED_CONTROL_CORRECTIONS {
@@ -189,7 +189,7 @@ impl Store {
                 "correction cannot downgrade or reinterpret its parent's schema",
             ));
         }
-        if !matches!(version, Some(14 | 15)) {
+        if !matches!(version, Some(14..=16)) {
             return Ok(());
         }
         if [next_ref, parent_ref].iter().any(|reference| {

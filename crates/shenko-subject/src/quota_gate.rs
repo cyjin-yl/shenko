@@ -18,7 +18,7 @@ Cancelled, }
 
 /// Additive selection evidence in a subject's existing S0 provider projection.
 /// It is not admission, a send identity, or authority to alter a sealed request.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FrozenQuotaSelection {
     pub policy_id: EntityId,
     pub policy_revision: u64,
@@ -28,19 +28,41 @@ pub(crate) struct FrozenQuotaSelection {
     /// Absence preserves the implicit effort of historical subject seals.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<FrozenQuotaEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<std::num::NonZeroU32>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+impl FrozenQuotaSelection {
+    pub(crate) fn output_budget(&self, requested: u64) -> u64 {
+        self.max_output_tokens.map_or(requested, |limit| requested.min(u64::from(limit.get())))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct FrozenQuotaEffort {
     pub requested: String,
     pub native: shenko_broker::effort::ProviderEffort,
 }
 
-pub(crate) struct SubjectQuotaRoute {
+pub(crate) struct QuotaRoute {
     /// None preserves the configured path: no policy selected an override,
-    /// or an active semantic wait already names that exact binding.
+    /// the child contract fixed the route, or an active wait already names it.
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub selection: Option<FrozenQuotaSelection>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum QuotaRouteOwner {
+    Subject { agent: EntityId, allow_rebind: bool },
+    FiniteChild,
+}
+
+fn matches_quota_profile(
+    binding: &shenko_broker::request::ProviderBinding,
+    profile: &shenko_quota::ModelProfile,
+) -> bool {
+    profile.model_ref == binding.model()
+        && profile.local == matches!(binding, shenko_broker::request::ProviderBinding::Local { .. })
 }
 
 /// Resolve only installed, currently eligible runtimes. The configured
@@ -103,7 +125,7 @@ fn decision_is_current(
             availability.get(&observed.profile_id) == Some(&observed.state))
 }
 
-fn effort_binding_error(code: &str, reason: &str) -> ShenkoError {
+fn quota_semantics_error(code: &str, reason: &str) -> ShenkoError {
     ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
         code, shenko_types::error::ErrorScope::Request,
         shenko_types::error::RetryStrategy::NewRevision,
@@ -122,27 +144,40 @@ fn resolve_effort(
     requested: &str,
 ) -> Result<shenko_broker::effort::ProviderEffort, ShenkoError> {
     broker.resolve_effort(requested).map_err(|error| match error {
-        shenko_broker::effort::EffortResolutionError::Unsupported => effort_binding_error(
+        shenko_broker::effort::EffortResolutionError::Unsupported => quota_semantics_error(
             "QUOTA_EFFORT_BINDING_UNSUPPORTED",
             "the exact bound runtime has no typed native mapping for the requested effort; no new seal/admission",
         ),
-        shenko_broker::effort::EffortResolutionError::ProviderUnavailable => effort_binding_error(
+        shenko_broker::effort::EffortResolutionError::ProviderUnavailable => quota_semantics_error(
             "MODEL_PROVIDER_BINDING_MISMATCH",
             "the exact runtime owner disappeared during effort selection; no new seal/admission",
         ),
     })
 }
 
-fn require_sealed_effort(
+fn priced_profile<'a>(policy: &'a shenko_quota::QuotaPolicy, profile_id: &str)
+    -> Result<&'a shenko_quota::ModelProfile, ShenkoError>
+{
+    policy.profiles.iter().find(|profile| profile.profile_id == profile_id)
+        .ok_or_else(|| ShenkoError::conflict("priced quota profile is not configured"))
+}
+
+fn require_sealed_semantics(
     broker: &shenko_broker::broker::BrokerHandle,
+    policy: &shenko_quota::QuotaPolicy,
     decision: &shenko_quota::PolicyDecision,
     selection: Option<&FrozenQuotaSelection>,
 ) -> Result<(), ShenkoError> {
-    if !matches!(&decision.choice,
-        shenko_quota::Choice::Cloud { .. } | shenko_quota::Choice::Local { .. })
-    {
+    let (shenko_quota::Choice::Cloud { profile_id, .. } | shenko_quota::Choice::Local { profile_id })
+        = &decision.choice else {
         // A quota/capacity wait has not selected priced request semantics.
         return Ok(());
+    };
+    if priced_profile(policy, profile_id)?.max_output_tokens
+        != selection.and_then(|selection| selection.max_output_tokens)
+    {
+        return Err(quota_semantics_error("QUOTA_OUTPUT_BUDGET_BINDING_MISMATCH",
+            "the priced output limit differs from the sealed output authorization"));
     }
     let sealed = selection.and_then(|selection| selection.effort.as_ref());
     let matches = match (requested_effort(decision), sealed) {
@@ -160,64 +195,82 @@ fn require_sealed_effort(
         (None, Some(_)) => false,
     };
     if matches { Ok(()) } else {
-        Err(effort_binding_error("QUOTA_EFFORT_BINDING_MISMATCH",
+        Err(quota_semantics_error("QUOTA_EFFORT_BINDING_MISMATCH",
             "current priced effort differs from the original sealed native semantics; a new request and seal are required"))
     }
 }
 
-/// Fresh Planned -> S0 only. Routing precedes any context projection. Quota
-/// waits re-read policy without a request, reservation, compute permit or seal;
-/// actual spending admission remains at the original post-seal send boundary.
-pub(crate) async fn select_subject_quota_route(
+/// Select semantics for a fresh subject or child request before sealing it.
+/// Quota waits retain the original post-seal boundary for spend admission.
+pub(crate) async fn select_quota_route(
     store: &shenko_store::Store,
     broker: Option<&shenko_broker::broker::BrokerHandle>,
     cancel: &tokio_util::sync::CancellationToken,
     strategies: &shenko_quota::QuotaStrategies,
-    agent: EntityId,
-) -> Result<Option<SubjectQuotaRoute>, ShenkoError> {
+    owner: QuotaRouteOwner,
+) -> Result<Option<QuotaRoute>, ShenkoError> {
     loop {
         let Some(policy) = store.latest_quota_policy()? else {
-            return Ok(Some(SubjectQuotaRoute { broker: None, selection: None }));
+            return Ok(Some(QuotaRoute { broker: None, selection: None }));
         };
         if cancel.is_cancelled() { return Ok(None); }
         let broker = broker.ok_or_else(|| ShenkoError::other(
             "capacity_blocked: quota selection has no installed broker",
         ))?;
-        let bindings = broker.installed_bindings();
+        let bindings = match owner {
+            QuotaRouteOwner::Subject { allow_rebind: true, .. } => Some(broker.installed_bindings()),
+            _ => None,
+        };
         let mut routes = std::collections::HashMap::new();
         let mut availability = std::collections::HashMap::new();
         for profile in &policy.profiles {
-            let route = installed_quota_route(broker, &bindings, profile)?;
-            availability.insert(profile.profile_id.clone(), if route.is_some() {
+            let usable = if let Some(bindings) = &bindings {
+                if let Some(route) = installed_quota_route(broker, bindings, profile)? {
+                    routes.insert(profile.profile_id.clone(), route);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                matches_quota_profile(broker.binding(), profile) && broker.serves_model(&profile.model_ref)
+            };
+            availability.insert(profile.profile_id.clone(), if usable {
                 shenko_quota::BackendState::Available
             } else {
                 shenko_quota::BackendState::Unavailable
             });
-            if let Some(route) = route { routes.insert(profile.profile_id.clone(), route); }
         }
         let now = chrono::Utc::now();
         let latest = store.latest_quota_decision()?;
         let decision = match &latest {
             Some((_, decision)) if decision_is_current(&policy, decision, &availability, now) => decision.clone(),
-            _ => compute_quota_decision(
-                store, &policy, &availability, latest.as_ref().map(|(_, decision)| decision),
-                store.quota_work_evidence(agent)?.as_ref(), now, strategies,
-            )?,
+            _ => {
+                let work = match owner {
+                    QuotaRouteOwner::Subject { agent, .. } => store.quota_work_evidence(agent)?,
+                    QuotaRouteOwner::FiniteChild => None,
+                };
+                compute_quota_decision(
+                    store, &policy, &availability, latest.as_ref().map(|(_, decision)| decision),
+                    work.as_ref(), now, strategies,
+                )?
+            }
         };
         let until = match &decision.choice {
             shenko_quota::Choice::Cloud { profile_id, .. }
             | shenko_quota::Choice::Local { profile_id } => {
-                let selected = routes.remove(profile_id).ok_or_else(||
-                    ShenkoError::conflict("quota strategy selected an ineligible installed route"))?;
+                if availability.get(profile_id) != Some(&shenko_quota::BackendState::Available) {
+                    return Err(ShenkoError::conflict("quota strategy selected an ineligible installed route"));
+                }
+                let selected = routes.remove(profile_id);
                 let effort = match requested_effort(&decision) {
                     Some(requested) => {
-                        let native = resolve_effort(&selected, requested)?;
+                        let native = resolve_effort(selected.as_ref().unwrap_or(broker), requested)?;
                         Some(FrozenQuotaEffort { requested: requested.to_owned(), native })
                     }
                     None => None,
                 };
-                return Ok(Some(SubjectQuotaRoute {
-                    broker: Some(selected),
+                return Ok(Some(QuotaRoute {
+                    broker: selected,
                     selection: Some(FrozenQuotaSelection {
                         policy_id: policy.policy_id,
                         policy_revision: policy.revision,
@@ -225,6 +278,7 @@ pub(crate) async fn select_subject_quota_route(
                         decision_id: decision.decision_id,
                         profile_id: profile_id.clone(),
                         effort,
+                        max_output_tokens: priced_profile(&policy, profile_id)?.max_output_tokens,
                     }),
                 }));
             }
@@ -267,7 +321,9 @@ fn compute_quota_decision(
         if profile.local {
             continue;
         }
-        for cost in &profile.cost_per_request {
+        for cost in profile.cost_per_request.iter().chain(
+            profile.effort_levels.iter().flat_map(|level| &level.cost_per_request))
+        {
             scopes.insert((
                 cost.window.provider_id.clone(),
                 cost.window.account_scope_ref.clone(),
@@ -354,9 +410,9 @@ request_id: EntityId,
 cancel: &tokio_util::sync::CancellationToken,
 strategies: &shenko_quota::QuotaStrategies,
 native: Option<&shenko_types::task::TaskInvocation>,
-subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> {
+selection: Option<&FrozenQuotaSelection>,) -> Result<QuotaGate, ShenkoError> {
     quota_dispatch_gate_for_owner(store, broker, request_id, cancel, strategies,
-        QuotaOwner { native, subject_agent, selection: None }).await
+        QuotaOwner { native, subject_agent: None, selection }).await
 }
 
 pub(crate) async fn subject_quota_dispatch_gate(
@@ -453,9 +509,7 @@ loop {
         .profiles
         .iter()
         .map(|profile| {
-            let usable = profile.local
-                == matches!(binding, shenko_broker::request::ProviderBinding::Local { .. })
-                && profile.model_ref == binding.model()
+            let usable = matches_quota_profile(binding, profile)
                 && (reconciling_original || selection.is_none_or(|sealed| sealed.profile_id == profile.profile_id))
                 && (reconciling_original || broker.serves_model(&profile.model_ref));
             (
@@ -528,11 +582,11 @@ loop {
             (policy.clone(), decision)
         }
     };
-    // A replacement decision can withhold admission, but it cannot charge a
-    // fresh subject request at effort that was never sent in its S0 payload.
+    // A replacement decision can withhold admission. A fresh send still
+    // needs pricing for its sealed effort and output authorization.
     // Original admitted/armed history keeps its existing reconciliation path.
-    if subject_agent.is_some() && !reconciling_original
-        && let Err(error) = require_sealed_effort(broker, &decision, selection)
+    if !reconciling_original
+        && let Err(error) = require_sealed_semantics(broker, &policy_in_use, &decision, selection)
     {
         // A second entrant can promote this exact send while routing is
         // reading detached evidence. Its original admission must be
@@ -874,6 +928,7 @@ mod policy_change_tests {
                     amount: Range::point(1.0).context("fixture cost must be finite")?,
                 }],
                 effort_levels: Vec::new(),
+                max_output_tokens: None,
             }],
             assumptions: Vec::new(),
             min_progress_per_hour: 0.0,
@@ -1096,6 +1151,7 @@ mod policy_change_tests {
                     amount: Range::point(1.0).context("fixture cost must be finite")?,
                 }],
                 effort_levels: Vec::new(),
+                max_output_tokens: None,
             }],
             assumptions: Vec::new(),
             min_progress_per_hour: 0.0,
