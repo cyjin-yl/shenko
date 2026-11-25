@@ -81,7 +81,12 @@ Software-slot backups retain predecessor control application receipts with
 their original physical commit coordinates. For installation identity based
 on control application, Store selects the newest receipt on the current
 ledger and verifies its exact commit and applied event. Predecessor receipts
-remain historical evidence in the copy.
+remain historical evidence in the copy. Control recovery recognizes a copied
+application only when the original physical commit and the applied event agree
+with the exact materialization receipt. The selected runtime uses that evidence
+to skip replaying the chosen action. The original coordinates remain intact
+across handoff. Ordinary cognition import preserves the event and cannot supply
+this physical proof.
 
 ## Cognition archive ([§5.4](nodes.md#spec-5-4)、[§36](durable-state.md#spec-36))
 

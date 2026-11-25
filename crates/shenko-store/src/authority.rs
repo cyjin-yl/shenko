@@ -736,12 +736,16 @@ fn read_binding(conn: &Connection, agent: EntityId) -> Result<Option<SubjectAuth
 /// An exact applied fact is historical and remains readable without a live
 /// source reservation. Both the indexed columns and the original JSON agree.
 pub(crate) fn admission_applied(conn: &Connection, admission: &CommitAdmission) -> Result<bool, ShenkoError> {
+    Ok(applied_admission_event(conn, admission)?.is_some())
+}
+
+fn applied_admission_event(conn: &Connection, admission: &CommitAdmission) -> Result<Option<InboxEvent>, ShenkoError> {
     let event_id = EntityId::derived("commit-authority-admission-v1", admission.conflict_key.as_bytes());
     let row: Option<(String, String, String, String)> = conn.query_row(
         "SELECT agent_id,kind,source,data FROM inbox_events WHERE event_id=?1",
         [event_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).optional().map_err(storage_error)?;
-    let Some((agent, kind, source, raw)) = row else { return Ok(false); };
+    let Some((agent, kind, source, raw)) = row else { return Ok(None); };
     let event: InboxEvent = serde_json::from_str(&raw)?;
     let original: CommitAdmission = serde_json::from_value(event.payload["admission"].clone())?;
     if agent != admission.subject_id.to_string() || kind != "system_event" || source != "commit-authority"
@@ -749,7 +753,7 @@ pub(crate) fn admission_applied(conn: &Connection, admission: &CommitAdmission) 
         || event.source != source || original != *admission
         || event.payload["kind"] != "authority.admission_applied"
     { return Err(ShenkoError::conflict("applied admission identity or immutable descriptor differs")); }
-    Ok(true)
+    Ok(Some(event))
 }
 
 pub(crate) fn admission_materialized(conn: &Connection, admission: &CommitAdmission) -> Result<bool, ShenkoError> {
@@ -764,7 +768,33 @@ pub(crate) fn admission_materialized(conn: &Connection, admission: &CommitAdmiss
     let local: String = conn.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0))
         .map_err(storage_error)?;
     if action_id != admission.action_id.to_string() || original != *admission
-        || commit.ledger_id.to_string() != local || i64::try_from(commit.seq.0).ok() != Some(seq)
-    { return Err(ShenkoError::conflict("local control materialization identity differs")); }
+        || i64::try_from(commit.seq.0).ok() != Some(seq)
+    {
+        return Err(ShenkoError::conflict("local control materialization identity differs"));
+    }
+    if commit.ledger_id.to_string() == local {
+        return Ok(true);
+    }
+
+    // A full SQLite slot copy keeps the predecessor's physical application
+    // and commit log under their original identity. A cognition import carries
+    // the shared event, but cannot install either of these physical proofs.
+    let original_commit_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM commit_log WHERE ledger_id=?1 AND seq=?2)",
+        params![commit.ledger_id.to_string(), seq], |row| row.get(0),
+    ).map_err(storage_error)?;
+    let event = applied_admission_event(conn, admission)?
+        .ok_or_else(|| ShenkoError::conflict("copied control materialization lacks its applied event"))?;
+    let matches_original_result = match (value.get("logical_result"), value.get("transition_ref")) {
+        (Some(result), Some(reference)) if result.is_object() && reference.is_object() =>
+            event.payload.get("committed_at") == Some(result)
+                && event.payload.get("transition_ref") == Some(reference),
+        (None, None) => event.payload.get("transition_ref").is_none()
+            && event.payload["committed_at"] == serde_json::to_value(commit)?,
+        _ => false,
+    };
+    if !original_commit_exists || !matches_original_result {
+        return Err(ShenkoError::conflict("copied control materialization differs from its original physical commit or applied event"));
+    }
     Ok(true)
 }
