@@ -71,6 +71,7 @@ pub use import::PreparedCognitionImport;
 mod memory;
 mod peers;
 mod reconcile;
+mod root_facts;
 mod rows;
 mod snapshot;
 mod tasks;

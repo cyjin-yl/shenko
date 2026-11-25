@@ -3,7 +3,7 @@
 //! A rejected task cannot survive through staged input, a sealed S0 or a context
 //! window. These checks run inside the import transaction without rewriting it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{OptionalExtension, Transaction};
@@ -12,6 +12,7 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::Digest;
 
 use crate::cognition_archive::{CognitionDerivative, CognitionManifest, CognitionRow};
+use crate::receipt_admission::EvidenceReceiptConflict;
 use crate::store::Store;
 
 use super::peers::{record_conflict, record_origin};
@@ -76,13 +77,42 @@ pub(super) fn apply_task_closures<'a>(
         let task = add(&mut groups, &mut owned, row, owner);
         operation_owners.insert(row.key.as_str(), task);
     }
+    let mut receipt_owners = HashMap::new();
     for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(), "attempts" | "evidence_receipts" | "task_results")) {
         let task = if row.table == "task_results" {
             row.value("task_id").map(str::to_owned)
         } else {
             row.value("operation_id").and_then(|id| operation_owners.get(id)).cloned()
         };
-        add(&mut groups, &mut owned, row, task);
+        let owner = add(&mut groups, &mut owned, row, task);
+        if row.table == "evidence_receipts" {
+            receipt_owners.insert(row.key.as_str(), owner);
+        }
+    }
+    let mut links: HashMap<String, Vec<String>> = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "evidence_receipt_conflicts") {
+        let imported: EvidenceReceiptConflict = serde_json::from_str(row.value("data").context("refused evidence data missing")?)?;
+        let local: Option<String> = tx.query_row("SELECT data FROM evidence_receipt_conflicts WHERE conflict_id=?1",
+            [&row.key], |row| row.get(0)).optional().map_err(db)?;
+        let local: Option<EvidenceReceiptConflict> = local.as_deref().map(serde_json::from_str).transpose()?;
+        let mut parents = BTreeSet::new();
+        // The refused original and the receipt it contradicted can belong to
+        // different operations. Connect both actual task units when present.
+        for conflict in std::iter::once(&imported).chain(local.as_ref()) {
+            if let Some(owner) = conflict.operation_id.and_then(|id| operation_owners.get(id.to_string().as_str())) {
+                parents.insert(owner);
+            }
+            for receipt in [conflict.receipt_id, conflict.original_receipt_id] {
+                if let Some(owner) = receipt_owners.get(receipt.to_string().as_str()) {
+                    parents.insert(owner);
+                }
+            }
+        }
+        let owner = add(&mut groups, &mut owned, row, parents.first().map(|task| (*task).clone()));
+        for other in parents.into_iter().filter(|task| **task != owner) {
+            links.entry(owner.clone()).or_default().push(other.clone());
+            links.entry(other.clone()).or_default().push(owner.clone());
+        }
     }
     let mut event_owners = HashMap::new();
     for row in rows.iter().copied().filter(|row| row.table == "inbox_events") {
@@ -124,21 +154,45 @@ pub(super) fn apply_task_closures<'a>(
             }
         }
     }
+    // Reject an orphan execution even if refused evidence connects it to a
+    // separate task with a valid parent. Foreign receipts grant no execution.
+    for (owner, group) in &groups {
+        if !tasks.contains_key(owner.as_str())
+            && group.iter().any(|row| !matches!(row.table.as_str(), "evidence_receipts" | "evidence_receipt_conflicts"))
+        {
+            invalid_groups.insert(owner.clone());
+        }
+    }
+    while let Some(key) = links.keys().min().cloned() {
+        let mut pending = links.remove(&key).context("linked task edges missing")?;
+        let mut rejected_part = invalid_groups.contains(&key);
+        let mut group = groups.remove(&key).context("linked task unit missing")?;
+        while let Some(linked) = pending.pop() {
+            if let Some(neighbors) = links.remove(&linked) {
+                pending.extend(neighbors);
+                group.append(&mut groups.remove(&linked).context("linked task unit missing")?);
+                rejected_part |= invalid_groups.contains(&linked);
+            }
+        }
+        groups.insert(key.clone(), group);
+        if rejected_part { invalid_groups.insert(key); }
+    }
+
     let mut outcome = CognitionApplyOutcome::default();
     let mut rejected = HashSet::new();
     let mut rejected_ids = HashSet::new();
     for (task_id, mut group) in groups {
-        let parent = tasks.get(task_id.as_str()).copied();
-        let mut conflict = parent.is_none() || invalid_groups.contains(&task_id);
-        let mut preserve_copied_task = false;
-        if let Some(parent) = parent {
+        let mut conflict = invalid_groups.contains(&task_id);
+        let mut preserved_tasks = HashSet::new();
+        for parent in group.iter().copied().filter(|row| row.table == "tasks") {
             // An immutable action input cannot change, even if the nil-peer
             // baseline happens to match the local record from another source.
             if let Some(local) = read_existing(tx, task_spec, parent)? {
                 // A same-installation copy already holds this task. Confirm it
                 // verbatim so peer parking cannot manufacture a divergence.
-                preserve_copied_task = local_control_handover
-                    && rows_equivalent(task_spec, &local, &parent.values);
+                if local_control_handover && rows_equivalent(task_spec, &local, &parent.values) {
+                    preserved_tasks.insert(parent.key.as_str());
+                }
                 let local = memory_row_value(&local, "data").and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok());
                 let incoming = task_row_json(parent);
                 if local.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
@@ -163,7 +217,7 @@ pub(super) fn apply_task_closures<'a>(
         if !conflict {
             for row in &group {
                 let spec = spec_for(&row.table).context("unregistered task recovery table")?;
-                let effective = if preserve_copied_task && row.table == "tasks" {
+                let effective = if row.table == "tasks" && preserved_tasks.contains(row.key.as_str()) {
                     std::borrow::Cow::Borrowed(*row)
                 } else {
                     std::borrow::Cow::Owned(effective_row(row, spec)?)

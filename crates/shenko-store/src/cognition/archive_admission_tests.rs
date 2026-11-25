@@ -5,7 +5,7 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 
-use crate::cognition_archive::CognitionRow;
+use crate::cognition_archive::{ARCHIVE_SCHEMA, CognitionRow, ROOT_FACT_CLASSES};
 use crate::store::Store;
 
 use super::admission::MEMBERSHIP_REQUIRED_SCHEMA;
@@ -256,6 +256,9 @@ fn reject_reordered_head(schema: u32) {
     // Current schemas reject the noncanonical layout; legacy migration
     // must still reject the contradictory named columns and head data.
     export.manifest.schema = schema;
+    if schema < ARCHIVE_SCHEMA {
+        export.manifest.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
+    }
     if schema < 7 {
         // This negative layout fixture predates the fork/history family. Keep
         // every row and the original corruption; omit only empty later classes.
@@ -382,7 +385,7 @@ fn cognition_atoms_travel_and_are_required_archive_facts() {
         )
         .unwrap();
 
-    let mut export = source.export_cognition(&Default::default()).unwrap();
+    let export = source.export_cognition(&Default::default()).unwrap();
     assert!(export
         .manifest
         .fact_classes
@@ -505,7 +508,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         memory_root: Some(memory), include_git_history: false, ..Default::default()
     };
     let native = source.export_cognition(&options)?;
-    assert_eq!(native.manifest.schema, 13, "the current fork/history producer declares its native readers");
+    assert_eq!(native.manifest.schema, ARCHIVE_SCHEMA);
     for class in ["subject_branch_forks", "subject_head_history"] {
         assert!(native.manifest.fact_classes.iter().any(|declared| declared == class));
     }
@@ -525,7 +528,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             "historical archive cannot claim later dialogue or fork/history membership"
         } else if case == "current-partial-family" {
             malformed.manifest.fact_classes.retain(|class| class != "subject_head_history");
-            "schema-13 archive requires fork/history membership"
+            "archive requires fork/history membership"
         } else if matches!(case, "reserved-eight" | "reserved-nine") {
             malformed.manifest.schema = if case == "reserved-eight" { 8 } else { 9 };
             "unsupported cognition archive schema"
@@ -545,6 +548,9 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             }
             "schema-7 archive must identify exactly one native producer"
         };
+        if malformed.manifest.schema < ARCHIVE_SCHEMA {
+            malformed.manifest.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
+        }
         malformed.manifest.fingerprint = fingerprint_of_manifest(&malformed.manifest);
         let mut archive = Vec::new();
         malformed.write_archive(&mut archive)?;
@@ -612,16 +618,15 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
     let relay = reopened.export_cognition(&CognitionSnapshotOptions {
         memory_root: Some(receiver_memory), include_git_history: false, ..Default::default()
     })?;
-    assert_eq!(relay.manifest.schema, 13);
+    assert_eq!(relay.manifest.schema, ARCHIVE_SCHEMA);
     assert!(relay.manifest.blocking_gaps().is_empty());
     assert!(relay.manifest.objects.iter().any(|declared| declared.digest == object.digest));
-    // This fixture contains only facts representable by the native7 and 12
-    // fork/history formats. Reuse the previous-writer compatibility window for
-    // 12 -> 13; schemas 10 and 11 keep their original reader rules. These explicit older
-    // inputs are not a current-writer downgrade or a compatibility export path.
-    for schema in [7, 12] {
+    // These inputs use the original layouts of older fork/history archives.
+    // The fixture carries no Root facts that require the new writer.
+    for schema in [7, 12, 13] {
         let mut legacy = source.export_cognition(&options)?;
         legacy.manifest.schema = schema;
+        legacy.manifest.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
         legacy.manifest.fingerprint = fingerprint_of_manifest(&legacy.manifest);
         let mut legacy_archive = Vec::new();
         legacy.write_archive(&mut legacy_archive)?;
@@ -635,11 +640,11 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
         assert_eq!(legacy_receiver.cas.read_object(&object.digest)?.as_slice(), bytes);
         assert_eq!(legacy_receiver.session_events_range(session, 0, i64::MAX)?[0].data, data);
         assert_eq!(fs::read(legacy_memory.join("remote.txt"))?, b"original remote file");
-        if schema == 12 {
+        if schema == 13 {
             let relayed = legacy_receiver.export_cognition(&CognitionSnapshotOptions {
                 memory_root: Some(legacy_memory), include_git_history: false, ..Default::default()
             })?;
-            assert_eq!(relayed.manifest.schema, 13);
+            assert_eq!(relayed.manifest.schema, ARCHIVE_SCHEMA);
             assert!(relayed.manifest.blocking_gaps().is_empty());
         }
     }

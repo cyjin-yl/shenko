@@ -45,7 +45,7 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// be a silent loss of the subject's attitudes, so the schema is bumped
 /// instead of smuggling them in as optional rows. A schema-5 receiver rejects
 /// this archive at the version gate, and a current reader still admits
-/// schemas 2..=7 and 10..=13 after complete format, closure and membership admission.
+/// schemas 2..=7 and 10..=14 after complete format, closure and membership admission.
 /// Two original producers independently used schema 7: dialogue endpoints and
 /// messages, or forks and immutable parent-head history. Each declares exactly
 /// its complete native family, even when empty. This build owns the fork/history
@@ -65,17 +65,23 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// object inventory binds optional bare-digest availability. Its archive closure
 /// admits optional hints only from its declared objects; typed and schema-required
 /// children still require full verification and membership.
-/// All new exports use 13, including snapshots without a native transition:
-/// an older schema-12 reader must reject at the manifest boundary rather than
-/// copy facts it cannot later interpret. Retained schemas 10 through 12 keep their
-/// original format and membership rules; the writer offers no label downgrade.
-pub const ARCHIVE_SCHEMA: u32 = 13;
+/// Schema 14 adds the complete Root chain and refused evidence originals.
+/// Older readers must refuse the new archive before receiving any payload.
+/// Schema 9 has a different closure and remains unsupported. Retained schemas
+/// 10 through 13 keep their original format, membership and fingerprint rules.
+pub const ARCHIVE_SCHEMA: u32 = 14;
+const ROOT_FACT_SCHEMA: u32 = 14;
+
+pub(crate) const ROOT_FACT_CLASSES: &[&str] = &[
+    "evidence_receipt_conflicts", "cognitive_root_nodes", "cognitive_root_requests",
+    "cognitive_root_effects", "cognitive_root_applications",
+];
 
 /// Validate the original producer format before reading or publishing payloads.
 /// The two native schema-7 families remain distinct; combining them requires
 /// their own writer format and both domains' complete recovery owners.
 pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<()> {
-    ensure!(matches!(manifest.schema, 2..=7 | 10..=12 | ARCHIVE_SCHEMA),
+    ensure!(matches!(manifest.schema, 2..=7 | 10..=13 | ARCHIVE_SCHEMA),
         "unsupported cognition archive schema {}", manifest.schema);
     if manifest.schema >= 6 {
         ensure!(!manifest.fact_classes.is_empty(),
@@ -98,14 +104,21 @@ pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<(
         ensure!((dialogue == 0b11 && lineage == 0)
                 || (dialogue == 0 && lineage == 0b11),
             "schema-7 archive must identify exactly one native producer: dialogue or fork/history");
-    } else if matches!(manifest.schema, 10..=12 | ARCHIVE_SCHEMA) {
+    } else if manifest.schema >= 10 {
         ensure!(dialogue == 0 && lineage == 0b11,
             "schema-{} archive requires fork/history membership without dialogue facts", manifest.schema);
     } else {
         ensure!(dialogue == 0 && lineage == 0,
             "historical archive cannot claim later dialogue or fork/history membership");
     }
+    for name in ROOT_FACT_CLASSES {
+        let declared = manifest.fact_classes.iter().any(|class| class.as_str() == *name);
+        ensure!(declared == (manifest.schema >= ROOT_FACT_SCHEMA),
+            "schema-{} archive has invalid membership for required Root class {name}", manifest.schema);
+    }
     for row in &manifest.rows {
+        ensure!(manifest.schema >= ROOT_FACT_SCHEMA || !ROOT_FACT_CLASSES.contains(&row.table.as_str()),
+            "historical archive carries undeclared Root fact {}", row.table);
         match row.table.as_str() {
             "dialogue_endpoints" | "dialogue_messages" => ensure!(dialogue == 0b11,
                 "archive carries dialogue facts without their native membership"),
