@@ -978,6 +978,11 @@ fn frozen_control_predecessor_keeps_original_optional_object_membership() -> Res
     legacy.as_object_mut().unwrap().remove("object_inventory");
     legacy["schema_version"] = 1.into();
     legacy["manifest"]["schema"] = 12.into();
+    legacy["manifest"]["fact_classes"].as_array_mut().context("predecessor fact classes")?
+        .retain(|class| !matches!(class.as_str(), Some(
+            "evidence_receipt_conflicts" | "cognitive_root_nodes" | "cognitive_root_requests"
+            | "cognitive_root_effects" | "cognitive_root_applications"
+        )));
     let legacy = store.cas.seal_object(&serde_json::to_vec(&legacy)?, "application/json",
         "commit-authority", "store-control-predecessor", 1)?.object;
     assert_eq!(store.inspect_control_predecessor(&legacy, &admission)?.fingerprint, before.fingerprint);

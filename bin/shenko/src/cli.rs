@@ -184,6 +184,12 @@ pub enum UpdateCli {
     /// publication, takes back an interrupted hand-over boundary when this
     /// process owns the installation, and reports what it found.
     Recover,
+    /// Check the candidate slot's state without starting a subject loop.
+    Smoke {
+        /// Print the machine-readable report.
+        #[arg(long)]
+        json: bool,
+    },
     /// append-node rollback: restore the subject's state root to a
     /// historical node. This appends a new node, never rewinding or
     /// truncating the chain. Distinct from `rollback` which switches the
@@ -237,6 +243,7 @@ impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
                 expected_selector_revision,
             },
             UpdateCli::Recover => UpdateCommand::Recover,
+            UpdateCli::Smoke { json } => UpdateCommand::Smoke { json },
             UpdateCli::RootRollback {
                 target_node,
                 expected_head,

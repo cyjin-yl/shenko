@@ -10,7 +10,7 @@
 use anyhow::{Context, Result, ensure};
 use shenko_awareness_core::CognitionCatalog;
 use shenko_broker::broker::{Broker, BrokerHandle};
-use shenko_exec_host::{ConditionTotals, TrialReport, TrialScenario, TrialSpec, run_sandbox_trial,
+use shenko_exec_host::{Condition, ConditionTotals, TrialReport, TrialScenario, TrialSpec, run_sandbox_trial,
     MAX_TRIAL_DEADLINE_MS};
 use shenko_node::Node;
 use shenko_store::Store;
@@ -90,17 +90,6 @@ struct Batch {
     report: TrialReport,
 }
 
-fn add_totals(total: &mut ConditionTotals, part: &ConditionTotals) {
-    total.attempted += part.attempted;
-    total.unstarted += part.unstarted;
-    total.scored += part.scored;
-    total.failed += part.failed;
-    total.effective += part.effective;
-    total.rate_over_scored = if total.scored == 0 { 0.0 } else {
-        total.effective as f64 / total.scored as f64
-    };
-}
-
 async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f64) -> Result<()> {
     let store = Arc::new(Store::open(root.join("measurement.db"), root.join("cas"))?);
     let node = Arc::new(parking_lot::Mutex::new(Node::open(&root.join("node"))?));
@@ -131,7 +120,10 @@ async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f6
         }));
     }
     let mut batches = Vec::new();
-    for case in &cases {
+    let mut summaries = Vec::new();
+    let mut failures = Vec::new();
+    for (case_index, case) in cases.into_iter().enumerate() {
+        let first_batch = batches.len();
         let revision = &units.iter().find(|unit| unit.unit_id == case.unit_id)
             .ok_or_else(|| anyhow::anyhow!("seed {} is missing", case.unit_id))?.revision;
         // Separate calls let held-outs start even when another sample stalls.
@@ -143,6 +135,11 @@ async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f6
                 unit_id: case.unit_id.into(), revision: revision.clone(),
                 trials_per_condition: 1,
                 deadline_ms: MAX_TRIAL_DEADLINE_MS,
+                first_condition: Some(if (case_index + repetition).is_multiple_of(2) {
+                    Condition::Candidate
+                } else {
+                    Condition::Control
+                }),
                 scenarios: vec![TrialScenario {
                     name: case.name.into(), message: case.message.into(), rubric: case.rubric.into(),
                 }],
@@ -154,17 +151,9 @@ async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f6
             std::fs::write(root.join(format!("{batch_name}.json")), serde_json::to_vec_pretty(&batch)?)?;
             batches.push(batch);
         }
-    }
-    let mut summaries = Vec::new();
-    let mut failures = Vec::new();
-    for case in cases {
-        let mut candidate = ConditionTotals::default();
-        let mut control = ConditionTotals::default();
-        for scenario in batches.iter().flat_map(|batch| &batch.report.scenarios)
-            .filter(|scenario| scenario.name == case.name) {
-            add_totals(&mut candidate, &scenario.candidate);
-            add_totals(&mut control, &scenario.control);
-        }
+        let samples = || batches[first_batch..].iter().flat_map(|batch| &batch.report.samples);
+        let candidate = ConditionTotals::from_samples(samples(), Condition::Candidate);
+        let control = ConditionTotals::from_samples(samples(), Condition::Control);
         let attempted = candidate.attempted + control.attempted;
         let failed = candidate.failed + control.failed;
         let unstarted = candidate.unstarted + control.unstarted;

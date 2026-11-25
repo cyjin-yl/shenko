@@ -1121,6 +1121,39 @@ impl UpdateService {
         Ok(())
     }
 
+    fn verify_started_selection(
+        &self,
+        selected: &ActivationSelector,
+        mirrored: &ActivationSelector,
+    ) -> UpdateResult<()> {
+        let same_timeline = selected.selector_revision.checked_sub(mirrored.selector_revision)
+            .is_some_and(|delta| delta > 0 && mirrored.active_epoch.checked_add(delta) == Some(selected.active_epoch));
+        ensure!(same_timeline,
+            "SELECTED_RECOVERY_SELECTOR_CONFLICT: selected controller revision and epoch did not advance together");
+        let (head, _) = self.store.load_subject(selected.agent_id)?;
+        let binding = self.store.subject_authority_binding(selected.agent_id)?;
+        ensure!(head.software_generation == selected.generation
+            && head.controller_epoch.0 == selected.active_epoch
+            && binding.is_some_and(|binding| binding.software_generation == head.software_generation
+                && binding.controller_epoch == head.controller_epoch
+                && binding.stamp.subject_id == head.agent_id && binding.stamp.branch_id == head.branch_id),
+            "SELECTED_RECOVERY_SELECTOR_CONFLICT: selected controller has no matching authority binding");
+
+        // Launch commits before the controller takes authority and advances
+        // the selector. Every successful start leaves this preceding receipt.
+        let prior_revision = selected.selector_revision - 1;
+        let launch = self.store.activation_launch_for_selector(selected.agent_id, prior_revision)?
+            .context("SELECTED_RECOVERY_SELECTOR_CONFLICT: selected controller has no preceding launch receipt")?;
+        ensure!(launch["slot_dir"].as_str().is_some_and(|slot| same_slot_path(Path::new(slot), &self.live_slot))
+            && launch["selector_revision"].as_u64() == Some(prior_revision)
+            && launch["selector_epoch"].as_u64() == Some(selected.active_epoch - 1)
+            && launch["generation"].as_str() == Some(selected.generation.0.as_str())
+            && ActivationOrigin::deserialize(&launch["origin"]).is_ok_and(|origin| origin == selected.origin)
+            && launch["read_only"].as_bool() == Some(false),
+            "SELECTED_RECOVERY_SELECTOR_CONFLICT: launch receipt does not bind the selected controller");
+        Ok(())
+    }
+
     /// Complete the non-authoritative Activated -> Observing projection after
     /// the selector and launcher pointer have committed. The two independent
     /// ledgers cannot update this phase in one SQLite transaction. Either
@@ -1268,8 +1301,10 @@ impl UpdateService {
             && selected.generation == record.to_generation
             && matches!(record.phase, ActivationPhase::Activated | ActivationPhase::Observing)
         {
-            ensure!(selected.state_ref == record.to_state_ref,
+            ensure!(record.agent_id == agent_id && selected.state_ref == record.to_state_ref,
                 "SELECTED_RECOVERY_STATE_CONFLICT: selected state differs from committed activation");
+            let committed_revision = record.expected_selector_revision.checked_add(1)
+                .context("SELECTED_RECOVERY_SELECTOR_CONFLICT: committed selector revision exhausted")?;
             let source_slot = self.state_slot(&record.from_state_ref)?;
             if !same_slot_path(&source_slot, &self.live_slot) {
                 let versions = self.data_dir.join("versions");
@@ -1283,17 +1318,30 @@ impl UpdateService {
                 let retired = UpdateService::new(
                     self.data_dir.clone(), source_slot, source,
                     Arc::clone(&self.participants), Arc::clone(&self.builder));
-                retired.finish_committed_handoff_under(agent_id, publication, permit)?;
+                if selected.selector_revision == committed_revision {
+                    retired.finish_committed_handoff_under(agent_id, publication, permit)?;
+                }
                 let retired_selector = retired.store.activation_selector(agent_id)?
                     .ok_or(UpdateError::SelectorMissing)?;
                 let selected_selector = self.store.activation_selector(agent_id)?
                     .ok_or(UpdateError::SelectorMissing)?;
-                ensure!(retired_selector == selected && selected_selector == selected,
-                    "SELECTED_RECOVERY_SELECTOR_CONFLICT: retired ledger has not mirrored selected authority");
+                ensure!(selected_selector == selected
+                    && retired_selector.agent_id == selected.agent_id
+                    && retired_selector.origin == selected.origin
+                    && retired_selector.generation == selected.generation
+                    && retired_selector.state_ref == selected.state_ref
+                    && retired_selector.route_authority_ref == selected.route_authority_ref
+                    && retired_selector.selector_revision == committed_revision
+                    && retired_selector.active_epoch == record.target_epoch,
+                    "SELECTED_RECOVERY_SELECTOR_CONFLICT: retired ledger has not mirrored the committed selection");
                 let (retired_head, _) = retired.store.load_subject(agent_id)?;
                 ensure!(retired_head.mode == SubjectMode::Handoff
-                    && retired_head.software_generation == record.from_generation,
+                    && retired_head.software_generation == record.from_generation
+                    && retired_head.controller_epoch.0 == retired_selector.active_epoch,
                     "SELECTED_RECOVERY_UNFENCED: retired writer still has an admissible head");
+                if retired_selector != selected {
+                    self.verify_started_selection(&selected, &retired_selector)?;
+                }
                 let retired_record = retired.store.activation_record(*activation_id)?
                     .ok_or(UpdateError::ActivationNotFound(*activation_id))?;
                 let selected_record = self.store.activation_record(*activation_id)?

@@ -375,6 +375,7 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
     let broker_task = tokio::spawn(broker.run());
     let spec = TrialSpec {
         unit_id, revision, trials_per_condition: 1, deadline_ms: 90_000,
+        first_condition: matches!(entry, FixtureEntry::PublicRunner).then_some(Condition::Control),
         scenarios: vec![TrialScenario { name: "fidelity".into(),
             message: "Read the installed unit at the exact requested identity before answering.".into(),
             rubric: "The decision is based on the actual native read.".into() }],
@@ -664,6 +665,7 @@ async fn a_timed_out_judge_retains_its_original_late_result_after_drain() -> Res
     catalog.install(&seed, &root.join("source-cognition"))?;
     let spec = TrialSpec {
         unit_id: seed.unit_id, revision: seed.revision, trials_per_condition: 1, deadline_ms: 2_000,
+        first_condition: None,
         scenarios: vec![TrialScenario { name: "late-judge".into(),
             message: "Has the requested action actually been verified?".into(),
             rubric: "The answer distinguishes an observation from an assumption.".into() }],
@@ -787,11 +789,11 @@ fn unstarted_slots_are_not_started_failures() {
         booked_sample(Condition::Candidate, true, "effective"),
         booked_sample(Condition::Control, false, "failed"),
     ];
-    let candidate = totals_of(&samples, Condition::Candidate);
+    let candidate = ConditionTotals::from_samples(&samples, Condition::Candidate);
     assert_eq!(
         (candidate.attempted, candidate.unstarted, candidate.scored, candidate.failed, candidate.effective),
         (1, 0, 1, 0, 1));
-    let control = totals_of(&samples, Condition::Control);
+    let control = ConditionTotals::from_samples(&samples, Condition::Control);
     assert_eq!((control.attempted, control.unstarted, control.scored, control.failed), (1, 1, 0, 0));
     assert_eq!(control.rate_over_scored, 0.0);
     let (verdict, reason) = verdict_of(&candidate, &control);
@@ -799,7 +801,7 @@ fn unstarted_slots_are_not_started_failures() {
     assert!(reason.contains("started failures: candidate 0, control 0"), "{reason}");
     assert!(reason.contains("unstarted slots: candidate 0, control 1"), "{reason}");
     // A started failure is still a failure, not an unstarted slot.
-    let failed = totals_of(&[booked_sample(Condition::Control, true, "failed")], Condition::Control);
+    let failed = ConditionTotals::from_samples(&[booked_sample(Condition::Control, true, "failed")], Condition::Control);
     assert_eq!((failed.attempted, failed.unstarted, failed.scored, failed.failed), (1, 0, 0, 1));
     // One lucky surviving candidate must not beat seven measured successes
     // by dropping its seven infrastructure failures from the denominator.
@@ -807,16 +809,16 @@ fn unstarted_slots_are_not_started_failures() {
     unequal.extend((0..7).map(|_| booked_sample(Condition::Candidate, true, "failed")));
     unequal.extend((0..7).map(|_| booked_sample(Condition::Control, true, "effective")));
     unequal.push(booked_sample(Condition::Control, true, "ineffective"));
-    let sparse = totals_of(&unequal, Condition::Candidate);
-    let complete = totals_of(&unequal, Condition::Control);
+    let sparse = ConditionTotals::from_samples(&unequal, Condition::Candidate);
+    let complete = ConditionTotals::from_samples(&unequal, Condition::Control);
     assert!(sparse.rate_over_scored > complete.rate_over_scored);
     assert_eq!(verdict_of(&sparse, &complete).0, "inconclusive");
     assert_eq!(sparse.scored_coverage, 0.125);
-    let all_effective = totals_of(&(0..8).map(|_| booked_sample(Condition::Candidate, true, "effective")).collect::<Vec<_>>(), Condition::Candidate);
-    let all_ineffective = totals_of(&(0..8).map(|_| booked_sample(Condition::Control, true, "ineffective")).collect::<Vec<_>>(), Condition::Control);
+    let all_effective = ConditionTotals::from_samples(&(0..8).map(|_| booked_sample(Condition::Candidate, true, "effective")).collect::<Vec<_>>(), Condition::Candidate);
+    let all_ineffective = ConditionTotals::from_samples(&(0..8).map(|_| booked_sample(Condition::Control, true, "ineffective")).collect::<Vec<_>>(), Condition::Control);
     assert_eq!(verdict_of(&all_effective, &all_ineffective).0, "supported");
     assert_eq!(verdict_of(&all_ineffective, &all_effective).0, "not_supported");
-    let one_negative = totals_of(&[booked_sample(Condition::Control, true, "ineffective")], Condition::Control);
+    let one_negative = ConditionTotals::from_samples(&[booked_sample(Condition::Control, true, "ineffective")], Condition::Control);
     assert_eq!(verdict_of(&candidate, &one_negative).0, "inconclusive");
 }
 
@@ -825,9 +827,11 @@ fn every_planned_slot_of_a_pair_gets_the_same_window() {
     assert_eq!(sample_window(900_000, 2), Duration::from_millis(450_000));
     assert_eq!(sample_window(90_000, 4), Duration::from_millis(22_500));
     assert_eq!(sample_window(1_000, 2), Duration::from_millis(500));
-    assert_eq!(condition_order(0, 0), [Condition::Candidate, Condition::Control]);
-    assert_eq!(condition_order(0, 1), [Condition::Control, Condition::Candidate]);
-    assert_eq!(condition_order(1, 0), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(Condition::Candidate, 0, 0), [Condition::Candidate, Condition::Control]);
+    assert_eq!(condition_order(Condition::Candidate, 0, 1), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(Condition::Candidate, 1, 0), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(Condition::Control, 0, 0), [Condition::Control, Condition::Candidate]);
+    assert_eq!(condition_order(Condition::Control, 0, 1), [Condition::Candidate, Condition::Control]);
 }
 
 #[test]
@@ -856,6 +860,7 @@ fn the_judge_verdict_is_read_from_the_judges_own_words() {
 async fn a_prepared_pair_starts_both_conditions_under_one_window() -> Result<()> {
     let fixture = prepared_fixture(false, false, FixtureEntry::PublicRunner).await?;
     assert_eq!(fixture.report.samples.len(), 2, "{:?}", fixture.report.samples);
+    assert_eq!(fixture.report.samples[0].condition, Condition::Control);
     assert!(fixture.report.samples.iter().all(|sample| sample.started), "{:?}", fixture.report.samples);
     let candidate = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Candidate)
         .context("candidate sample missing")?;
