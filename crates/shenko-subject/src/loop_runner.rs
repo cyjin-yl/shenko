@@ -1625,11 +1625,12 @@ async fn execute_step(
             let mut route = semantic_wait_route(&store, state.broker.as_ref(), wait)?;
             let remaining = (wait.deadline_at - chrono::Utc::now()).to_std().unwrap_or_default();
             let planned = {
-                let expiry = std::pin::pin!(tokio::time::sleep(remaining));
-                let quota = std::pin::pin!(select_quota_route(
+                let expiry = tokio::time::sleep(remaining);
+                let quota = select_quota_route(
                     &store, route.broker.as_ref().or(state.broker.as_ref()), cancel,
                     &state.quota_strategies, QuotaRouteOwner::Subject { agent: state.agent_id, allow_rebind: false },
-                ));
+                );
+                futures::pin_mut!(expiry, quota);
                 // Poll expiry first so a ready quota decision cannot extend the wait.
                 match select(expiry, quota).await {
                     Either::Left(_) => None,

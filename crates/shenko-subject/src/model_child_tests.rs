@@ -1686,7 +1686,9 @@ async fn decided_run_reopens_with_its_sealed_tell(needs_decision: bool) -> anyho
     let mut execution = Box::pin(handler.execute(invocation));
     tokio::time::timeout(Duration::from_secs(30), async {
         use futures::future::{Either, select};
-        match select(&mut execution, std::pin::pin!(received.recv())).await {
+        let next_request = received.recv();
+        futures::pin_mut!(next_request);
+        match select(&mut execution, next_request).await {
             Either::Left((result, _)) => panic!("the child ended before the provider answered: {result:?}"),
             Either::Right((wire, _)) => assert_eq!(wire.expect("provider request channel closed")["model"], "decided-child"),
         }
