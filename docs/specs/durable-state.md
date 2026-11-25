@@ -113,7 +113,12 @@ Generic dispatch codec 2 and ordinary T2 codec 5 use row schema 5: their named
 original operation/attempt and, for T2, receipt rows are retained with the task's
 complete bounded ancestor chain and its authoring steps. Ordinary T2 additionally
 retains the ordinary-child range, including an empty range; this is separate from
-the childless direct-E1 proof. These formats preserve the original subject,
+the childless direct-E1 proof. Direct T2 codec 6 retains the original subject
+head and creator as authenticated source facts. At application it accepts a
+later S1 on the same branch and controller after verifying the original
+committed step, current successor structure, and unchanged task and E1.
+Application leaves the current subject head intact. Earlier T2 codecs keep
+their exact original head conditions. These formats preserve the original subject,
 ownership, admission and execution-permit boundaries. They do not eliminate the
 remaining preparation, snapshot or scan costs described in the
 [capture design](../development/canonical-capture-budget.md).
@@ -173,6 +178,10 @@ can remain readable without granting a local task or execution authority.
 Schema 14 retains the schema-13 object inventory rules. Schemas 2–7 and 10–13
 retain their original layouts and membership. Readers reject the original
 schema 9 at manifest admission because its required fact families differ.
+
+Schema 15 retains schema 14's fact families and admits direct native T2 codec 6.
+Older archive readers refuse the schema-15 manifest before payload publication.
+The current reader continues to admit schema 14 with its original codecs.
 
 **Membership is declared, not assumed.** Every archive carries the list of
 fact classes it was taken from (`CognitionManifest.fact_classes`). The

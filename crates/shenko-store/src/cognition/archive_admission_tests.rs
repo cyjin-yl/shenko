@@ -5,7 +5,7 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 
-use crate::cognition_archive::{ARCHIVE_SCHEMA, CognitionRow, ROOT_FACT_CLASSES};
+use crate::cognition_archive::{ARCHIVE_SCHEMA, CognitionRow, ROOT_FACT_CLASSES, ROOT_FACT_SCHEMA};
 use crate::store::Store;
 
 use super::admission::MEMBERSHIP_REQUIRED_SCHEMA;
@@ -256,7 +256,7 @@ fn reject_reordered_head(schema: u32) {
     // Current schemas reject the noncanonical layout; legacy migration
     // must still reject the contradictory named columns and head data.
     export.manifest.schema = schema;
-    if schema < ARCHIVE_SCHEMA {
+    if schema < ROOT_FACT_SCHEMA {
         export.manifest.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
     }
     if schema < 7 {
@@ -548,7 +548,7 @@ fn native_seven_format_refusal_precedes_payload_and_store_publication() -> Resul
             }
             "schema-7 archive must identify exactly one native producer"
         };
-        if malformed.manifest.schema < ARCHIVE_SCHEMA {
+        if malformed.manifest.schema < ROOT_FACT_SCHEMA {
             malformed.manifest.fact_classes.retain(|class| !ROOT_FACT_CLASSES.contains(&class.as_str()));
         }
         malformed.manifest.fingerprint = fingerprint_of_manifest(&malformed.manifest);

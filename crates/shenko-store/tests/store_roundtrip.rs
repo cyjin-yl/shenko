@@ -3674,7 +3674,8 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&reference.digest)?)?;
         assert!(frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .all(|table| table["before"]["table"]["name"] != "native_capacity_history"));
-        assert_eq!(frozen["rows"]["schema_version"], 4);
+        let row_schema = if phase == "native.complete.recovered" { 6 } else { 4 };
+        assert_eq!(frozen["rows"]["schema_version"], row_schema);
         let creator = frozen["rows"]["tables"].as_array().context("native transition tables")?.iter()
             .find(|table| table["before"]["table"]["name"] == "subject_steps").context("creator point witness")?;
         assert_eq!(creator["complete_read"], false);
@@ -3923,11 +3924,33 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     let objects = source.admission_objects(&t2.admission.payload_ref)?;
     let mut envelope: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&t2.admission.payload_ref.digest)?)?;
     let reference: ObjectRef = serde_json::from_value(envelope["action"]["transition_ref"].clone())?;
-    assert_eq!(reference.codec.major, 4);
+    assert_eq!(reference.codec.major, 6);
     let transition: serde_json::Value = serde_json::from_slice(&source.cas.read_object(&reference.digest)?)?;
     let expected_result: shenko_types::task::TaskResult = serde_json::from_value(transition["result"].clone())?;
     assert!(source.native_task_result(task_id)?.is_none());
     assert!(receiver.external_operation_evidence(operation.operation_id)?.is_empty());
+
+    // The subject can commit its already-recorded S1 while the original T2
+    // waits to materialize. Neither its new head nor the original result is
+    // a substitute for the other. Advance only the source; the follower
+    // below continues to prove materialization at the original predecessor.
+    let (previous, recorded) = source.load_subject(agent)?;
+    assert_eq!(recorded.state, shenko_types::subject::SubjectStepState::ResultRecorded);
+    let successor = EntityId::new();
+    let decision = committed_candidate(&source, recorded, successor);
+    let advanced = source.commit_step_and_advance_head(&decision, &previous, successor)?;
+    let advanced_grant = chosen()?;
+    assert_ne!(advanced_grant.admission.action_id, t2.admission.action_id);
+    let materialization: String = injected.query_row(
+        "SELECT data FROM control_materializations WHERE action_id=?1",
+        [advanced_grant.admission.action_id.to_string()], |row| row.get(0))?;
+    let materialization: serde_json::Value = serde_json::from_str(&materialization)?;
+    let advanced_head = source.load_subject(agent)?.0;
+    assert_eq!(materialization["logical_result"], serde_json::to_value(advanced_head.committed_at)?);
+    assert_eq!(materialization["committed_at"], serde_json::to_value(advanced.commit_ref)?);
+    assert_eq!(advanced_head.committed_step_no, previous.committed_step_no + 1);
+    assert_ne!(advanced_head.next_step_id, previous.next_step_id);
+    assert!(!source.control_admission_applied_here(&t2.admission)?);
 
     // Unsupported E1 readers and selectors naming another attempt are fatal.
     // No fallback may reinterpret them as
@@ -4003,6 +4026,7 @@ fn canonical_direct_native_chain_retains_original_e1_and_only_one_effect() -> Re
     capacity_receipt(&reopened, &t2, "native.complete.recovered", recovery_started.elapsed())?;
     assert_eq!(reopened.native_task_result(task_id)?, Some(expected_result.clone()));
     assert_eq!(reopened.external_evidence(receipt_id)?, original_receipt);
+    assert_eq!(serde_json::to_value(reopened.load_subject(agent)?.0)?, serde_json::to_value(&advanced_head)?);
     let receiver_reopened = Store::open(dir.join("chain-receiver.db"), dir.join("chain-receiver-cas"))?;
     receiver_reopened.attach_commit_authority(Arc::new(NativeT2Authority { source: "native-chain-follower", stamp: None, state: Arc::clone(&state) }))?;
     let watermark = receiver_reopened.current_commit_seq()?;

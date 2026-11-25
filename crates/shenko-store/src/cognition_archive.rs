@@ -69,8 +69,11 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// Older readers must refuse the new archive before receiving any payload.
 /// Schema 9 has a different closure and remains unsupported. Retained schemas
 /// 10 through 13 keep their original format, membership and fingerprint rules.
-pub const ARCHIVE_SCHEMA: u32 = 14;
-const ROOT_FACT_SCHEMA: u32 = 14;
+/// Schema 15 adds the reader for an original direct T2 whose materialization
+/// follows a later S1 on the same subject branch and authority.
+pub const ARCHIVE_SCHEMA: u32 = 15;
+pub(crate) const ROOT_FACT_SCHEMA: u32 = 14;
+const DIRECT_COMPLETION_SCHEMA: u32 = 15;
 
 pub(crate) const ROOT_FACT_CLASSES: &[&str] = &[
     "evidence_receipt_conflicts", "cognitive_root_nodes", "cognitive_root_requests",
@@ -81,12 +84,16 @@ pub(crate) const ROOT_FACT_CLASSES: &[&str] = &[
 /// The two native schema-7 families remain distinct; combining them requires
 /// their own writer format and both domains' complete recovery owners.
 pub(crate) fn validate_manifest_schema(manifest: &CognitionManifest) -> Result<()> {
-    ensure!(matches!(manifest.schema, 2..=7 | 10..=13 | ARCHIVE_SCHEMA),
+    ensure!(matches!(manifest.schema, 2..=7 | 10..=14 | ARCHIVE_SCHEMA),
         "unsupported cognition archive schema {}", manifest.schema);
     if manifest.schema >= 6 {
         ensure!(!manifest.fact_classes.is_empty(),
             "cognition schema 6 and later must declare its fact classes");
     }
+    ensure!(manifest.schema >= DIRECT_COMPLETION_SCHEMA || !manifest.objects.iter().any(|object|
+        object.codec.name == crate::native_transition::CODEC
+            && object.codec.major == crate::native_transition::DIRECT_COMPLETION_CODEC_MAJOR),
+        "schema-{} archive cannot carry direct native T2 codec 6", manifest.schema);
     // Flags preserve historical duplicate declarations without allocating or
     // mistaking a repeated class for its missing companion.
     let mut dialogue = 0u8;
