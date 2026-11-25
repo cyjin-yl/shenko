@@ -321,6 +321,7 @@ async fn measure(
         revision: revision.to_string(),
         trials_per_condition: trials,
         deadline_ms: MAX_TRIAL_DEADLINE_MS,
+        first_condition: None,
         scenarios: CASES.iter().map(|case| TrialScenario {
             name: case.name.into(),
             message: case.template.replace(TARGET_PLACEHOLDER, &target),

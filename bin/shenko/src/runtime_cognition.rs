@@ -60,7 +60,7 @@ pub(crate) async fn install(
     // Readiness means its first finite batch completed; a failed source is
     // disclosed as Unavailable, independently of installation read failures.
     let _perception_owner = supervisor.spawn(
-        crate::runtime_perception::RuntimePerceptionPlugin, Arc::clone(&cognition),
+        shenko_exec_host::RuntimePerceptionPlugin, Arc::clone(&cognition),
     ).await?;
     // Publish the one catalog so any plugin — including a finite
     // child's handler — discloses the same installed units. Publishing

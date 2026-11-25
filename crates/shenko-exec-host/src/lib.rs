@@ -51,6 +51,9 @@ pub use cognition_query::*;
 pub mod cognition_trial;
 pub use cognition_trial::*;
 
+mod runtime_perception;
+pub use runtime_perception::RuntimePerceptionPlugin;
+
 pub mod awareness_host;
 pub use awareness_host::*;
 
