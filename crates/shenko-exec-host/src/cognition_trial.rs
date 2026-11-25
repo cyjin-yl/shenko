@@ -1016,8 +1016,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
         let state = SubjectLoopState::new(agent, Arc::clone(&inbox), Arc::clone(store),
             ctx.clone(), qq_registry(channel_config, Arc::new(channel_client)))?
             .with_broker(broker.clone()).with_hooks(Arc::clone(&supervisor.hooks))
-            .with_awareness(Arc::clone(&catalog))
-            .with_native_capabilities(native.installed_prompt_sections());
+            .with_awareness(Arc::clone(&catalog));
         let state = runtime.prepare_subject(&supervisor, &prepared, state).await?;
         let message = match &observer.input {
             TrialObserverInput::Message(message) => message.clone(),

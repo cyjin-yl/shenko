@@ -12,7 +12,7 @@ use shenko_store::{Store, SubjectContextRef, SubjectHistoryInput};
 use shenko_types::{error::ShenkoError, ids::EntityId, object::Digest, task::TaskResult};
 
 use shenko_types::inbox::{InboxEvent, InboxEventKind};
-use crate::loop_runner::{SubjectLoopState, build_system_prompt, stable_system_prompt};
+use crate::loop_runner::{SubjectLoopState, stable_system_prompt, system_prompt_suffix};
 
 #[path = "subject_attachment.rs"]
 mod subject_attachment;
@@ -1107,14 +1107,14 @@ pub(super) fn project_payload_stable(
 /// Bind a window to the actual subject configuration without staging input or
 /// calling a model. Preparers use the same binding as the next S0; a later
 /// configuration change still invalidates their window through the usual rebind.
-pub(super) fn bind_context_profile(state: &SubjectLoopState) -> Result<Digest, ShenkoError> {
+pub(super) fn bind_context_profile(state: &SubjectLoopState, stable_prompt: &str) -> Result<Digest, ShenkoError> {
     let registry = &state.context_registry;
     let binding = state.context_binding();
     if state.context_model_capabilities().as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
         return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
     }
     let mut profile_digest = Digest::blake3(&serde_json::to_vec(&(
-        binding, state.context_model_capabilities(), &stable_system_prompt(state), state.context_output_budget(),
+        binding, state.context_model_capabilities(), stable_prompt, state.context_output_budget(),
         "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
     ))?);
     if let Some(effort) = state.context_effort() {
@@ -1836,7 +1836,9 @@ pub(super) fn prepare_context(
     // The once-per-window reminder is READ here and answered by the commit of
     // the request that carries it. Reading it twice is idempotent.
     state.pending_reminder = state.context_registry.pending_rollover_reminder();
-    let mut system_prompt = build_system_prompt(state, &awareness, &[]);
+    let mut system_prompt = stable_system_prompt(state);
+    let stable_prefix_len = system_prompt.len();
+    system_prompt.push_str(&system_prompt_suffix(state, &awareness, &[]));
     system_prompt.push_str(&attitude_application.text);
     // Leave three quarters of the remaining known input budget to raw input,
     // recovery controls and working history. The normal final budget check
@@ -1859,7 +1861,7 @@ pub(super) fn prepare_context(
     system_prompt.push_str(&obligation_text);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.context_binding();
-    let profile_digest = bind_context_profile(state)?;
+    let profile_digest = bind_context_profile(state, &system_prompt[..stable_prefix_len])?;
     let model_generation = registry.ledger().model_generation().map_err(storage)?;
     let scope_id = EntityId(state.head.branch_id.0);
     let source = StoreHistory::with_cache(Arc::clone(&state.store), scope_id, Arc::new(estimate_tokens),

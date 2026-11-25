@@ -856,8 +856,8 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
     assert!(!prepared.payload.system_prompt.contains("约定 承诺 时间冲突"));
 }
 
-#[test]
-fn personality_stays_out_of_the_tool_contract() {
+#[tokio::test]
+async fn personality_stays_out_of_the_tool_contract() {
     use shenko_types::identity::{IdentityChange, IdentitySource};
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
@@ -870,9 +870,21 @@ fn personality_stays_out_of_the_tool_contract() {
         )
         .unwrap(),
     );
-    subject = subject.with_native_capabilities(vec![
-        "history.query/v1 只读检索已提交的原始历史".into(),
-    ]);
+    let generation = subject.head.software_generation.clone();
+    let supervisor = shenko_kernel::Supervisor::new(generation.clone());
+    supervisor.spawn(crate::NativeChildPlugin, (store.clone(), generation)).await.unwrap();
+    let native = supervisor.context().try_service::<crate::NativeChildService>().unwrap();
+    let _publication = subject.plugin_context.provide(native).unwrap();
+    let before = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    let tool_address = "[delegate:fixture.gated:1]";
+    assert!(!before.payload.system_prompt.contains(tool_address));
+
+    supervisor.spawn(crate::NativeTaskHandlerPlugin, Arc::new(GatedHandler {
+        store,
+        started: Arc::new(tokio::sync::Notify::new()),
+        release: Arc::new(tokio::sync::Notify::new()),
+        hold_reconcile: false,
+    }) as Arc<dyn shenko_kernel::task::NativeTaskHandler>).await.unwrap();
     let event = shenko_types::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("你在吗")
@@ -887,13 +899,19 @@ fn personality_stays_out_of_the_tool_contract() {
     let contract = crate::canonical_system_prompt(&subject.channels);
     assert!(prompt.starts_with(&contract));
     assert!(!prompt[..contract.len()].contains("话少"));
-    assert!(prompt.contains("history.query/v1 只读检索已提交的原始历史"));
+    assert!(prompt.contains(tool_address));
     assert!(prompt.contains("话少、直接，不把猜测说成事实"));
     assert!(
         prompt.find("话少、直接，不把猜测说成事实")
-            > prompt.find("history.query/v1 只读检索已提交的原始历史"),
+            > prompt.find(tool_address),
         "persona must follow the tool contract: {prompt}"
     );
+    assert_ne!(prepared.context.profile_digest, before.context.profile_digest);
+
+    supervisor.stop().await.unwrap();
+    let withdrawn = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    assert!(!withdrawn.payload.system_prompt.contains(tool_address));
+    assert_eq!(withdrawn.context.profile_digest, before.context.profile_digest);
 }
 
 #[tokio::test]
@@ -3402,7 +3420,7 @@ impl shenko_kernel::task::NativeTaskHandler for GatedHandler {
             },
             role_revision: "native-child/1".into(),
             authority_refs: vec!["fixture.gated.no_effects/v1".into()],
-            prompt_section: None,
+            prompt_section: Some("Wait at the gated execution boundary.".into()),
         })
     }
 

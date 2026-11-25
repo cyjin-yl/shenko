@@ -582,7 +582,6 @@ pub struct SubjectLoopState {
     /// Pinned for one step, after replaying all accepted S0 usage into this
     /// service instance. A hot replacement must replay before collection.
     pub(super) contribution_registry: Option<Arc<shenko_context_policy::ContributionRegistry>>,
-    native_capability_sections: Vec<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
     /// External effects whose outcome is still unknown, as read at this
@@ -698,7 +697,6 @@ impl SubjectLoopState {
             context_preparer: None,
             context_history_cache: Arc::new(shenko_context_policy::HistoryProjectionCache::default()),
             contribution_registry: None,
-            native_capability_sections: vec![],
             goals: vec![],
             reconciliation_docket: vec![],
             outbox_tx: None,
@@ -766,7 +764,7 @@ impl SubjectLoopState {
     /// Initialize the real model/prompt binding before preparing a context
     /// window. The next step rechecks this same binding before it adopts input.
     pub fn bind_context_profile(&self) -> Result<Digest, ShenkoError> {
-        crate::context_projection::bind_context_profile(self)
+        crate::context_projection::bind_context_profile(self, &stable_system_prompt(self))
     }
 
     pub fn with_model_capabilities(mut self, capabilities: Option<shenko_broker::request::ProviderCapabilities>) -> Self {
@@ -777,13 +775,6 @@ impl SubjectLoopState {
 
     pub fn with_hooks(mut self, registry: Arc<HookRegistry>) -> Self {
         self.hooks = Some(registry);
-        self
-    }
-
-    /// Installed native definitions the child registry actually exposes. They
-    /// belong to the tool contract, so they travel with the sealed request.
-    pub fn with_native_capabilities(mut self, sections: Vec<String>) -> Self {
-        self.native_capability_sections = sections;
         self
     }
 
@@ -1341,10 +1332,13 @@ pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
         None => crate::canonical_system_prompt(&state.channels),
     };
 
-    if !state.native_capability_sections.is_empty() {
+    let native_sections = state.plugin_context.try_service::<crate::NativeChildService>()
+        .map(|registry| registry.installed_prompt_sections())
+        .unwrap_or_default();
+    if !native_sections.is_empty() {
         prompt.push_str("\n\n当前实际注册的 native definitions：\n");
-        for section in &state.native_capability_sections {
-            prompt.push_str(section);
+        for section in native_sections {
+            prompt.push_str(&section);
             prompt.push('\n');
         }
     }
@@ -1487,6 +1481,7 @@ pub(super) fn system_prompt_suffix(
     prompt
 }
 
+#[cfg(test)]
 pub(super) fn build_system_prompt(
     state: &SubjectLoopState,
     awareness: &[String],
