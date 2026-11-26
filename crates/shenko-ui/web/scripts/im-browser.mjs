@@ -3,7 +3,7 @@
  * Required: PROTO_UI_SOURCE, PUI_IM_BUILD_RECEIPT, PUI_CHROME_EXECUTABLE.
  * Optional: PUI_PLAYWRIGHT_MODULE, PUI_EVIDENCE_DIR. */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -15,6 +15,15 @@ const application = path.resolve(web, '../../..');
 const assets = path.join(application, 'crates/shenko-ui/src/static');
 const html = path.join(application, 'crates/shenko-ui/src/index.html');
 const evidence = path.resolve(process.env.PUI_EVIDENCE_DIR ?? path.join(web, 'generated/im-native'));
+const report = {
+  kind: 'shenko-im-navigation-review-v1', runId: process.env.PUI_OBSERVER_RUN_ID ?? randomUUID(),
+  startedAt: new Date().toISOString(), passed: false,
+  scope: 'Two journeys against the actual App and existing demo: repeated pending-decision reveal across phone/desktop; retained query, scope and archive controls across desktop/tablet. No live backend, model, physical touch or assistive-technology acceptance.',
+  cases: [], pageErrors: [], cleanupErrors: [], executionErrors: [],
+};
+await mkdir(evidence, { recursive: true });
+// Invalidate an older success before preflight, imports or browser startup can fail.
+await writeFile(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 function required(name) { assert.ok(process.env[name], name + ' is required'); return process.env[name]; }
 const upstream = path.resolve(required('PROTO_UI_SOURCE'));
 const receiptPath = path.resolve(required('PUI_IM_BUILD_RECEIPT'));
@@ -51,15 +60,12 @@ assert.equal(pin.commit, manifest.upstream.commit);
 assert.equal(pin.lock_sha256, hash(await readFile(path.join(upstream, 'pnpm-lock.yaml'))));
 for (const [name, artifact] of Object.entries(manifest.artifacts))
   assert.equal(hash(await readFile(path.join(assets, name))), artifact.sha256, name);
-const report = {
-  kind: 'shenko-im-navigation-review-v1', startedAt: new Date().toISOString(),
+Object.assign(report, {
   appBase: receipt.appBase, upstreamCandidate: pin.commit, sourceBefore,
   buildReceiptSha256: hash(await readFile(receiptPath)),
   buildManifestSha256: hash(await readFile(path.join(assets, 'build-manifest.json'))),
   observerSha256: hash(await readFile(fileURLToPath(import.meta.url))),
-  scope: 'Two journeys against the actual App and existing demo: repeated pending-decision reveal across phone/desktop; retained query, scope and archive controls across desktop/tablet. No live backend, model, physical touch or assistive-technology acceptance.',
-  cases: [], pageErrors: [], cleanupErrors: [],
-};
+});
 const playwright = process.env.PUI_PLAYWRIGHT_MODULE
   ? await import(pathToFileURL(process.env.PUI_PLAYWRIGHT_MODULE).href)
   : createRequire(path.join(upstream, 'apps/www/package.json'))('playwright-core');
@@ -106,8 +112,12 @@ async function runCase(name, viewport, query, action) {
     item.status = 'failed'; item.error = String(error.stack ?? error);
     await page.screenshot({ path: path.join(evidence, name + '-failure.png') }).catch(() => {});
   } finally {
+    try { await context.close(); }
+    catch (error) {
+      item.status = 'failed';
+      report.cleanupErrors.push({ resource: name + '/context', error: String(error.stack ?? error) });
+    }
     item.finishedAt = new Date().toISOString();
-    await context.close();
     await writeFile(path.join(evidence, 'progress.json'), JSON.stringify(report, null, 2) + '\n');
   }
 }
@@ -175,13 +185,20 @@ try {
     })));
     assert.ok(item.samples.at(-1).overflow <= 1, 'tablet sidebar must not overflow the page');
   });
+} catch (error) {
+  report.executionErrors.push(String(error.stack ?? error));
 } finally {
   if (browser) await browser.close().catch((error) => report.cleanupErrors.push(String(error)));
-  await new Promise((resolve) => server.close(resolve));
-  report.sourceStable = JSON.stringify(sourceBefore) === JSON.stringify(await snapshot());
+  await new Promise((resolve) => server.close((error) => {
+    if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') report.cleanupErrors.push(String(error));
+    resolve();
+  }));
+  try { report.sourceStable = JSON.stringify(sourceBefore) === JSON.stringify(await snapshot()); }
+  catch (error) { report.sourceStable = false; report.executionErrors.push(String(error.stack ?? error)); }
   report.finishedAt = new Date().toISOString();
   report.passed = report.cases.length === 2 && report.cases.every((item) => item.status === 'passed')
-    && report.pageErrors.length === 0 && report.cleanupErrors.length === 0 && report.sourceStable;
+    && report.pageErrors.length === 0 && report.cleanupErrors.length === 0
+    && report.executionErrors.length === 0 && report.sourceStable;
   await writeFile(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify({ passed: report.passed, cases: report.cases.map(({ name, status, error }) => ({ name, status, error })),
     pageErrors: report.pageErrors, cleanupErrors: report.cleanupErrors, sourceStable: report.sourceStable, evidence }, null, 2));

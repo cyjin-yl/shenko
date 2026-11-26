@@ -6,7 +6,7 @@
  * renderer/lens or claiming a live backend/model, touch hardware or AT.
  */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
@@ -63,7 +63,8 @@ const manifestHash = hash(await readFile(path.join(assets, 'build-manifest.json'
 const html = path.join(application, 'crates/shenko-ui/src/index.html');
 const htmlHash = hash(await readFile(html));
 const report = {
-  kind: 'shenko-actual-inspector-consumer-v1', startedAt: new Date().toISOString(),
+  kind: 'shenko-actual-inspector-consumer-v1', runId: process.env.PUI_OBSERVER_RUN_ID ?? randomUUID(),
+  startedAt: new Date().toISOString(),
   appBase: buildReceipt.appBase, upstreamCandidate: pin.commit,
   sourceHash: hash(JSON.stringify(sourceBefore)), sourceBefore,
   buildReceiptSha256: hash(await readFile(buildReceiptPath)),
