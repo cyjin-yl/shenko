@@ -415,11 +415,7 @@ pub async fn run_sandbox_rounds<R: SandboxRuntime>(
     // deadline, so a completed last round still leaves real time to retire the
     // subject, dispatcher and supervisor instead of turning a clean run into
     // an ambiguous "shutdown exceeded the window".
-    let initial_window = stop.saturating_duration_since(tokio::time::Instant::now());
-    let cleanup_reserve = (initial_window / 10)
-        .max(Duration::from_secs(1))
-        .min(Duration::from_secs(30));
-    let rounds_stop = stop.checked_sub(cleanup_reserve).unwrap_or(stop);
+    let rounds_stop = sandbox_observation_stop(stop);
     std::fs::create_dir_all(artifacts_root)
         .with_context(|| format!("create artifacts root {}", artifacts_root.display()))?;
 

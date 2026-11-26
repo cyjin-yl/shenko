@@ -455,6 +455,61 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
     Ok(PreparedFixture { root, store, source_read, source_metadata, report, native_trial })
 }
 
+#[tokio::test]
+async fn single_sample_deadline_leaves_time_to_join_installed_plugins() -> Result<()> {
+    use cordis_core::{Context as CordisContext, Plugin};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct RetiredProbe;
+    impl Plugin for RetiredProbe {
+        type Config = Arc<AtomicBool>;
+        type Input = Self::Config;
+        type PrepareError = std::convert::Infallible;
+        type ApplyError = std::io::Error;
+
+        fn name(&self) -> std::borrow::Cow<'_, str> { "trial-retired-probe".into() }
+        fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> { Ok(config) }
+        async fn apply(&self, ctx: CordisContext, retired: &Self::Input) -> std::io::Result<()> {
+            let retired = Arc::clone(retired);
+            ctx.effect(move || async move {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                retired.store(true, Ordering::SeqCst);
+            }).map_err(std::io::Error::other)?;
+            Ok(())
+        }
+    }
+
+    struct HeldObservation {
+        entered: AtomicBool,
+        retired: Arc<AtomicBool>,
+    }
+    impl SandboxRuntime for HeldObservation {
+        async fn install(&self, supervisor: &Supervisor, _: &PreparedSandbox, _: &Arc<CognitionCatalog>) -> Result<()> {
+            supervisor.spawn(RetiredProbe, Arc::clone(&self.retired)).await?;
+            Ok(())
+        }
+        async fn prepare_subject(&self, _: &Supervisor, _: &PreparedSandbox, _: SubjectLoopState) -> Result<SubjectLoopState> {
+            self.entered.store(true, Ordering::SeqCst);
+            std::future::pending().await
+        }
+    }
+
+    let root = std::env::temp_dir().join(format!("shenko-trial-deadline-{}", EntityId::new()));
+    let prepared = PreparedSandbox::fresh("held-observation", &root)?;
+    let node = Node::open(&root.join("catalog"))?;
+    let catalog = Arc::new(CognitionCatalog::new(Arc::new(parking_lot::Mutex::new(node))));
+    let (_broker, handle) = Broker::with_local_provider(
+        LocalModelProvider::new("http://127.0.0.1:9".into(), "unused-trial-provider".into()), 1)?;
+    let runtime = HeldObservation { entered: AtomicBool::new(false), retired: Arc::new(AtomicBool::new(false)) };
+    let stop = tokio::time::Instant::now() + Duration::from_secs(5);
+    let error = run_prepared_sandbox(prepared, &handle, catalog, "held observation", stop, &runtime)
+        .await.err().context("a held observation unexpectedly finished")?;
+    assert!(runtime.entered.load(Ordering::SeqCst), "the sandbox never reached the held observation: {error:#}");
+    assert!(error.to_string().starts_with("sandbox deadline:"), "observation failure was lost: {error:#}");
+    assert!(runtime.retired.load(Ordering::SeqCst), "the installed plugin was not joined before return");
+    Ok(())
+}
+
 fn condition_root(fixture: &PreparedFixture, condition: Condition) -> Result<PathBuf> {
     let prefix = format!("fidelity-0-{}", condition.as_str());
     for entry in std::fs::read_dir(fixture.root.join("trial"))? {
