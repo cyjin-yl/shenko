@@ -6,7 +6,7 @@
  * Optional: PUI_EVIDENCE_DIR (defaults to generated/files-native).
  */
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -17,6 +17,15 @@ const web = fileURLToPath(new URL('../', import.meta.url));
 const assets = path.resolve(web, '../src/static');
 const evidence = path.resolve(process.env.PUI_EVIDENCE_DIR ?? path.join(web, 'generated/files-native'));
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+const report = {
+  kind: 'shenko-actual-files-keyboard-v1', runId: process.env.PUI_OBSERVER_RUN_ID ?? randomUUID(),
+  startedAt: new Date().toISOString(),
+  scope: 'Built App with its existing demo FileSource; no live backend, hardware or screen-reader claim.',
+  cases: [], pageErrors: [], cleanupErrors: [], passed: false,
+};
+await mkdir(evidence, { recursive: true });
+// A failed startup must not leave a previous invocation's successful receipt.
+await writeFile(path.join(evidence, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 const manifestBytes = await readFile(path.join(assets, 'build-manifest.json'));
 const manifest = JSON.parse(manifestBytes);
 for (const [name, artifact] of Object.entries(manifest.artifacts)) {
@@ -26,12 +35,9 @@ assert.ok(process.env.PUI_CHROME_EXECUTABLE, 'PUI_CHROME_EXECUTABLE is required'
 const playwright = process.env.PUI_PLAYWRIGHT_MODULE
   ? await import(pathToFileURL(path.resolve(process.env.PUI_PLAYWRIGHT_MODULE)).href)
   : createRequire(path.resolve(process.env.PROTO_UI_SOURCE ?? '.', 'apps/www/package.json'))('playwright-core');
-const report = {
-  kind: 'shenko-actual-files-keyboard-v1', startedAt: new Date().toISOString(),
+Object.assign(report, {
   buildManifestSha256: sha256(manifestBytes), upstreamCommit: manifest.upstream.commit,
-  scope: 'Built App with its existing demo FileSource; no live backend, hardware or screen-reader claim.',
-  cases: [], pageErrors: [], passed: false,
-};
+});
 const server = createServer(async (request, response) => {
   try {
     const pathname = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname);
@@ -50,7 +56,7 @@ const server = createServer(async (request, response) => {
 });
 let browser;
 try {
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   browser = await playwright.chromium.launch({
     executablePath: process.env.PUI_CHROME_EXECUTABLE, headless: true, chromiumSandbox: true,
   });
@@ -109,11 +115,17 @@ try {
   assert.equal(sha256(await readFile(path.join(assets, 'build-manifest.json'))), report.buildManifestSha256);
   report.passed = true;
 } catch (error) {
+  report.passed = false;
   report.failure = String(error?.stack ?? error);
   process.exitCode = 1;
 } finally {
-  if (browser) await browser.close();
-  await new Promise((resolve) => server.close(resolve));
+  if (browser) await browser.close().catch((error) => report.cleanupErrors.push(String(error.stack ?? error)));
+  await new Promise((resolve) => server.close((error) => {
+    if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') report.cleanupErrors.push(String(error));
+    resolve();
+  }));
+  report.passed = report.passed && report.cleanupErrors.length === 0 && report.pageErrors.length === 0;
+  if (!report.passed) process.exitCode = 1;
   report.finishedAt = new Date().toISOString();
   await mkdir(evidence, { recursive: true });
   await writeFile(path.join(evidence, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);

@@ -7,6 +7,7 @@ exclude = ["third-party/russh-duplex"]
 members = [
     "crates/shenko-types",
     "crates/shenko-identity",
+    "crates/shenko-encounter",
     "crates/shenko-kernel",
     "crates/shenko-store",
     "crates/shenko-evidence",
