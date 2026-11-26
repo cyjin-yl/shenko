@@ -9,6 +9,8 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 
 const PREFIX: &str = "ed25519:";
+// Allow room for PKCS#8 encoding overhead while bounding reads of live files.
+const MAX_PKCS8_BYTES: u64 = 4096;
 
 /// A subject's public identity: the Ed25519 public key, `ed25519:<hex>`.
 #[derive(
@@ -85,8 +87,8 @@ pub struct SubjectKey {
 impl SubjectKey {
     /// Load the key at `path`, or create it if no file exists.
     ///
-    /// Creation is exclusive (`create_new`) with mode 0600, so two processes
-    /// cannot each mint a different identity. Opening never follows a
+    /// A synced mode-0600 file is linked into place exclusively, so concurrent
+    /// callers observe one complete identity. Opening never follows a
     /// symlink, and a file readable by group or others is refused.
     pub fn load_or_create(path: &Path) -> Result<Self, KeyError> {
         match Self::load(path) {
@@ -96,35 +98,63 @@ impl SubjectKey {
         let rng = SystemRandom::new();
         let document = Ed25519KeyPair::generate_pkcs8(&rng)
             .map_err(|_| KeyError::Unusable("key generation failed".into()))?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(KeyError::Io)?;
-        }
-        match OpenOptions::new()
+        let key = Self::from_pkcs8(document.as_ref())?;
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        std::fs::create_dir_all(parent).map_err(KeyError::Io)?;
+        let staging = parent.join(format!(".encounter-{}.tmp", hex::encode(key.identity.as_bytes())));
+        let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(path)
-        {
-            Ok(mut file) => {
-                file.write_all(document.as_ref()).map_err(KeyError::Io)?;
-                file.sync_all().map_err(KeyError::Io)?;
-                Self::from_pkcs8(document.as_ref())
+            .open(&staging)
+            .map_err(KeyError::Io)?;
+        let publication = file
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .and_then(|()| file.write_all(document.as_ref()))
+            .and_then(|()| file.sync_all())
+            .and_then(|()| std::fs::hard_link(&staging, path));
+        let cleanup = std::fs::remove_file(&staging);
+        match publication {
+            Ok(()) => {
+                cleanup.map_err(KeyError::Io)?;
+                std::fs::File::open(parent)
+                    .and_then(|dir| dir.sync_all())
+                    .map_err(KeyError::Io)?;
+                Ok(key)
             }
-            // Another process created it first: use that identity.
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => Self::load(path),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                cleanup.map_err(KeyError::Io)?;
+                Self::load(path)
+            }
             Err(error) => Err(KeyError::Io(error)),
         }
     }
 
     /// Load an existing key; never creates one.
     pub fn load(path: &Path) -> Result<Self, KeyError> {
-        let mut file = OpenOptions::new()
+        // Avoid opening known special files. The nonblocking open and descriptor
+        // check below also cover a path that changes after this check.
+        if let Ok(metadata) = std::fs::symlink_metadata(path) {
+            if metadata.is_symlink() {
+                return Err(KeyError::Unusable("key path is a symlink".into()));
+            }
+            if !metadata.is_file() {
+                return Err(KeyError::Unusable("key path is not a regular file".into()));
+            }
+        }
+        let file = OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_NOCTTY)
             .open(path)
             .map_err(|error| match error.raw_os_error() {
                 Some(libc::ELOOP) => KeyError::Unusable("key path is a symlink".into()),
+                _ if std::fs::symlink_metadata(path).is_ok_and(|m| !m.is_file()) => {
+                    KeyError::Unusable("key path is not a regular file".into())
+                }
                 _ => KeyError::Io(error),
             })?;
         let metadata = file.metadata().map_err(KeyError::Io)?;
@@ -136,8 +166,16 @@ impl SubjectKey {
                 "key file is readable by group or others".into(),
             ));
         }
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(KeyError::Io)?;
+        if metadata.len() > MAX_PKCS8_BYTES {
+            return Err(KeyError::Unusable("key file exceeds size limit".into()));
+        }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.take(MAX_PKCS8_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(KeyError::Io)?;
+        if bytes.len() as u64 > MAX_PKCS8_BYTES {
+            return Err(KeyError::Unusable("key file exceeds size limit".into()));
+        }
         Self::from_pkcs8(&bytes)
     }
 
@@ -219,5 +257,63 @@ mod tests {
         ));
         assert_eq!(std::fs::read(&garbage).unwrap(), b"not a key");
         assert_eq!(std::fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn concurrent_first_use_observes_one_complete_key() {
+        let dir = scratch("concurrent");
+        let path = dir.join("k.pk8");
+        let start = std::sync::Barrier::new(9);
+        std::thread::scope(|scope| {
+            let callers: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        let key = SubjectKey::load_or_create(&path).unwrap();
+                        (key.identity().clone(), key.sign(b"hello"))
+                    })
+                })
+                .collect();
+            start.wait();
+            let persisted = SubjectKey::load_or_create(&path).unwrap();
+            for caller in callers {
+                let (identity, signature) = caller.join().unwrap();
+                assert_eq!(&identity, persisted.identity());
+                assert!(persisted.identity().verify(b"hello", &signature));
+            }
+            assert_eq!(SubjectKey::load(&path).unwrap().identity(), persisted.identity());
+        });
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn nonregular_paths_are_unusable() {
+        let dir = scratch("nonregular");
+        let socket = dir.join("socket");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        for path in [&dir, &socket] {
+            assert!(matches!(
+                SubjectKey::load_or_create(path),
+                Err(KeyError::Unusable(_))
+            ));
+        }
+        drop(listener);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn oversized_key_is_unusable_and_left_in_place() {
+        let dir = scratch("oversized");
+        let path = dir.join("k.pk8");
+        SubjectKey::load_or_create(&path).unwrap();
+        let file = OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(MAX_PKCS8_BYTES + 1).unwrap();
+        assert!(matches!(
+            SubjectKey::load_or_create(&path),
+            Err(KeyError::Unusable(reason)) if reason == "key file exceeds size limit"
+        ));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), MAX_PKCS8_BYTES + 1);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
