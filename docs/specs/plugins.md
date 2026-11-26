@@ -74,6 +74,9 @@ provider 或 capability。
 `PluginRuntime::capability_revision()`。安装回执、封口请求和 UI 视图因此都能指名它们
 观察到的确切注册表状态。
 
+每次封存新的 S0 请求，主体从 Cordis 的 `NativeChildService` 读取已装载的原生工具说明。
+本次请求和 prompt profile 共用这次读取生成的稳定前缀。装载或撤回在下一份新请求生效，恢复时从 Store 读取当时封存的请求。
+
 `ProviderHealth` 区分 `Installed` / `Healthy` / `Degraded` / `Unavailable`：加载成功不等于
 完成，被模型验证过是另一个事实。
 

@@ -347,7 +347,6 @@ pub(crate) async fn start(
         let identity_context = identity_context.clone();
         let channel_registry = channel_services.registry.clone();
         let capabilities = capabilities.clone();
-        let native_child = Arc::clone(&native_child);
         let outbox_tx = outbox_tx.clone();
         move || Ok(shenko_subject::loop_runner::SubjectLoopState::new(
             agent_id, Arc::clone(&inbox), Arc::clone(&store),
@@ -355,7 +354,6 @@ pub(crate) async fn start(
         )?
         .with_broker(broker_handle.clone())
         .with_model_capabilities(capabilities.clone())
-        .with_native_capabilities(native_child.installed_prompt_sections())
         .with_awareness(Arc::clone(&cognition))
         .with_hooks(Arc::clone(&hook_registry))
         .with_outbox(outbox_tx.clone())
