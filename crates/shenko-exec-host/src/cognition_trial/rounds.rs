@@ -520,8 +520,7 @@ pub async fn run_sandbox_rounds<R: SandboxRuntime>(
         )?
         .with_broker(broker.clone())
         .with_hooks(Arc::clone(&supervisor.hooks))
-        .with_awareness(Arc::clone(&catalog))
-        .with_native_capabilities(native.installed_prompt_sections());
+        .with_awareness(Arc::clone(&catalog));
         let state = runtime.prepare_subject(&supervisor, &prepared, state).await?;
         subject_task = Some(tokio::spawn(run_subject_loop(state, subject_stopping.clone())));
         dispatcher_task = Some(tokio::spawn(run_committed_dispatcher(
