@@ -909,6 +909,12 @@ impl TrialObserver {
     }
 }
 
+fn sandbox_observation_stop(stop: tokio::time::Instant) -> tokio::time::Instant {
+    let window = stop.saturating_duration_since(tokio::time::Instant::now());
+    let cleanup = (window / 10).max(Duration::from_secs(1)).min(Duration::from_secs(30));
+    stop.checked_sub(cleanup).unwrap_or(stop)
+}
+
 async fn join_trial_task<E: std::fmt::Display>(
     name: &str,
     handle: &mut Option<tokio::task::JoinHandle<std::result::Result<(), E>>>,
@@ -994,7 +1000,7 @@ pub async fn run_prepared_sandbox<R: SandboxRuntime>(
         message_step_id: None, pending: BTreeMap::new(), consumed_results: Vec::new(),
         consumed_observations: Vec::new(),
     };
-    let primary = tokio::time::timeout_at(stop, async {
+    let primary = tokio::time::timeout_at(sandbox_observation_stop(stop), async {
         supervisor.publish_services().await?;
         identity_publication = Some(ctx
             .provide(Arc::new(IdentityService::new(Arc::new(DefaultIdentityPolicy))))
