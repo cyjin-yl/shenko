@@ -9,6 +9,7 @@ Dependency installation, tests and builds must leave every admitted source
 input unchanged, including the pinned upstream's tracked files and symlinks.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import copy
 import hashlib
 import json
@@ -52,18 +53,22 @@ def inside(root, name):
     return result
 
 
-def checkout_inputs(root):
+def checkout_inputs(root, *, verify_git_bytes=False, workers=1):
     """Bind current physical bytes/modes to the immutable tracked membership.
 
     ls-tree includes hidden inputs and records HEAD blob/mode provenance.
     Symlinks are recorded literally instead of hashing their referents.
     Generated untracked dist/node_modules outputs are outside this inventory;
     compiler_files separately walks every physical compiler source file.
+    Optional strict Git verification hashes the same bytes as the SHA-256
+    receipt. Bounded parallel reads preserve Git's deterministic entry order.
     """
+    if workers not in range(1, 5):
+        raise ValueError('Source inventory requires between one and four readers')
     entries = subprocess.check_output(
         ['git', 'ls-tree', '-r', '-z', '--full-tree', 'HEAD'], cwd=root).decode().split('\0')[:-1]
-    result = {}
-    for entry in entries:
+
+    def read_entry(entry):
         metadata, name = entry.split('\t', 1)
         git_mode, kind, blob = metadata.split()
         path = inside(root, name)
@@ -73,13 +78,28 @@ def checkout_inputs(root):
         if git_mode == '120000' and stat.S_ISLNK(mode):
             target = os.readlink(path)
             content = os.fsencode(target)
-            value = {'target': target, 'bytes': len(content),
-                     'sha256': hashlib.sha256(content).hexdigest()}
+            value = {'target': target}
         elif git_mode in ('100644', '100755') and stat.S_ISREG(mode):
-            value = record(path)
+            content = path.read_bytes()
+            value = {}
         else:
             raise ValueError(f'Upstream input kind differs from its Git mode: {name}')
-        result[name] = {**value, 'mode': stat.S_IMODE(mode), 'git_mode': git_mode, 'git_blob': blob}
+        if verify_git_bytes:
+            actual_blob = hashlib.sha1(f'blob {len(content)}\0'.encode() + content).hexdigest()
+            if actual_blob != blob:
+                raise ValueError(f'Pinned upstream bytes changed: {name}')
+        return name, {**value, 'bytes': len(content), 'sha256': hashlib.sha256(content).hexdigest(),
+                      'mode': stat.S_IMODE(mode), 'git_mode': git_mode, 'git_blob': blob}
+
+    result = {}
+    if workers == 1:
+        result.update(map(read_entry, entries))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            # Bound queued work as well as active reads. An invalid input waits
+            # only for this small batch, never the rest of a large checkout.
+            for start in range(0, len(entries), workers * 4):
+                result.update(pool.map(read_entry, entries[start:start + workers * 4]))
     if not result:
         raise ValueError('The pinned upstream checkout has no tracked source inputs')
     return result

@@ -6,7 +6,6 @@ user against the same persistent worktree/output. Existing dependency installs
 and a real PROTO_UI_BUILD_RECEIPT may be reused. Each output directory is new.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,13 +32,9 @@ def head(directory):
 
 
 def snapshot(upstream):
-    result = assets.checkout_inputs(upstream)
-    # A dirty checkout under the right HEAD is not the pinned compiler/source.
-    for name, entry in result.items():
-        file = upstream / name
-        data = os.fsencode(os.readlink(file)) if file.is_symlink() else file.read_bytes()
-        blob = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
-        require(blob == entry['git_blob'], f'Pinned upstream bytes changed: {name}')
+    # Bind every tracked input, including hidden files and historical artifacts,
+    # to its Git bytes in the same read used for the SHA-256 receipt.
+    result = assets.checkout_inputs(upstream, verify_git_bytes=True, workers=4)
     return {
         'web': assets.files(WEB, assets.EXCLUDED),
         'html': assets.record(ROOT / 'crates/shenko-ui/src/index.html'),
